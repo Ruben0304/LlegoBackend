@@ -33,7 +33,7 @@ class StoreRepository:
             ),
             Store(
                 id=2,
-                name="Fresh Market",
+                name="Backend Market",
                 etaMinutes=8,
                 logoUrl="https://images.unsplash.com/photo-1560472354-b33ff0c44a43?w=200&h=200&fit=crop",
                 bannerUrl="https://images.unsplash.com/photo-1542838132-92c53300491e?w=800&h=400&fit=crop",
