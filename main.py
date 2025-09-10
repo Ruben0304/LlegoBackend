@@ -12,6 +12,7 @@ from strawberry.fastapi import GraphQLRouter
 from typing import List
 
 from models import Store, Product, stores_repo, products_repo
+from fastapi.responses import PlainTextResponse, Response
 
 
 # FastAPI application
@@ -73,6 +74,24 @@ app.include_router(graphql_app, prefix="/graphql")
 @app.get("/")
 def read_root():
     return {"status": "ok", "message": "Llego Backend con FastAPI y GraphQL listo"}
+
+
+# GraphQL SDL schema endpoints
+@app.get("/graphql/schema", response_class=PlainTextResponse)
+def graphql_schema_sdl() -> str:
+    """Returns the GraphQL schema in SDL format (plain text)."""
+    return schema.as_str()
+
+
+@app.get("/graphql/schema.graphql")
+def graphql_schema_download():
+    """Forces download of the GraphQL schema as a .graphql file."""
+    sdl = schema.as_str()
+    return Response(
+        content=sdl,
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="schema.graphql"'},
+    )
 
 
 # REST endpoints using Pydantic models
