@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     # Qdrant Configuration
     qdrant_host: str = "localhost"
     qdrant_port: int = 6333
+    qdrant_grpc_port: int = 6334
+    qdrant_api_key: str = ""  # Optional para Qdrant Cloud
+    qdrant_https: bool = False  # True para producción/Railway
+    qdrant_prefer_grpc: bool = False  # False para conexiones públicas, True para red privada Railway
+    qdrant_timeout: int = 10  # Timeout en segundos
 
     # Gemini API Configuration
     gemini_api_key: str

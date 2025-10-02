@@ -15,7 +15,7 @@ async def lifespan(app):
     # Startup: Initialize all clients
     print("🚀 Starting application...")
     await connect_to_mongo()
-    connect_to_qdrant()
+    await connect_to_qdrant()
     connect_to_gemini()
     print("✓ All clients initialized successfully\n")
 
@@ -24,6 +24,6 @@ async def lifespan(app):
     # Shutdown: Close all connections
     print("\n🛑 Shutting down application...")
     await close_mongo_connection()
-    close_qdrant_connection()
+    await close_qdrant_connection()
     close_gemini_connection()
     print("✓ All clients closed successfully")
