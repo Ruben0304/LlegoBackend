@@ -27,11 +27,9 @@ def connect_to_qdrant():
         
         qdrant_client = QdrantClient(
             host=settings.qdrant_host,
-            port=settings.qdrant_port,
-            # Habilita logs detallados para depuración
-            # https://qdrant.tech/documentation/concepts/logging/
-            debug=True
+            port=settings.qdrant_port
         )
+        logger.debug("Qdrant client initialized")
         
         # Test connection con timeout
         try:
