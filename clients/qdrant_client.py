@@ -18,40 +18,36 @@ def connect_to_qdrant():
     """Connect to Qdrant (optional - won't fail startup if unavailable)"""
     global qdrant_client
     
-    connection_info = f"{settings.qdrant_host}:{settings.qdrant_port}"
-    logger.info(f"Attempting to connect to Qdrant at {connection_info}")
+    # Construir la URL completa
+    qdrant_url = f"http://{settings.qdrant_host}:{settings.qdrant_port}"
+    logger.info(f"Attempting to connect to Qdrant at {qdrant_url}")
     
     try:
         # Mostrar configuración de conexión (sin credenciales sensibles)
-        logger.debug(f"Qdrant connection settings - Host: {settings.qdrant_host}, Port: {settings.qdrant_port}")
+        logger.debug(f"Qdrant connection URL: {qdrant_url}")
         
-        qdrant_client = QdrantClient(
-            host=settings.qdrant_host,
-            port=settings.qdrant_port
-        )
+        qdrant_client = QdrantClient(url=qdrant_url)
         logger.debug("Qdrant client initialized")
         
         # Test connection con timeout
         try:
             collections = qdrant_client.get_collections()
-            logger.info(f"✓ Successfully connected to Qdrant at {connection_info}")
+            logger.info(f"✓ Successfully connected to Qdrant at {qdrant_url}")
             logger.debug(f"Available collections: {[c.name for c in collections.collections]}")
             return True
         except Exception as test_error:
-            logger.error(f"❌ Connection test failed for Qdrant at {connection_info}")
-            logger.error(f"Error details: {str(test_error)}", exc_info=True)
+            logger.error(f"❌ Connection test failed for Qdrant at {qdrant_url}")
             qdrant_client = None
             return False
             
     except Exception as e:
         error_type = type(e).__name__
-        logger.error(f"❌ Failed to initialize Qdrant connection to {connection_info}")
+            logger.error(f"❌ Failed to initialize Qdrant connection to {settings.qdrant_url}")
         logger.error(f"Error type: {error_type}")
         logger.error(f"Error details: {str(e)}", exc_info=True)
         
         # Información adicional basada en el tipo de error
         if "ConnectionRefusedError" in error_type:
-            logger.error("🛑 Connection was refused. Please check if:"
                        "\n  - Qdrant server is running"
                        "\n  - Host and port are correct"
                        "\n  - Firewall allows the connection")
