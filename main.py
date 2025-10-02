@@ -1,22 +1,16 @@
-# This is a sample Python script.
-
-# Press Mayús+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse, Response
+from strawberry.fastapi import GraphQLRouter
 import uvicorn
 
-import strawberry
-from strawberry.fastapi import GraphQLRouter
-from typing import List
-
-from models import Store, Product, stores_repo, products_repo
-from fastapi.responses import PlainTextResponse, Response
+from clients import lifespan
+from schema import schema
+from api import router
 
 
-# FastAPI application
-app = FastAPI(title="Llego Backend", version="0.1.0")
+# FastAPI application with lifespan for all clients
+app = FastAPI(title="Llego Backend", version="0.1.0", lifespan=lifespan)
 
 # CORS: allow all origins (use cautiously in production)
 app.add_middleware(
@@ -27,56 +21,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# GraphQL schema using Strawberry
-@strawberry.type
-class StoreType:
-    id: int
-    name: str
-    etaMinutes: int
-    logoUrl: str
-    bannerUrl: str
-
-
-@strawberry.type
-class ProductType:
-    id: int
-    name: str
-    shop: str
-    weight: str
-    price: str
-    imageUrl: str
-@strawberry.type
-class Query:
-    hello: str = strawberry.field(description="Saludo de ejemplo")
-
-    @strawberry.field(description="Saluda por nombre")
-    def greet(self, name: str = "mundo") -> str:
-        return f"Hola, {name}!"
-
-    @strawberry.field(description="Lista de tiendas")
-    def stores(self) -> List[StoreType]:
-        return [StoreType(**s.model_dump()) for s in stores_repo.get_stores()]
-
-    @strawberry.field(description="Lista de productos")
-    def products(self) -> List[ProductType]:
-        return [ProductType(**p.model_dump()) for p in products_repo.get_products()]
-
-
-schema = strawberry.Schema(query=Query)
+# Mount GraphQL router
 graphql_app = GraphQLRouter(schema, graphiql=True)
-
-# Mount GraphQL at /graphql
 app.include_router(graphql_app, prefix="/graphql")
 
+# Mount REST API router
+app.include_router(router)
 
-# Simple REST endpoint
+
 @app.get("/")
 def read_root():
+    """Health check endpoint."""
     return {"status": "ok", "message": "Llego Backend con FastAPI y GraphQL listo"}
 
 
-# GraphQL SDL schema endpoints
 @app.get("/graphql/schema", response_class=PlainTextResponse)
 def graphql_schema_sdl() -> str:
     """Returns the GraphQL schema in SDL format (plain text)."""
@@ -92,17 +50,6 @@ def graphql_schema_download():
         media_type="text/plain; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="schema.graphql"'},
     )
-
-
-# REST endpoints using Pydantic models
-@app.get("/stores", response_model=List[Store])
-def list_stores():
-    return stores_repo.get_stores()
-
-
-@app.get("/products", response_model=List[Product])
-def list_products():
-    return products_repo.get_products()
 
 
 if __name__ == "__main__":
