@@ -42,12 +42,13 @@ def connect_to_qdrant():
             
     except Exception as e:
         error_type = type(e).__name__
-            logger.error(f"❌ Failed to initialize Qdrant connection to {settings.qdrant_url}")
+        logger.error(f"❌ Failed to initialize Qdrant connection to {qdrant_url}")
         logger.error(f"Error type: {error_type}")
         logger.error(f"Error details: {str(e)}", exc_info=True)
         
         # Información adicional basada en el tipo de error
         if "ConnectionRefusedError" in error_type:
+            logger.error("🔌 Connection refused. Please check if:"
                        "\n  - Qdrant server is running"
                        "\n  - Host and port are correct"
                        "\n  - Firewall allows the connection")
