@@ -12,7 +12,7 @@ def connect_to_qdrant():
     """Connect to Qdrant (optional - won't fail startup if unavailable)"""
     global qdrant_client
     try:
-        qdrant_client = QdrantClient(url=f"{settings.qdrant_host}:{settings.qdrant_port}")
+        qdrant_client = QdrantClient(host=settings.qdrant_host,port=settings.qdrant_port)
         # Test connection
         qdrant_client.get_collections()
         print(f"✓ Connected to Qdrant at {settings.qdrant_host}:{settings.qdrant_port}")
