@@ -18,6 +18,13 @@ async def connect_to_qdrant():
     """Connect to Qdrant (optional - won't fail startup if unavailable)"""
     global qdrant_client
 
+    # Log de variables de entorno para debug
+    import os
+    logger.info("🔧 Environment variables check:")
+    logger.info(f"   QDRANT_HOST env: {os.getenv('QDRANT_HOST', 'NOT SET')}")
+    logger.info(f"   QDRANT_PORT env: {os.getenv('QDRANT_PORT', 'NOT SET')}")
+    logger.info(f"   QDRANT_HTTPS env: {os.getenv('QDRANT_HTTPS', 'NOT SET')}")
+
     try:
         # Preparar parámetros de conexión
         connection_params = {
@@ -35,6 +42,9 @@ async def connect_to_qdrant():
             logger.info("🔑 Qdrant API key configured")
 
         # Log de configuración de conexión
+        protocol = "https" if settings.qdrant_https else "http"
+        connection_url = f"{protocol}://{settings.qdrant_host}:{settings.qdrant_port}"
+
         logger.info("=" * 60)
         logger.info("🔌 Connecting to Qdrant...")
         logger.info(f"   Host: {settings.qdrant_host}")
@@ -44,7 +54,21 @@ async def connect_to_qdrant():
         logger.info(f"   Prefer gRPC: {settings.qdrant_prefer_grpc}")
         logger.info(f"   Timeout: {settings.qdrant_timeout}s")
         logger.info(f"   API Key: {'Yes' if settings.qdrant_api_key else 'No'}")
+        logger.info(f"   Full URL: {connection_url}")
         logger.info("=" * 60)
+
+        # Test DNS resolution primero
+        import socket
+        try:
+            logger.info(f"🔍 Resolving DNS for {settings.qdrant_host}...")
+            ip_addresses = socket.getaddrinfo(settings.qdrant_host, settings.qdrant_port, socket.AF_UNSPEC, socket.SOCK_STREAM)
+            logger.info(f"✓ DNS resolved to: {[addr[4][0] for addr in ip_addresses]}")
+        except socket.gaierror as dns_error:
+            logger.error(f"❌ DNS resolution failed: {dns_error}")
+            logger.error(f"   Cannot resolve host: {settings.qdrant_host}")
+            return False
+        except Exception as dns_error:
+            logger.warning(f"⚠️ DNS check error (continuing anyway): {dns_error}")
 
         # Usar la API key real para la conexión
         if settings.qdrant_api_key:
