@@ -1,6 +1,7 @@
 """REST API endpoints."""
 from fastapi import APIRouter, Query, HTTPException
-from typing import List
+from typing import List, Optional
+from pydantic import BaseModel
 import uuid
 
 from models import (
@@ -13,8 +14,87 @@ from models import (
     branches_repo,
     products_repo,
 )
+from repositories import auth_repo
+from utils.auth import create_access_token
 
 router = APIRouter()
+
+
+# Request/Response models for authentication
+class RegisterRequest(BaseModel):
+    name: str
+    email: str
+    password: str
+    phone: Optional[str] = None
+    role: Optional[str] = "customer"
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class AuthResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: dict
+
+
+@router.post("/auth/register", response_model=AuthResponse, tags=["Authentication"])
+async def register(request: RegisterRequest):
+    """Register a new user with email and password."""
+    # Check if user already exists
+    existing_user = await auth_repo.get_user_by_email(request.email)
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    # Create new user
+    user = await auth_repo.create_user(
+        name=request.name,
+        email=request.email,
+        password=request.password,
+        phone=request.phone,
+        role=request.role or "customer"
+    )
+
+    # Create access token
+    access_token = create_access_token(data={"sub": user.email, "user_id": user.id})
+
+    return AuthResponse(
+        access_token=access_token,
+        user={
+            "id": user.id,
+            "name": user.name,
+            "email": user.email,
+            "phone": user.phone,
+            "role": user.role,
+            "createdAt": user.createdAt.isoformat()
+        }
+    )
+
+
+@router.post("/auth/login", response_model=AuthResponse, tags=["Authentication"])
+async def login(request: LoginRequest):
+    """Login with email and password."""
+    # Authenticate user
+    user = await auth_repo.authenticate_user(request.email, request.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    # Create access token
+    access_token = create_access_token(data={"sub": user.email, "user_id": user.id})
+
+    return AuthResponse(
+        access_token=access_token,
+        user={
+            "id": user.id,
+            "name": user.name,
+            "email": user.email,
+            "phone": user.phone,
+            "role": user.role,
+            "createdAt": user.createdAt.isoformat()
+        }
+    )
 
 
 @router.get("/users", response_model=List[User], tags=["Users"])

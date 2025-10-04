@@ -1,6 +1,6 @@
 """Pydantic models for data validation and serialization."""
 from pydantic import BaseModel, Field
-from typing import List, Dict
+from typing import List, Dict, Optional
 from datetime import datetime
 
 
@@ -8,7 +8,9 @@ class User(BaseModel):
     id: str = Field(alias="_id")
     name: str
     email: str
-    role: str  # "merchant" or "customer"
+    phone: Optional[str] = None
+    password: str
+    role: str = "customer"  # "merchant" or "customer"
     createdAt: datetime
 
     class Config:
