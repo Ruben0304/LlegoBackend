@@ -26,7 +26,7 @@ class VectorSearchService:
         Args:
             query: Search query text
             limit: Maximum number of results to return
-            score_threshold: Minimum similarity score (optional)
+            score_threshold: Minimum similarity score (optional, default: 0.60)
 
         Returns:
             List of product IDs (MongoDB ObjectIDs) ordered by relevance
@@ -39,20 +39,18 @@ class VectorSearchService:
             task_type="RETRIEVAL_QUERY"
         )
 
-        # Search in Qdrant
+        # Search in Qdrant with minimum score threshold
         search_params = {
             "collection_name": "products",
             "query_vector": query_embedding,
             "limit": limit,
+            "score_threshold": score_threshold if score_threshold is not None else 0.60
         }
-
-        if score_threshold:
-            search_params["score_threshold"] = score_threshold
 
         # qdrant client is AsyncQdrantClient; its search method is a coroutine and must be awaited
         results: List[ScoredPoint] = await self.qdrant_client.search(**search_params)
 
-        print(f"Vector search for '{query}' returned {len(results)} results")
+        print(f"Vector search for '{query}' returned {len(results)} results (threshold: {search_params['score_threshold']})")
         for r in results:
             print(f"  - Score: {r.score}, ID: {r.payload.get('id')}")
 
@@ -71,7 +69,7 @@ class VectorSearchService:
         Args:
             query: Search query text
             limit: Maximum number of results to return
-            score_threshold: Minimum similarity score (optional)
+            score_threshold: Minimum similarity score (optional, default: 0.55)
 
         Returns:
             List of branch IDs (MongoDB ObjectIDs) ordered by relevance
@@ -84,20 +82,18 @@ class VectorSearchService:
             task_type="RETRIEVAL_QUERY"
         )
 
-        # Search in Qdrant
+        # Search in Qdrant with minimum score threshold
         search_params = {
             "collection_name": "branches",
             "query_vector": query_embedding,
             "limit": limit,
+            "score_threshold": score_threshold if score_threshold is not None else 0.55
         }
-
-        if score_threshold:
-            search_params["score_threshold"] = score_threshold
 
         # qdrant client is AsyncQdrantClient; its search method is a coroutine and must be awaited
         results: List[ScoredPoint] = await self.qdrant_client.search(**search_params)
 
-        print(f"Vector search for '{query}' returned {len(results)} results")
+        print(f"Vector search for '{query}' returned {len(results)} results (threshold: {search_params['score_threshold']})")
         for r in results:
             print(f"  - Score: {r.score}, ID: {r.payload.get('id')}")
 
