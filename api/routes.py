@@ -77,7 +77,7 @@ async def create_qdrant_collection(
     - distance: Distance metric (Cosine, Euclid, Dot, Manhattan)
     """
     from qdrant_client.models import Distance
-    from clients import create_collection
+    from clients import create_collection, get_qdrant_client
 
     # Map string to Distance enum
     distance_map = {
@@ -87,29 +87,170 @@ async def create_qdrant_collection(
         "Manhattan": Distance.MANHATTAN
     }
 
+    # Validate distance metric
     if distance not in distance_map:
-        return {
-            "error": f"Invalid distance metric. Use: {', '.join(distance_map.keys())}"
-        }
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "Invalid distance metric",
+                "provided": distance,
+                "valid_options": list(distance_map.keys()),
+                "message": f"Distance must be one of: {', '.join(distance_map.keys())}"
+            }
+        )
+
+    # Validate vector size
+    if vector_size <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "Invalid vector size",
+                "provided": vector_size,
+                "message": "Vector size must be a positive integer"
+            }
+        )
+
+    # Validate collection name
+    if not collection_name or not collection_name.strip():
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "Invalid collection name",
+                "message": "Collection name cannot be empty"
+            }
+        )
 
     try:
-        create_collection(
+        # Check if Qdrant client is initialized
+        try:
+            client = get_qdrant_client()
+        except RuntimeError as e:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "Qdrant service unavailable",
+                    "message": "Qdrant client is not initialized. Service may be offline.",
+                    "troubleshooting": [
+                        "Verify Qdrant service is running",
+                        "Check QDRANT_HOST and QDRANT_PORT environment variables",
+                        "Review application logs for connection errors"
+                    ]
+                }
+            )
+
+        # Check if collection already exists
+        collections = await client.get_collections()
+        existing_collections = [c.name for c in collections.collections]
+
+        if collection_name in existing_collections:
+            # Get collection info
+            collection_info = await client.get_collection(collection_name)
+            return {
+                "status": "already_exists",
+                "message": f"Collection '{collection_name}' already exists",
+                "collection_name": collection_name,
+                "existing_config": {
+                    "vector_size": collection_info.config.params.vectors.size,
+                    "distance": collection_info.config.params.vectors.distance.value,
+                    "points_count": collection_info.points_count
+                },
+                "requested_config": {
+                    "vector_size": vector_size,
+                    "distance": distance
+                }
+            }
+
+        # Create the collection
+        success = await create_collection(
             collection_name=collection_name,
             vector_size=vector_size,
             distance=distance_map[distance]
         )
 
-        return {
-            "status": "success",
-            "collection_name": collection_name,
-            "vector_size": vector_size,
-            "distance": distance
-        }
+        if success:
+            return {
+                "status": "created",
+                "message": f"Collection '{collection_name}' created successfully",
+                "collection_name": collection_name,
+                "config": {
+                    "vector_size": vector_size,
+                    "distance": distance,
+                    "points_count": 0
+                },
+                "next_steps": [
+                    f"Use POST /vectorize/products to add product vectors" if collection_name == "products" else None,
+                    f"Use POST /vectorize/branches to add branch vectors" if collection_name == "branches" else None,
+                    f"Collection is ready to accept vector data"
+                ]
+            }
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "Collection creation failed",
+                    "message": f"Failed to create collection '{collection_name}' - operation returned False"
+                }
+            )
+
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
     except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e)
-        }
+        error_type = type(e).__name__
+        error_message = str(e)
+
+        # Provide specific error handling based on error type
+        if "already exists" in error_message.lower():
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "Collection already exists",
+                    "collection_name": collection_name,
+                    "message": f"Collection '{collection_name}' already exists in Qdrant"
+                }
+            )
+        elif "timeout" in error_message.lower():
+            raise HTTPException(
+                status_code=504,
+                detail={
+                    "error": "Qdrant timeout",
+                    "message": "Operation timed out while connecting to Qdrant",
+                    "troubleshooting": [
+                        "Check if Qdrant service is responsive",
+                        "Verify network connectivity",
+                        "Check Qdrant server logs for issues"
+                    ]
+                }
+            )
+        elif "connection" in error_message.lower():
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "Qdrant connection error",
+                    "message": "Failed to connect to Qdrant service",
+                    "error_details": error_message,
+                    "troubleshooting": [
+                        "Verify Qdrant service is running",
+                        "Check QDRANT_HOST and QDRANT_PORT configuration",
+                        "Verify firewall/network allows connection"
+                    ]
+                }
+            )
+        else:
+            # Generic error
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": error_type,
+                    "message": f"Failed to create collection '{collection_name}'",
+                    "error_details": error_message,
+                    "parameters": {
+                        "collection_name": collection_name,
+                        "vector_size": vector_size,
+                        "distance": distance
+                    }
+                }
+            )
 
 
 # Vectorize Products
@@ -122,41 +263,117 @@ async def vectorize_all_products():
     Processes products one by one (no batch processing).
     """
     from services.embeddings.gemini_service import GeminiEmbeddingService
-    from clients import get_qdrant_client
-    from qdrant_client.models import PointStruct
+    from clients import get_qdrant_client, create_collection
+    from qdrant_client.models import PointStruct, Distance
+
+    collection_name = "products"
 
     try:
-        # Get all products
+        # Check if Qdrant client is initialized
+        try:
+            qdrant_client = get_qdrant_client()
+        except RuntimeError:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "Qdrant service unavailable",
+                    "message": "Qdrant client is not initialized. Service may be offline.",
+                    "troubleshooting": [
+                        "Verify Qdrant service is running",
+                        "Check QDRANT_HOST and QDRANT_PORT environment variables",
+                        "Review application logs for connection errors"
+                    ]
+                }
+            )
+
+        # Get all products from MongoDB
         products = await products_repo.get_all()
 
         if not products:
             return {
-                "status": "success",
-                "message": "No products found to vectorize",
+                "status": "no_data",
+                "message": "No products found in database to vectorize",
                 "total": 0,
-                "vectorized": 0
+                "vectorized": 0,
+                "collection": collection_name,
+                "suggestion": "Add products to MongoDB first using POST /products endpoint"
             }
 
-        # Initialize services
-        embedding_service = GeminiEmbeddingService()
-        qdrant_client = get_qdrant_client()
-
-        collection_name = "products"
-        vectorized_count = 0
-        errors = []
+        # Initialize embedding service
+        try:
+            embedding_service = GeminiEmbeddingService()
+        except Exception as e:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "Embedding service unavailable",
+                    "message": "Failed to initialize Gemini embedding service",
+                    "error_details": str(e),
+                    "troubleshooting": [
+                        "Check GEMINI_API_KEY environment variable",
+                        "Verify Google AI API quota and access",
+                        "Review application logs for API errors"
+                    ]
+                }
+            )
 
         # Ensure collection exists
+        collection_created = False
         try:
-            qdrant_client.get_collection(collection_name)
-        except:
-            from clients import create_collection
-            create_collection(collection_name=collection_name, vector_size=768)
+            await qdrant_client.get_collection(collection_name)
+        except Exception:
+            try:
+                collection_created = await create_collection(
+                    collection_name=collection_name,
+                    vector_size=768,
+                    distance=Distance.COSINE
+                )
+                if not collection_created:
+                    raise HTTPException(
+                        status_code=500,
+                        detail={
+                            "error": "Collection creation failed",
+                            "message": f"Failed to create collection '{collection_name}'",
+                            "collection": collection_name
+                        }
+                    )
+            except Exception as e:
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "error": "Collection setup failed",
+                        "message": f"Could not verify or create collection '{collection_name}'",
+                        "error_details": str(e),
+                        "collection": collection_name
+                    }
+                )
 
         # Process each product one by one
-        for product in products:
+        vectorized_count = 0
+        errors = []
+        skipped = []
+
+        for idx, product in enumerate(products, 1):
             try:
+                # Validate product has name
+                if not product.name or not product.name.strip():
+                    skipped.append({
+                        "product_id": product.id,
+                        "reason": "Empty or missing product name"
+                    })
+                    continue
+
                 # Generate embedding for product name
-                embedding = embedding_service.generate_embedding(product.name)
+                try:
+                    embedding = embedding_service.generate_embedding(product.name)
+                except Exception as embed_error:
+                    errors.append({
+                        "product_id": product.id,
+                        "product_name": product.name,
+                        "stage": "embedding_generation",
+                        "error": str(embed_error)
+                    })
+                    continue
 
                 # Generate UUID from MongoDB ObjectID
                 point_uuid = str(uuid.uuid5(uuid.NAMESPACE_DNS, product.id))
@@ -166,34 +383,110 @@ async def vectorize_all_products():
                     id=point_uuid,
                     vector=embedding,
                     payload={
-                        "id": product.id
+                        "id": product.id,
+                        "name": product.name
                     }
                 )
 
                 # Upsert to Qdrant
-                qdrant_client.upsert(
-                    collection_name=collection_name,
-                    points=[point]
-                )
-
-                vectorized_count += 1
+                try:
+                    await qdrant_client.upsert(
+                        collection_name=collection_name,
+                        points=[point]
+                    )
+                    vectorized_count += 1
+                except Exception as upsert_error:
+                    errors.append({
+                        "product_id": product.id,
+                        "product_name": product.name,
+                        "stage": "qdrant_upsert",
+                        "error": str(upsert_error)
+                    })
 
             except Exception as e:
                 errors.append({
                     "product_id": product.id,
-                    "product_name": product.name,
+                    "product_name": getattr(product, 'name', 'unknown'),
+                    "stage": "processing",
                     "error": str(e)
                 })
 
-        return {
-            "status": "success",
-            "total": len(products),
-            "vectorized": vectorized_count,
-            "errors": errors if errors else None
+        # Calculate success rate
+        total_processed = len(products)
+        success_rate = (vectorized_count / total_processed * 100) if total_processed > 0 else 0
+
+        # Determine overall status
+        if vectorized_count == 0:
+            status = "failed"
+        elif errors or skipped:
+            status = "partial_success"
+        else:
+            status = "success"
+
+        response = {
+            "status": status,
+            "message": f"Vectorized {vectorized_count} of {total_processed} products ({success_rate:.1f}% success rate)",
+            "collection": collection_name,
+            "collection_created": collection_created,
+            "summary": {
+                "total_products": total_processed,
+                "vectorized": vectorized_count,
+                "errors": len(errors),
+                "skipped": len(skipped),
+                "success_rate": f"{success_rate:.1f}%"
+            }
         }
 
+        if errors:
+            response["errors"] = errors[:10]  # Limit to first 10 errors
+            if len(errors) > 10:
+                response["errors_truncated"] = f"Showing 10 of {len(errors)} errors"
+
+        if skipped:
+            response["skipped"] = skipped[:10]  # Limit to first 10 skipped
+            if len(skipped) > 10:
+                response["skipped_truncated"] = f"Showing 10 of {len(skipped)} skipped items"
+
+        if status == "success":
+            response["next_steps"] = [
+                "Use vector search endpoint to query products",
+                "Verify vectors with Qdrant dashboard or API"
+            ]
+        elif status == "partial_success":
+            response["recommendations"] = [
+                "Review errors to identify issues",
+                "Retry vectorization for failed products",
+                "Check product data quality in MongoDB"
+            ]
+        elif status == "failed":
+            response["recommendations"] = [
+                "Check all error details above",
+                "Verify embedding service is working (test with /embeddings/test)",
+                "Verify Qdrant collection is accessible",
+                "Check application logs for detailed errors"
+            ]
+
+        return response
+
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        error_type = type(e).__name__
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": error_type,
+                "message": "Unexpected error during product vectorization",
+                "error_details": str(e),
+                "collection": collection_name,
+                "troubleshooting": [
+                    "Check application logs for full error trace",
+                    "Verify MongoDB connection is stable",
+                    "Verify Qdrant service is running",
+                    "Verify Gemini API is accessible"
+                ]
+            }
+        )
 
 
 # Vectorize Branches
@@ -206,44 +499,128 @@ async def vectorize_all_branches():
     Processes branches one by one (no batch processing).
     """
     from services.embeddings.gemini_service import GeminiEmbeddingService
-    from clients import get_qdrant_client
-    from qdrant_client.models import PointStruct
+    from clients import get_qdrant_client, create_collection
+    from qdrant_client.models import PointStruct, Distance
+
+    collection_name = "branches"
 
     try:
-        # Get all branches
+        # Check if Qdrant client is initialized
+        try:
+            qdrant_client = get_qdrant_client()
+        except RuntimeError:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "Qdrant service unavailable",
+                    "message": "Qdrant client is not initialized. Service may be offline.",
+                    "troubleshooting": [
+                        "Verify Qdrant service is running",
+                        "Check QDRANT_HOST and QDRANT_PORT environment variables",
+                        "Review application logs for connection errors"
+                    ]
+                }
+            )
+
+        # Get all branches from MongoDB
         branches = await branches_repo.get_all()
 
         if not branches:
             return {
-                "status": "success",
-                "message": "No branches found to vectorize",
+                "status": "no_data",
+                "message": "No branches found in database to vectorize",
                 "total": 0,
-                "vectorized": 0
+                "vectorized": 0,
+                "collection": collection_name,
+                "suggestion": "Add branches to MongoDB first using POST /branches endpoint"
             }
 
-        # Initialize services
-        embedding_service = GeminiEmbeddingService()
-        qdrant_client = get_qdrant_client()
-
-        collection_name = "branches"
-        vectorized_count = 0
-        errors = []
+        # Initialize embedding service
+        try:
+            embedding_service = GeminiEmbeddingService()
+        except Exception as e:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "Embedding service unavailable",
+                    "message": "Failed to initialize Gemini embedding service",
+                    "error_details": str(e),
+                    "troubleshooting": [
+                        "Check GEMINI_API_KEY environment variable",
+                        "Verify Google AI API quota and access",
+                        "Review application logs for API errors"
+                    ]
+                }
+            )
 
         # Ensure collection exists
+        collection_created = False
         try:
-            qdrant_client.get_collection(collection_name)
-        except:
-            from clients import create_collection
-            create_collection(collection_name=collection_name, vector_size=768)
+            await qdrant_client.get_collection(collection_name)
+        except Exception:
+            try:
+                collection_created = await create_collection(
+                    collection_name=collection_name,
+                    vector_size=768,
+                    distance=Distance.COSINE
+                )
+                if not collection_created:
+                    raise HTTPException(
+                        status_code=500,
+                        detail={
+                            "error": "Collection creation failed",
+                            "message": f"Failed to create collection '{collection_name}'",
+                            "collection": collection_name
+                        }
+                    )
+            except Exception as e:
+                raise HTTPException(
+                    status_code=500,
+                    detail={
+                        "error": "Collection setup failed",
+                        "message": f"Could not verify or create collection '{collection_name}'",
+                        "error_details": str(e),
+                        "collection": collection_name
+                    }
+                )
 
         # Process each branch one by one
-        for branch in branches:
+        vectorized_count = 0
+        errors = []
+        skipped = []
+
+        for idx, branch in enumerate(branches, 1):
             try:
+                # Validate branch has name and address
+                if not branch.name or not branch.name.strip():
+                    skipped.append({
+                        "branch_id": branch.id,
+                        "reason": "Empty or missing branch name"
+                    })
+                    continue
+
+                if not branch.address or not branch.address.strip():
+                    skipped.append({
+                        "branch_id": branch.id,
+                        "branch_name": branch.name,
+                        "reason": "Empty or missing branch address"
+                    })
+                    continue
+
                 # Combine name and address for embedding
                 text_to_vectorize = f"{branch.name} {branch.address}"
 
                 # Generate embedding
-                embedding = embedding_service.generate_embedding(text_to_vectorize)
+                try:
+                    embedding = embedding_service.generate_embedding(text_to_vectorize)
+                except Exception as embed_error:
+                    errors.append({
+                        "branch_id": branch.id,
+                        "branch_name": branch.name,
+                        "stage": "embedding_generation",
+                        "error": str(embed_error)
+                    })
+                    continue
 
                 # Generate UUID from MongoDB ObjectID
                 point_uuid = str(uuid.uuid5(uuid.NAMESPACE_DNS, branch.id))
@@ -253,31 +630,108 @@ async def vectorize_all_branches():
                     id=point_uuid,
                     vector=embedding,
                     payload={
-                        "id": branch.id
+                        "id": branch.id,
+                        "name": branch.name,
+                        "address": branch.address
                     }
                 )
 
                 # Upsert to Qdrant
-                qdrant_client.upsert(
-                    collection_name=collection_name,
-                    points=[point]
-                )
-
-                vectorized_count += 1
+                try:
+                    await qdrant_client.upsert(
+                        collection_name=collection_name,
+                        points=[point]
+                    )
+                    vectorized_count += 1
+                except Exception as upsert_error:
+                    errors.append({
+                        "branch_id": branch.id,
+                        "branch_name": branch.name,
+                        "stage": "qdrant_upsert",
+                        "error": str(upsert_error)
+                    })
 
             except Exception as e:
                 errors.append({
                     "branch_id": branch.id,
-                    "branch_name": branch.name,
+                    "branch_name": getattr(branch, 'name', 'unknown'),
+                    "stage": "processing",
                     "error": str(e)
                 })
 
-        return {
-            "status": "success",
-            "total": len(branches),
-            "vectorized": vectorized_count,
-            "errors": errors if errors else None
+        # Calculate success rate
+        total_processed = len(branches)
+        success_rate = (vectorized_count / total_processed * 100) if total_processed > 0 else 0
+
+        # Determine overall status
+        if vectorized_count == 0:
+            status = "failed"
+        elif errors or skipped:
+            status = "partial_success"
+        else:
+            status = "success"
+
+        response = {
+            "status": status,
+            "message": f"Vectorized {vectorized_count} of {total_processed} branches ({success_rate:.1f}% success rate)",
+            "collection": collection_name,
+            "collection_created": collection_created,
+            "summary": {
+                "total_branches": total_processed,
+                "vectorized": vectorized_count,
+                "errors": len(errors),
+                "skipped": len(skipped),
+                "success_rate": f"{success_rate:.1f}%"
+            }
         }
 
+        if errors:
+            response["errors"] = errors[:10]  # Limit to first 10 errors
+            if len(errors) > 10:
+                response["errors_truncated"] = f"Showing 10 of {len(errors)} errors"
+
+        if skipped:
+            response["skipped"] = skipped[:10]  # Limit to first 10 skipped
+            if len(skipped) > 10:
+                response["skipped_truncated"] = f"Showing 10 of {len(skipped)} skipped items"
+
+        if status == "success":
+            response["next_steps"] = [
+                "Use vector search endpoint to query branches",
+                "Verify vectors with Qdrant dashboard or API"
+            ]
+        elif status == "partial_success":
+            response["recommendations"] = [
+                "Review errors to identify issues",
+                "Retry vectorization for failed branches",
+                "Check branch data quality in MongoDB"
+            ]
+        elif status == "failed":
+            response["recommendations"] = [
+                "Check all error details above",
+                "Verify embedding service is working (test with /embeddings/test)",
+                "Verify Qdrant collection is accessible",
+                "Check application logs for detailed errors"
+            ]
+
+        return response
+
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        error_type = type(e).__name__
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": error_type,
+                "message": "Unexpected error during branch vectorization",
+                "error_details": str(e),
+                "collection": collection_name,
+                "troubleshooting": [
+                    "Check application logs for full error trace",
+                    "Verify MongoDB connection is stable",
+                    "Verify Qdrant service is running",
+                    "Verify Gemini API is accessible"
+                ]
+            }
+        )

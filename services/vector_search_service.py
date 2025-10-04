@@ -32,6 +32,8 @@ class VectorSearchService:
             List of product IDs (MongoDB ObjectIDs) ordered by relevance
         """
         # Generate query embedding with RETRIEVAL_QUERY task type
+        # embedding generation may be synchronous (Gemini client used synchronously),
+        # keep as-is but allow future async implementations.
         query_embedding = self.embedding_service.generate_embedding(
             query,
             task_type="RETRIEVAL_QUERY"
@@ -47,7 +49,8 @@ class VectorSearchService:
         if score_threshold:
             search_params["score_threshold"] = score_threshold
 
-        results: List[ScoredPoint] = self.qdrant_client.search(**search_params)
+        # qdrant client is AsyncQdrantClient; its search method is a coroutine and must be awaited
+        results: List[ScoredPoint] = await self.qdrant_client.search(**search_params)
 
         print(f"Vector search for '{query}' returned {len(results)} results")
         for r in results:
@@ -74,6 +77,8 @@ class VectorSearchService:
             List of branch IDs (MongoDB ObjectIDs) ordered by relevance
         """
         # Generate query embedding with RETRIEVAL_QUERY task type
+        # embedding generation may be synchronous (Gemini client used synchronously),
+        # keep as-is but allow future async implementations.
         query_embedding = self.embedding_service.generate_embedding(
             query,
             task_type="RETRIEVAL_QUERY"
@@ -89,7 +94,8 @@ class VectorSearchService:
         if score_threshold:
             search_params["score_threshold"] = score_threshold
 
-        results: List[ScoredPoint] = self.qdrant_client.search(**search_params)
+        # qdrant client is AsyncQdrantClient; its search method is a coroutine and must be awaited
+        results: List[ScoredPoint] = await self.qdrant_client.search(**search_params)
 
         print(f"Vector search for '{query}' returned {len(results)} results")
         for r in results:
