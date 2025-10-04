@@ -47,6 +47,20 @@ class ProductRepository:
         products = await cursor.to_list(length=None)
         return [Product(**self._convert_id(p)) for p in products]
 
+    async def get_by_ids(self, product_ids: List[str]) -> List[Product]:
+        db = get_database()
+        # Convert string IDs to ObjectIds for MongoDB query
+        object_ids = []
+        for product_id in product_ids:
+            try:
+                object_ids.append(ObjectId(product_id))
+            except:
+                object_ids.append(product_id)
+
+        cursor = db[self.collection_name].find({"_id": {"$in": object_ids}})
+        products = await cursor.to_list(length=None)
+        return [Product(**self._convert_id(p)) for p in products]
+
     @staticmethod
     def _convert_id(doc: Dict[str, Any]) -> Dict[str, Any]:
         if doc and "_id" in doc:

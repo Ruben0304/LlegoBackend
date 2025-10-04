@@ -11,10 +11,13 @@ class ProductQuery:
     @strawberry.field(description="Lista de productos")
     async def products(
         self,
+        ids: Optional[List[str]] = None,
         branchId: Optional[str] = None,
         availableOnly: bool = False
     ) -> List[ProductType]:
-        if branchId:
+        if ids:
+            products = await products_repo.get_by_ids(ids)
+        elif branchId:
             products = await products_repo.get_by_branch(branchId)
         elif availableOnly:
             products = await products_repo.get_available()
