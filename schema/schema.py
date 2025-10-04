@@ -5,6 +5,7 @@ from .users.queries import UserQuery
 from .businesses.queries import BusinessQuery
 from .branches.queries import BranchQuery
 from .products.queries import ProductQuery
+from .auth.mutations import AuthMutation
 
 
 @strawberry.type
@@ -18,5 +19,10 @@ class Query(UserQuery, BusinessQuery, BranchQuery, ProductQuery):
         return f"Hola, {name}!"
 
 
+@strawberry.type
+class Mutation(AuthMutation):
+    pass
+
+
 # Create Strawberry GraphQL schema
-schema = strawberry.Schema(query=Query)
+schema = strawberry.Schema(query=Query, mutation=Mutation)
