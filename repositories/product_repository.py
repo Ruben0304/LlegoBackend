@@ -61,6 +61,12 @@ class ProductRepository:
         products = await cursor.to_list(length=None)
         return [Product(**self._convert_id(p)) for p in products]
 
+    async def get_by_category(self, category_id: str) -> List[Product]:
+        db = get_database()
+        cursor = db[self.collection_name].find({"categoryId": category_id})
+        products = await cursor.to_list(length=None)
+        return [Product(**self._convert_id(p)) for p in products]
+
     @staticmethod
     def _convert_id(doc: Dict[str, Any]) -> Dict[str, Any]:
         if doc and "_id" in doc:

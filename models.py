@@ -53,6 +53,23 @@ class Branch(BaseModel):
         json_encoders = {datetime: lambda v: v.isoformat()}
 
 
+class Subcategory(BaseModel):
+    name: str
+    imageUrl: str
+
+
+class Category(BaseModel):
+    id: str = Field(alias="_id")
+    name: str
+    imageUrl: str
+    subcategories: List[Subcategory]
+    createdAt: datetime
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat()}
+
+
 class Product(BaseModel):
     id: str = Field(alias="_id")
     branchId: str
@@ -63,6 +80,7 @@ class Product(BaseModel):
     currency: str = "USD"
     image: str
     availability: bool = True
+    categoryId: Optional[str] = None
     createdAt: datetime
 
     class Config:
@@ -83,6 +101,8 @@ __all__ = [
     "Business",
     "Coordinates",
     "Branch",
+    "Subcategory",
+    "Category",
     "Product",
     "users_repo",
     "businesses_repo",

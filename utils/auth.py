@@ -15,12 +15,26 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 
 def hash_password(password: str) -> str:
     """Hash a password using bcrypt."""
-    return pwd_context.hash(password)
+    # bcrypt has a 72-byte input limit. Truncate to 72 bytes to avoid ValueError
+    # while preserving valid UTF-8 characters.
+    if password is None:
+        raise ValueError("password must be a string")
+
+    pw_bytes = password.encode("utf-8")[:72]
+    safe_password = pw_bytes.decode("utf-8", errors="ignore")
+    return pwd_context.hash(safe_password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against its hash."""
-    return pwd_context.verify(plain_password, hashed_password)
+    # When we hashed passwords we truncated inputs to 72 bytes, so apply the
+    # same truncation before verification to ensure the check succeeds.
+    if plain_password is None:
+        return False
+
+    pw_bytes = plain_password.encode("utf-8")[:72]
+    safe_password = pw_bytes.decode("utf-8", errors="ignore")
+    return pwd_context.verify(safe_password, hashed_password)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

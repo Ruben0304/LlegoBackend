@@ -13,12 +13,15 @@ class ProductQuery:
         self,
         ids: Optional[List[str]] = None,
         branchId: Optional[str] = None,
+        categoryId: Optional[str] = None,
         availableOnly: bool = False
     ) -> List[ProductType]:
         if ids:
             products = await products_repo.get_by_ids(ids)
         elif branchId:
             products = await products_repo.get_by_branch(branchId)
+        elif categoryId:
+            products = await products_repo.get_by_category(categoryId)
         elif availableOnly:
             products = await products_repo.get_available()
         else:

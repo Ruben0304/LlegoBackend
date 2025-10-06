@@ -5,11 +5,12 @@ from .users.queries import UserQuery
 from .businesses.queries import BusinessQuery
 from .branches.queries import BranchQuery
 from .products.queries import ProductQuery
+from .categories.queries import CategoryQuery
 from .auth.mutations import AuthMutation
 
 
 @strawberry.type
-class Query(UserQuery, BusinessQuery, BranchQuery, ProductQuery):
+class Query(UserQuery, BusinessQuery, BranchQuery, ProductQuery, CategoryQuery):
     @strawberry.field(description="Saludo de ejemplo")
     def hello(self) -> str:
         return "Hola desde Llego Backend!"
