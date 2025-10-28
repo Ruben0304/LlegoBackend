@@ -1,5 +1,5 @@
 """REST API endpoints."""
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, UploadFile, File, Form
 from typing import List, Optional
 from pydantic import BaseModel
 import uuid
@@ -16,6 +16,7 @@ from models import (
 )
 from repositories import auth_repo
 from utils.auth import create_access_token
+from services.payments import validate_payment_image_with_transfer_id
 
 router = APIRouter()
 
@@ -38,6 +39,14 @@ class AuthResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: dict
+
+
+class PaymentValidationResponse(BaseModel):
+    matched: bool
+    message: str
+    detected_transfer_id: str
+    extracted_data: dict
+    saved_payment: Optional[dict] = None
 
 
 @router.post("/auth/register", response_model=AuthResponse, tags=["Authentication"])
@@ -119,6 +128,44 @@ async def list_branches():
 async def list_products():
     """Get all products."""
     return await products_repo.get_all()
+
+
+@router.post(
+    "/payments/validate",
+    response_model=PaymentValidationResponse,
+    tags=["Payments"],
+)
+async def validate_payment_image(
+    transfer_id: str = Form(..., description="ID de transferencia proporcionado por el cliente"),
+    file: UploadFile = File(..., description="Captura del SMS bancario"),
+):
+    """Validate a payment image using Gemini OCR and persist it when the transfer ID matches."""
+    try:
+        file_bytes = await file.read()
+        content_type = file.content_type or "image/jpeg"
+        result = await validate_payment_image_with_transfer_id(
+            file_bytes=file_bytes,
+            content_type=content_type,
+            transfer_id=transfer_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error al procesar la imagen: {exc}") from exc
+
+    return PaymentValidationResponse(
+        matched=result.matched,
+        message=result.message,
+        detected_transfer_id=result.detected_transfer_id,
+        extracted_data=result.extracted_data.model_dump(),
+        saved_payment=(
+            result.saved_payment.model_dump(by_alias=True)
+            if result.saved_payment
+            else None
+        ),
+    )
 
 
 # Embedding Test Endpoint

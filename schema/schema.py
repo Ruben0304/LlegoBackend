@@ -7,7 +7,6 @@ from .branches.queries import BranchQuery
 from .products.queries import ProductQuery
 from .categories.queries import CategoryQuery
 from .auth.mutations import AuthMutation
-from .payments.mutations import PaymentMutation
 
 
 @strawberry.type
@@ -22,7 +21,7 @@ class Query(UserQuery, BusinessQuery, BranchQuery, ProductQuery, CategoryQuery):
 
 
 @strawberry.type
-class Mutation(AuthMutation, PaymentMutation):
+class Mutation(AuthMutation):
     pass
 
 
