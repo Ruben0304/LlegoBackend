@@ -88,12 +88,31 @@ class Product(BaseModel):
         json_encoders = {datetime: lambda v: v.isoformat()}
 
 
+class SmsOcr(BaseModel):
+    """Modelo para datos extraídos de capturas de SMS bancarios mediante OCR."""
+    id: str = Field(alias="_id")
+    quien_envio: str  # Remitente del mensaje
+    banco: str  # Nombre del banco
+    fecha: datetime  # Fecha de la transferencia
+    es_mensaje_banco: bool  # Validación de que es un mensaje bancario
+    cantidad_transferida: float  # Monto de la transferencia
+    numero_transferencia: str  # Número de referencia de la transferencia
+    primeros_4_tarjeta: str  # Primeros 4 dígitos de la tarjeta
+    ultimos_4_tarjeta: str  # Últimos 4 dígitos de la tarjeta
+    createdAt: datetime
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat()}
+
+
 # Export repository instances for backward compatibility
 from repositories import (
     users_repo,
     businesses_repo,
     branches_repo,
     products_repo,
+    payments_repo,
 )
 
 __all__ = [
@@ -104,8 +123,10 @@ __all__ = [
     "Subcategory",
     "Category",
     "Product",
+    "SmsOcr",
     "users_repo",
     "businesses_repo",
     "branches_repo",
     "products_repo",
+    "payments_repo",
 ]
