@@ -1,12 +1,10 @@
 """Authentication utilities for password hashing and JWT tokens."""
 from datetime import datetime, timedelta
-from typing import Optional
-from passlib.context import CryptContext
-from jose import JWTError, jwt
 from hashlib import sha256
+from typing import Optional
 
-# Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+import bcrypt
+from jose import JWTError, jwt
 
 # JWT configuration
 SECRET_KEY = "llego-secret-key-change-in-production"  # TODO: Move to environment variables
@@ -17,7 +15,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 MAX_BCRYPT_BYTES = 72
 
 
-def _prepare_password(password: str) -> str:
+def _prepare_password(password: str) -> bytes:
     """
     Prepare password for bcrypt hashing, ensuring it fits within the 72-byte limit.
 
@@ -26,75 +24,59 @@ def _prepare_password(password: str) -> str:
     This allows passwords of any length to be securely hashed.
 
     Args:
-        password: The plain text password to prepare
+        password: The plain text password to prepare.
 
     Returns:
-        str: Password string ready for bcrypt hashing (guaranteed ≤ 72 bytes when encoded)
+        bytes: Password bytes ready for bcrypt hashing (guaranteed ≤ 72 bytes).
     """
-    if password is None:
+    if not isinstance(password, str):
         raise ValueError("password must be a string")
 
     raw_bytes = password.encode("utf-8")
-
     if len(raw_bytes) <= MAX_BCRYPT_BYTES:
-        # Password fits within bcrypt's limit, use directly
-        return password
+        return raw_bytes
 
-    # Password exceeds 72 bytes: apply SHA-256 first
-    # SHA-256 produces a 64-character hex digest (64 ASCII characters), which always fits
     digest = sha256(raw_bytes).hexdigest()
-    return digest  # Return as string (64 ASCII characters)
+    return digest.encode("ascii")
 
 
 def hash_password(password: str) -> str:
     """
     Hash a password using bcrypt with automatic SHA-256 preprocessing for long passwords.
 
-    This function safely handles passwords of any length by:
-    1. Using the password directly if ≤ 72 bytes
-    2. Applying SHA-256 first if > 72 bytes, then hashing the result
-
-    Args:
-        password: The plain text password to hash
-
     Returns:
-        str: The bcrypt hash (60 characters starting with $2b$)
+        str: The bcrypt hash (60 characters starting with $2b$).
     """
     prepared = _prepare_password(password)
-    return pwd_context.hash(prepared)
+    hashed = bcrypt.hashpw(prepared, bcrypt.gensalt())
+    return hashed.decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
-    Verify a password against its bcrypt hash.
-
-    This function includes fallback logic for backward compatibility:
-    1. First tries with preprocessing (_prepare_password)
-    2. Falls back to direct comparison (for old passwords stored with truncation)
-
-    Args:
-        plain_password: The plain text password to verify
-        hashed_password: The bcrypt hash to verify against
-
-    Returns:
-        bool: True if password matches, False otherwise
+    Verify a password against its bcrypt hash with legacy fallback support.
     """
-    if plain_password is None:
+    if plain_password is None or hashed_password is None:
         return False
 
     try:
-        # Try with preprocessing (new method)
+        hashed_bytes = hashed_password.encode("utf-8")
+    except AttributeError:
+        return False
+
+    try:
         prepared = _prepare_password(plain_password)
-        return pwd_context.verify(prepared, hashed_password)
+        if bcrypt.checkpw(prepared, hashed_bytes):
+            return True
     except Exception:
-        try:
-            # Fallback for old passwords that were truncated
-            pw_bytes = plain_password.encode("utf-8")[:72]
-            safe_password = pw_bytes.decode("utf-8", errors="ignore")
-            return pwd_context.verify(safe_password, hashed_password)
-        except Exception:
-            # Hash is invalid or corrupted
-            return False
+        # Fall back to legacy handling below
+        pass
+
+    try:
+        legacy_candidate = plain_password.encode("utf-8")[:MAX_BCRYPT_BYTES]
+        return bcrypt.checkpw(legacy_candidate, hashed_bytes)
+    except Exception:
+        return False
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
