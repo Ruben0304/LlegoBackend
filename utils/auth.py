@@ -17,7 +17,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 MAX_BCRYPT_BYTES = 72
 
 
-def _prepare_password(password: str) -> bytes:
+def _prepare_password(password: str) -> str:
     """
     Prepare password for bcrypt hashing, ensuring it fits within the 72-byte limit.
 
@@ -29,7 +29,7 @@ def _prepare_password(password: str) -> bytes:
         password: The plain text password to prepare
 
     Returns:
-        bytes: Password bytes ready for bcrypt hashing (guaranteed ≤ 72 bytes)
+        str: Password string ready for bcrypt hashing (guaranteed ≤ 72 bytes when encoded)
     """
     if password is None:
         raise ValueError("password must be a string")
@@ -38,12 +38,12 @@ def _prepare_password(password: str) -> bytes:
 
     if len(raw_bytes) <= MAX_BCRYPT_BYTES:
         # Password fits within bcrypt's limit, use directly
-        return raw_bytes
+        return password
 
     # Password exceeds 72 bytes: apply SHA-256 first
-    # SHA-256 produces a 64-character hex digest (64 ASCII bytes), which always fits
+    # SHA-256 produces a 64-character hex digest (64 ASCII characters), which always fits
     digest = sha256(raw_bytes).hexdigest()
-    return digest.encode("ascii")
+    return digest  # Return as string (64 ASCII characters)
 
 
 def hash_password(password: str) -> str:
@@ -61,7 +61,7 @@ def hash_password(password: str) -> str:
         str: The bcrypt hash (60 characters starting with $2b$)
     """
     prepared = _prepare_password(password)
-    return pwd_context.hash(prepared.decode("utf-8") if isinstance(prepared, bytes) else prepared)
+    return pwd_context.hash(prepared)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -85,7 +85,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     try:
         # Try with preprocessing (new method)
         prepared = _prepare_password(plain_password)
-        return pwd_context.verify(prepared.decode("utf-8") if isinstance(prepared, bytes) else prepared, hashed_password)
+        return pwd_context.verify(prepared, hashed_password)
     except Exception:
         try:
             # Fallback for old passwords that were truncated
