@@ -17,6 +17,7 @@ from models import (
 from repositories import auth_repo
 from utils.auth import create_access_token
 from services.payments import validate_payment_image_with_transfer_id
+from services.ai_assistant_service import AiAssistantService, AiAssistantResponse
 
 router = APIRouter()
 
@@ -860,5 +861,92 @@ async def vectorize_all_branches():
                     "Verify Qdrant service is running",
                     "Verify Gemini API is accessible"
                 ]
+            }
+        )
+
+
+# ============================================================================
+# AI ASSISTANT ENDPOINTS
+# ============================================================================
+
+# Request model for AI assistant
+class AiAssistantRequest(BaseModel):
+    message: str
+    session_id: str
+
+
+@router.post(
+    "/ai-assistant/chat",
+    response_model=AiAssistantResponse,
+    tags=["AI Assistant"],
+    summary="Send message to AI assistant",
+    description="Send a message to the n8n AI assistant webhook and get a response with suggestions and alternatives."
+)
+async def chat_with_assistant(request: AiAssistantRequest):
+    """
+    Send a message to the AI assistant.
+
+    The assistant can help with:
+    - Payment method inquiries
+    - Product recommendations
+    - General queries about businesses
+
+    Returns:
+    - type: The type of response (e.g., 'payment_method')
+    - AItext: The AI-generated response text
+    - ids: List of relevant IDs (products, branches, etc.)
+    """
+    try:
+        ai_service = AiAssistantService()
+        response = await ai_service.send_message(
+            message=request.message,
+            session_id=request.session_id
+        )
+        return response
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": type(e).__name__,
+                "message": "Error communicating with AI assistant",
+                "details": str(e)
+            }
+        )
+
+
+@router.get(
+    "/ai-assistant/chat",
+    response_model=AiAssistantResponse,
+    tags=["AI Assistant"],
+    summary="Send message to AI assistant (GET)",
+    description="Send a message to the AI assistant using query parameters. Useful for testing in browser."
+)
+async def chat_with_assistant_get(
+    message: str = Query(..., description="The message to send to the AI assistant"),
+    session_id: str = Query(..., description="Session ID for conversation context", alias="session_ID")
+):
+    """
+    Send a message to the AI assistant using GET request.
+
+    Query Parameters:
+    - message: The user's message or query
+    - session_ID: Session identifier for maintaining conversation context
+
+    Returns the same response as POST /ai-assistant/chat
+    """
+    try:
+        ai_service = AiAssistantService()
+        response = await ai_service.send_message(
+            message=message,
+            session_id=session_id
+        )
+        return response
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": type(e).__name__,
+                "message": "Error communicating with AI assistant",
+                "details": str(e)
             }
         )
