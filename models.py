@@ -106,6 +106,16 @@ class SmsOcr(BaseModel):
         json_encoders = {datetime: lambda v: v.isoformat()}
 
 
+class PaymentMethod(BaseModel):
+    """Payment method model."""
+    id: str = Field(alias="_id")
+    currency: str  # "CUP", "USD", etc.
+    method: str  # "tarjeta", "efectivo", "transferencia", etc.
+
+    class Config:
+        populate_by_name = True
+
+
 # Export repository instances for backward compatibility
 from repositories import (
     users_repo,
@@ -113,6 +123,7 @@ from repositories import (
     branches_repo,
     products_repo,
     payments_repo,
+    payment_methods_repo,
 )
 
 __all__ = [
@@ -124,9 +135,11 @@ __all__ = [
     "Category",
     "Product",
     "SmsOcr",
+    "PaymentMethod",
     "users_repo",
     "businesses_repo",
     "branches_repo",
     "products_repo",
     "payments_repo",
+    "payment_methods_repo",
 ]

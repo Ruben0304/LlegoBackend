@@ -41,6 +41,21 @@ class BranchRepository:
         branches = await cursor.to_list(length=None)
         return [Branch(**self._convert_id(b)) for b in branches]
 
+    async def get_by_ids(self, branch_ids: List[str]) -> List[Branch]:
+        """Get multiple branches by their IDs."""
+        db = get_database()
+        # Convert string IDs to ObjectIds for MongoDB query
+        object_ids = []
+        for branch_id in branch_ids:
+            try:
+                object_ids.append(ObjectId(branch_id))
+            except:
+                object_ids.append(branch_id)
+
+        cursor = db[self.collection_name].find({"_id": {"$in": object_ids}})
+        branches = await cursor.to_list(length=None)
+        return [Branch(**self._convert_id(b)) for b in branches]
+
     @staticmethod
     def _convert_id(doc: Dict[str, Any]) -> Dict[str, Any]:
         if doc and "_id" in doc:
