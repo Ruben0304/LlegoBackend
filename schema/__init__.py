@@ -7,6 +7,8 @@ from .branches.types import BranchType, CoordinatesType
 from .branches.queries import BranchQuery
 from .products.types import ProductType
 from .products.queries import ProductQuery
+from .ai_assistant.types import AiAssistantResponseType, AiAssistantOutputType, AiAssistantChatInput
+from .ai_assistant.queries import AiAssistantQuery
 from .schema import schema
 
 __all__ = [
@@ -19,5 +21,9 @@ __all__ = [
     "BranchQuery",
     "ProductType",
     "ProductQuery",
+    "AiAssistantResponseType",
+    "AiAssistantOutputType",
+    "AiAssistantChatInput",
+    "AiAssistantQuery",
     "schema",
 ]

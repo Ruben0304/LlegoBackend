@@ -7,10 +7,11 @@ from .branches.queries import BranchQuery
 from .products.queries import ProductQuery
 from .categories.queries import CategoryQuery
 from .auth.mutations import AuthMutation
+from .ai_assistant.queries import AiAssistantQuery
 
 
 @strawberry.type
-class Query(UserQuery, BusinessQuery, BranchQuery, ProductQuery, CategoryQuery):
+class Query(UserQuery, BusinessQuery, BranchQuery, ProductQuery, CategoryQuery, AiAssistantQuery):
     @strawberry.field(description="Saludo de ejemplo")
     def hello(self) -> str:
         return "Hola desde Llego Backend!"
