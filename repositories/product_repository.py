@@ -1,12 +1,14 @@
 """Product repository for database operations."""
 from typing import List, Optional, Dict, Any
 from bson import ObjectId
-from clients import get_database
+from clients import get_database, get_qdrant_client
 from models import Product
+from qdrant_client.http import models as qdrant_models
 
 
 class ProductRepository:
     collection_name = "products"
+    qdrant_collection_name = "products"
 
     async def get_all(self) -> List[Product]:
         db = get_database()
@@ -48,18 +50,60 @@ class ProductRepository:
         return [Product(**self._convert_id(p)) for p in products]
 
     async def get_by_ids(self, product_ids: List[str]) -> List[Product]:
-        db = get_database()
-        # Convert string IDs to ObjectIds for MongoDB query
-        object_ids = []
-        for product_id in product_ids:
-            try:
-                object_ids.append(ObjectId(product_id))
-            except:
-                object_ids.append(product_id)
+        """Get products by IDs from Qdrant."""
+        try:
+            qdrant_client = get_qdrant_client()
 
-        cursor = db[self.collection_name].find({"_id": {"$in": object_ids}})
-        products = await cursor.to_list(length=None)
-        return [Product(**self._convert_id(p)) for p in products]
+            # Retrieve points from Qdrant using scroll with filter
+            # We need to filter by metadata.mongo_id
+            products = []
+
+            for product_id in product_ids:
+                # Search for point with this mongo_id in metadata
+                result = await qdrant_client.scroll(
+                    collection_name=self.qdrant_collection_name,
+                    scroll_filter=qdrant_models.Filter(
+                        must=[
+                            qdrant_models.FieldCondition(
+                                key="metadata.mongo_id",
+                                match=qdrant_models.MatchValue(value=product_id)
+                            )
+                        ]
+                    ),
+                    limit=1,
+                    with_payload=True,
+                    with_vectors=False
+                )
+
+                points, _ = result
+
+                if points:
+                    point = points[0]
+                    metadata = point.payload.get("metadata", {})
+
+                    # Reconstruct Product from metadata
+                    product_data = {
+                        "_id": metadata.get("mongo_id"),
+                        "name": metadata.get("name"),
+                        "description": metadata.get("description"),
+                        "price": metadata.get("price"),
+                        "currency": metadata.get("currency", "USD"),
+                        "weight": metadata.get("weight"),
+                        "availability": metadata.get("availability", False),
+                        "image": metadata.get("image"),
+                        "branchId": metadata.get("branchId"),
+                        "categoryId": metadata.get("categoryId"),
+                        "createdAt": metadata.get("createdAt")
+                    }
+
+                    products.append(Product(**product_data))
+
+            return products
+
+        except Exception as e:
+            print(f"Error fetching products from Qdrant: {e}")
+            # Fallback to empty list if Qdrant fails
+            return []
 
     async def get_by_category(self, category_id: str) -> List[Product]:
         db = get_database()
