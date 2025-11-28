@@ -44,7 +44,8 @@ class AiAssistantService:
         """
         params = {
             "message": message,
-            "session_ID": session_id
+            "session_ID": session_id,
+            "mode": "slow"
         }
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
