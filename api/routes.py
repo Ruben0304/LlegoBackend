@@ -491,7 +491,7 @@ async def vectorize_all_products():
                     })
                     continue
 
-                # Generate embedding for product name
+                # Generate embedding for product name only
                 try:
                     embedding = embedding_service.generate_embedding(product.name)
                 except Exception as embed_error:
@@ -506,13 +506,38 @@ async def vectorize_all_products():
                 # Generate UUID from MongoDB ObjectID
                 point_uuid = str(uuid.uuid5(uuid.NAMESPACE_DNS, product.id))
 
-                # Create point for Qdrant
+                # Create pageContent for LangChain/n8n (display purposes, not for vectorization)
+                availability_text = "Disponible" if product.availability else "No disponible"
+                page_content = (
+                    f"{product.name}\n\n"
+                    f"{product.description or 'Sin descripción'}\n\n"
+                    f"Precio: ${product.price} {product.currency}\n"
+                    f"Peso: {product.weight or 'N/A'}\n"
+                    f"Disponibilidad: {availability_text}"
+                )
+
+                # Create point for Qdrant with LangChain/n8n structure
                 point = PointStruct(
                     id=point_uuid,
-                    vector=embedding,
+                    vector=embedding,  # Vector generated from name only
                     payload={
-                        "id": product.id,
-                        "name": product.name
+                        # Main field for n8n/LangChain search results display
+                        "pageContent": page_content,
+
+                        # Structured metadata for filtering and retrieval
+                        "metadata": {
+                            "mongo_id": product.id,
+                            "name": product.name,
+                            "description": product.description,
+                            "price": product.price,
+                            "currency": product.currency,
+                            "weight": product.weight,
+                            "availability": product.availability,
+                            "image": product.image,
+                            "branchId": product.branchId,
+                            "categoryId": product.categoryId,
+                            "createdAt": product.createdAt.isoformat() if product.createdAt else None
+                        }
                     }
                 )
 
@@ -753,14 +778,41 @@ async def vectorize_all_branches():
                 # Generate UUID from MongoDB ObjectID
                 point_uuid = str(uuid.uuid5(uuid.NAMESPACE_DNS, branch.id))
 
-                # Create point for Qdrant
+                # Create pageContent for LangChain/n8n (display purposes, not for vectorization)
+                status_text = branch.status.capitalize() if branch.status else "Desconocido"
+                schedule_text = ", ".join([f"{day}: {', '.join(hours)}" for day, hours in branch.schedule.items()]) if branch.schedule else "No disponible"
+                page_content = (
+                    f"{branch.name}\n\n"
+                    f"Dirección: {branch.address}\n"
+                    f"Teléfono: {branch.phone}\n"
+                    f"Estado: {status_text}\n"
+                    f"Horario: {schedule_text}"
+                )
+
+                # Create point for Qdrant with LangChain/n8n structure
                 point = PointStruct(
                     id=point_uuid,
-                    vector=embedding,
+                    vector=embedding,  # Vector generated from name + address
                     payload={
-                        "id": branch.id,
-                        "name": branch.name,
-                        "address": branch.address
+                        # Main field for n8n/LangChain search results display
+                        "pageContent": page_content,
+
+                        # Structured metadata for filtering and retrieval
+                        "metadata": {
+                            "mongo_id": branch.id,
+                            "businessId": branch.businessId,
+                            "name": branch.name,
+                            "address": branch.address,
+                            "coordinates": {
+                                "type": branch.coordinates.type,
+                                "coordinates": branch.coordinates.coordinates
+                            } if branch.coordinates else None,
+                            "phone": branch.phone,
+                            "schedule": branch.schedule,
+                            "managerIds": branch.managerIds,
+                            "status": branch.status,
+                            "createdAt": branch.createdAt.isoformat() if branch.createdAt else None
+                        }
                     }
                 )
 
