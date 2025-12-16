@@ -18,6 +18,20 @@ class LoginInput:
     password: str
 
 
+@strawberry.input
+class SocialLoginInput:
+    id_token: str
+    authorization_code: Optional[str] = None
+    nonce: Optional[str] = None
+
+
+@strawberry.input
+class AppleLoginInput:
+    identity_token: str
+    authorization_code: Optional[str] = None
+    nonce: Optional[str] = None
+
+
 @strawberry.type
 class UserData:
     id: str

@@ -11,6 +11,23 @@ SECRET_KEY = "llego-secret-key-change-in-production"  # TODO: Move to environmen
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 
+# Social Login Imports
+try:
+    from google.oauth2 import id_token
+    from google.auth.transport import requests as grequests
+    import requests
+    import jwt
+    from fastapi import HTTPException
+    from core.config import settings
+except ImportError:
+    # Fallback or allow validation to fail if libs missing
+    pass
+
+# Apple Configuration
+APPLE_KEYS_URL = "https://appleid.apple.com/auth/keys"
+APPLE_ISS = "https://appleid.apple.com"
+_apple_keys_cache = []
+
 # bcrypt input limit
 MAX_BCRYPT_BYTES = 72
 
@@ -99,3 +116,76 @@ def decode_access_token(token: str) -> Optional[dict]:
         return payload
     except JWTError:
         return None
+
+
+def verify_google(id_token_str: str, nonce: str = None) -> dict:
+    """Verify Google ID token."""
+    try:
+        claims = id_token.verify_oauth2_token(
+            id_token_str,
+            grequests.Request(),
+            audience=settings.google_client_id
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=f"Invalid Google token: {str(e)}")
+
+    if nonce and claims.get("nonce") != nonce:
+        raise HTTPException(status_code=401, detail="Invalid nonce")
+        
+    return {
+        "sub": claims["sub"],
+        "email": claims["email"],
+        "name": claims.get("name", claims["email"].split("@")[0]),
+        "picture": claims.get("picture")
+    }
+
+
+def get_apple_keys():
+    """Fetch Apple public keys with caching."""
+    global _apple_keys_cache
+    if not _apple_keys_cache:
+         # simple caching
+        try:
+            response = requests.get(APPLE_KEYS_URL, timeout=5)
+            if response.status_code == 200:
+                _apple_keys_cache = response.json().get("keys", [])
+        except Exception:
+            pass
+    return _apple_keys_cache
+
+
+def verify_apple(identity_token: str, nonce: str = None) -> dict:
+    """Verify Apple Identity Token."""
+    keys = get_apple_keys()
+    try:
+        header = jwt.get_unverified_header(identity_token)
+        key = next((k for k in keys if k.get("kid") == header.get("kid")), None)
+        
+        if not key:
+             # Force refresh keys
+            global _apple_keys_cache
+            _apple_keys_cache = []
+            keys = get_apple_keys()
+            key = next((k for k in keys if k.get("kid") == header.get("kid")), None)
+            if not key:
+                raise Exception("Apple key not found")
+        
+        rsa_key = jwt.algorithms.RSAAlgorithm.from_jwk(key)
+        claims = jwt.decode(
+            identity_token,
+            rsa_key,
+            algorithms=[header["alg"]],
+            audience=settings.apple_client_id,
+            issuer=APPLE_ISS
+        )
+    except Exception as e:
+         raise HTTPException(status_code=401, detail=f"Invalid Apple token: {str(e)}")
+
+    if nonce and claims.get("nonce") != nonce:
+        raise HTTPException(status_code=401, detail="Invalid nonce")
+        
+    return {
+        "sub": claims["sub"],
+        "email": claims.get("email"),
+        "is_private_email": claims.get("is_private_email")
+    }

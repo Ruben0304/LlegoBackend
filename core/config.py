@@ -25,8 +25,13 @@ class Settings(BaseSettings):
     embedding_dimension: int = 768
 
     # Embedding Configuration
+    # Embedding Configuration
     embedding_task_type: str = "RETRIEVAL_DOCUMENT"
     query_task_type: str = "RETRIEVAL_QUERY"
+    
+    # Auth Configuration
+    google_client_id: str = "your-google-client-id"
+    apple_client_id: str = "your-apple-client-id"
 
     class Config:
         env_file = ".env"

@@ -2,9 +2,9 @@
 import strawberry
 from typing import Optional
 
-from .types import AuthResponse, RegisterInput, LoginInput, UserData
+from .types import AuthResponse, RegisterInput, LoginInput, UserData, SocialLoginInput, AppleLoginInput
 from repositories import auth_repo
-from utils.auth import create_access_token
+from utils.auth import create_access_token, verify_google, verify_apple
 
 
 @strawberry.type
@@ -53,6 +53,67 @@ class AuthMutation:
         # Create access token
         access_token = create_access_token(data={"sub": user.email, "user_id": user.id})
 
+        return AuthResponse(
+            access_token=access_token,
+            token_type="bearer",
+            user=UserData(
+                id=user.id,
+                name=user.name,
+                email=user.email,
+                phone=user.phone,
+                role=user.role,
+                created_at=user.createdAt.isoformat()
+            )
+        )
+
+
+    @strawberry.mutation(description="Login with Google")
+    async def login_with_google(self, input: SocialLoginInput) -> AuthResponse:
+        """Login with Google ID token."""
+        # Verify token
+        info = verify_google(input.id_token, input.nonce)
+        
+        # Create or update user
+        user = await auth_repo.upsert_social_user(
+            email=info["email"],
+            provider="google",
+            provider_user_id=info["sub"],
+            name=info["name"]
+        )
+        
+        # Create access token
+        access_token = create_access_token(data={"sub": user.email, "user_id": user.id})
+        
+        return AuthResponse(
+            access_token=access_token,
+            token_type="bearer",
+            user=UserData(
+                id=user.id,
+                name=user.name,
+                email=user.email,
+                phone=user.phone,
+                role=user.role,
+                created_at=user.createdAt.isoformat()
+            )
+        )
+
+    @strawberry.mutation(description="Login with Apple")
+    async def login_with_apple(self, input: AppleLoginInput) -> AuthResponse:
+        """Login with Apple Identity token."""
+        # Verify token
+        info = verify_apple(input.identity_token, input.nonce)
+        
+        # Create or update user
+        user = await auth_repo.upsert_social_user(
+            email=info["email"],
+            provider="apple",
+            provider_user_id=info["sub"],
+            apple_private_email=info["is_private_email"]
+        )
+        
+        # Create access token
+        access_token = create_access_token(data={"sub": user.email, "user_id": user.id})
+        
         return AuthResponse(
             access_token=access_token,
             token_type="bearer",

@@ -9,9 +9,12 @@ class User(BaseModel):
     name: str
     email: str
     phone: Optional[str] = None
-    password: str
+    password: Optional[str] = None
     role: str = "customer"  # "merchant" or "customer"
     createdAt: datetime
+    authProvider: str = "local"
+    providerUserId: Optional[str] = None
+    applePrivateEmail: Optional[str] = None
 
     class Config:
         populate_by_name = True

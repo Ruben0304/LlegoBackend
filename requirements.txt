@@ -9,3 +9,6 @@ qdrant-client
 python-jose[cryptography]
 bcrypt>=4.0.1
 httpx>=0.27.0
+google-auth>=2.0.0
+requests>=2.0.0
+pyjwt[crypto]>=2.8.0
