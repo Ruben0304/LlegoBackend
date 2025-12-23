@@ -12,7 +12,7 @@ def apply_optional_jwt(jwt: Optional[str], info: Info) -> Optional[str]:
         return None
 
     payload = decode_access_token(jwt)
-    if not payload:
+    if not payload or "user_id" not in payload:
         raise Exception("Invalid JWT")
 
     user_id = payload.get("user_id")

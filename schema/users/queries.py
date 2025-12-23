@@ -32,3 +32,11 @@ class UserQuery:
         apply_optional_jwt(jwt, info)
         users = await users_repo.search(query)
         return [UserType(**u.model_dump()) for u in users]
+
+    @strawberry.field(description="Usuario actual desde JWT")
+    async def me(self, info: Info, jwt: str) -> Optional[UserType]:
+        user_id = apply_optional_jwt(jwt, info)
+        if not user_id:
+            return None
+        user = await users_repo.get_by_id(user_id)
+        return UserType(**user.model_dump()) if user else None
