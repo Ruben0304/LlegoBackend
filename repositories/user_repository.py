@@ -1,5 +1,6 @@
 """User repository for database operations."""
 from typing import List, Optional, Dict, Any
+from bson import ObjectId
 from clients import get_database
 from models import User
 
@@ -15,7 +16,11 @@ class UserRepository:
 
     async def get_by_id(self, user_id: str) -> Optional[User]:
         db = get_database()
-        user = await db[self.collection_name].find_one({"_id": user_id})
+        try:
+            object_id = ObjectId(user_id)
+        except Exception:
+            object_id = user_id
+        user = await db[self.collection_name].find_one({"_id": object_id})
         return User(**self._convert_id(user)) if user else None
 
     async def search(self, query: str) -> List[User]:

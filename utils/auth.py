@@ -5,11 +5,11 @@ from typing import List, Optional, Union
 
 import bcrypt
 from jose import JWTError, jwt
+from core.config import settings
 
 # JWT configuration
-SECRET_KEY = "llego-secret-key-change-in-production"  # TODO: Move to environment variables
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 30  # 30 days
 
 # Social Login Imports
 try:
@@ -18,7 +18,6 @@ try:
     import requests
     import jwt
     from fastapi import HTTPException
-    from core.config import settings
 except ImportError:
     # Fallback or allow validation to fail if libs missing
     pass
@@ -30,6 +29,14 @@ _apple_keys_cache = []
 
 # bcrypt input limit
 MAX_BCRYPT_BYTES = 72
+
+
+def _get_jwt_secret() -> str:
+    """Return JWT secret from settings, raising if missing."""
+    secret = settings.jwt_secret
+    if not secret:
+        raise RuntimeError("JWT_SECRET is not configured")
+    return secret
 
 
 def _get_apple_audiences() -> Union[str, List[str]]:
@@ -117,14 +124,14 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
         expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
 
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, _get_jwt_secret(), algorithm=ALGORITHM)
     return encoded_jwt
 
 
 def decode_access_token(token: str) -> Optional[dict]:
     """Decode and validate a JWT access token."""
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, _get_jwt_secret(), algorithms=[ALGORITHM])
         return payload
     except Exception:
         return None

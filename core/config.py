@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     # Auth Configuration
     google_client_id: str = "your-google-client-id"
     apple_client_id: str = "your-apple-client-id"
+    jwt_secret: str = ""
 
     class Config:
         env_file = ".env"
