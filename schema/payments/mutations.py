@@ -1,14 +1,17 @@
 """GraphQL mutations for payment validation using Gemini OCR."""
 import strawberry
 import os
+from typing import Optional
 from datetime import datetime
 from pydantic import BaseModel, ValidationError
 from strawberry.file_uploads import Upload
+from strawberry.types import Info
 from google import genai
 from google.genai import types as genai_types
 
 from .types import PaymentType
 from repositories import payments_repo
+from utils.graphql_auth import apply_optional_jwt
 
 
 # Modelo Pydantic para la respuesta de Gemini (sin el id y createdAt)
@@ -26,7 +29,12 @@ class GeminiPaymentResponse(BaseModel):
 @strawberry.type
 class PaymentMutation:
     @strawberry.mutation(description="Validar una imagen de transferencia bancaria usando Gemini OCR")
-    async def validate_payment_image(self, file: Upload) -> PaymentType:
+    async def validate_payment_image(
+        self,
+        info: Info,
+        file: Upload,
+        jwt: Optional[str] = None
+    ) -> PaymentType:
         """
         Procesa una imagen de SMS bancario usando Gemini Vision API.
         Extrae los datos de la transferencia y los guarda en la base de datos.
@@ -38,6 +46,7 @@ class PaymentMutation:
             PaymentType con los datos extraídos y guardados en la base de datos
         """
         try:
+            apply_optional_jwt(jwt, info)
             # Obtener API key y modelo de Gemini desde variables de entorno
             api_key = os.getenv("GEMINI_API_KEY")
             model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")

@@ -1,17 +1,25 @@
 """GraphQL mutations for authentication."""
 import strawberry
 from typing import Optional
+from strawberry.types import Info
 
 from .types import AuthResponse, RegisterInput, LoginInput, UserData, SocialLoginInput, AppleLoginInput
 from repositories import auth_repo
 from utils.auth import create_access_token, verify_google, verify_apple
+from utils.graphql_auth import apply_optional_jwt
 
 
 @strawberry.type
 class AuthMutation:
     @strawberry.mutation(description="Register a new user")
-    async def register(self, input: RegisterInput) -> AuthResponse:
+    async def register(
+        self,
+        info: Info,
+        input: RegisterInput,
+        jwt: Optional[str] = None
+    ) -> AuthResponse:
         """Register a new user with email and password."""
+        apply_optional_jwt(jwt, info)
         # Check if user already exists
         existing_user = await auth_repo.get_user_by_email(input.email)
         if existing_user:
@@ -43,8 +51,9 @@ class AuthMutation:
         )
 
     @strawberry.mutation(description="Login with email and password")
-    async def login(self, input: LoginInput) -> AuthResponse:
+    async def login(self, info: Info, input: LoginInput, jwt: Optional[str] = None) -> AuthResponse:
         """Login with email and password."""
+        apply_optional_jwt(jwt, info)
         # Authenticate user
         user = await auth_repo.authenticate_user(input.email, input.password)
         if not user:
@@ -68,17 +77,23 @@ class AuthMutation:
 
 
     @strawberry.mutation(description="Login with Google")
-    async def login_with_google(self, input: SocialLoginInput) -> AuthResponse:
+    async def login_with_google(
+        self,
+        info: Info,
+        input: SocialLoginInput,
+        jwt: Optional[str] = None
+    ) -> AuthResponse:
         """Login with Google ID token."""
+        apply_optional_jwt(jwt, info)
         # Verify token
-        info = verify_google(input.id_token, input.nonce)
+        token_info = verify_google(input.id_token, input.nonce)
         
         # Create or update user
         user = await auth_repo.upsert_social_user(
-            email=info["email"],
+            email=token_info["email"],
             provider="google",
-            provider_user_id=info["sub"],
-            name=info["name"]
+            provider_user_id=token_info["sub"],
+            name=token_info["name"]
         )
         
         # Create access token
@@ -98,17 +113,23 @@ class AuthMutation:
         )
 
     @strawberry.mutation(description="Login with Apple")
-    async def login_with_apple(self, input: AppleLoginInput) -> AuthResponse:
+    async def login_with_apple(
+        self,
+        info: Info,
+        input: AppleLoginInput,
+        jwt: Optional[str] = None
+    ) -> AuthResponse:
         """Login with Apple Identity token."""
+        apply_optional_jwt(jwt, info)
         # Verify token
-        info = verify_apple(input.identity_token, input.nonce)
+        token_info = verify_apple(input.identity_token, input.nonce)
         
         # Create or update user
         user = await auth_repo.upsert_social_user(
-            email=info["email"],
+            email=token_info["email"],
             provider="apple",
-            provider_user_id=info["sub"],
-            apple_private_email=info["is_private_email"]
+            provider_user_id=token_info["sub"],
+            apple_private_email=token_info["is_private_email"]
         )
         
         # Create access token

@@ -1,9 +1,11 @@
 """GraphQL query resolvers for Product entity."""
 import strawberry
 from typing import List, Optional
+from strawberry.types import Info
 
 from .types import ProductType
 from models import products_repo
+from utils.graphql_auth import apply_optional_jwt
 
 
 @strawberry.type
@@ -11,11 +13,14 @@ class ProductQuery:
     @strawberry.field(description="Lista de productos")
     async def products(
         self,
+        info: Info,
         ids: Optional[List[str]] = None,
         branchId: Optional[str] = None,
         categoryId: Optional[str] = None,
-        availableOnly: bool = False
+        availableOnly: bool = False,
+        jwt: Optional[str] = None
     ) -> List[ProductType]:
+        apply_optional_jwt(jwt, info)
         if ids:
             products = await products_repo.get_by_ids(ids)
         elif branchId:
@@ -29,17 +34,21 @@ class ProductQuery:
         return [ProductType(**p.model_dump()) for p in products]
 
     @strawberry.field(description="Obtener producto por ID")
-    async def product(self, id: str) -> Optional[ProductType]:
+    async def product(self, info: Info, id: str, jwt: Optional[str] = None) -> Optional[ProductType]:
+        apply_optional_jwt(jwt, info)
         product = await products_repo.get_by_id(id)
         return ProductType(**product.model_dump()) if product else None
 
     @strawberry.field(description="Buscar productos")
     async def search_products(
         self,
+        info: Info,
         query: str,
         limit: int = 10,
-        use_vector_search: bool = True
+        use_vector_search: bool = True,
+        jwt: Optional[str] = None
     ) -> List[ProductType]:
+        apply_optional_jwt(jwt, info)
         if use_vector_search:
             # Use vector search
             from services.vector_search_service import VectorSearchService

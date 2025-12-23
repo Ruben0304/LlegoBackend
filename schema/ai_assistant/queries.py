@@ -1,6 +1,7 @@
 """GraphQL query resolvers for AI Assistant."""
 import strawberry
 from typing import Optional, List
+from strawberry.types import Info
 from schema.products.types import ProductType
 from schema.branches.types import BranchType
 from .types import (
@@ -12,12 +13,18 @@ from .types import (
 )
 from services.ai_assistant_service import AiAssistantService
 from models import products_repo, branches_repo, payment_methods_repo
+from utils.graphql_auth import apply_optional_jwt
 
 
 @strawberry.type
 class AiAssistantQuery:
     @strawberry.field(description="Send a message to the AI assistant and get a response")
-    async def ai_chat(self, input: AiAssistantChatInput) -> Optional[AiAssistantResponseType]:
+    async def ai_chat(
+        self,
+        info: Info,
+        input: AiAssistantChatInput,
+        jwt: Optional[str] = None
+    ) -> Optional[AiAssistantResponseType]:
         """
         Send a message to the AI assistant.
 
@@ -32,6 +39,7 @@ class AiAssistantQuery:
         Returns:
             AI assistant response with type, text, relevant IDs, and resolved entities
         """
+        apply_optional_jwt(jwt, info)
         try:
             ai_service = AiAssistantService()
             response = await ai_service.send_message(

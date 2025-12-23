@@ -1,7 +1,7 @@
 """Authentication utilities for password hashing and JWT tokens."""
 from datetime import datetime, timedelta
 from hashlib import sha256
-from typing import Optional
+from typing import List, Optional, Union
 
 import bcrypt
 from jose import JWTError, jwt
@@ -30,6 +30,18 @@ _apple_keys_cache = []
 
 # bcrypt input limit
 MAX_BCRYPT_BYTES = 72
+
+
+def _get_apple_audiences() -> Union[str, List[str]]:
+    """Return Apple audiences, supporting comma-separated env values."""
+    raw_audience = settings.apple_client_id
+    if not isinstance(raw_audience, str):
+        return raw_audience
+
+    parts = [part.strip() for part in raw_audience.split(",") if part.strip()]
+    if len(parts) <= 1:
+        return parts[0] if parts else raw_audience
+    return parts
 
 
 def _prepare_password(password: str) -> bytes:
@@ -114,7 +126,7 @@ def decode_access_token(token: str) -> Optional[dict]:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return payload
-    except JWTError:
+    except Exception:
         return None
 
 
@@ -175,7 +187,7 @@ def verify_apple(identity_token: str, nonce: str = None) -> dict:
             identity_token,
             rsa_key,
             algorithms=[header["alg"]],
-            audience=settings.apple_client_id,
+            audience=_get_apple_audiences(),
             issuer=APPLE_ISS
         )
     except Exception as e:

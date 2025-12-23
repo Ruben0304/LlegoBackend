@@ -1,15 +1,23 @@
 """GraphQL query resolvers for Branch entity."""
 import strawberry
 from typing import List, Optional
+from strawberry.types import Info
 
 from .types import BranchType, CoordinatesType
 from models import branches_repo
+from utils.graphql_auth import apply_optional_jwt
 
 
 @strawberry.type
 class BranchQuery:
     @strawberry.field(description="Lista de sucursales")
-    async def branches(self, businessId: Optional[str] = None) -> List[BranchType]:
+    async def branches(
+        self,
+        info: Info,
+        businessId: Optional[str] = None,
+        jwt: Optional[str] = None
+    ) -> List[BranchType]:
+        apply_optional_jwt(jwt, info)
         if businessId:
             branches = await branches_repo.get_by_business(businessId)
         else:
@@ -19,7 +27,8 @@ class BranchQuery:
         ) for b in branches]
 
     @strawberry.field(description="Obtener sucursal por ID")
-    async def branch(self, id: str) -> Optional[BranchType]:
+    async def branch(self, info: Info, id: str, jwt: Optional[str] = None) -> Optional[BranchType]:
+        apply_optional_jwt(jwt, info)
         branch = await branches_repo.get_by_id(id)
         if branch:
             return BranchType(
@@ -30,10 +39,13 @@ class BranchQuery:
     @strawberry.field(description="Buscar sucursales")
     async def search_branches(
         self,
+        info: Info,
         query: str,
         limit: int = 10,
-        use_vector_search: bool = True
+        use_vector_search: bool = True,
+        jwt: Optional[str] = None
     ) -> List[BranchType]:
+        apply_optional_jwt(jwt, info)
         if use_vector_search:
             # Use vector search
             from services.vector_search_service import VectorSearchService

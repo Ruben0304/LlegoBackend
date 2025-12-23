@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, Response
 from strawberry.fastapi import GraphQLRouter
@@ -21,8 +21,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+async def get_graphql_context(request: Request, response: Response) -> dict:
+    """Provide a mutable context for resolvers."""
+    return {"request": request, "response": response, "user_id": None}
+
+
 # Mount GraphQL router
-graphql_app = GraphQLRouter(schema, graphiql=True)
+graphql_app = GraphQLRouter(schema, graphiql=True, context_getter=get_graphql_context)
 app.include_router(graphql_app, prefix="/graphql")
 
 # Mount REST API router
@@ -55,4 +60,3 @@ def graphql_schema_download():
 if __name__ == "__main__":
     # Run the app with: python main.py
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
-
