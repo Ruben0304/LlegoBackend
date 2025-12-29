@@ -1,5 +1,5 @@
-"""REST API endpoints."""
 from fastapi import APIRouter, Query, HTTPException, UploadFile, File, Form
+from .endpoints.uploads import router as uploads_router
 from typing import List, Optional
 from pydantic import BaseModel
 import uuid
@@ -20,6 +20,7 @@ from services.payments import validate_payment_image_with_transfer_id
 from services.ai_assistant_service import AiAssistantService, AiAssistantResponse
 
 router = APIRouter()
+router.include_router(uploads_router)
 
 
 # Request/Response models for authentication

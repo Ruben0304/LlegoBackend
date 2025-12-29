@@ -1,12 +1,63 @@
 """Branch repository for database operations."""
 from typing import List, Optional, Dict, Any
+import uuid
 from clients import get_qdrant_client
 from models import Branch, Coordinates
 from qdrant_client.http import models as qdrant_models
+from qdrant_client.models import PointStruct
+from services.embeddings.gemini_service import GeminiEmbeddingService
 
 
 class BranchRepository:
     qdrant_collection_name = "branches"
+
+    async def create(self, branch: Branch) -> Branch:
+        """Create a new branch in Qdrant (only)."""
+        # 1. Generate embedding
+        embedding_service = GeminiEmbeddingService()
+        # Create a rich text representation for embedding
+        text_parts = [branch.name, branch.address or "", branch.phone]
+        text_parts.extend(branch.facilities)
+        text_to_embed = " ".join(filter(None, text_parts))
+        
+        embedding = embedding_service.generate_embedding(text_to_embed)
+
+        # 2. Insert into Qdrant
+        qdrant_client = get_qdrant_client()
+        
+        # Prepare payload
+        payload = {
+            "metadata": {
+                "mongo_id": str(branch.id),
+                "businessId": branch.businessId,
+                "name": branch.name,
+                "address": branch.address,
+                # coordinates should be dict
+                "coordinates": branch.coordinates.model_dump(),
+                "phone": branch.phone,
+                "schedule": branch.schedule,
+                "managerIds": branch.managerIds,
+                "status": branch.status,
+                "deliveryRadius": branch.deliveryRadius,
+                "facilities": branch.facilities,
+                "avatar": branch.avatar,
+                "coverImage": branch.coverImage,
+                "createdAt": branch.createdAt.isoformat()
+            }
+        }
+
+        point = PointStruct(
+            id=str(uuid.uuid4()),
+            vector=embedding,
+            payload=payload
+        )
+
+        await qdrant_client.upsert(
+            collection_name=self.qdrant_collection_name,
+            points=[point]
+        )
+
+        return branch
 
     async def get_all(self) -> List[Branch]:
         """Get all branches from Qdrant."""
@@ -200,6 +251,75 @@ class BranchRepository:
             print(f"Error fetching branches from Qdrant: {e}")
             return []
 
+    async def update(self, branch_id: str, updates: Dict[str, Any]) -> Optional[Branch]:
+        """Update a branch in Qdrant."""
+        try:
+            qdrant_client = get_qdrant_client()
+
+            # Find the point by mongo_id
+            result = await qdrant_client.scroll(
+                collection_name=self.qdrant_collection_name,
+                scroll_filter=qdrant_models.Filter(
+                    must=[
+                        qdrant_models.FieldCondition(
+                            key="metadata.mongo_id",
+                            match=qdrant_models.MatchValue(value=branch_id)
+                        )
+                    ]
+                ),
+                limit=1,
+                with_payload=True,
+                with_vectors=True
+            )
+
+            points, _ = result
+            if not points:
+                return None
+
+            point = points[0]
+            metadata = point.payload.get("metadata", {})
+
+            # Update metadata with new values
+            for key, value in updates.items():
+                metadata[key] = value
+
+            # Regenerate embedding if name, address, phone or facilities changed
+            if any(k in updates for k in ["name", "address", "phone", "facilities"]):
+                embedding_service = GeminiEmbeddingService()
+                text_parts = [
+                    metadata.get("name", ""),
+                    metadata.get("address", ""),
+                    metadata.get("phone", "")
+                ]
+                facilities = metadata.get("facilities", [])
+                if facilities:
+                    text_parts.extend(facilities)
+                text_to_embed = " ".join(filter(None, text_parts))
+                new_vector = embedding_service.generate_embedding(text_to_embed)
+            else:
+                new_vector = point.vector
+
+            # Update the point
+            updated_point = PointStruct(
+                id=point.id,
+                vector=new_vector,
+                payload={"metadata": metadata}
+            )
+
+            await qdrant_client.upsert(
+                collection_name=self.qdrant_collection_name,
+                points=[updated_point]
+            )
+
+            return self._point_to_branch(updated_point)
+        except Exception as e:
+            print(f"Error updating branch {branch_id}: {e}")
+            raise e
+
+    async def update_field(self, branch_id: str, field: str, value: Any) -> Optional[Branch]:
+        """Update a single field of a branch."""
+        return await self.update(branch_id, {field: value})
+
     @staticmethod
     def _point_to_branch(point) -> Optional[Branch]:
         """Convert a Qdrant point to a Branch model."""
@@ -227,6 +347,10 @@ class BranchRepository:
                 "schedule": metadata.get("schedule", {}),
                 "managerIds": metadata.get("managerIds", []),
                 "status": metadata.get("status", "active"),
+                "avatar": metadata.get("avatar"),
+                "coverImage": metadata.get("coverImage"),
+                "deliveryRadius": metadata.get("deliveryRadius"),
+                "facilities": metadata.get("facilities", []),
                 "createdAt": metadata.get("createdAt")
             }
 

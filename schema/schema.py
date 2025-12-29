@@ -4,11 +4,15 @@ from typing import Optional
 from strawberry.types import Info
 
 from .users.queries import UserQuery
+from .users.mutations import UserMutation
 from .businesses.queries import BusinessQuery
 from .branches.queries import BranchQuery
 from .products.queries import ProductQuery
 from .categories.queries import CategoryQuery
 from .auth.mutations import AuthMutation
+from .businesses.mutations import BusinessMutation
+from .branches.mutations import BranchMutation
+from .products.mutations import ProductMutation
 from .ai_assistant.queries import AiAssistantQuery
 from .extensions import UserIdExtension
 from utils.graphql_auth import apply_optional_jwt
@@ -28,7 +32,7 @@ class Query(UserQuery, BusinessQuery, BranchQuery, ProductQuery, CategoryQuery, 
 
 
 @strawberry.type
-class Mutation(AuthMutation):
+class Mutation(AuthMutation, UserMutation, BusinessMutation, BranchMutation, ProductMutation):
     pass
 
 

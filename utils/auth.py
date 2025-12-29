@@ -17,7 +17,7 @@ try:
     from google.auth.transport import requests as grequests
     import requests
     import jwt
-    from fastapi import HTTPException
+    from fastapi import HTTPException, Header
 except ImportError:
     # Fallback or allow validation to fail if libs missing
     pass
@@ -208,3 +208,16 @@ def verify_apple(identity_token: str, nonce: str = None) -> dict:
         "email": claims.get("email"),
         "is_private_email": claims.get("is_private_email")
     }
+
+def get_current_user_id_from_header(authorization: Optional[str] = Header(None)) -> Optional[str]:
+    """Extract user_id from Authorization header."""
+    if not authorization:
+        return None
+    try:
+        scheme, token = authorization.split()
+        if scheme.lower() != "bearer":
+            return None
+        payload = decode_access_token(token)
+        return payload.get("user_id") if payload else None
+    except Exception:
+        return None

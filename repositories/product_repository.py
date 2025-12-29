@@ -1,12 +1,155 @@
 """Product repository for database operations."""
 from typing import List, Optional, Dict, Any
+import uuid
 from clients import get_qdrant_client
 from models import Product
 from qdrant_client.http import models as qdrant_models
+from qdrant_client.models import PointStruct
+from services.embeddings.gemini_service import GeminiEmbeddingService
 
 
 class ProductRepository:
     qdrant_collection_name = "products"
+
+    async def create(self, product: Product) -> Product:
+        """Create a new product in Qdrant."""
+        try:
+            embedding_service = GeminiEmbeddingService()
+            text_to_embed = f"{product.name} {product.description or ''}"
+            embedding = embedding_service.generate_embedding(text_to_embed)
+
+            qdrant_client = get_qdrant_client()
+
+            payload = {
+                "metadata": {
+                    "mongo_id": str(product.id),
+                    "branchId": product.branchId,
+                    "name": product.name,
+                    "description": product.description,
+                    "weight": product.weight,
+                    "price": product.price,
+                    "currency": product.currency,
+                    "image": product.image,
+                    "availability": product.availability,
+                    "categoryId": product.categoryId,
+                    "createdAt": product.createdAt.isoformat() if product.createdAt else None
+                }
+            }
+
+            point = PointStruct(
+                id=str(uuid.uuid4()),
+                vector=embedding,
+                payload=payload
+            )
+
+            await qdrant_client.upsert(
+                collection_name=self.qdrant_collection_name,
+                points=[point]
+            )
+
+            return product
+        except Exception as e:
+            print(f"Error creating product in Qdrant: {e}")
+            raise e
+
+    async def update(self, product_id: str, updates: Dict[str, Any]) -> Optional[Product]:
+        """Update a product in Qdrant."""
+        try:
+            qdrant_client = get_qdrant_client()
+
+            # Find the point by mongo_id
+            result = await qdrant_client.scroll(
+                collection_name=self.qdrant_collection_name,
+                scroll_filter=qdrant_models.Filter(
+                    must=[
+                        qdrant_models.FieldCondition(
+                            key="metadata.mongo_id",
+                            match=qdrant_models.MatchValue(value=product_id)
+                        )
+                    ]
+                ),
+                limit=1,
+                with_payload=True,
+                with_vectors=True
+            )
+
+            points, _ = result
+            if not points:
+                return None
+
+            point = points[0]
+            metadata = point.payload.get("metadata", {})
+
+            # Update metadata with new values
+            for key, value in updates.items():
+                metadata[key] = value
+
+            # Regenerate embedding if name or description changed
+            if "name" in updates or "description" in updates:
+                embedding_service = GeminiEmbeddingService()
+                text_to_embed = f"{metadata.get('name', '')} {metadata.get('description', '')}"
+                new_vector = embedding_service.generate_embedding(text_to_embed)
+            else:
+                new_vector = point.vector
+
+            # Update the point
+            updated_point = PointStruct(
+                id=point.id,
+                vector=new_vector,
+                payload={"metadata": metadata}
+            )
+
+            await qdrant_client.upsert(
+                collection_name=self.qdrant_collection_name,
+                points=[updated_point]
+            )
+
+            return self._point_to_product(updated_point)
+        except Exception as e:
+            print(f"Error updating product {product_id}: {e}")
+            raise e
+
+    async def update_field(self, product_id: str, field: str, value: Any) -> Optional[Product]:
+        """Update a single field of a product."""
+        return await self.update(product_id, {field: value})
+
+    async def delete(self, product_id: str) -> bool:
+        """Delete a product from Qdrant."""
+        try:
+            qdrant_client = get_qdrant_client()
+
+            # Find the point by mongo_id to get its UUID
+            result = await qdrant_client.scroll(
+                collection_name=self.qdrant_collection_name,
+                scroll_filter=qdrant_models.Filter(
+                    must=[
+                        qdrant_models.FieldCondition(
+                            key="metadata.mongo_id",
+                            match=qdrant_models.MatchValue(value=product_id)
+                        )
+                    ]
+                ),
+                limit=1,
+                with_payload=False,
+                with_vectors=False
+            )
+
+            points, _ = result
+            if not points:
+                return False
+
+            # Delete by point ID
+            await qdrant_client.delete(
+                collection_name=self.qdrant_collection_name,
+                points_selector=qdrant_models.PointIdsList(
+                    points=[points[0].id]
+                )
+            )
+
+            return True
+        except Exception as e:
+            print(f"Error deleting product {product_id}: {e}")
+            return False
 
     async def get_all(self) -> List[Product]:
         """Get all products from Qdrant."""

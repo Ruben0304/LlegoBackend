@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     apple_client_id: str = "your-apple-client-id"
     jwt_secret: str = ""
 
+    # AWS Configuration
+    aws_access_key_id: str
+    aws_default_region: str
+    aws_endpoint_url: str
+    aws_secret_access_key: str
+    s3_bucket_name: str
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

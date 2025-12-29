@@ -11,6 +11,9 @@ class User(BaseModel):
     phone: Optional[str] = None
     password: Optional[str] = None
     role: str = "customer"  # "merchant" or "customer"
+    avatar: Optional[str] = None
+    businessIds: List[str] = []
+    branchIds: List[str] = []
     createdAt: datetime
     authProvider: str = "local"
     providerUserId: Optional[str] = None
@@ -27,6 +30,12 @@ class Business(BaseModel):
     type: str  # "coffee", "restaurant", etc.
     ownerId: str
     globalRating: float
+    avatar: str
+    coverImage: Optional[str] = None
+    description: Optional[str] = None
+    socialMedia: Optional[Dict[str, str]] = None
+    tags: List[str] = []
+    isActive: bool = True
     createdAt: datetime
 
     class Config:
@@ -43,12 +52,16 @@ class Branch(BaseModel):
     id: str = Field(alias="_id")
     businessId: str
     name: str
-    address: str
+    address: Optional[str] = None
     coordinates: Coordinates
     phone: str
     schedule: Dict[str, List[str]]  # {"mon": ["08:00-20:00"], ...}
     managerIds: List[str]
     status: str  # "active", etc.
+    avatar: Optional[str] = None
+    coverImage: Optional[str] = None
+    deliveryRadius: Optional[float] = None
+    facilities: List[str] = []
     createdAt: datetime
 
     class Config:
