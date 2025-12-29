@@ -51,6 +51,18 @@ def _get_apple_audiences() -> Union[str, List[str]]:
     return parts
 
 
+def _get_google_audiences() -> Union[str, List[str]]:
+    """Return Google audiences, supporting comma-separated env values."""
+    raw_audience = settings.google_client_id
+    if not isinstance(raw_audience, str):
+        return raw_audience
+
+    parts = [part.strip() for part in raw_audience.split(",") if part.strip()]
+    if len(parts) <= 1:
+        return parts[0] if parts else raw_audience
+    return parts
+
+
 def _prepare_password(password: str) -> bytes:
     """
     Prepare password for bcrypt hashing, ensuring it fits within the 72-byte limit.
@@ -143,14 +155,14 @@ def verify_google(id_token_str: str, nonce: str = None) -> dict:
         claims = id_token.verify_oauth2_token(
             id_token_str,
             grequests.Request(),
-            audience=settings.google_client_id
+            audience=_get_google_audiences()
         )
     except ValueError as e:
         raise HTTPException(status_code=401, detail=f"Invalid Google token: {str(e)}")
 
     if nonce and claims.get("nonce") != nonce:
         raise HTTPException(status_code=401, detail="Invalid nonce")
-        
+
     return {
         "sub": claims["sub"],
         "email": claims["email"],
