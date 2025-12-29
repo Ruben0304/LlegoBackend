@@ -110,7 +110,7 @@ type CoordinatesType {
 > **Nota**: Al registrar un negocio exitosamente, el `businessId` se agrega automáticamente a la lista `businessIds` del usuario autenticado.
 
 ```graphql
-mutation RegisterBusiness($business: CreateBusinessInput!, $branches: [CreateBranchInput!]!, $jwt: String) {
+mutation RegisterBusiness($business: CreateBusinessInput!, $branches: [RegisterBranchInput!]!, $jwt: String) {
   registerBusiness(businessInput: $business, branchesInput: $branches, jwt: $jwt) {
     id
     name

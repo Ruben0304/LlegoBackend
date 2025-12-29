@@ -6,7 +6,7 @@ from bson import ObjectId
 
 from models import Business, Branch, Coordinates
 from repositories import businesses_repo, branches_repo, users_repo
-from .inputs import CreateBusinessInput, CreateBranchInput, UpdateBusinessInput
+from .inputs import CreateBusinessInput, RegisterBranchInput, UpdateBusinessInput
 from .types import BusinessType
 from utils.graphql_auth import apply_optional_jwt
 from utils.s3 import delete_file
@@ -19,7 +19,7 @@ class BusinessMutation:
         self,
         info: Info,
         business_input: CreateBusinessInput,
-        branches_input: List[CreateBranchInput],
+        branches_input: List[RegisterBranchInput],
         jwt: Optional[str] = None
     ) -> BusinessType:
         """

@@ -1,6 +1,7 @@
 import strawberry
 from typing import Optional, List
 from strawberry.scalars import JSON
+from schema.branches.inputs import CoordinatesInput
 
 
 @strawberry.input
@@ -29,14 +30,7 @@ class UpdateBusinessInput:
 
 
 @strawberry.input
-class CoordinatesInput:
-    """Input for coordinates."""
-    lat: float
-    lng: float
-
-
-@strawberry.input
-class CreateBranchInput:
+class RegisterBranchInput:
     """Input for creating a branch within register_business mutation."""
     name: str
     coordinates: CoordinatesInput
