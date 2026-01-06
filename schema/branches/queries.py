@@ -17,19 +17,23 @@ class BranchQuery:
         self,
         info: Info,
         businessId: Optional[str] = None,
+        tipo: Optional[BranchTipo] = None,
         radiusKm: Optional[float] = None,
         jwt: Optional[str] = None
     ) -> List[ScoredBranchType]:
         """
         Get branches with proximity scoring.
-        
+
         If jwt is provided and user has location, results are scored by proximity.
         If radiusKm is provided, only branches within that radius are returned.
+        If tipo is provided, only branches with that tipo are returned.
         """
         apply_optional_jwt(jwt, info)
         user_id = info.context.get("user_id")
-        
-        if businessId:
+
+        if tipo:
+            branches = await branches_repo.get_by_tipo(tipo.value)
+        elif businessId:
             branches = await branches_repo.get_by_business(businessId)
         else:
             branches = await branches_repo.get_all()
@@ -170,28 +174,38 @@ class BranchQuery:
         latitude: float,
         radius_km: float = 5.0,
         only_active: bool = True,
+        tipo: Optional[BranchTipo] = None,
         jwt: Optional[str] = None
     ) -> List[NearbyBranchType]:
         """
         Find branches within a radius from given coordinates.
-        
+
         Args:
             longitude: Center longitude (X coordinate)
             latitude: Center latitude (Y coordinate)
             radius_km: Search radius in kilometers (default: 5km)
             only_active: Only return active branches (default: True)
-            
+            tipo: Optional filter by branch tipo
+
         Returns:
             List of branches with distance, ordered by proximity
         """
         apply_optional_jwt(jwt, info)
-        
+
+        # If tipo is specified, first get the branch IDs that have that tipo
+        store_ids = None
+        if tipo:
+            store_ids = await branches_repo.get_ids_by_tipo(tipo.value)
+            if not store_ids:
+                return []  # No branches with this tipo
+
         # Get nearby stores from MongoDB geospatial query
         nearby_stores = await store_locations_repo.find_nearby(
             longitude=longitude,
             latitude=latitude,
             radius_km=radius_km,
-            only_active=only_active
+            only_active=only_active,
+            store_ids=store_ids
         )
         
         results = []

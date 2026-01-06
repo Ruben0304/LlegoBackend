@@ -105,22 +105,24 @@ class StoreLocationRepository:
         longitude: float,
         latitude: float,
         radius_km: float,
-        only_active: bool = True
+        only_active: bool = True,
+        store_ids: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
         """
         Find stores within a radius.
-        
+
         Args:
             longitude: Center longitude
             latitude: Center latitude
             radius_km: Radius in kilometers
             only_active: If True, only return active stores
-            
+            store_ids: Optional list of store_ids to filter by
+
         Returns:
             List of stores with distance_m field, ordered by proximity
         """
         collection = self._get_collection()
-        
+
         # Build $geoNear stage with query filter for compound index
         geo_near_stage = {
             "$geoNear": {
@@ -133,11 +135,17 @@ class StoreLocationRepository:
                 "spherical": True
             }
         }
-        
-        # Include active filter in $geoNear query to use compound index
+
+        # Build query filter
+        query = {}
         if only_active:
-            geo_near_stage["$geoNear"]["query"] = {"active": True}
-        
+            query["active"] = True
+        if store_ids is not None:
+            query["store_id"] = {"$in": store_ids}
+
+        if query:
+            geo_near_stage["$geoNear"]["query"] = query
+
         pipeline = [
             geo_near_stage,
             {
@@ -150,7 +158,7 @@ class StoreLocationRepository:
                 }
             }
         ]
-        
+
         cursor = collection.aggregate(pipeline)
         return await cursor.to_list(length=None)
 

@@ -4,7 +4,8 @@ from typing import List, Optional
 from strawberry.types import Info
 
 from .types import ProductType, ScoredProductType
-from models import products_repo
+from models import products_repo, branches_repo
+from schema.branches.types import BranchTipo
 from utils.graphql_auth import apply_optional_jwt
 from services.scoring_service import scoring_service
 
@@ -19,21 +20,29 @@ class ProductQuery:
         branchId: Optional[str] = None,
         categoryId: Optional[str] = None,
         availableOnly: bool = False,
+        branchTipo: Optional[BranchTipo] = None,
         radiusKm: Optional[float] = None,
         jwt: Optional[str] = None
     ) -> List[ScoredProductType]:
         """
         Get products with proximity scoring.
-        
+
         If jwt is provided and user has location, results are scored by proximity.
         If radiusKm is provided, only products from branches within that radius are returned.
+        If branchTipo is provided, only products from branches with that tipo are returned.
         """
         apply_optional_jwt(jwt, info)
         user_id = info.context.get("user_id")
-        
+
         # Get products based on filters
         if ids:
             products = await products_repo.get_by_ids(ids)
+        elif branchTipo:
+            # Get branch IDs with the specified tipo, then get products from those branches
+            branch_ids = await branches_repo.get_ids_by_tipo(branchTipo.value)
+            if not branch_ids:
+                return []
+            products = await products_repo.get_by_branch_ids(branch_ids)
         elif branchId:
             products = await products_repo.get_by_branch(branchId)
         elif categoryId:
@@ -81,30 +90,48 @@ class ProductQuery:
         query: str,
         limit: int = 10,
         use_vector_search: bool = True,
+        branchTipo: Optional[BranchTipo] = None,
         radiusKm: Optional[float] = None,
         jwt: Optional[str] = None
     ) -> List[ScoredProductType]:
         """
         Search products with proximity scoring.
-        
+
         If jwt is provided and user has location, results are scored by proximity.
         If radiusKm is provided, only products from branches within that radius are returned.
+        If branchTipo is provided, only products from branches with that tipo are returned.
         """
         apply_optional_jwt(jwt, info)
         user_id = info.context.get("user_id")
-        
+
+        # Get branch IDs with the specified tipo for filtering
+        allowed_branch_ids = None
+        if branchTipo:
+            allowed_branch_ids = set(await branches_repo.get_ids_by_tipo(branchTipo.value))
+            if not allowed_branch_ids:
+                return []
+
         if use_vector_search:
             from services.vector_search_service import VectorSearchService
             vector_service = VectorSearchService()
-            product_ids = await vector_service.search_products(query, limit=limit)
-            
+            # Request more results if filtering by tipo to ensure we get enough after filtering
+            search_limit = limit * 3 if branchTipo else limit
+            product_ids = await vector_service.search_products(query, limit=search_limit)
+
             products = []
             for product_id in product_ids:
                 product = await products_repo.get_by_id(product_id)
                 if product:
-                    products.append(product)
+                    # Filter by branchTipo if specified
+                    if allowed_branch_ids is None or product.branchId in allowed_branch_ids:
+                        products.append(product)
+                        if len(products) >= limit:
+                            break
         else:
             products = await products_repo.search(query)
+            # Filter by branchTipo if specified
+            if allowed_branch_ids is not None:
+                products = [p for p in products if p.branchId in allowed_branch_ids]
         
         # If user is authenticated, apply scoring
         if user_id:

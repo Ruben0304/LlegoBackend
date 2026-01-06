@@ -431,6 +431,52 @@ class ProductRepository:
             print(f"Error fetching products by category from Qdrant: {e}")
             return []
 
+    async def get_by_branch_ids(self, branch_ids: List[str]) -> List[Product]:
+        """Get products from multiple branches using Qdrant filter."""
+        if not branch_ids:
+            return []
+        try:
+            qdrant_client = get_qdrant_client()
+            products = []
+            offset = None
+
+            # Filter by metadata.branchId matching any of the provided branch_ids
+            while True:
+                result = await qdrant_client.scroll(
+                    collection_name=self.qdrant_collection_name,
+                    scroll_filter=qdrant_models.Filter(
+                        must=[
+                            qdrant_models.FieldCondition(
+                                key="metadata.branchId",
+                                match=qdrant_models.MatchAny(any=branch_ids)
+                            )
+                        ]
+                    ),
+                    limit=100,
+                    offset=offset,
+                    with_payload=True,
+                    with_vectors=False
+                )
+
+                points, offset = result
+
+                if not points:
+                    break
+
+                for point in points:
+                    product = self._point_to_product(point)
+                    if product:
+                        products.append(product)
+
+                if offset is None:
+                    break
+
+            return products
+
+        except Exception as e:
+            print(f"Error fetching products by branch IDs from Qdrant: {e}")
+            return []
+
     @staticmethod
     def _point_to_product(point) -> Optional[Product]:
         """Convert a Qdrant point to a Product model."""

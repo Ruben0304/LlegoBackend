@@ -40,6 +40,7 @@ class BranchRepository:
                 "status": branch.status,
                 "deliveryRadius": branch.deliveryRadius,
                 "facilities": branch.facilities,
+                "tipos": branch.tipos,
                 "avatar": branch.avatar,
                 "coverImage": branch.coverImage,
                 "createdAt": branch.createdAt.isoformat()
@@ -351,6 +352,7 @@ class BranchRepository:
                 "coverImage": metadata.get("coverImage"),
                 "deliveryRadius": metadata.get("deliveryRadius"),
                 "facilities": metadata.get("facilities", []),
+                "tipos": metadata.get("tipos", []),
                 "createdAt": metadata.get("createdAt")
             }
 
@@ -359,3 +361,92 @@ class BranchRepository:
         except Exception as e:
             print(f"Error converting point to branch: {e}")
             return None
+
+    async def get_by_tipo(self, tipo: str) -> List[Branch]:
+        """Get branches that have a specific tipo from Qdrant."""
+        try:
+            qdrant_client = get_qdrant_client()
+            branches = []
+            offset = None
+
+            # Filter by metadata.tipos containing the tipo value
+            while True:
+                result = await qdrant_client.scroll(
+                    collection_name=self.qdrant_collection_name,
+                    scroll_filter=qdrant_models.Filter(
+                        must=[
+                            qdrant_models.FieldCondition(
+                                key="metadata.tipos",
+                                match=qdrant_models.MatchAny(any=[tipo])
+                            )
+                        ]
+                    ),
+                    limit=100,
+                    offset=offset,
+                    with_payload=True,
+                    with_vectors=False
+                )
+
+                points, offset = result
+
+                if not points:
+                    break
+
+                for point in points:
+                    branch = self._point_to_branch(point)
+                    if branch:
+                        branches.append(branch)
+
+                if offset is None:
+                    break
+
+            return branches
+
+        except Exception as e:
+            print(f"Error fetching branches by tipo from Qdrant: {e}")
+            return []
+
+    async def get_ids_by_tipo(self, tipo: str) -> List[str]:
+        """Get branch IDs that have a specific tipo from Qdrant."""
+        try:
+            qdrant_client = get_qdrant_client()
+            branch_ids = []
+            offset = None
+
+            # Filter by metadata.tipos containing the tipo value
+            while True:
+                result = await qdrant_client.scroll(
+                    collection_name=self.qdrant_collection_name,
+                    scroll_filter=qdrant_models.Filter(
+                        must=[
+                            qdrant_models.FieldCondition(
+                                key="metadata.tipos",
+                                match=qdrant_models.MatchAny(any=[tipo])
+                            )
+                        ]
+                    ),
+                    limit=100,
+                    offset=offset,
+                    with_payload=True,
+                    with_vectors=False
+                )
+
+                points, offset = result
+
+                if not points:
+                    break
+
+                for point in points:
+                    metadata = point.payload.get("metadata", {})
+                    mongo_id = metadata.get("mongo_id")
+                    if mongo_id:
+                        branch_ids.append(mongo_id)
+
+                if offset is None:
+                    break
+
+            return branch_ids
+
+        except Exception as e:
+            print(f"Error fetching branch IDs by tipo from Qdrant: {e}")
+            return []
