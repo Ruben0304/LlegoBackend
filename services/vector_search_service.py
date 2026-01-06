@@ -39,23 +39,25 @@ class VectorSearchService:
             task_type="RETRIEVAL_QUERY"
         )
 
-        # Search in Qdrant with minimum score threshold
-        search_params = {
-            "collection_name": "products",
-            "query_vector": query_embedding,
-            "limit": limit,
-            "score_threshold": score_threshold if score_threshold is not None else 0.60
-        }
+        # Search in Qdrant with minimum score threshold using query_points (v1.10+)
+        threshold = score_threshold if score_threshold is not None else 0.60
+        response = await self.qdrant_client.query_points(
+            collection_name="products",
+            query=query_embedding,
+            limit=limit,
+            score_threshold=threshold
+        )
 
-        # qdrant client is AsyncQdrantClient; its search method is a coroutine and must be awaited
-        results: List[ScoredPoint] = await self.qdrant_client.search(**search_params)
+        # query_points returns a QueryResponse object with .points attribute
+        results = response.points if hasattr(response, 'points') else response
 
-        print(f"Vector search for '{query}' returned {len(results)} results (threshold: {search_params['score_threshold']})")
+        print(f"Vector search for '{query}' returned {len(results)} results (threshold: {threshold})")
         for r in results:
-            print(f"  - Score: {r.score}, ID: {r.payload.get('id')}")
+            metadata = r.payload.get('metadata', {})
+            print(f"  - Score: {r.score}, ID: {metadata.get('mongo_id')}")
 
-        # Extract MongoDB IDs from payload
-        return [point.payload["id"] for point in results]
+        # Extract MongoDB IDs from payload metadata
+        return [point.payload.get("metadata", {}).get("mongo_id") for point in results if point.payload.get("metadata", {}).get("mongo_id")]
 
     async def search_branches(
         self,
@@ -82,23 +84,25 @@ class VectorSearchService:
             task_type="RETRIEVAL_QUERY"
         )
 
-        # Search in Qdrant with minimum score threshold
-        search_params = {
-            "collection_name": "branches",
-            "query_vector": query_embedding,
-            "limit": limit,
-            "score_threshold": score_threshold if score_threshold is not None else 0.55
-        }
+        # Search in Qdrant with minimum score threshold using query_points (v1.10+)
+        threshold = score_threshold if score_threshold is not None else 0.55
+        response = await self.qdrant_client.query_points(
+            collection_name="branches",
+            query=query_embedding,
+            limit=limit,
+            score_threshold=threshold
+        )
 
-        # qdrant client is AsyncQdrantClient; its search method is a coroutine and must be awaited
-        results: List[ScoredPoint] = await self.qdrant_client.search(**search_params)
+        # query_points returns a QueryResponse object with .points attribute
+        results = response.points if hasattr(response, 'points') else response
 
-        print(f"Vector search for '{query}' returned {len(results)} results (threshold: {search_params['score_threshold']})")
+        print(f"Vector search for '{query}' returned {len(results)} results (threshold: {threshold})")
         for r in results:
-            print(f"  - Score: {r.score}, ID: {r.payload.get('id')}")
+            metadata = r.payload.get('metadata', {})
+            print(f"  - Score: {r.score}, ID: {metadata.get('mongo_id')}")
 
-        # Extract MongoDB IDs from payload
-        return [point.payload["id"] for point in results]
+        # Extract MongoDB IDs from payload metadata
+        return [point.payload.get("metadata", {}).get("mongo_id") for point in results if point.payload.get("metadata", {}).get("mongo_id")]
 
     async def search_businesses(
         self,
@@ -125,20 +129,22 @@ class VectorSearchService:
             task_type="RETRIEVAL_QUERY"
         )
 
-        # Search in Qdrant with minimum score threshold
-        search_params = {
-            "collection_name": "businesses",
-            "query_vector": query_embedding,
-            "limit": limit,
-            "score_threshold": score_threshold if score_threshold is not None else 0.55
-        }
+        # Search in Qdrant with minimum score threshold using query_points (v1.10+)
+        threshold = score_threshold if score_threshold is not None else 0.55
+        response = await self.qdrant_client.query_points(
+            collection_name="businesses",
+            query=query_embedding,
+            limit=limit,
+            score_threshold=threshold
+        )
 
-        # qdrant client is AsyncQdrantClient; its search method is a coroutine and must be awaited
-        results: List[ScoredPoint] = await self.qdrant_client.search(**search_params)
+        # query_points returns a QueryResponse object with .points attribute
+        results = response.points if hasattr(response, 'points') else response
 
-        print(f"Vector search for '{query}' returned {len(results)} results (threshold: {search_params['score_threshold']})")
+        print(f"Vector search for '{query}' returned {len(results)} results (threshold: {threshold})")
         for r in results:
-            print(f"  - Score: {r.score}, ID: {r.payload.get('id')}")
+            metadata = r.payload.get('metadata', {})
+            print(f"  - Score: {r.score}, ID: {metadata.get('mongo_id')}")
 
-        # Extract MongoDB IDs from payload
-        return [point.payload["id"] for point in results]
+        # Extract MongoDB IDs from payload metadata
+        return [point.payload.get("metadata", {}).get("mongo_id") for point in results if point.payload.get("metadata", {}).get("mongo_id")]
