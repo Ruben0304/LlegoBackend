@@ -7,6 +7,7 @@ from .category_repository import CategoryRepository
 from .auth_repository import AuthRepository
 from .payment_repository import PaymentRepository
 from .payment_method_repository import PaymentMethodRepository
+from .store_location_repository import StoreLocationRepository, store_locations_repo
 
 # Repository instances
 users_repo = UserRepository()
@@ -27,6 +28,7 @@ __all__ = [
     "AuthRepository",
     "PaymentRepository",
     "PaymentMethodRepository",
+    "StoreLocationRepository",
     "users_repo",
     "businesses_repo",
     "branches_repo",
@@ -35,4 +37,5 @@ __all__ = [
     "auth_repo",
     "payments_repo",
     "payment_methods_repo",
+    "store_locations_repo",
 ]

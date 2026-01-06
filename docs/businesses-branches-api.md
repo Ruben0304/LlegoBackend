@@ -370,6 +370,7 @@ query GetBranch($id: String!, $jwt: String) {
 |-------|------|-----------|
 | name | String | No |
 | address | String | No |
+| coordinates | CoordinatesInput | No |
 | phone | String | No |
 | schedule | JSON | No |
 | status | String | No |
@@ -384,3 +385,91 @@ query GetBranch($id: String!, $jwt: String) {
 |-------|------|-----------|
 | lat | Float | Sí |
 | lng | Float | Sí |
+
+
+---
+
+## Queries Geoespaciales
+
+### Buscar Sucursales Cercanas
+
+```graphql
+query NearbyBranches($longitude: Float!, $latitude: Float!, $radiusKm: Float, $onlyActive: Boolean, $jwt: String) {
+  nearbyBranches(longitude: $longitude, latitude: $latitude, radiusKm: $radiusKm, onlyActive: $onlyActive, jwt: $jwt) {
+    id
+    name
+    address
+    phone
+    distanceM
+    distanceKm
+    coordinates {
+      coordinates
+    }
+    avatarUrl
+  }
+}
+```
+
+**Variables:**
+```json
+{
+  "jwt": "eyJhbG...",
+  "longitude": -82.3830,
+  "latitude": 23.1136,
+  "radiusKm": 5.0,
+  "onlyActive": true
+}
+```
+
+**Response:**
+```json
+{
+  "data": {
+    "nearbyBranches": [
+      {
+        "id": "6774branch123",
+        "name": "Sucursal Centro",
+        "address": "Calle Principal 123",
+        "phone": "+5355555555",
+        "distanceM": 1250.5,
+        "distanceKm": 1.2505,
+        "coordinates": {
+          "coordinates": [-82.3830, 23.1136]
+        },
+        "avatarUrl": "https://s3.../branches/avatars/xyz.jpg?..."
+      }
+    ]
+  }
+}
+```
+
+> **Nota**: Los resultados vienen ordenados por cercanía (más cercano primero).
+
+### Obtener Ubicación de Sucursal
+
+```graphql
+query BranchLocation($branchId: String!, $jwt: String) {
+  branchLocation(branchId: $branchId, jwt: $jwt) {
+    type
+    coordinates
+  }
+}
+```
+
+**Variables:**
+```json
+{
+  "jwt": "eyJhbG...",
+  "branchId": "6774branch123"
+}
+```
+
+---
+
+## Notas sobre Coordenadas
+
+- Las coordenadas se almacenan en formato GeoJSON: `[longitude, latitude]`
+- **IMPORTANTE**: El orden es `[lon, lat]`, NO `[lat, lon]`
+- Las ubicaciones se guardan en la colección `stores_location` de MongoDB con índice geoespacial
+- Al crear/actualizar una sucursal, las coordenadas se sincronizan automáticamente
+- Al cambiar el `status` de una sucursal, se actualiza el campo `active` en `stores_location`

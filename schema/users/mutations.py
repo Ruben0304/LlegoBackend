@@ -4,7 +4,7 @@ from typing import Optional
 from strawberry.types import Info
 
 from .types import UserType
-from .inputs import UpdateUserInput, AddBranchToUserInput
+from .inputs import UpdateUserInput, AddBranchToUserInput, UpdateLocationInput
 from repositories import users_repo, branches_repo, businesses_repo
 from utils.graphql_auth import apply_optional_jwt
 from utils.s3 import delete_file
@@ -196,3 +196,49 @@ class UserMutation:
             raise Exception("Error al eliminar el usuario")
 
         return True
+
+
+    @strawberry.mutation(description="Actualizar ubicación del usuario")
+    async def update_location(
+        self,
+        info: Info,
+        input: UpdateLocationInput,
+        jwt: Optional[str] = None
+    ) -> UserType:
+        """
+        Update user's current location.
+        
+        Args:
+            input: Location coordinates (longitude, latitude)
+            
+        Note: Coordinates are stored as GeoJSON Point [longitude, latitude]
+        """
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+
+        # Update location
+        updated_user = await users_repo.update_location(
+            user_id=user_id,
+            longitude=input.longitude,
+            latitude=input.latitude
+        )
+        
+        if not updated_user:
+            raise Exception("Error al actualizar la ubicación")
+
+        return UserType(
+            id=updated_user.id,
+            name=updated_user.name,
+            email=updated_user.email,
+            phone=updated_user.phone,
+            role=updated_user.role,
+            avatar=updated_user.avatar,
+            businessIds=updated_user.businessIds,
+            branchIds=updated_user.branchIds,
+            createdAt=updated_user.createdAt,
+            authProvider=updated_user.authProvider,
+            providerUserId=updated_user.providerUserId,
+            applePrivateEmail=updated_user.applePrivateEmail
+        )

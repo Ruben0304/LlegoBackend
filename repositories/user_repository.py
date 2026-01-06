@@ -109,6 +109,52 @@ class UserRepository:
         )
         return User(**self._convert_id(result)) if result else None
 
+    async def update_location(self, user_id: str, longitude: float, latitude: float) -> Optional[User]:
+        """
+        Update user location.
+        
+        Args:
+            user_id: The user ID
+            longitude: Longitude coordinate (X)
+            latitude: Latitude coordinate (Y)
+            
+        Returns:
+            Updated user or None
+        """
+        db = get_database()
+        try:
+            object_id = ObjectId(user_id)
+        except Exception:
+            object_id = user_id
+
+        result = await db[self.collection_name].find_one_and_update(
+            {"_id": object_id},
+            {
+                "$set": {
+                    "location": {
+                        "type": "Point",
+                        "coordinates": [longitude, latitude]  # [lon, lat]
+                    }
+                }
+            },
+            return_document=True
+        )
+        return User(**self._convert_id(result)) if result else None
+
+    async def get_location(self, user_id: str) -> Optional[tuple]:
+        """
+        Get user coordinates as (longitude, latitude) tuple.
+        
+        Returns:
+            Tuple of (longitude, latitude) or None if not found
+        """
+        user = await self.get_by_id(user_id)
+        if user and user.location:
+            coords = user.location.get("coordinates", [])
+            if len(coords) == 2:
+                return (coords[0], coords[1])  # (lon, lat)
+        return None
+
     async def delete(self, user_id: str) -> bool:
         """Delete a user from MongoDB."""
         db = get_database()

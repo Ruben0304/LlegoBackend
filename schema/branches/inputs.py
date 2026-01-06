@@ -32,6 +32,7 @@ class UpdateBranchInput:
     """Input for updating a branch."""
     name: Optional[str] = None
     address: Optional[str] = None
+    coordinates: Optional[CoordinatesInput] = None  # For updating location
     phone: Optional[str] = None
     schedule: Optional[JSON] = None
     status: Optional[str] = None

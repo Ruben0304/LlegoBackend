@@ -18,6 +18,7 @@ class User(BaseModel):
     authProvider: str = "local"
     providerUserId: Optional[str] = None
     applePrivateEmail: Optional[str] = None
+    location: Optional[Dict[str, any]] = None  # GeoJSON: {"type": "Point", "coordinates": [lon, lat]}
 
     class Config:
         populate_by_name = True

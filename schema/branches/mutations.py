@@ -8,7 +8,7 @@ from bson import ObjectId
 from .types import BranchType, CoordinatesType
 from .inputs import CreateBranchInput, UpdateBranchInput
 from models import Branch, Coordinates
-from repositories import branches_repo, businesses_repo
+from repositories import branches_repo, businesses_repo, store_locations_repo
 from utils.graphql_auth import apply_optional_jwt
 from utils.s3 import delete_file
 
@@ -62,6 +62,14 @@ class BranchMutation:
         )
 
         created_branch = await branches_repo.create(branch)
+
+        # Save location to MongoDB stores_location collection
+        await store_locations_repo.upsert(
+            store_id=branch_id,
+            longitude=input.coordinates.lng,
+            latitude=input.coordinates.lat,
+            active=True
+        )
 
         return BranchType(
             id=created_branch.id,
@@ -141,6 +149,24 @@ class BranchMutation:
             if branch.coverImage:
                 await delete_file(branch.coverImage)
             updates["coverImage"] = input.coverImage
+
+        # Handle coordinates update - save to MongoDB stores_location
+        if input.coordinates is not None:
+            await store_locations_repo.update_location(
+                store_id=branch_id,
+                longitude=input.coordinates.lng,
+                latitude=input.coordinates.lat
+            )
+            # Also update in Qdrant metadata
+            updates["coordinates"] = {
+                "type": "Point",
+                "coordinates": [input.coordinates.lng, input.coordinates.lat]
+            }
+
+        # Handle status change - sync active status to stores_location
+        if input.status is not None:
+            is_active = input.status == "active"
+            await store_locations_repo.set_active(store_id=branch_id, active=is_active)
 
         if not updates:
             raise Exception("No hay campos para actualizar")

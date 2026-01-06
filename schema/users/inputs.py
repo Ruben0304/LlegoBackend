@@ -15,3 +15,10 @@ class UpdateUserInput:
 class AddBranchToUserInput:
     """Input for adding a branch to a user."""
     branchId: str
+
+
+@strawberry.input
+class UpdateLocationInput:
+    """Input for updating user location."""
+    longitude: float  # X coordinate
+    latitude: float   # Y coordinate
