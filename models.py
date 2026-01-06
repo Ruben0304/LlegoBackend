@@ -1,6 +1,6 @@
 """Pydantic models for data validation and serialization."""
 from pydantic import BaseModel, Field
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from datetime import datetime
 
 
@@ -18,7 +18,7 @@ class User(BaseModel):
     authProvider: str = "local"
     providerUserId: Optional[str] = None
     applePrivateEmail: Optional[str] = None
-    location: Optional[Dict[str, any]] = None  # GeoJSON: {"type": "Point", "coordinates": [lon, lat]}
+    location: Optional[Dict[str, Any]] = None  # GeoJSON: {"type": "Point", "coordinates": [lon, lat]}
 
     class Config:
         populate_by_name = True
