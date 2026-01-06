@@ -152,10 +152,12 @@ class BranchMutation:
 
         # Handle coordinates update - save to MongoDB stores_location
         if input.coordinates is not None:
-            await store_locations_repo.update_location(
+            # Use upsert to create if not exists
+            await store_locations_repo.upsert(
                 store_id=branch_id,
                 longitude=input.coordinates.lng,
-                latitude=input.coordinates.lat
+                latitude=input.coordinates.lat,
+                active=branch.status == "active"
             )
             # Also update in Qdrant metadata
             updates["coordinates"] = {
