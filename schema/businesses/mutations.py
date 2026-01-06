@@ -61,6 +61,10 @@ class BusinessMutation:
 
         # 3. Crear Sucursales
         for branch_inp in branches_input:
+            # Validar que tipos no esté vacío
+            if not branch_inp.tipos:
+                raise Exception("Debe especificar al menos un tipo de establecimiento para cada sucursal")
+            
             branch_id = str(ObjectId())
 
             branch = Branch(
@@ -80,6 +84,7 @@ class BusinessMutation:
                 coverImage=branch_inp.coverImage,
                 deliveryRadius=branch_inp.deliveryRadius,
                 facilities=branch_inp.facilities or [],
+                tipos=[t.value for t in branch_inp.tipos],
                 createdAt=datetime.now()
             )
 

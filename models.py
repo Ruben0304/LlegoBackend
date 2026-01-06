@@ -63,6 +63,7 @@ class Branch(BaseModel):
     coverImage: Optional[str] = None
     deliveryRadius: Optional[float] = None
     facilities: List[str] = []
+    tipos: List[str] = []  # ["restaurante", "dulceria", "tienda"]
     createdAt: datetime
 
     class Config:

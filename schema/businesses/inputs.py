@@ -2,6 +2,7 @@ import strawberry
 from typing import Optional, List
 from strawberry.scalars import JSON
 from schema.branches.inputs import CoordinatesInput
+from schema.branches.types import BranchTipo
 
 
 @strawberry.input
@@ -36,6 +37,7 @@ class RegisterBranchInput:
     coordinates: CoordinatesInput
     phone: str
     schedule: JSON
+    tipos: List[BranchTipo]  # Obligatorio: ["restaurante", "dulceria", "tienda"]
     address: Optional[str] = None
     managerIds: Optional[List[str]] = None
     avatar: Optional[str] = None  # Optional, upload via REST endpoint

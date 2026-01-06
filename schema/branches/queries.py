@@ -3,7 +3,7 @@ import strawberry
 from typing import List, Optional
 from strawberry.types import Info
 
-from .types import BranchType, CoordinatesType, NearbyBranchType, ScoredBranchType
+from .types import BranchType, CoordinatesType, NearbyBranchType, ScoredBranchType, BranchTipo
 from models import branches_repo
 from repositories import store_locations_repo
 from utils.graphql_auth import apply_optional_jwt
@@ -52,8 +52,11 @@ class BranchQuery:
                 for item in scored_items:
                     branch = branch_map.get(item.id)
                     if branch:
+                        branch_data = branch.model_dump()
+                        branch_data['coordinates'] = CoordinatesType(**branch.coordinates.model_dump())
+                        branch_data['tipos'] = [BranchTipo(t) for t in (branch.tipos or [])]
                         results.append(ScoredBranchType(
-                            **{**branch.model_dump(), 'coordinates': CoordinatesType(**branch.coordinates.model_dump())},
+                            **branch_data,
                             score=item.score,
                             distance_m=item.distance_m
                         ))
@@ -62,7 +65,11 @@ class BranchQuery:
         # No user location - return without scoring
         return [
             ScoredBranchType(
-                **{**b.model_dump(), 'coordinates': CoordinatesType(**b.coordinates.model_dump())},
+                **{
+                    **b.model_dump(),
+                    'coordinates': CoordinatesType(**b.coordinates.model_dump()),
+                    'tipos': [BranchTipo(t) for t in (b.tipos or [])]
+                },
                 score=0.0,
                 distance_m=None
             )
@@ -75,7 +82,11 @@ class BranchQuery:
         branch = await branches_repo.get_by_id(id)
         if branch:
             return BranchType(
-                **{**branch.model_dump(), 'coordinates': CoordinatesType(**branch.coordinates.model_dump())}
+                **{
+                    **branch.model_dump(),
+                    'coordinates': CoordinatesType(**branch.coordinates.model_dump()),
+                    'tipos': [BranchTipo(t) for t in (branch.tipos or [])]
+                }
             )
         return None
 
@@ -122,14 +133,15 @@ class BranchQuery:
                     radius_km=radiusKm
                 )
                 
-                branch_map = {b.id: b for b in branches}
-                
                 results = []
                 for item in scored_items:
                     branch = branch_map.get(item.id)
                     if branch:
+                        branch_data = branch.model_dump()
+                        branch_data['coordinates'] = CoordinatesType(**branch.coordinates.model_dump())
+                        branch_data['tipos'] = [BranchTipo(t) for t in (branch.tipos or [])]
                         results.append(ScoredBranchType(
-                            **{**branch.model_dump(), 'coordinates': CoordinatesType(**branch.coordinates.model_dump())},
+                            **branch_data,
                             score=item.score,
                             distance_m=item.distance_m
                         ))
@@ -138,7 +150,11 @@ class BranchQuery:
         # No user location - return without scoring
         return [
             ScoredBranchType(
-                **{**b.model_dump(), 'coordinates': CoordinatesType(**b.coordinates.model_dump())},
+                **{
+                    **b.model_dump(),
+                    'coordinates': CoordinatesType(**b.coordinates.model_dump()),
+                    'tipos': [BranchTipo(t) for t in (b.tipos or [])]
+                },
                 score=0.0,
                 distance_m=None
             )
@@ -201,6 +217,7 @@ class BranchQuery:
                     coverImage=branch.coverImage,
                     deliveryRadius=branch.deliveryRadius,
                     facilities=branch.facilities,
+                    tipos=[BranchTipo(t) for t in (branch.tipos or [])],
                     createdAt=branch.createdAt,
                     distance_m=store.get("distance_m", 0.0)
                 ))

@@ -2,8 +2,17 @@
 import strawberry
 from typing import List, Optional
 from datetime import datetime
+from enum import Enum
 
 from utils.s3 import generate_presigned_url
+
+
+@strawberry.enum
+class BranchTipo(Enum):
+    """Tipos de establecimiento para una sucursal."""
+    RESTAURANTE = "restaurante"
+    DULCERIA = "dulceria"
+    TIENDA = "tienda"
 
 
 @strawberry.type
@@ -27,6 +36,7 @@ class BranchType:
     coverImage: Optional[str]
     deliveryRadius: Optional[float]
     facilities: List[str]
+    tipos: List[BranchTipo]
     createdAt: datetime
 
     @strawberry.field(description="Presigned URL for the branch avatar")
@@ -58,6 +68,7 @@ class NearbyBranchType:
     coverImage: Optional[str]
     deliveryRadius: Optional[float]
     facilities: List[str]
+    tipos: List[BranchTipo]
     createdAt: datetime
     distance_m: float  # Distance in meters from search point
 
@@ -94,6 +105,7 @@ class ScoredBranchType:
     coverImage: Optional[str]
     deliveryRadius: Optional[float]
     facilities: List[str]
+    tipos: List[BranchTipo]
     createdAt: datetime
     score: float  # Ranking score (0-1)
     distance_m: Optional[float] = None  # Distance in meters from user

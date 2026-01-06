@@ -3,6 +3,8 @@ import strawberry
 from typing import Optional, List
 from strawberry.scalars import JSON
 
+from .types import BranchTipo
+
 
 @strawberry.input
 class CoordinatesInput:
@@ -19,6 +21,7 @@ class CreateBranchInput:
     coordinates: CoordinatesInput
     phone: str
     schedule: JSON
+    tipos: List[BranchTipo]  # Obligatorio: ["restaurante", "dulceria", "tienda"]
     address: Optional[str] = None
     managerIds: Optional[List[str]] = None
     avatar: Optional[str] = None  # Path from /upload/branch/avatar
@@ -41,3 +44,4 @@ class UpdateBranchInput:
     managerIds: Optional[List[str]] = None
     avatar: Optional[str] = None  # Path from /upload/branch/avatar
     coverImage: Optional[str] = None  # Path from /upload/branch/cover
+    tipos: Optional[List[BranchTipo]] = None  # ["restaurante", "dulceria", "tienda"]

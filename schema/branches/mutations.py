@@ -5,7 +5,7 @@ from datetime import datetime
 from strawberry.types import Info
 from bson import ObjectId
 
-from .types import BranchType, CoordinatesType
+from .types import BranchType, CoordinatesType, BranchTipo
 from .inputs import CreateBranchInput, UpdateBranchInput
 from models import Branch, Coordinates
 from repositories import branches_repo, businesses_repo, store_locations_repo
@@ -39,6 +39,10 @@ class BranchMutation:
         if business.ownerId != user_id:
             raise Exception("No autorizado para crear sucursales en este negocio")
 
+        # Validate tipos is not empty
+        if not input.tipos:
+            raise Exception("Debe especificar al menos un tipo de establecimiento")
+
         # Create branch
         branch_id = str(ObjectId())
         branch = Branch(
@@ -58,6 +62,7 @@ class BranchMutation:
             coverImage=input.coverImage,
             deliveryRadius=input.deliveryRadius,
             facilities=input.facilities or [],
+            tipos=[t.value for t in input.tipos],
             createdAt=datetime.now()
         )
 
@@ -85,6 +90,7 @@ class BranchMutation:
             coverImage=created_branch.coverImage,
             deliveryRadius=created_branch.deliveryRadius,
             facilities=created_branch.facilities,
+            tipos=[BranchTipo(t) for t in created_branch.tipos],
             createdAt=created_branch.createdAt
         )
 
@@ -149,6 +155,10 @@ class BranchMutation:
             if branch.coverImage:
                 await delete_file(branch.coverImage)
             updates["coverImage"] = input.coverImage
+        if input.tipos is not None:
+            if not input.tipos:
+                raise Exception("Debe especificar al menos un tipo de establecimiento")
+            updates["tipos"] = [t.value for t in input.tipos]
 
         # Handle coordinates update - save to MongoDB stores_location
         if input.coordinates is not None:
@@ -192,5 +202,6 @@ class BranchMutation:
             coverImage=updated_branch.coverImage,
             deliveryRadius=updated_branch.deliveryRadius,
             facilities=updated_branch.facilities,
+            tipos=[BranchTipo(t) for t in (updated_branch.tipos or [])],
             createdAt=updated_branch.createdAt
         )
