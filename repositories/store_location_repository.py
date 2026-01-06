@@ -121,34 +121,35 @@ class StoreLocationRepository:
         """
         collection = self._get_collection()
         
+        # Build $geoNear stage with query filter for compound index
+        geo_near_stage = {
+            "$geoNear": {
+                "near": {
+                    "type": "Point",
+                    "coordinates": [longitude, latitude]
+                },
+                "distanceField": "distance_m",
+                "maxDistance": radius_km * 1000,  # Convert km to meters
+                "spherical": True
+            }
+        }
+        
+        # Include active filter in $geoNear query to use compound index
+        if only_active:
+            geo_near_stage["$geoNear"]["query"] = {"active": True}
+        
         pipeline = [
+            geo_near_stage,
             {
-                "$geoNear": {
-                    "near": {
-                        "type": "Point",
-                        "coordinates": [longitude, latitude]
-                    },
-                    "distanceField": "distance_m",
-                    "maxDistance": radius_km * 1000,  # Convert km to meters
-                    "spherical": True
+                "$project": {
+                    "_id": 0,
+                    "store_id": 1,
+                    "distance_m": 1,
+                    "location": 1,
+                    "active": 1
                 }
             }
         ]
-        
-        # Filter by active status if needed
-        if only_active:
-            pipeline.append({"$match": {"active": True}})
-        
-        # Project only needed fields
-        pipeline.append({
-            "$project": {
-                "_id": 0,
-                "store_id": 1,
-                "distance_m": 1,
-                "location": 1,
-                "active": 1
-            }
-        })
         
         cursor = collection.aggregate(pipeline)
         return await cursor.to_list(length=None)
