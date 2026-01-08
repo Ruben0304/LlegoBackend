@@ -71,6 +71,39 @@ class BusinessRepository:
             print(f"Error fetching business {business_id}: {e}")
             return None
 
+    async def get_by_ids(self, business_ids: List[str]) -> List[Business]:
+        """Get multiple businesses by IDs from Qdrant in a single query."""
+        if not business_ids:
+            return []
+        try:
+            qdrant_client = get_qdrant_client()
+            result = await qdrant_client.scroll(
+                collection_name=self.qdrant_collection_name,
+                scroll_filter=qdrant_models.Filter(
+                    should=[
+                        qdrant_models.FieldCondition(
+                            key="metadata.mongo_id",
+                            match=qdrant_models.MatchValue(value=bid)
+                        )
+                        for bid in business_ids
+                    ]
+                ),
+                limit=len(business_ids),
+                with_payload=True,
+                with_vectors=False
+            )
+            
+            points, _ = result
+            businesses = []
+            for point in points:
+                business = self._point_to_business(point)
+                if business:
+                    businesses.append(business)
+            return businesses
+        except Exception as e:
+            print(f"Error fetching businesses by IDs: {e}")
+            return []
+
     async def search(self, query: str) -> List[Business]:
         """Search businesses by name or type in Qdrant (client-side filtering for simplicity if no vectors)."""
         # Note: Ideally we should use vector search if we have embeddings, 
