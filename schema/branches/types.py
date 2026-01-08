@@ -1,10 +1,14 @@
 """GraphQL type definitions for Branch entity."""
 import strawberry
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 from datetime import datetime
 from enum import Enum
+from strawberry.types import Info
 
 from utils.s3 import generate_presigned_url
+
+if TYPE_CHECKING:
+    from schema.products.types import ProductType
 
 
 @strawberry.enum
@@ -51,6 +55,30 @@ class BranchType:
             return generate_presigned_url(self.coverImage)
         return None
 
+    @strawberry.field(description="Products from this branch")
+    async def products(
+        self,
+        info: Info,
+        limit: int = 6,
+        available_only: bool = True
+    ) -> List["ProductType"]:
+        """Get products for this branch using DataLoader."""
+        from schema.products.types import ProductType
+        
+        loader = info.context.get("products_by_branch_loader")
+        if loader:
+            all_products = await loader.load(self.id)
+        else:
+            # Fallback if no loader
+            from models import products_repo
+            all_products = await products_repo.get_by_branch(self.id)
+        
+        # Filter and limit
+        if available_only:
+            all_products = [p for p in all_products if p.availability]
+        
+        return [ProductType(**p.model_dump()) for p in all_products[:limit]]
+
 
 @strawberry.type
 class NearbyBranchType:
@@ -87,6 +115,28 @@ class NearbyBranchType:
     @strawberry.field(description="Distance in kilometers")
     def distance_km(self) -> float:
         return self.distance_m / 1000
+
+    @strawberry.field(description="Products from this branch")
+    async def products(
+        self,
+        info: Info,
+        limit: int = 6,
+        available_only: bool = True
+    ) -> List["ProductType"]:
+        """Get products for this branch using DataLoader."""
+        from schema.products.types import ProductType
+        
+        loader = info.context.get("products_by_branch_loader")
+        if loader:
+            all_products = await loader.load(self.id)
+        else:
+            from models import products_repo
+            all_products = await products_repo.get_by_branch(self.id)
+        
+        if available_only:
+            all_products = [p for p in all_products if p.availability]
+        
+        return [ProductType(**p.model_dump()) for p in all_products[:limit]]
 
 
 @strawberry.type
@@ -127,3 +177,25 @@ class ScoredBranchType:
         if self.distance_m is not None:
             return self.distance_m / 1000
         return None
+
+    @strawberry.field(description="Products from this branch")
+    async def products(
+        self,
+        info: Info,
+        limit: int = 6,
+        available_only: bool = True
+    ) -> List["ProductType"]:
+        """Get products for this branch using DataLoader."""
+        from schema.products.types import ProductType
+        
+        loader = info.context.get("products_by_branch_loader")
+        if loader:
+            all_products = await loader.load(self.id)
+        else:
+            from models import products_repo
+            all_products = await products_repo.get_by_branch(self.id)
+        
+        if available_only:
+            all_products = [p for p in all_products if p.availability]
+        
+        return [ProductType(**p.model_dump()) for p in all_products[:limit]]

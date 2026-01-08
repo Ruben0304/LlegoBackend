@@ -10,6 +10,7 @@ from schema import schema
 from api import router
 from core.config import settings
 from utils.rate_limit import limiter, rate_limit_exceeded_handler, get_redis_status
+from utils.dataloaders import create_dataloaders
 
 
 # FastAPI application with lifespan for all clients
@@ -40,8 +41,14 @@ app.add_middleware(
 )
 
 async def get_graphql_context(request: Request, response: Response) -> dict:
-    """Provide a mutable context for resolvers."""
-    return {"request": request, "response": response, "user_id": None, "user_role": None}
+    """Provide a mutable context for resolvers with DataLoaders."""
+    return {
+        "request": request,
+        "response": response,
+        "user_id": None,
+        "user_role": None,
+        **create_dataloaders()  # Add DataLoaders to context
+    }
 
 
 # Mount GraphQL router
