@@ -34,6 +34,21 @@ class Settings(BaseSettings):
     apple_client_id: str = "your-apple-client-id"
     jwt_secret: str = ""
 
+    # CORS Configuration
+    # Comma-separated list of allowed origins for web
+    cors_origins_str: str = "http://localhost:3000"
+    
+    @property
+    def cors_origins(self) -> list[str]:
+        """Parse CORS origins from comma-separated string."""
+        return [origin.strip() for origin in self.cors_origins_str.split(",") if origin.strip()]
+
+    # Environment
+    environment: str = "development"  # "development" or "production"
+
+    # Redis Configuration (for rate limiting)
+    redis_url: str = "redis://localhost:6379"
+
     # AWS Configuration
     aws_access_key_id: str
     aws_default_region: str

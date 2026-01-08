@@ -18,24 +18,28 @@ class AuthMutation:
         input: RegisterInput,
         jwt: Optional[str] = None
     ) -> AuthResponse:
-        """Register a new user with email and password."""
+        """Register a new user with email and password. Role is always 'customer'."""
         apply_optional_jwt(jwt, info)
         # Check if user already exists
         existing_user = await auth_repo.get_user_by_email(input.email)
         if existing_user:
             raise Exception("Email already registered")
 
-        # Create new user
+        # Create new user - role is ALWAYS "customer", never from input
         user = await auth_repo.create_user(
             name=input.name,
             email=input.email,
             password=input.password,
             phone=input.phone,
-            role=input.role or "customer"
+            role="customer"  # Hardcoded - only changeable via DB
         )
 
-        # Create access token
-        access_token = create_access_token(data={"sub": user.email, "user_id": user.id})
+        # Create access token with role
+        access_token = create_access_token(data={
+            "sub": user.email,
+            "user_id": user.id,
+            "role": user.role
+        })
 
         return AuthResponse(
             access_token=access_token,
@@ -59,8 +63,12 @@ class AuthMutation:
         if not user:
             raise Exception("Invalid email or password")
 
-        # Create access token
-        access_token = create_access_token(data={"sub": user.email, "user_id": user.id})
+        # Create access token with role
+        access_token = create_access_token(data={
+            "sub": user.email,
+            "user_id": user.id,
+            "role": user.role
+        })
 
         return AuthResponse(
             access_token=access_token,
@@ -96,8 +104,12 @@ class AuthMutation:
             name=token_info["name"]
         )
         
-        # Create access token
-        access_token = create_access_token(data={"sub": user.email, "user_id": user.id})
+        # Create access token with role
+        access_token = create_access_token(data={
+            "sub": user.email,
+            "user_id": user.id,
+            "role": user.role
+        })
         
         return AuthResponse(
             access_token=access_token,
@@ -132,8 +144,12 @@ class AuthMutation:
             apple_private_email=token_info["is_private_email"]
         )
         
-        # Create access token
-        access_token = create_access_token(data={"sub": user.email, "user_id": user.id})
+        # Create access token with role
+        access_token = create_access_token(data={
+            "sub": user.email,
+            "user_id": user.id,
+            "role": user.role
+        })
         
         return AuthResponse(
             access_token=access_token,

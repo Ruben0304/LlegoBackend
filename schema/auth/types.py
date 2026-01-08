@@ -9,7 +9,7 @@ class RegisterInput:
     email: str
     password: str
     phone: Optional[str] = None
-    role: Optional[str] = "customer"
+    # role is NOT accepted from input - always defaults to "customer"
 
 
 @strawberry.input
