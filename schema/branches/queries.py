@@ -6,6 +6,10 @@ from strawberry.types import Info
 from .types import BranchType, CoordinatesType, NearbyBranchType, ScoredBranchType, BranchTipo
 from models import branches_repo
 from repositories import store_locations_repo
+from schema.pagination import (
+    BranchConnection, BranchEdge, NearbyBranchConnection, NearbyBranchEdge, PageInfo,
+    encode_scored_cursor, decode_scored_cursor, encode_cursor, decode_cursor
+)
 from utils.graphql_auth import apply_optional_jwt
 from utils.rate_limit import rate_limit_graphql
 from services.scoring_service import scoring_service
@@ -13,68 +17,112 @@ from services.scoring_service import scoring_service
 
 @strawberry.type
 class BranchQuery:
-    @strawberry.field(description="Lista de sucursales con scoring por cercanía")
+    @strawberry.field(description="Lista de sucursales con scoring por cercanía (paginado)")
     async def branches(
         self,
         info: Info,
+        first: int = 20,
+        after: Optional[str] = None,
         businessId: Optional[str] = None,
         tipo: Optional[BranchTipo] = None,
         radiusKm: Optional[float] = None,
         jwt: Optional[str] = None
-    ) -> List[ScoredBranchType]:
-        """Get branches with proximity scoring."""
+    ) -> BranchConnection:
+        """
+        Get branches with proximity scoring and cursor-based pagination.
+        
+        Args:
+            first: Number of items to fetch (default: 20, max: 50)
+            after: Cursor to fetch items after (for pagination)
+            businessId: Filter by business ID
+            tipo: Filter by branch type
+            radiusKm: Filter by radius in km from user location
+        """
         apply_optional_jwt(jwt, info)
         rate_limit_graphql(info, "graphql")
         user_id = info.context.get("user_id")
+        
+        first = min(first, 50)
 
         if tipo:
-            branches = await branches_repo.get_by_tipo(tipo.value)
+            all_branches = await branches_repo.get_by_tipo(tipo.value)
         elif businessId:
-            branches = await branches_repo.get_by_business(businessId)
+            all_branches = await branches_repo.get_by_business(businessId)
         else:
-            branches = await branches_repo.get_all()
+            all_branches = await branches_repo.get_all()
         
-        # If user is authenticated, apply scoring
+        # Apply scoring if user is authenticated
+        scored_branches: List[ScoredBranchType] = []
         if user_id:
             user_location = await scoring_service.get_user_location(user_id)
             if user_location:
-                branch_ids = [b.id for b in branches]
+                branch_ids = [b.id for b in all_branches]
                 scored_items = await scoring_service.score_branches(
                     branch_ids=branch_ids,
                     user_location=user_location,
                     radius_km=radiusKm
                 )
                 
-                # Create a map of branch data
-                branch_map = {b.id: b for b in branches}
+                branch_map = {b.id: b for b in all_branches}
                 
-                results = []
                 for item in scored_items:
                     branch = branch_map.get(item.id)
                     if branch:
                         branch_data = branch.model_dump()
                         branch_data['coordinates'] = CoordinatesType(**branch.coordinates.model_dump())
                         branch_data['tipos'] = [BranchTipo(t) for t in (branch.tipos or [])]
-                        results.append(ScoredBranchType(
+                        scored_branches.append(ScoredBranchType(
                             **branch_data,
                             score=item.score,
                             distance_m=item.distance_m
                         ))
-                return results
         
-        # No user location - return without scoring
-        return [
-            ScoredBranchType(
-                **{
-                    **b.model_dump(),
-                    'coordinates': CoordinatesType(**b.coordinates.model_dump()),
-                    'tipos': [BranchTipo(t) for t in (b.tipos or [])]
-                },
-                score=0.0,
-                distance_m=None
+        if not scored_branches:
+            scored_branches = [
+                ScoredBranchType(
+                    **{
+                        **b.model_dump(),
+                        'coordinates': CoordinatesType(**b.coordinates.model_dump()),
+                        'tipos': [BranchTipo(t) for t in (b.tipos or [])]
+                    },
+                    score=0.0,
+                    distance_m=None
+                )
+                for b in all_branches
+            ]
+        
+        total_count = len(scored_branches)
+        
+        # Apply cursor-based pagination
+        start_index = 0
+        if after:
+            cursor_score, cursor_id = decode_scored_cursor(after)
+            if cursor_id:
+                for i, branch in enumerate(scored_branches):
+                    if branch.id == cursor_id:
+                        start_index = i + 1
+                        break
+        
+        end_index = start_index + first
+        paginated_branches = scored_branches[start_index:end_index]
+        
+        edges = [
+            BranchEdge(
+                node=branch,
+                cursor=encode_scored_cursor(branch.score, branch.id)
             )
-            for b in branches
+            for branch in paginated_branches
         ]
+        
+        page_info = PageInfo(
+            has_next_page=end_index < total_count,
+            has_previous_page=start_index > 0,
+            start_cursor=edges[0].cursor if edges else None,
+            end_cursor=edges[-1].cursor if edges else None,
+            total_count=total_count
+        )
+        
+        return BranchConnection(edges=edges, page_info=page_info)
 
     @strawberry.field(description="Obtener sucursal por ID")
     async def branch(self, info: Info, id: str, jwt: Optional[str] = None) -> Optional[BranchType]:
@@ -90,108 +138,162 @@ class BranchQuery:
             )
         return None
 
-    @strawberry.field(description="Buscar sucursales con scoring por cercanía")
+    @strawberry.field(description="Buscar sucursales con scoring por cercanía (paginado)")
     async def search_branches(
         self,
         info: Info,
         query: str,
-        limit: int = 10,
+        first: int = 20,
+        after: Optional[str] = None,
         use_vector_search: bool = True,
         radiusKm: Optional[float] = None,
         jwt: Optional[str] = None
-    ) -> List[ScoredBranchType]:
-        """Search branches with proximity scoring."""
+    ) -> BranchConnection:
+        """
+        Search branches with proximity scoring and cursor-based pagination.
+        
+        Args:
+            query: Search query string
+            first: Number of items to fetch (default: 20, max: 50)
+            after: Cursor to fetch items after (for pagination)
+            use_vector_search: Use vector search (default: True)
+            radiusKm: Filter by radius in km from user location
+        """
         apply_optional_jwt(jwt, info)
-        rate_limit_graphql(info, "search")  # 10/min - vector search is expensive
+        rate_limit_graphql(info, "search")
         user_id = info.context.get("user_id")
+        
+        first = min(first, 50)
         
         if use_vector_search:
             from services.vector_search_service import VectorSearchService
             vector_service = VectorSearchService()
-            branch_ids = await vector_service.search_branches(query, limit=limit)
+            branch_ids = await vector_service.search_branches(query, limit=200)
             
-            branches = []
+            all_branches = []
             for branch_id in branch_ids:
                 branch = await branches_repo.get_by_id(branch_id)
                 if branch:
-                    branches.append(branch)
+                    all_branches.append(branch)
         else:
-            branches = await branches_repo.search(query)
+            all_branches = await branches_repo.search(query)
         
-        # If user is authenticated, apply scoring
+        # Apply scoring if user is authenticated
+        scored_branches: List[ScoredBranchType] = []
         if user_id:
             user_location = await scoring_service.get_user_location(user_id)
             if user_location:
-                branch_ids = [b.id for b in branches]
+                branch_ids = [b.id for b in all_branches]
                 scored_items = await scoring_service.score_branches(
                     branch_ids=branch_ids,
                     user_location=user_location,
                     radius_km=radiusKm
                 )
                 
-                results = []
+                branch_map = {b.id: b for b in all_branches}
+                
                 for item in scored_items:
                     branch = branch_map.get(item.id)
                     if branch:
                         branch_data = branch.model_dump()
                         branch_data['coordinates'] = CoordinatesType(**branch.coordinates.model_dump())
                         branch_data['tipos'] = [BranchTipo(t) for t in (branch.tipos or [])]
-                        results.append(ScoredBranchType(
+                        scored_branches.append(ScoredBranchType(
                             **branch_data,
                             score=item.score,
                             distance_m=item.distance_m
                         ))
-                return results
         
-        # No user location - return without scoring
-        return [
-            ScoredBranchType(
-                **{
-                    **b.model_dump(),
-                    'coordinates': CoordinatesType(**b.coordinates.model_dump()),
-                    'tipos': [BranchTipo(t) for t in (b.tipos or [])]
-                },
-                score=0.0,
-                distance_m=None
+        if not scored_branches:
+            scored_branches = [
+                ScoredBranchType(
+                    **{
+                        **b.model_dump(),
+                        'coordinates': CoordinatesType(**b.coordinates.model_dump()),
+                        'tipos': [BranchTipo(t) for t in (b.tipos or [])]
+                    },
+                    score=0.0,
+                    distance_m=None
+                )
+                for b in all_branches
+            ]
+        
+        total_count = len(scored_branches)
+        
+        # Apply cursor-based pagination
+        start_index = 0
+        if after:
+            cursor_score, cursor_id = decode_scored_cursor(after)
+            if cursor_id:
+                for i, branch in enumerate(scored_branches):
+                    if branch.id == cursor_id:
+                        start_index = i + 1
+                        break
+        
+        end_index = start_index + first
+        paginated_branches = scored_branches[start_index:end_index]
+        
+        edges = [
+            BranchEdge(
+                node=branch,
+                cursor=encode_scored_cursor(branch.score, branch.id)
             )
-            for b in branches
+            for branch in paginated_branches
         ]
+        
+        page_info = PageInfo(
+            has_next_page=end_index < total_count,
+            has_previous_page=start_index > 0,
+            start_cursor=edges[0].cursor if edges else None,
+            end_cursor=edges[-1].cursor if edges else None,
+            total_count=total_count
+        )
+        
+        return BranchConnection(edges=edges, page_info=page_info)
 
 
-    @strawberry.field(description="Buscar sucursales cercanas por coordenadas")
+    @strawberry.field(description="Buscar sucursales cercanas por coordenadas (paginado)")
     async def nearby_branches(
         self,
         info: Info,
         longitude: float,
         latitude: float,
+        first: int = 20,
+        after: Optional[str] = None,
         radius_km: float = 5.0,
         only_active: bool = True,
         tipo: Optional[BranchTipo] = None,
         jwt: Optional[str] = None
-    ) -> List[NearbyBranchType]:
+    ) -> NearbyBranchConnection:
         """
-        Find branches within a radius from given coordinates.
+        Find branches within a radius from given coordinates with cursor-based pagination.
 
         Args:
             longitude: Center longitude (X coordinate)
             latitude: Center latitude (Y coordinate)
+            first: Number of items to fetch (default: 20, max: 50)
+            after: Cursor to fetch items after (for pagination)
             radius_km: Search radius in kilometers (default: 5km)
             only_active: Only return active branches (default: True)
             tipo: Optional filter by branch tipo
 
         Returns:
-            List of branches with distance, ordered by proximity
+            Connection with branches and pagination info, ordered by proximity
         """
         apply_optional_jwt(jwt, info)
+        
+        first = min(first, 50)
 
         # If tipo is specified, first get the branch IDs that have that tipo
         store_ids = None
         if tipo:
             store_ids = await branches_repo.get_ids_by_tipo(tipo.value)
             if not store_ids:
-                return []  # No branches with this tipo
+                return NearbyBranchConnection(edges=[], page_info=PageInfo(
+                    has_next_page=False, has_previous_page=False, total_count=0
+                ))
 
-        # Get nearby stores from MongoDB geospatial query
+        # Get all nearby stores from MongoDB geospatial query
         nearby_stores = await store_locations_repo.find_nearby(
             longitude=longitude,
             latitude=latitude,
@@ -200,16 +302,14 @@ class BranchQuery:
             store_ids=store_ids
         )
         
-        results = []
+        all_branches: List[NearbyBranchType] = []
         for store in nearby_stores:
-            # Get full branch data from Qdrant
             branch = await branches_repo.get_by_id(store["store_id"])
             if branch:
-                # Get coordinates from MongoDB (source of truth)
                 location = store.get("location", {})
                 coords = location.get("coordinates", [0.0, 0.0])
                 
-                results.append(NearbyBranchType(
+                all_branches.append(NearbyBranchType(
                     id=branch.id,
                     businessId=branch.businessId,
                     name=branch.name,
@@ -228,7 +328,38 @@ class BranchQuery:
                     distance_m=store.get("distance_m", 0.0)
                 ))
         
-        return results
+        total_count = len(all_branches)
+        
+        # Apply cursor-based pagination
+        start_index = 0
+        if after:
+            cursor_id = decode_cursor(after)
+            if cursor_id:
+                for i, branch in enumerate(all_branches):
+                    if branch.id == cursor_id:
+                        start_index = i + 1
+                        break
+        
+        end_index = start_index + first
+        paginated_branches = all_branches[start_index:end_index]
+        
+        edges = [
+            NearbyBranchEdge(
+                node=branch,
+                cursor=encode_cursor(branch.id)
+            )
+            for branch in paginated_branches
+        ]
+        
+        page_info = PageInfo(
+            has_next_page=end_index < total_count,
+            has_previous_page=start_index > 0,
+            start_cursor=edges[0].cursor if edges else None,
+            end_cursor=edges[-1].cursor if edges else None,
+            total_count=total_count
+        )
+        
+        return NearbyBranchConnection(edges=edges, page_info=page_info)
 
     @strawberry.field(description="Obtener ubicación de una sucursal desde MongoDB")
     async def branch_location(

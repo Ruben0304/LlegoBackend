@@ -6,6 +6,10 @@ from strawberry.types import Info
 from .types import ProductType, ScoredProductType
 from models import products_repo, branches_repo
 from schema.branches.types import BranchTipo
+from schema.pagination import (
+    ProductConnection, ProductEdge, PageInfo,
+    encode_scored_cursor, decode_scored_cursor
+)
 from utils.graphql_auth import apply_optional_jwt
 from utils.rate_limit import rate_limit_graphql
 from services.scoring_service import scoring_service
@@ -13,10 +17,12 @@ from services.scoring_service import scoring_service
 
 @strawberry.type
 class ProductQuery:
-    @strawberry.field(description="Lista de productos con scoring por cercanía")
+    @strawberry.field(description="Lista de productos con scoring por cercanía (paginado)")
     async def products(
         self,
         info: Info,
+        first: int = 20,
+        after: Optional[str] = None,
         ids: Optional[List[str]] = None,
         branchId: Optional[str] = None,
         categoryId: Optional[str] = None,
@@ -24,41 +30,57 @@ class ProductQuery:
         branchTipo: Optional[BranchTipo] = None,
         radiusKm: Optional[float] = None,
         jwt: Optional[str] = None
-    ) -> List[ScoredProductType]:
-        """Get products with proximity scoring."""
+    ) -> ProductConnection:
+        """
+        Get products with proximity scoring and cursor-based pagination.
+        
+        Args:
+            first: Number of items to fetch (default: 20, max: 50)
+            after: Cursor to fetch items after (for pagination)
+            ids: Filter by specific product IDs
+            branchId: Filter by branch ID
+            categoryId: Filter by category ID
+            availableOnly: Only return available products
+            branchTipo: Filter by branch type
+            radiusKm: Filter by radius in km from user location
+        """
         apply_optional_jwt(jwt, info)
         rate_limit_graphql(info, "graphql")
         user_id = info.context.get("user_id")
+        
+        # Limit max items per request
+        first = min(first, 50)
 
         # Get products based on filters
         if ids:
-            products = await products_repo.get_by_ids(ids)
+            all_products = await products_repo.get_by_ids(ids)
         elif branchTipo:
-            # Get branch IDs with the specified tipo, then get products from those branches
             branch_ids = await branches_repo.get_ids_by_tipo(branchTipo.value)
             if not branch_ids:
-                return []
-            products = await products_repo.get_by_branch_ids(branch_ids)
+                return ProductConnection(edges=[], page_info=PageInfo(
+                    has_next_page=False, has_previous_page=False, total_count=0
+                ))
+            all_products = await products_repo.get_by_branch_ids(branch_ids)
         elif branchId:
-            products = await products_repo.get_by_branch(branchId)
+            all_products = await products_repo.get_by_branch(branchId)
         elif categoryId:
-            products = await products_repo.get_by_category(categoryId)
+            all_products = await products_repo.get_by_category(categoryId)
         elif availableOnly:
-            products = await products_repo.get_available()
+            all_products = await products_repo.get_available()
         else:
-            products = await products_repo.get_all()
+            all_products = await products_repo.get_all()
         
-        # If user is authenticated, apply scoring
+        # Apply scoring if user is authenticated
+        scored_products: List[ScoredProductType] = []
         if user_id:
             user_location = await scoring_service.get_user_location(user_id)
             if user_location:
                 scored_items = await scoring_service.score_products_by_branch(
-                    products=products,
+                    products=all_products,
                     user_location=user_location,
                     radius_km=radiusKm
                 )
-                
-                return [
+                scored_products = [
                     ScoredProductType(
                         **item.item.model_dump(),
                         score=item.score,
@@ -67,11 +89,47 @@ class ProductQuery:
                     for item in scored_items
                 ]
         
-        # No user location - return without scoring (score=0, no distance)
-        return [
-            ScoredProductType(**p.model_dump(), score=0.0, distance_m=None)
-            for p in products
+        if not scored_products:
+            scored_products = [
+                ScoredProductType(**p.model_dump(), score=0.0, distance_m=None)
+                for p in all_products
+            ]
+        
+        total_count = len(scored_products)
+        
+        # Apply cursor-based pagination
+        start_index = 0
+        if after:
+            cursor_score, cursor_id = decode_scored_cursor(after)
+            if cursor_id:
+                for i, product in enumerate(scored_products):
+                    if product.id == cursor_id:
+                        start_index = i + 1
+                        break
+        
+        # Slice the results
+        end_index = start_index + first
+        paginated_products = scored_products[start_index:end_index]
+        
+        # Build edges with cursors
+        edges = [
+            ProductEdge(
+                node=product,
+                cursor=encode_scored_cursor(product.score, product.id)
+            )
+            for product in paginated_products
         ]
+        
+        # Build page info
+        page_info = PageInfo(
+            has_next_page=end_index < total_count,
+            has_previous_page=start_index > 0,
+            start_cursor=edges[0].cursor if edges else None,
+            end_cursor=edges[-1].cursor if edges else None,
+            total_count=total_count
+        )
+        
+        return ProductConnection(edges=edges, page_info=page_info)
 
     @strawberry.field(description="Obtener producto por ID")
     async def product(self, info: Info, id: str, jwt: Optional[str] = None) -> Optional[ProductType]:
@@ -79,62 +137,73 @@ class ProductQuery:
         product = await products_repo.get_by_id(id)
         return ProductType(**product.model_dump()) if product else None
 
-    @strawberry.field(description="Buscar productos con scoring por cercanía")
+    @strawberry.field(description="Buscar productos con scoring por cercanía (paginado)")
     async def search_products(
         self,
         info: Info,
         query: str,
-        limit: int = 10,
+        first: int = 20,
+        after: Optional[str] = None,
         use_vector_search: bool = True,
         branchTipo: Optional[BranchTipo] = None,
         radiusKm: Optional[float] = None,
         jwt: Optional[str] = None
-    ) -> List[ScoredProductType]:
-        """Search products with proximity scoring."""
+    ) -> ProductConnection:
+        """
+        Search products with proximity scoring and cursor-based pagination.
+        
+        Args:
+            query: Search query string
+            first: Number of items to fetch (default: 20, max: 50)
+            after: Cursor to fetch items after (for pagination)
+            use_vector_search: Use vector search (default: True)
+            branchTipo: Filter by branch type
+            radiusKm: Filter by radius in km from user location
+        """
         apply_optional_jwt(jwt, info)
-        rate_limit_graphql(info, "search")  # 10/min - vector search is expensive
+        rate_limit_graphql(info, "search")
         user_id = info.context.get("user_id")
+        
+        first = min(first, 50)
 
         # Get branch IDs with the specified tipo for filtering
         allowed_branch_ids = None
         if branchTipo:
             allowed_branch_ids = set(await branches_repo.get_ids_by_tipo(branchTipo.value))
             if not allowed_branch_ids:
-                return []
+                return ProductConnection(edges=[], page_info=PageInfo(
+                    has_next_page=False, has_previous_page=False, total_count=0
+                ))
 
         if use_vector_search:
             from services.vector_search_service import VectorSearchService
             vector_service = VectorSearchService()
-            # Request more results if filtering by tipo to ensure we get enough after filtering
-            search_limit = limit * 3 if branchTipo else limit
+            # Request more results for filtering and pagination
+            search_limit = 200
             product_ids = await vector_service.search_products(query, limit=search_limit)
 
-            products = []
+            all_products = []
             for product_id in product_ids:
                 product = await products_repo.get_by_id(product_id)
                 if product:
-                    # Filter by branchTipo if specified
                     if allowed_branch_ids is None or product.branchId in allowed_branch_ids:
-                        products.append(product)
-                        if len(products) >= limit:
-                            break
+                        all_products.append(product)
         else:
-            products = await products_repo.search(query)
-            # Filter by branchTipo if specified
+            all_products = await products_repo.search(query)
             if allowed_branch_ids is not None:
-                products = [p for p in products if p.branchId in allowed_branch_ids]
+                all_products = [p for p in all_products if p.branchId in allowed_branch_ids]
         
-        # If user is authenticated, apply scoring
+        # Apply scoring if user is authenticated
+        scored_products: List[ScoredProductType] = []
         if user_id:
             user_location = await scoring_service.get_user_location(user_id)
             if user_location:
                 scored_items = await scoring_service.score_products_by_branch(
-                    products=products,
+                    products=all_products,
                     user_location=user_location,
                     radius_km=radiusKm
                 )
-                
-                return [
+                scored_products = [
                     ScoredProductType(
                         **item.item.model_dump(),
                         score=item.score,
@@ -143,8 +212,41 @@ class ProductQuery:
                     for item in scored_items
                 ]
         
-        # No user location - return without scoring
-        return [
-            ScoredProductType(**p.model_dump(), score=0.0, distance_m=None)
-            for p in products
+        if not scored_products:
+            scored_products = [
+                ScoredProductType(**p.model_dump(), score=0.0, distance_m=None)
+                for p in all_products
+            ]
+        
+        total_count = len(scored_products)
+        
+        # Apply cursor-based pagination
+        start_index = 0
+        if after:
+            cursor_score, cursor_id = decode_scored_cursor(after)
+            if cursor_id:
+                for i, product in enumerate(scored_products):
+                    if product.id == cursor_id:
+                        start_index = i + 1
+                        break
+        
+        end_index = start_index + first
+        paginated_products = scored_products[start_index:end_index]
+        
+        edges = [
+            ProductEdge(
+                node=product,
+                cursor=encode_scored_cursor(product.score, product.id)
+            )
+            for product in paginated_products
         ]
+        
+        page_info = PageInfo(
+            has_next_page=end_index < total_count,
+            has_previous_page=start_index > 0,
+            start_cursor=edges[0].cursor if edges else None,
+            end_cursor=edges[-1].cursor if edges else None,
+            total_count=total_count
+        )
+        
+        return ProductConnection(edges=edges, page_info=page_info)
