@@ -1,14 +1,10 @@
 """GraphQL type definitions for Product entity."""
 import strawberry
 from datetime import datetime
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, Annotated
 from strawberry.types import Info
 
 from utils.s3 import generate_presigned_url
-
-if TYPE_CHECKING:
-    from schema.branches.types import BranchType
-    from schema.businesses.types import BusinessType
 
 
 @strawberry.type
@@ -30,7 +26,9 @@ class ProductType:
         return generate_presigned_url(self.image)
 
     @strawberry.field(description="Branch associated with this product")
-    async def branch(self, info: Info) -> Optional["BranchType"]:
+    async def branch(
+        self, info: Info
+    ) -> Optional[Annotated["BranchType", strawberry.lazy("schema.branches.types")]]:
         """Resolve the branch relationship using DataLoader."""
         from schema.branches.types import BranchType, CoordinatesType, BranchTipo
         
@@ -52,11 +50,12 @@ class ProductType:
         return None
 
     @strawberry.field(description="Business associated with this product (through branch)")
-    async def business(self, info: Info) -> Optional["BusinessType"]:
+    async def business(
+        self, info: Info
+    ) -> Optional[Annotated["BusinessType", strawberry.lazy("schema.businesses.types")]]:
         """Resolve the business relationship using DataLoaders."""
         from schema.businesses.types import BusinessType
         
-        # First get the branch
         branch_loader = info.context.get("branch_loader")
         if branch_loader:
             branch_data = await branch_loader.load(self.branchId)
@@ -67,7 +66,6 @@ class ProductType:
         if not branch_data:
             return None
         
-        # Then get the business
         business_loader = info.context.get("business_loader")
         if business_loader:
             business_data = await business_loader.load(branch_data.businessId)
@@ -94,8 +92,8 @@ class ScoredProductType:
     availability: bool
     categoryId: Optional[str] = None
     createdAt: datetime
-    score: float  # Ranking score (0-1)
-    distance_m: Optional[float] = None  # Distance in meters from user
+    score: float
+    distance_m: Optional[float] = None
 
     @strawberry.field(description="Presigned URL for the product image")
     def image_url(self) -> str:
@@ -108,7 +106,9 @@ class ScoredProductType:
         return None
 
     @strawberry.field(description="Branch associated with this product")
-    async def branch(self, info: Info) -> Optional["BranchType"]:
+    async def branch(
+        self, info: Info
+    ) -> Optional[Annotated["BranchType", strawberry.lazy("schema.branches.types")]]:
         """Resolve the branch relationship using DataLoader."""
         from schema.branches.types import BranchType, CoordinatesType, BranchTipo
         
@@ -130,11 +130,12 @@ class ScoredProductType:
         return None
 
     @strawberry.field(description="Business associated with this product (through branch)")
-    async def business(self, info: Info) -> Optional["BusinessType"]:
+    async def business(
+        self, info: Info
+    ) -> Optional[Annotated["BusinessType", strawberry.lazy("schema.businesses.types")]]:
         """Resolve the business relationship using DataLoaders."""
         from schema.businesses.types import BusinessType
         
-        # First get the branch
         branch_loader = info.context.get("branch_loader")
         if branch_loader:
             branch_data = await branch_loader.load(self.branchId)
@@ -145,7 +146,6 @@ class ScoredProductType:
         if not branch_data:
             return None
         
-        # Then get the business
         business_loader = info.context.get("business_loader")
         if business_loader:
             business_data = await business_loader.load(branch_data.businessId)

@@ -1,14 +1,11 @@
 """GraphQL type definitions for Branch entity."""
 import strawberry
-from typing import List, Optional, TYPE_CHECKING
+from typing import List, Optional, Annotated
 from datetime import datetime
 from enum import Enum
 from strawberry.types import Info
 
 from utils.s3 import generate_presigned_url
-
-if TYPE_CHECKING:
-    from schema.products.types import ProductType
 
 
 @strawberry.enum
@@ -61,7 +58,7 @@ class BranchType:
         info: Info,
         limit: int = 6,
         available_only: bool = True
-    ) -> List["ProductType"]:
+    ) -> List[Annotated["ProductType", strawberry.lazy("schema.products.types")]]:
         """Get products for this branch using DataLoader."""
         from schema.products.types import ProductType
         
@@ -69,11 +66,9 @@ class BranchType:
         if loader:
             all_products = await loader.load(self.id)
         else:
-            # Fallback if no loader
             from models import products_repo
             all_products = await products_repo.get_by_branch(self.id)
         
-        # Filter and limit
         if available_only:
             all_products = [p for p in all_products if p.availability]
         
@@ -98,7 +93,7 @@ class NearbyBranchType:
     facilities: List[str]
     tipos: List[BranchTipo]
     createdAt: datetime
-    distance_m: float  # Distance in meters from search point
+    distance_m: float
 
     @strawberry.field(description="Presigned URL for the branch avatar")
     def avatar_url(self) -> Optional[str]:
@@ -122,7 +117,7 @@ class NearbyBranchType:
         info: Info,
         limit: int = 6,
         available_only: bool = True
-    ) -> List["ProductType"]:
+    ) -> List[Annotated["ProductType", strawberry.lazy("schema.products.types")]]:
         """Get products for this branch using DataLoader."""
         from schema.products.types import ProductType
         
@@ -157,8 +152,8 @@ class ScoredBranchType:
     facilities: List[str]
     tipos: List[BranchTipo]
     createdAt: datetime
-    score: float  # Ranking score (0-1)
-    distance_m: Optional[float] = None  # Distance in meters from user
+    score: float
+    distance_m: Optional[float] = None
 
     @strawberry.field(description="Presigned URL for the branch avatar")
     def avatar_url(self) -> Optional[str]:
@@ -184,7 +179,7 @@ class ScoredBranchType:
         info: Info,
         limit: int = 6,
         available_only: bool = True
-    ) -> List["ProductType"]:
+    ) -> List[Annotated["ProductType", strawberry.lazy("schema.products.types")]]:
         """Get products for this branch using DataLoader."""
         from schema.products.types import ProductType
         
