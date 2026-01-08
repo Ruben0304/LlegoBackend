@@ -14,6 +14,7 @@ from .types import (
 from services.ai_assistant_service import AiAssistantService
 from models import products_repo, branches_repo, payment_methods_repo
 from utils.graphql_auth import apply_optional_jwt
+from utils.rate_limit import rate_limit_graphql
 
 
 @strawberry.type
@@ -25,21 +26,9 @@ class AiAssistantQuery:
         input: AiAssistantChatInput,
         jwt: Optional[str] = None
     ) -> Optional[AiAssistantResponseType]:
-        """
-        Send a message to the AI assistant.
-
-        The assistant can help with:
-        - Payment method inquiries
-        - Product recommendations
-        - General queries about businesses
-
-        Args:
-            input: Message and session ID
-
-        Returns:
-            AI assistant response with type, text, relevant IDs, and resolved entities
-        """
+        """Send a message to the AI assistant."""
         apply_optional_jwt(jwt, info)
+        rate_limit_graphql(info, "ai")  # 2/min - very expensive (Gemini API)
         try:
             ai_service = AiAssistantService()
             response = await ai_service.send_message(

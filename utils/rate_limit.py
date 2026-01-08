@@ -1,21 +1,168 @@
-"""Rate limiting configuration using slowapi with Redis backend."""
+"""Rate limiting configuration using Redis."""
+import redis
+import time
+from typing import Optional
+from fastapi import Request, HTTPException
+from fastapi.responses import JSONResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from fastapi import Request, HTTPException
-from fastapi.responses import JSONResponse
-import redis
 
 from core.config import settings
 from utils.auth import decode_access_token
 
 
+# =============================================================================
+# Rate Limit Definitions (requests per minute)
+# =============================================================================
+
+RATE_LIMITS = {
+    "auth": 5,           # Login/register - by IP
+    "graphql": 20,       # General GraphQL queries
+    "graphql_anon": 30,  # GraphQL without auth
+    "uploads": 6,        # File uploads
+    "search": 10,        # Vector search (expensive)
+    "ai": 2,             # AI Assistant (very expensive)
+}
+
+# For slowapi decorators (REST endpoints)
+RATE_LIMIT_AUTH = "5/minute"
+RATE_LIMIT_UPLOADS = "6/minute"
+
+
+# =============================================================================
+# Redis Client
+# =============================================================================
+
+redis_client: Optional[redis.Redis] = None
+
+def init_redis() -> bool:
+    """Initialize Redis connection. Returns True if successful."""
+    global redis_client
+    try:
+        redis_client = redis.from_url(settings.redis_url, decode_responses=True)
+        redis_client.ping()
+        print(f"✓ Rate limiter connected to Redis")
+        return True
+    except Exception as e:
+        print(f"⚠ Redis not available: {e}")
+        redis_client = None
+        return False
+
+# Initialize on module load
+_redis_available = init_redis()
+
+
+def get_redis_status() -> dict:
+    """Get Redis connection status for diagnostics."""
+    global redis_client
+    if redis_client is None:
+        return {"connected": False, "error": "Not initialized"}
+    try:
+        redis_client.ping()
+        info = redis_client.info("server")
+        return {
+            "connected": True,
+            "version": info.get("redis_version"),
+            "url": settings.redis_url[:30] + "..." if len(settings.redis_url) > 30 else settings.redis_url
+        }
+    except Exception as e:
+        return {"connected": False, "error": str(e)}
+
+
+# =============================================================================
+# GraphQL Rate Limiting
+# =============================================================================
+
+def _get_rate_limit_key(identifier: str, limit_type: str) -> str:
+    """Generate Redis key for rate limiting."""
+    minute = int(time.time() // 60)
+    return f"ratelimit:{limit_type}:{identifier}:{minute}"
+
+
+def check_rate_limit(identifier: str, limit_type: str) -> tuple[bool, int]:
+    """
+    Check if request is within rate limit.
+    
+    Args:
+        identifier: User ID or IP address
+        limit_type: One of 'graphql', 'search', 'ai', etc.
+        
+    Returns:
+        Tuple of (allowed: bool, current_count: int)
+    """
+    global redis_client
+    
+    if redis_client is None:
+        return True, 0  # Allow if Redis not available
+    
+    limit = RATE_LIMITS.get(limit_type, 20)
+    key = _get_rate_limit_key(identifier, limit_type)
+    
+    try:
+        current = redis_client.get(key)
+        current_count = int(current) if current else 0
+        
+        if current_count >= limit:
+            return False, current_count
+        
+        # Increment counter
+        pipe = redis_client.pipeline()
+        pipe.incr(key)
+        pipe.expire(key, 60)  # Expire after 1 minute
+        pipe.execute()
+        
+        return True, current_count + 1
+    except Exception as e:
+        print(f"Rate limit check error: {e}")
+        return True, 0  # Allow on error
+
+
+def get_identifier_from_context(info) -> str:
+    """Extract user ID or IP from Strawberry context."""
+    context = info.context
+    
+    # Try user_id first (authenticated)
+    user_id = context.get("user_id")
+    if user_id:
+        return f"user:{user_id}"
+    
+    # Fallback to IP
+    request = context.get("request")
+    if request:
+        # Get real IP (considering proxies)
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            ip = forwarded.split(",")[0].strip()
+        else:
+            ip = request.client.host if request.client else "unknown"
+        return f"ip:{ip}"
+    
+    return "ip:unknown"
+
+
+def rate_limit_graphql(info, limit_type: str = "graphql"):
+    """
+    Check rate limit for GraphQL operations.
+    Raises Exception if limit exceeded.
+    
+    Usage in resolver:
+        rate_limit_graphql(info, "search")
+    """
+    identifier = get_identifier_from_context(info)
+    allowed, count = check_rate_limit(identifier, limit_type)
+    
+    if not allowed:
+        limit = RATE_LIMITS.get(limit_type, 20)
+        raise Exception(f"Rate limit exceeded ({limit}/min). Try again later.")
+
+
+# =============================================================================
+# REST Rate Limiting (slowapi)
+# =============================================================================
+
 def get_user_or_ip(request: Request) -> str:
-    """
-    Get rate limit key: user_id if authenticated, IP otherwise.
-    This ensures authenticated users get their own limit bucket.
-    """
-    # Try to get user from Authorization header
+    """Get rate limit key: user_id if authenticated, IP otherwise."""
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
         token = auth_header.split(" ")[1]
@@ -23,54 +170,15 @@ def get_user_or_ip(request: Request) -> str:
         if payload and "user_id" in payload:
             return f"user:{payload['user_id']}"
     
-    # Fallback to IP
     return f"ip:{get_remote_address(request)}"
 
 
-def get_ip_only(request: Request) -> str:
-    """Get IP address for rate limiting (used for auth endpoints)."""
-    return f"ip:{get_remote_address(request)}"
-
-
-# Initialize Redis storage for rate limiting
-try:
-    redis_client = redis.from_url(settings.redis_url, decode_responses=True)
-    redis_client.ping()  # Test connection
-    storage_uri = settings.redis_url
-    print(f"✓ Rate limiter connected to Redis")
-except Exception as e:
-    print(f"⚠ Redis not available, using in-memory rate limiting: {e}")
-    storage_uri = None
-
-# Create limiter with Redis backend (falls back to memory if Redis unavailable)
+# Create limiter for REST endpoints
 limiter = Limiter(
     key_func=get_user_or_ip,
-    storage_uri=storage_uri,
-    default_limits=["20/minute"]  # Default for all endpoints
+    storage_uri=settings.redis_url if _redis_available else None,
+    default_limits=["20/minute"]
 )
-
-
-# =============================================================================
-# Rate Limit Definitions
-# =============================================================================
-
-# Auth endpoints - by IP to prevent brute force
-RATE_LIMIT_AUTH = "5/minute"
-
-# General GraphQL - authenticated users
-RATE_LIMIT_GRAPHQL = "20/minute"
-
-# GraphQL without auth - stricter to prevent scraping
-RATE_LIMIT_GRAPHQL_ANON = "30/minute"
-
-# File uploads
-RATE_LIMIT_UPLOADS = "6/minute"
-
-# Vector search (expensive: Gemini + Qdrant)
-RATE_LIMIT_SEARCH = "10/minute"
-
-# AI Assistant (very expensive: Gemini API)
-RATE_LIMIT_AI = "2/minute"
 
 
 def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):

@@ -7,6 +7,7 @@ from .types import BranchType, CoordinatesType, NearbyBranchType, ScoredBranchTy
 from models import branches_repo
 from repositories import store_locations_repo
 from utils.graphql_auth import apply_optional_jwt
+from utils.rate_limit import rate_limit_graphql
 from services.scoring_service import scoring_service
 
 
@@ -21,14 +22,9 @@ class BranchQuery:
         radiusKm: Optional[float] = None,
         jwt: Optional[str] = None
     ) -> List[ScoredBranchType]:
-        """
-        Get branches with proximity scoring.
-
-        If jwt is provided and user has location, results are scored by proximity.
-        If radiusKm is provided, only branches within that radius are returned.
-        If tipo is provided, only branches with that tipo are returned.
-        """
+        """Get branches with proximity scoring."""
         apply_optional_jwt(jwt, info)
+        rate_limit_graphql(info, "graphql")
         user_id = info.context.get("user_id")
 
         if tipo:
@@ -104,13 +100,9 @@ class BranchQuery:
         radiusKm: Optional[float] = None,
         jwt: Optional[str] = None
     ) -> List[ScoredBranchType]:
-        """
-        Search branches with proximity scoring.
-        
-        If jwt is provided and user has location, results are scored by proximity.
-        If radiusKm is provided, only branches within that radius are returned.
-        """
+        """Search branches with proximity scoring."""
         apply_optional_jwt(jwt, info)
+        rate_limit_graphql(info, "search")  # 10/min - vector search is expensive
         user_id = info.context.get("user_id")
         
         if use_vector_search:

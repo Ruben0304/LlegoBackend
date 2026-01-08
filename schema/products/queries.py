@@ -7,6 +7,7 @@ from .types import ProductType, ScoredProductType
 from models import products_repo, branches_repo
 from schema.branches.types import BranchTipo
 from utils.graphql_auth import apply_optional_jwt
+from utils.rate_limit import rate_limit_graphql
 from services.scoring_service import scoring_service
 
 
@@ -24,14 +25,9 @@ class ProductQuery:
         radiusKm: Optional[float] = None,
         jwt: Optional[str] = None
     ) -> List[ScoredProductType]:
-        """
-        Get products with proximity scoring.
-
-        If jwt is provided and user has location, results are scored by proximity.
-        If radiusKm is provided, only products from branches within that radius are returned.
-        If branchTipo is provided, only products from branches with that tipo are returned.
-        """
+        """Get products with proximity scoring."""
         apply_optional_jwt(jwt, info)
+        rate_limit_graphql(info, "graphql")
         user_id = info.context.get("user_id")
 
         # Get products based on filters
@@ -94,14 +90,9 @@ class ProductQuery:
         radiusKm: Optional[float] = None,
         jwt: Optional[str] = None
     ) -> List[ScoredProductType]:
-        """
-        Search products with proximity scoring.
-
-        If jwt is provided and user has location, results are scored by proximity.
-        If radiusKm is provided, only products from branches within that radius are returned.
-        If branchTipo is provided, only products from branches with that tipo are returned.
-        """
+        """Search products with proximity scoring."""
         apply_optional_jwt(jwt, info)
+        rate_limit_graphql(info, "search")  # 10/min - vector search is expensive
         user_id = info.context.get("user_id")
 
         # Get branch IDs with the specified tipo for filtering

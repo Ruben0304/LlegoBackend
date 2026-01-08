@@ -2,7 +2,6 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, Response
 from strawberry.fastapi import GraphQLRouter
-from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 import uvicorn
 
@@ -10,7 +9,7 @@ from clients import lifespan
 from schema import schema
 from api import router
 from core.config import settings
-from utils.rate_limit import limiter, rate_limit_exceeded_handler, RATE_LIMIT_GRAPHQL
+from utils.rate_limit import limiter, rate_limit_exceeded_handler, get_redis_status
 
 
 # FastAPI application with lifespan for all clients
@@ -47,7 +46,6 @@ async def get_graphql_context(request: Request, response: Response) -> dict:
 
 # Mount GraphQL router
 # GraphiQL is disabled in production for security
-is_development = settings.environment == "development"
 graphql_app = GraphQLRouter(
     schema,
     graphiql=is_development,  # Only enable in development
@@ -63,6 +61,12 @@ app.include_router(router)
 def read_root():
     """Health check endpoint."""
     return {"status": "ok", "message": "Llego Backend con FastAPI y GraphQL listo"}
+
+
+@app.get("/health/redis")
+def health_redis():
+    """Redis connection status (for debugging rate limiting)."""
+    return get_redis_status()
 
 
 @app.get("/graphql/schema", response_class=PlainTextResponse)
