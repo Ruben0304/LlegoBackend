@@ -6,6 +6,10 @@ from models import Product
 from qdrant_client.http import models as qdrant_models
 from qdrant_client.models import PointStruct
 from services.embeddings.gemini_service import GeminiEmbeddingService
+from utils.cache import (
+    get_cached, set_cached, invalidate_product_cache,
+    get_product_cache_key, TTL_DEFAULT
+)
 
 
 class ProductRepository:
@@ -46,6 +50,10 @@ class ProductRepository:
                 collection_name=self.qdrant_collection_name,
                 points=[point]
             )
+
+            # Invalidate cache for this branch and all products
+            invalidate_product_cache(branch_id=product.branchId)
+            invalidate_product_cache()  # Invalidate get_all cache
 
             return product
         except Exception as e:
@@ -104,6 +112,12 @@ class ProductRepository:
                 points=[updated_point]
             )
 
+            # Invalidate cache for this product's branch and all products
+            branch_id = metadata.get("branchId")
+            if branch_id:
+                invalidate_product_cache(branch_id=branch_id)
+            invalidate_product_cache()  # Invalidate get_all cache
+
             return self._point_to_product(updated_point)
         except Exception as e:
             print(f"Error updating product {product_id}: {e}")
@@ -138,6 +152,9 @@ class ProductRepository:
             if not points:
                 return False
 
+            # Get branch_id before deleting for cache invalidation
+            branch_id = points[0].payload.get("metadata", {}).get("branchId")
+
             # Delete by point ID
             await qdrant_client.delete(
                 collection_name=self.qdrant_collection_name,
@@ -146,14 +163,26 @@ class ProductRepository:
                 )
             )
 
+            # Invalidate cache for this product's branch and all products
+            if branch_id:
+                invalidate_product_cache(branch_id=branch_id)
+            invalidate_product_cache()  # Invalidate get_all cache
+
             return True
         except Exception as e:
             print(f"Error deleting product {product_id}: {e}")
             return False
 
     async def get_all(self) -> List[Product]:
-        """Get all products from Qdrant."""
+        """Get all products from Qdrant with caching."""
+        cache_key = get_product_cache_key("all")
+        cached = get_cached(cache_key)
+
+        if cached is not None:
+            return [Product(**p) for p in cached]
+
         try:
+            print("→ Fetching all products from database")
             qdrant_client = get_qdrant_client()
             products = []
             offset = None
@@ -180,6 +209,10 @@ class ProductRepository:
 
                 if offset is None:
                     break
+
+            # Cache the results
+            serialized = [p.model_dump() for p in products]
+            set_cached(cache_key, serialized, TTL_DEFAULT)
 
             return products
 
@@ -264,8 +297,15 @@ class ProductRepository:
             return []
 
     async def get_by_branch(self, branch_id: str) -> List[Product]:
-        """Get products by branch ID from Qdrant."""
+        """Get products by branch ID from Qdrant with caching."""
+        cache_key = get_product_cache_key(f"branch:{branch_id}")
+        cached = get_cached(cache_key)
+
+        if cached is not None:
+            return [Product(**p) for p in cached]
+
         try:
+            print(f"→ Fetching products for branch {branch_id} from database")
             qdrant_client = get_qdrant_client()
             products = []
             offset = None
@@ -300,6 +340,10 @@ class ProductRepository:
 
                 if offset is None:
                     break
+
+            # Cache the results
+            serialized = [p.model_dump() for p in products]
+            set_cached(cache_key, serialized, TTL_DEFAULT)
 
             return products
 
@@ -352,8 +396,15 @@ class ProductRepository:
             return []
 
     async def get_by_ids(self, product_ids: List[str]) -> List[Product]:
-        """Get products by IDs from Qdrant."""
+        """Get products by IDs from Qdrant with caching."""
+        cache_key = get_product_cache_key(f"ids:{','.join(sorted(product_ids))}")
+        cached = get_cached(cache_key)
+
+        if cached is not None:
+            return [Product(**p) for p in cached]
+
         try:
+            print(f"→ Fetching {len(product_ids)} products by IDs from database")
             qdrant_client = get_qdrant_client()
             products = []
 
@@ -380,6 +431,10 @@ class ProductRepository:
                     product = self._point_to_product(points[0])
                     if product:
                         products.append(product)
+
+            # Cache the results
+            serialized = [p.model_dump() for p in products]
+            set_cached(cache_key, serialized, TTL_DEFAULT)
 
             return products
 
@@ -432,10 +487,18 @@ class ProductRepository:
             return []
 
     async def get_by_branch_ids(self, branch_ids: List[str]) -> List[Product]:
-        """Get products from multiple branches using Qdrant filter."""
+        """Get products from multiple branches using Qdrant filter with caching."""
         if not branch_ids:
             return []
+
+        cache_key = get_product_cache_key(f"branch_ids:{','.join(sorted(branch_ids))}")
+        cached = get_cached(cache_key)
+
+        if cached is not None:
+            return [Product(**p) for p in cached]
+
         try:
+            print(f"→ Fetching products for {len(branch_ids)} branches from database")
             qdrant_client = get_qdrant_client()
             products = []
             offset = None
@@ -470,6 +533,10 @@ class ProductRepository:
 
                 if offset is None:
                     break
+
+            # Cache the results
+            serialized = [p.model_dump() for p in products]
+            set_cached(cache_key, serialized, TTL_DEFAULT)
 
             return products
 

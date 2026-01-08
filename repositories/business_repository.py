@@ -6,14 +6,25 @@ from models import Business
 from qdrant_client.http import models as qdrant_models
 from qdrant_client.models import PointStruct
 from services.embeddings.gemini_service import GeminiEmbeddingService
+from utils.cache import (
+    get_cached, set_cached, invalidate_business_cache,
+    get_business_cache_key, TTL_DEFAULT
+)
 
 
 class BusinessRepository:
     qdrant_collection_name = "businesses"
 
     async def get_all(self) -> List[Business]:
-        """Get all businesses from Qdrant."""
+        """Get all businesses from Qdrant with caching."""
+        cache_key = get_business_cache_key("all")
+        cached = get_cached(cache_key)
+
+        if cached is not None:
+            return [Business(**b) for b in cached]
+
         try:
+            print("→ Fetching all businesses from database")
             qdrant_client = get_qdrant_client()
             businesses = []
             offset = None
@@ -26,34 +37,45 @@ class BusinessRepository:
                     with_payload=True,
                     with_vectors=False
                 )
-                
+
                 points, offset = result
                 if not points:
                     break
-                
+
                 for point in points:
                     business = self._point_to_business(point)
                     if business:
                         businesses.append(business)
-                
+
                 if offset is None:
                     break
-                    
+
+            # Cache the results
+            serialized = [b.model_dump() for b in businesses]
+            set_cached(cache_key, serialized, TTL_DEFAULT)
+
             return businesses
         except Exception as e:
             print(f"Error fetching all businesses: {e}")
             return []
 
     async def get_by_id(self, business_id: str) -> Optional[Business]:
-        """Get business by ID from Qdrant."""
+        """Get business by ID from Qdrant with caching."""
+        cache_key = get_business_cache_key(f"id:{business_id}")
+        cached = get_cached(cache_key)
+
+        if cached is not None:
+            return Business(**cached)
+
         try:
+            print(f"→ Fetching business {business_id} from database")
             qdrant_client = get_qdrant_client()
             result = await qdrant_client.scroll(
                 collection_name=self.qdrant_collection_name,
                 scroll_filter=qdrant_models.Filter(
                     must=[
                         qdrant_models.FieldCondition(
-                            key="metadata.mongo_id", 
+                            key="metadata.mongo_id",
                             match=qdrant_models.MatchValue(value=business_id)
                         )
                     ]
@@ -62,20 +84,32 @@ class BusinessRepository:
                 with_payload=True,
                 with_vectors=False
             )
-            
+
             points, _ = result
             if points:
-                return self._point_to_business(points[0])
+                business = self._point_to_business(points[0])
+                if business:
+                    # Cache the result
+                    set_cached(cache_key, business.model_dump(), TTL_DEFAULT)
+                return business
             return None
         except Exception as e:
             print(f"Error fetching business {business_id}: {e}")
             return None
 
     async def get_by_ids(self, business_ids: List[str]) -> List[Business]:
-        """Get multiple businesses by IDs from Qdrant in a single query."""
+        """Get multiple businesses by IDs from Qdrant with caching."""
         if not business_ids:
             return []
+
+        cache_key = get_business_cache_key(f"ids:{','.join(sorted(business_ids))}")
+        cached = get_cached(cache_key)
+
+        if cached is not None:
+            return [Business(**b) for b in cached]
+
         try:
+            print(f"→ Fetching {len(business_ids)} businesses from database")
             qdrant_client = get_qdrant_client()
             result = await qdrant_client.scroll(
                 collection_name=self.qdrant_collection_name,
@@ -92,13 +126,18 @@ class BusinessRepository:
                 with_payload=True,
                 with_vectors=False
             )
-            
+
             points, _ = result
             businesses = []
             for point in points:
                 business = self._point_to_business(point)
                 if business:
                     businesses.append(business)
+
+            # Cache the results
+            serialized = [b.model_dump() for b in businesses]
+            set_cached(cache_key, serialized, TTL_DEFAULT)
+
             return businesses
         except Exception as e:
             print(f"Error fetching businesses by IDs: {e}")
@@ -224,7 +263,10 @@ class BusinessRepository:
                 collection_name=self.qdrant_collection_name,
                 points=[point]
             )
-            
+
+            # Invalidate cache for all businesses
+            invalidate_business_cache()
+
             return business
         except Exception as e:
             print(f"Error creating business in Qdrant: {e}")
@@ -283,6 +325,10 @@ class BusinessRepository:
                 collection_name=self.qdrant_collection_name,
                 points=[updated_point]
             )
+
+            # Invalidate cache for this business and all businesses
+            invalidate_business_cache(business_id=business_id)
+            invalidate_business_cache()  # Invalidate get_all cache
 
             return self._point_to_business(updated_point)
         except Exception as e:

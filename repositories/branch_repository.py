@@ -6,6 +6,10 @@ from models import Branch, Coordinates
 from qdrant_client.http import models as qdrant_models
 from qdrant_client.models import PointStruct
 from services.embeddings.gemini_service import GeminiEmbeddingService
+from utils.cache import (
+    get_cached, set_cached, invalidate_branch_cache, invalidate_product_cache,
+    get_branch_cache_key, TTL_DEFAULT
+)
 
 
 class BranchRepository:
@@ -58,11 +62,22 @@ class BranchRepository:
             points=[point]
         )
 
+        # Invalidate cache for this business and all branches
+        invalidate_branch_cache(business_id=branch.businessId)
+        invalidate_branch_cache()  # Invalidate get_all cache
+
         return branch
 
     async def get_all(self) -> List[Branch]:
-        """Get all branches from Qdrant."""
+        """Get all branches from Qdrant with caching."""
+        cache_key = get_branch_cache_key("all")
+        cached = get_cached(cache_key)
+
+        if cached is not None:
+            return [Branch(**b) for b in cached]
+
         try:
+            print("→ Fetching all branches from database")
             qdrant_client = get_qdrant_client()
             branches = []
             offset = None
@@ -90,6 +105,10 @@ class BranchRepository:
                 if offset is None:
                     break
 
+            # Cache the results
+            serialized = [b.model_dump() for b in branches]
+            set_cached(cache_key, serialized, TTL_DEFAULT)
+
             return branches
 
         except Exception as e:
@@ -97,8 +116,15 @@ class BranchRepository:
             return []
 
     async def get_by_id(self, branch_id: str) -> Optional[Branch]:
-        """Get branch by ID from Qdrant (searches by metadata.mongo_id)."""
+        """Get branch by ID from Qdrant with caching."""
+        cache_key = get_branch_cache_key(f"id:{branch_id}")
+        cached = get_cached(cache_key)
+
+        if cached is not None:
+            return Branch(**cached)
+
         try:
+            print(f"→ Fetching branch {branch_id} from database")
             qdrant_client = get_qdrant_client()
 
             # Search for point with this mongo_id in metadata
@@ -120,7 +146,11 @@ class BranchRepository:
             points, _ = result
 
             if points:
-                return self._point_to_branch(points[0])
+                branch = self._point_to_branch(points[0])
+                if branch:
+                    # Cache the result
+                    set_cached(cache_key, branch.model_dump(), TTL_DEFAULT)
+                return branch
 
             return None
 
@@ -217,8 +247,15 @@ class BranchRepository:
             return []
 
     async def get_by_ids(self, branch_ids: List[str]) -> List[Branch]:
-        """Get branches by IDs from Qdrant."""
+        """Get branches by IDs from Qdrant with caching."""
+        cache_key = get_branch_cache_key(f"ids:{','.join(sorted(branch_ids))}")
+        cached = get_cached(cache_key)
+
+        if cached is not None:
+            return [Branch(**b) for b in cached]
+
         try:
+            print(f"→ Fetching {len(branch_ids)} branches from database")
             qdrant_client = get_qdrant_client()
             branches = []
 
@@ -245,6 +282,10 @@ class BranchRepository:
                     branch = self._point_to_branch(points[0])
                     if branch:
                         branches.append(branch)
+
+            # Cache the results
+            serialized = [b.model_dump() for b in branches]
+            set_cached(cache_key, serialized, TTL_DEFAULT)
 
             return branches
 
@@ -311,6 +352,16 @@ class BranchRepository:
                 collection_name=self.qdrant_collection_name,
                 points=[updated_point]
             )
+
+            # Invalidate cache for this branch, its business, and all branches
+            invalidate_branch_cache(branch_id=branch_id)
+            business_id = metadata.get("businessId")
+            if business_id:
+                invalidate_branch_cache(business_id=business_id)
+            invalidate_branch_cache()  # Invalidate get_all cache
+
+            # If branch has products, invalidate product cache too
+            invalidate_product_cache(branch_id=branch_id)
 
             return self._point_to_branch(updated_point)
         except Exception as e:
