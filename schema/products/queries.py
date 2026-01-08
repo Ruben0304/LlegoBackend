@@ -21,7 +21,7 @@ class ProductQuery:
     async def products(
         self,
         info: Info,
-        first: int = 20,
+        first: Optional[int] = None,
         after: Optional[str] = None,
         ids: Optional[List[str]] = None,
         branchId: Optional[str] = None,
@@ -35,34 +35,39 @@ class ProductQuery:
         Get products with proximity scoring and cursor-based pagination.
         
         Args:
-            first: Number of items to fetch (default: 20, max: 50)
+            first: Number of items to fetch. If not provided, returns all items (no pagination)
             after: Cursor to fetch items after (for pagination)
             ids: Filter by specific product IDs
-            branchId: Filter by branch ID
+            branchId: Filter by branch ID (takes priority over branchTipo)
             categoryId: Filter by category ID
             availableOnly: Only return available products
-            branchTipo: Filter by branch type
+            branchTipo: Filter by branch type (ignored if branchId is provided)
             radiusKm: Filter by radius in km from user location
         """
         apply_optional_jwt(jwt, info)
         rate_limit_graphql(info, "graphql")
         user_id = info.context.get("user_id")
         
-        # Limit max items per request
-        first = min(first, 50)
+        # Determine if pagination is enabled
+        use_pagination = first is not None
+        if use_pagination:
+            first = min(first, 50)
 
         # Get products based on filters
+        # branchId takes priority over branchTipo
         if ids:
             all_products = await products_repo.get_by_ids(ids)
+        elif branchId:
+            # Filter by specific branch (highest priority)
+            all_products = await products_repo.get_by_branch(branchId)
         elif branchTipo:
+            # Filter by branch type (only if no branchId)
             branch_ids = await branches_repo.get_ids_by_tipo(branchTipo.value)
             if not branch_ids:
                 return ProductConnection(edges=[], page_info=PageInfo(
                     has_next_page=False, has_previous_page=False, total_count=0
                 ))
             all_products = await products_repo.get_by_branch_ids(branch_ids)
-        elif branchId:
-            all_products = await products_repo.get_by_branch(branchId)
         elif categoryId:
             all_products = await products_repo.get_by_category(categoryId)
         elif availableOnly:
@@ -96,6 +101,26 @@ class ProductQuery:
             ]
         
         total_count = len(scored_products)
+        
+        # If no pagination, return all results
+        if not use_pagination:
+            edges = [
+                ProductEdge(
+                    node=product,
+                    cursor=encode_scored_cursor(product.score, product.id)
+                )
+                for product in scored_products
+            ]
+            
+            page_info = PageInfo(
+                has_next_page=False,
+                has_previous_page=False,
+                start_cursor=edges[0].cursor if edges else None,
+                end_cursor=edges[-1].cursor if edges else None,
+                total_count=total_count
+            )
+            
+            return ProductConnection(edges=edges, page_info=page_info)
         
         # Apply cursor-based pagination
         start_index = 0
@@ -142,7 +167,7 @@ class ProductQuery:
         self,
         info: Info,
         query: str,
-        first: int = 20,
+        first: Optional[int] = None,
         after: Optional[str] = None,
         use_vector_search: bool = True,
         branchTipo: Optional[BranchTipo] = None,
@@ -154,7 +179,7 @@ class ProductQuery:
         
         Args:
             query: Search query string
-            first: Number of items to fetch (default: 20, max: 50)
+            first: Number of items to fetch. If not provided, returns all items (no pagination)
             after: Cursor to fetch items after (for pagination)
             use_vector_search: Use vector search (default: True)
             branchTipo: Filter by branch type
@@ -164,7 +189,9 @@ class ProductQuery:
         rate_limit_graphql(info, "search")
         user_id = info.context.get("user_id")
         
-        first = min(first, 50)
+        use_pagination = first is not None
+        if use_pagination:
+            first = min(first, 50)
 
         # Get branch IDs with the specified tipo for filtering
         allowed_branch_ids = None
@@ -219,6 +246,26 @@ class ProductQuery:
             ]
         
         total_count = len(scored_products)
+        
+        # If no pagination, return all results
+        if not use_pagination:
+            edges = [
+                ProductEdge(
+                    node=product,
+                    cursor=encode_scored_cursor(product.score, product.id)
+                )
+                for product in scored_products
+            ]
+            
+            page_info = PageInfo(
+                has_next_page=False,
+                has_previous_page=False,
+                start_cursor=edges[0].cursor if edges else None,
+                end_cursor=edges[-1].cursor if edges else None,
+                total_count=total_count
+            )
+            
+            return ProductConnection(edges=edges, page_info=page_info)
         
         # Apply cursor-based pagination
         start_index = 0

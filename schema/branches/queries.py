@@ -21,7 +21,7 @@ class BranchQuery:
     async def branches(
         self,
         info: Info,
-        first: int = 20,
+        first: Optional[int] = None,
         after: Optional[str] = None,
         businessId: Optional[str] = None,
         tipo: Optional[BranchTipo] = None,
@@ -32,7 +32,7 @@ class BranchQuery:
         Get branches with proximity scoring and cursor-based pagination.
         
         Args:
-            first: Number of items to fetch (default: 20, max: 50)
+            first: Number of items to fetch. If not provided, returns all items (no pagination)
             after: Cursor to fetch items after (for pagination)
             businessId: Filter by business ID
             tipo: Filter by branch type
@@ -42,7 +42,9 @@ class BranchQuery:
         rate_limit_graphql(info, "graphql")
         user_id = info.context.get("user_id")
         
-        first = min(first, 50)
+        use_pagination = first is not None
+        if use_pagination:
+            first = min(first, 50)
 
         if tipo:
             all_branches = await branches_repo.get_by_tipo(tipo.value)
@@ -92,6 +94,26 @@ class BranchQuery:
             ]
         
         total_count = len(scored_branches)
+        
+        # If no pagination, return all results
+        if not use_pagination:
+            edges = [
+                BranchEdge(
+                    node=branch,
+                    cursor=encode_scored_cursor(branch.score, branch.id)
+                )
+                for branch in scored_branches
+            ]
+            
+            page_info = PageInfo(
+                has_next_page=False,
+                has_previous_page=False,
+                start_cursor=edges[0].cursor if edges else None,
+                end_cursor=edges[-1].cursor if edges else None,
+                total_count=total_count
+            )
+            
+            return BranchConnection(edges=edges, page_info=page_info)
         
         # Apply cursor-based pagination
         start_index = 0
@@ -143,7 +165,7 @@ class BranchQuery:
         self,
         info: Info,
         query: str,
-        first: int = 20,
+        first: Optional[int] = None,
         after: Optional[str] = None,
         use_vector_search: bool = True,
         radiusKm: Optional[float] = None,
@@ -154,7 +176,7 @@ class BranchQuery:
         
         Args:
             query: Search query string
-            first: Number of items to fetch (default: 20, max: 50)
+            first: Number of items to fetch. If not provided, returns all items (no pagination)
             after: Cursor to fetch items after (for pagination)
             use_vector_search: Use vector search (default: True)
             radiusKm: Filter by radius in km from user location
@@ -163,7 +185,9 @@ class BranchQuery:
         rate_limit_graphql(info, "search")
         user_id = info.context.get("user_id")
         
-        first = min(first, 50)
+        use_pagination = first is not None
+        if use_pagination:
+            first = min(first, 50)
         
         if use_vector_search:
             from services.vector_search_service import VectorSearchService
@@ -220,6 +244,26 @@ class BranchQuery:
         
         total_count = len(scored_branches)
         
+        # If no pagination, return all results
+        if not use_pagination:
+            edges = [
+                BranchEdge(
+                    node=branch,
+                    cursor=encode_scored_cursor(branch.score, branch.id)
+                )
+                for branch in scored_branches
+            ]
+            
+            page_info = PageInfo(
+                has_next_page=False,
+                has_previous_page=False,
+                start_cursor=edges[0].cursor if edges else None,
+                end_cursor=edges[-1].cursor if edges else None,
+                total_count=total_count
+            )
+            
+            return BranchConnection(edges=edges, page_info=page_info)
+        
         # Apply cursor-based pagination
         start_index = 0
         if after:
@@ -258,7 +302,7 @@ class BranchQuery:
         info: Info,
         longitude: float,
         latitude: float,
-        first: int = 20,
+        first: Optional[int] = None,
         after: Optional[str] = None,
         radius_km: float = 5.0,
         only_active: bool = True,
@@ -271,7 +315,7 @@ class BranchQuery:
         Args:
             longitude: Center longitude (X coordinate)
             latitude: Center latitude (Y coordinate)
-            first: Number of items to fetch (default: 20, max: 50)
+            first: Number of items to fetch. If not provided, returns all items (no pagination)
             after: Cursor to fetch items after (for pagination)
             radius_km: Search radius in kilometers (default: 5km)
             only_active: Only return active branches (default: True)
@@ -282,7 +326,9 @@ class BranchQuery:
         """
         apply_optional_jwt(jwt, info)
         
-        first = min(first, 50)
+        use_pagination = first is not None
+        if use_pagination:
+            first = min(first, 50)
 
         # If tipo is specified, first get the branch IDs that have that tipo
         store_ids = None
@@ -329,6 +375,26 @@ class BranchQuery:
                 ))
         
         total_count = len(all_branches)
+        
+        # If no pagination, return all results
+        if not use_pagination:
+            edges = [
+                NearbyBranchEdge(
+                    node=branch,
+                    cursor=encode_cursor(branch.id)
+                )
+                for branch in all_branches
+            ]
+            
+            page_info = PageInfo(
+                has_next_page=False,
+                has_previous_page=False,
+                start_cursor=edges[0].cursor if edges else None,
+                end_cursor=edges[-1].cursor if edges else None,
+                total_count=total_count
+            )
+            
+            return NearbyBranchConnection(edges=edges, page_info=page_info)
         
         # Apply cursor-based pagination
         start_index = 0
