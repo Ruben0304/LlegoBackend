@@ -251,25 +251,32 @@ class OrderType:
         ]
 
     @strawberry.field(description="Customer who placed the order")
-    async def customer(self) -> Optional[UserType]:
+    async def customer(self) -> UserType:
         user = await users_repo.get_by_id(self.customerId)
-        if user:
-            return UserType(**user.model_dump())
-        return None
+        if not user:
+            raise Exception(f"Customer not found: {self.customerId}")
+        return UserType(**user.model_dump())
     
     @strawberry.field(description="Branch preparing the order")
-    async def branch(self) -> Optional[BranchType]:
+    async def branch(self) -> BranchType:
+        from schema.branches.types import BranchTipo
         branch = await branches_repo.get_by_id(self.branchId)
-        if branch:
-            return BranchType(**branch.model_dump())
-        return None
+        if not branch:
+            raise Exception(f"Branch not found: {self.branchId}")
+        return BranchType(
+            **{
+                **branch.model_dump(),
+                'coordinates': CoordinatesType(**branch.coordinates.model_dump()),
+                'tipos': [BranchTipo(t) for t in (branch.tipos or [])]
+            }
+        )
     
     @strawberry.field(description="Business owning the branch")
-    async def business(self) -> Optional[BusinessType]:
+    async def business(self) -> BusinessType:
         business = await businesses_repo.get_by_id(self.businessId)
-        if business:
-            return BusinessType(**business.model_dump())
-        return None
+        if not business:
+            raise Exception(f"Business not found: {self.businessId}")
+        return BusinessType(**business.model_dump())
     
     @strawberry.field(description="Assigned delivery person")
     async def delivery_person(self) -> Optional[DeliveryPersonType]:

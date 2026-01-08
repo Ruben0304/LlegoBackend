@@ -147,6 +147,21 @@ The GraphQL API exposes queries for users, businesses, branches, and products wi
 
 CORS is configured to allow all origins (`allow_origins=["*"]`) for development. Update `main.py` CORS middleware for production use.
 
+## Common Pitfalls
+
+### BranchType instantiation
+When creating `BranchType` from a Pydantic model, `coordinates` and `tipos` need manual conversion:
+```python
+BranchType(
+    **{
+        **branch.model_dump(),
+        'coordinates': CoordinatesType(**branch.coordinates.model_dump()),
+        'tipos': [BranchTipo(t) for t in (branch.tipos or [])]
+    }
+)
+```
+Error if not done: `'dict' object has no attribute 'type'`
+
 # important-instruction-reminders
 Do what has been asked; nothing more, nothing less.
 NEVER create files unless they're absolutely necessary for achieving your goal.
