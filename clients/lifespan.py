@@ -17,6 +17,14 @@ async def lifespan(app):
     await connect_to_mongo()
     await connect_to_qdrant()
     connect_to_gemini()
+    
+    # Create order indexes
+    try:
+        from orders.repository import create_order_indexes
+        await create_order_indexes()
+    except Exception as e:
+        print(f"⚠ Warning: Could not create order indexes: {e}")
+    
     print("✓ All clients initialized successfully\n")
 
     yield
