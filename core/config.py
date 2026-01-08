@@ -49,6 +49,15 @@ class Settings(BaseSettings):
     # Redis Configuration (for rate limiting)
     redis_url: str = "redis://localhost:6379"
 
+    # Cache Configuration
+    # CACHE_ALL_ON_STARTUP: If true, preload all data at startup (no TTL, permanent until restart)
+    # If false, use on-demand caching with TTL
+    cache_all_on_startup: bool = False
+    # CACHE_TTL: TTL in seconds for on-demand cache mode (only used when cache_all_on_startup=false)
+    cache_ttl: int = 1800  # 30 minutes default
+    # CACHE_PRESIGNED_URL_TTL: TTL for S3 presigned URLs (always uses TTL since URLs expire)
+    cache_presigned_url_ttl: int = 3000  # 50 minutes (URLs expire in 60)
+
     # AWS Configuration
     aws_access_key_id: str
     aws_default_region: str

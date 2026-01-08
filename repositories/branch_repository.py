@@ -8,7 +8,7 @@ from qdrant_client.models import PointStruct
 from services.embeddings.gemini_service import GeminiEmbeddingService
 from utils.cache import (
     get_cached, set_cached, invalidate_branch_cache, invalidate_product_cache,
-    get_branch_cache_key, TTL_DEFAULT
+    get_branch_cache_key, TTL_DEFAULT, should_cache_result
 )
 
 
@@ -105,9 +105,13 @@ class BranchRepository:
                 if offset is None:
                     break
 
-            # Cache the results
-            serialized = [b.model_dump() for b in branches]
-            set_cached(cache_key, serialized, TTL_DEFAULT)
+            # Cache the results only if not too large
+            if should_cache_result(branches):
+                serialized = [b.model_dump() for b in branches]
+                set_cached(cache_key, serialized, TTL_DEFAULT)
+                print(f"✓ Cached {len(branches)} branches (get_all)")
+            else:
+                print(f"⚠ Skipped caching {len(branches)} branches (exceeds limit)")
 
             return branches
 

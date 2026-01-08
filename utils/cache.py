@@ -2,15 +2,41 @@
 import json
 from typing import Optional, Any, List, Callable
 from utils.rate_limit import redis_client
+from core.config import settings
 
 
 # =============================================================================
-# Cache Configuration
+# Cache Configuration (from environment variables)
 # =============================================================================
 
-# Default TTL values (in seconds)
-TTL_DEFAULT = 300  # 5 minutes for products/branches/businesses
-TTL_PRESIGNED_URL = 3000  # 50 minutes for S3 presigned URLs
+# TTL values are now controlled by environment variables
+# settings.cache_all_on_startup: If True, cache everything permanently (no TTL)
+# settings.cache_ttl: TTL for on-demand caching mode
+# settings.cache_presigned_url_ttl: TTL for S3 presigned URLs
+
+# Legacy constants for backward compatibility
+TTL_DEFAULT = settings.cache_ttl
+TTL_PRESIGNED_URL = settings.cache_presigned_url_ttl
+
+# Flag to track if we're in "cache all" mode (set during warm-up)
+_cache_all_mode = False
+
+
+def is_cache_all_mode() -> bool:
+    """Check if cache-all mode is enabled."""
+    return settings.cache_all_on_startup
+
+
+def get_effective_ttl(custom_ttl: Optional[int] = None) -> Optional[int]:
+    """
+    Get the effective TTL based on cache mode.
+    
+    In cache-all mode: Returns None (no expiration)
+    In on-demand mode: Returns custom_ttl or settings.cache_ttl
+    """
+    if settings.cache_all_on_startup:
+        return None  # No TTL in cache-all mode
+    return custom_ttl if custom_ttl is not None else settings.cache_ttl
 
 
 # =============================================================================
@@ -42,14 +68,15 @@ def get_cached(key: str) -> Optional[Any]:
         return None
 
 
-def set_cached(key: str, value: Any, ttl: int = TTL_DEFAULT) -> bool:
+def set_cached(key: str, value: Any, ttl: Optional[int] = None) -> bool:
     """
     Set a cached value in Redis.
 
     Args:
         key: Redis key to set
         value: Value to cache (will be serialized to JSON)
-        ttl: Time-to-live in seconds (default: 5 minutes)
+        ttl: Time-to-live in seconds. If None and cache_all_on_startup=True, no expiration.
+             If None and cache_all_on_startup=False, uses settings.cache_ttl.
 
     Returns:
         True if successful, False otherwise
@@ -59,8 +86,15 @@ def set_cached(key: str, value: Any, ttl: int = TTL_DEFAULT) -> bool:
 
     try:
         serialized = json.dumps(value, default=str)
-        redis_client.setex(key, ttl, serialized)
-        print(f"✓ Cache SET: {key} (TTL: {ttl}s)")
+        effective_ttl = get_effective_ttl(ttl)
+        
+        if effective_ttl is None:
+            # No TTL - permanent cache (until restart or manual invalidation)
+            redis_client.set(key, serialized)
+            print(f"✓ Cache SET: {key} (permanent)")
+        else:
+            redis_client.setex(key, effective_ttl, serialized)
+            print(f"✓ Cache SET: {key} (TTL: {effective_ttl}s)")
         return True
     except Exception as e:
         print(f"Cache set error for {key}: {e}")
@@ -114,6 +148,27 @@ def get_business_cache_key(suffix: str) -> str:
 def get_presigned_url_cache_key(object_name: str) -> str:
     """Generate cache key for S3 presigned URLs."""
     return f"cache:presigned:{object_name}"
+
+
+def set_presigned_url_cached(key: str, value: Any) -> bool:
+    """
+    Set a cached presigned URL with TTL.
+    
+    Presigned URLs ALWAYS use TTL regardless of cache mode,
+    because they have an expiration time from S3.
+    """
+    if redis_client is None:
+        return False
+
+    try:
+        serialized = json.dumps(value, default=str)
+        ttl = settings.cache_presigned_url_ttl
+        redis_client.setex(key, ttl, serialized)
+        print(f"✓ Cache SET (presigned): {key} (TTL: {ttl}s)")
+        return True
+    except Exception as e:
+        print(f"Cache set error for {key}: {e}")
+        return False
 
 
 # =============================================================================
@@ -172,7 +227,7 @@ def invalidate_business_cache(business_id: Optional[str] = None):
 async def with_cache(
     cache_key: str,
     fetch_fn: Callable,
-    ttl: int = TTL_DEFAULT,
+    ttl: Optional[int] = None,
     serialize_fn: Optional[Callable] = None,
     deserialize_fn: Optional[Callable] = None
 ) -> Any:
@@ -182,7 +237,7 @@ async def with_cache(
     Args:
         cache_key: Redis key for caching
         fetch_fn: Async function to call if cache miss (should return data)
-        ttl: Time-to-live in seconds
+        ttl: Time-to-live in seconds (None uses default based on cache mode)
         serialize_fn: Optional function to serialize result before caching
         deserialize_fn: Optional function to deserialize cached result
 
@@ -205,3 +260,70 @@ async def with_cache(
     set_cached(cache_key, cache_data, ttl)
 
     return result
+
+
+def should_cache_result(result_list: List[Any]) -> bool:
+    """
+    Determine if a result should be cached.
+    
+    In cache-all mode: Always cache everything
+    In on-demand mode: Always cache (no size limit)
+
+    Args:
+        result_list: List of items to potentially cache
+
+    Returns:
+        True (always cache, no limits)
+    """
+    return True  # No limits - cache everything
+
+
+# =============================================================================
+# Cache Warm-up (for cache_all_on_startup mode)
+# =============================================================================
+
+async def warm_up_cache():
+    """
+    Pre-populate cache with all data at startup.
+
+    This is automatically called when CACHE_ALL_ON_STARTUP=true.
+    Data is cached permanently (no TTL) until server restart or manual invalidation.
+
+    Usage:
+        # In main.py, during startup:
+        from utils.cache import warm_up_cache
+
+        @app.on_event("startup")
+        async def startup():
+            await warm_up_cache()
+    """
+    if not settings.cache_all_on_startup:
+        print("ℹ Cache warm-up skipped: CACHE_ALL_ON_STARTUP=false (using on-demand mode with TTL)")
+        return
+
+    if redis_client is None:
+        print("⚠ Cache warm-up skipped: Redis not available")
+        return
+
+    try:
+        from models import products_repo, branches_repo, businesses_repo
+
+        print("🔥 Starting cache warm-up (CACHE_ALL_ON_STARTUP=true)...")
+        print("   Mode: Permanent cache (no TTL)")
+
+        # Warm up businesses
+        businesses = await businesses_repo.get_all()
+        print(f"   ✓ Warmed up {len(businesses)} businesses")
+
+        # Warm up branches
+        branches = await branches_repo.get_all()
+        print(f"   ✓ Warmed up {len(branches)} branches")
+
+        # Warm up products
+        products = await products_repo.get_all()
+        print(f"   ✓ Warmed up {len(products)} products")
+
+        print(f"🔥 Cache warm-up complete! All data cached permanently.")
+
+    except Exception as e:
+        print(f"⚠ Cache warm-up failed: {e}")

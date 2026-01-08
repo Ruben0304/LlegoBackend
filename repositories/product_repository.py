@@ -8,7 +8,7 @@ from qdrant_client.models import PointStruct
 from services.embeddings.gemini_service import GeminiEmbeddingService
 from utils.cache import (
     get_cached, set_cached, invalidate_product_cache,
-    get_product_cache_key, TTL_DEFAULT
+    get_product_cache_key, TTL_DEFAULT, should_cache_result
 )
 
 
@@ -210,9 +210,13 @@ class ProductRepository:
                 if offset is None:
                     break
 
-            # Cache the results
-            serialized = [p.model_dump() for p in products]
-            set_cached(cache_key, serialized, TTL_DEFAULT)
+            # Cache the results only if not too large
+            if should_cache_result(products):
+                serialized = [p.model_dump() for p in products]
+                set_cached(cache_key, serialized, TTL_DEFAULT)
+                print(f"✓ Cached {len(products)} products (get_all)")
+            else:
+                print(f"⚠ Skipped caching {len(products)} products (exceeds limit)")
 
             return products
 

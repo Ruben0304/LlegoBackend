@@ -4,8 +4,8 @@ import time
 import uuid
 import os
 from utils.cache import (
-    get_cached, set_cached, invalidate_cache,
-    get_presigned_url_cache_key, TTL_PRESIGNED_URL
+    get_cached, invalidate_cache,
+    get_presigned_url_cache_key, set_presigned_url_cached
 )
 
 def generate_presigned_url(object_name: str, expiration: int = 3600) -> str:
@@ -39,8 +39,8 @@ def generate_presigned_url(object_name: str, expiration: int = 3600) -> str:
             ExpiresIn=expiration
         )
 
-        # Cache the URL (50 minutes TTL, 10 minutes before expiration)
-        set_cached(cache_key, response, TTL_PRESIGNED_URL)
+        # Cache the URL (always with TTL since presigned URLs expire)
+        set_presigned_url_cached(cache_key, response)
 
         return response
     except Exception as e:
