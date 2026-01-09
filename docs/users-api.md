@@ -1,178 +1,109 @@
 # API de Usuarios
 
+Documentación para integración frontend multiplataforma.
+
+---
+
 ## Modelo de Usuario
 
-Un usuario puede tener:
-- **businessIds**: Lista de IDs de negocios que posee o administra
-- **branchIds**: Lista de IDs de sucursales a las que tiene acceso
-
-Los usuarios se almacenan en MongoDB (colección `users`).
-
----
-
-## Flujo de Imágenes
-
-Para el avatar de usuario:
-
-1. **Subir imagen** via REST endpoint
-2. **Recibir** `image_path` en la respuesta
-3. **Usar** `image_path` en la mutation GraphQL `updateUser`
-
----
-
-## Endpoints REST - Upload de Imágenes
-
-### Upload Avatar de Usuario
-```
-POST /upload/user/avatar
-Content-Type: multipart/form-data
-Authorization: Bearer {jwt}
-```
-
-**Form Data:**
-- `image`: Archivo de imagen
-
-**Response:**
-```json
-{
-  "image_path": "users/avatars/6774abc123_1234567890.jpg",
-  "image_url": "https://s3.../users/avatars/6774abc123_1234567890.jpg?X-Amz-..."
-}
-```
-
-> El avatar se convierte a JPG y se redimensiona a 400x400 automáticamente.
-
----
-
-## Tipos GraphQL
-
-### UserType
-```graphql
-type UserType {
-  id: String!
-  name: String!
-  email: String!
-  phone: String
-  role: String!
-  avatar: String
-  businessIds: [String!]!
-  branchIds: [String!]!
-  createdAt: DateTime!
-  authProvider: String!
-  providerUserId: String
-  applePrivateEmail: String
-  avatarUrl: String       # Presigned URL
+```typescript
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  password?: string;         // Solo para auth local (no expuesto en API)
+  role: string;              // "customer" | "merchant" | "admin"
+  avatar?: string;           // Path en S3
+  businessIds: string[];     // Negocios que posee
+  branchIds: string[];       // Sucursales con acceso
+  createdAt: DateTime;
+  authProvider: string;      // "local" | "google" | "apple"
+  providerUserId?: string;   // ID del proveedor social
+  applePrivateEmail?: string;// Email privado de Apple
+  location?: {               // Ubicación actual (GeoJSON)
+    type: "Point";
+    coordinates: [lng, lat];
+  };
+  
+  // Campo computado (resolver)
+  avatarUrl?: string;        // Presigned URL
 }
 ```
 
 ---
 
-## Mutations
+## Autenticación
 
-### Actualizar Usuario
-
+### Registro
 ```graphql
-mutation UpdateUser($input: UpdateUserInput!, $jwt: String!) {
-  updateUser(input: $input, jwt: $jwt) {
-    id
-    name
-    phone
-    avatarUrl
+mutation Register($input: RegisterInput!) {
+  register(input: $input) {
+    access_token
+    token_type
+    user {
+      id
+      name
+      email
+      role
+    }
   }
 }
 ```
-
-**Variables:**
 ```json
 {
-  "jwt": "eyJhbG...",
   "input": {
-    "name": "Nuevo Nombre",
-    "phone": "+51999999999",
-    "avatar": "users/avatars/6774abc123_1234567890.jpg"
+    "name": "Juan Pérez",
+    "email": "juan@ejemplo.com",
+    "password": "secreto123",
+    "phone": "+51999999999"
   }
 }
 ```
+> El rol siempre es `customer`. Solo modificable vía DB.
 
----
-
-### Agregar Sucursal a Usuario
-
-Esta mutation permite que un usuario se agregue a sí mismo una sucursal a su lista de acceso.
-**Requisito**: El usuario debe tener el negocio (al que pertenece la sucursal) en su lista de `businessIds`.
-
+### Login Email/Password
 ```graphql
-mutation AddBranchToUser($input: AddBranchToUserInput!, $jwt: String!) {
-  addBranchToUser(input: $input, jwt: $jwt) {
-    id
-    name
-    branchIds
+mutation Login($input: LoginInput!) {
+  login(input: $input) {
+    access_token
+    user { id name email role }
   }
 }
 ```
 
-**Variables:**
+### Login con Google
+```graphql
+mutation LoginGoogle($input: SocialLoginInput!) {
+  loginWithGoogle(input: $input) {
+    access_token
+    user { id name email role }
+  }
+}
+```
 ```json
 {
-  "jwt": "eyJhbG...",
   "input": {
-    "branchId": "6774branch123"
+    "id_token": "eyJhbG...",
+    "nonce": "random_nonce_string"
   }
 }
 ```
 
-**Validaciones:**
-- Usuario debe estar autenticado
-- La sucursal debe existir
-- El usuario debe tener el `businessId` (del negocio al que pertenece la sucursal) en su lista de `businessIds`
-- La sucursal no debe estar ya en la lista del usuario
-
----
-
-### Remover Sucursal de Usuario
-
+### Login con Apple
 ```graphql
-mutation RemoveBranchFromUser($branchId: String!, $jwt: String!) {
-  removeBranchFromUser(branchId: $branchId, jwt: $jwt) {
-    id
-    name
-    branchIds
+mutation LoginApple($input: AppleLoginInput!) {
+  loginWithApple(input: $input) {
+    access_token
+    user { id name email role }
   }
 }
 ```
-
-**Variables:**
 ```json
 {
-  "jwt": "eyJhbG...",
-  "branchId": "6774branch123"
-}
-```
-
----
-
-### Eliminar Usuario
-
-Elimina la cuenta del usuario autenticado.
-
-```graphql
-mutation DeleteUser($jwt: String!) {
-  deleteUser(jwt: $jwt)
-}
-```
-
-**Variables:**
-```json
-{
-  "jwt": "eyJhbG..."
-}
-```
-
-**Response:**
-```json
-{
-  "data": {
-    "deleteUser": true
+  "input": {
+    "identity_token": "eyJhbG...",
+    "nonce": "random_nonce_string"
   }
 }
 ```
@@ -181,8 +112,7 @@ mutation DeleteUser($jwt: String!) {
 
 ## Queries
 
-### Obtener Usuario Actual (Me)
-
+### Usuario Actual
 ```graphql
 query Me($jwt: String!) {
   me(jwt: $jwt) {
@@ -199,25 +129,22 @@ query Me($jwt: String!) {
 }
 ```
 
-### Obtener Usuario por ID
-
+### Usuario por ID (Admin/Manager)
 ```graphql
-query GetUser($id: String!, $jwt: String) {
+query GetUser($id: String!, $jwt: String!) {
   user(id: $id, jwt: $jwt) {
     id
     name
     email
     avatarUrl
-    businessIds
-    branchIds
   }
 }
 ```
+> Requiere rol `admin` o `manager`.
 
-### Buscar Usuarios
-
+### Buscar Usuarios (Admin/Manager)
 ```graphql
-query SearchUsers($query: String!, $jwt: String) {
+query SearchUsers($query: String!, $jwt: String!) {
   searchUsers(query: $query, jwt: $jwt) {
     id
     name
@@ -229,7 +156,139 @@ query SearchUsers($query: String!, $jwt: String) {
 
 ---
 
+## Mutations
+
+### Actualizar Perfil
+
+**Paso 1: Subir Avatar (opcional)**
+```bash
+curl -X POST "/upload/user/avatar" \
+  -H "Authorization: Bearer {jwt}" \
+  -F "image=@foto.jpg"
+```
+Response:
+```json
+{
+  "image_path": "users/avatars/6774abc123_1234567890.jpg",
+  "image_url": "https://s3.../users/avatars/..."
+}
+```
+
+**Paso 2: Actualizar datos**
+```graphql
+mutation UpdateUser($input: UpdateUserInput!, $jwt: String!) {
+  updateUser(input: $input, jwt: $jwt) {
+    id
+    name
+    phone
+    avatarUrl
+  }
+}
+```
+```json
+{
+  "jwt": "eyJhbG...",
+  "input": {
+    "name": "Juan Carlos Pérez",
+    "phone": "+51988888888",
+    "avatar": "users/avatars/6774abc123_1234567890.jpg"
+  }
+}
+```
+
+### Actualizar Ubicación
+```graphql
+mutation UpdateLocation($input: UpdateLocationInput!, $jwt: String) {
+  updateLocation(input: $input, jwt: $jwt) {
+    id
+    name
+  }
+}
+```
+```json
+{
+  "jwt": "eyJhbG...",
+  "input": {
+    "longitude": -77.0428,
+    "latitude": -12.0464
+  }
+}
+```
+> Importante para scoring por cercanía en productos y sucursales.
+
+### Agregar Sucursal
+```graphql
+mutation AddBranchToUser($input: AddBranchToUserInput!, $jwt: String!) {
+  addBranchToUser(input: $input, jwt: $jwt) {
+    id
+    branchIds
+  }
+}
+```
+```json
+{
+  "jwt": "eyJhbG...",
+  "input": {
+    "branchId": "6774branch123"
+  }
+}
+```
+
+**Validaciones:**
+- Usuario autenticado
+- Sucursal existe
+- El `businessId` de la sucursal está en `businessIds` del usuario
+- La sucursal no está ya en `branchIds`
+
+### Remover Sucursal
+```graphql
+mutation RemoveBranchFromUser($branchId: String!, $jwt: String!) {
+  removeBranchFromUser(branchId: $branchId, jwt: $jwt) {
+    id
+    branchIds
+  }
+}
+```
+
+### Eliminar Cuenta
+```graphql
+mutation DeleteUser($jwt: String!) {
+  deleteUser(jwt: $jwt)
+}
+```
+Response: `true` si exitoso.
+
+---
+
 ## Inputs Reference
+
+### RegisterInput
+| Campo | Tipo | Requerido |
+|-------|------|-----------|
+| name | String | Sí |
+| email | String | Sí |
+| password | String | Sí |
+| phone | String | No |
+
+### LoginInput
+| Campo | Tipo | Requerido |
+|-------|------|-----------|
+| email | String | Sí |
+| password | String | Sí |
+
+### SocialLoginInput (Google)
+| Campo | Tipo | Requerido |
+|-------|------|-----------|
+| id_token | String | Sí |
+| authorization_code | String | No |
+| nonce | String | No |
+
+### AppleLoginInput
+| Campo | Tipo | Requerido |
+|-------|------|-----------|
+| identity_token | String | Sí |
+| authorization_code | String | No |
+| nonce | String | No |
 
 ### UpdateUserInput
 | Campo | Tipo | Requerido |
@@ -238,6 +297,12 @@ query SearchUsers($query: String!, $jwt: String) {
 | phone | String | No |
 | avatar | String | No |
 
+### UpdateLocationInput
+| Campo | Tipo | Requerido |
+|-------|------|-----------|
+| longitude | Float | Sí |
+| latitude | Float | Sí |
+
 ### AddBranchToUserInput
 | Campo | Tipo | Requerido |
 |-------|------|-----------|
@@ -245,40 +310,10 @@ query SearchUsers($query: String!, $jwt: String) {
 
 ---
 
-## Relación con Negocios y Sucursales
-
-### Al Registrar un Negocio
-
-Cuando un usuario registra un nuevo negocio mediante `registerBusiness`:
-1. Se crea el negocio con el `ownerId` del usuario
-2. **Automáticamente** se agrega el `businessId` a la lista `businessIds` del usuario
-
-### Agregar Acceso a Sucursales
-
-Para que un usuario pueda agregar una sucursal a su lista:
-1. Primero debe tener el `businessId` del negocio padre en su `businessIds`
-2. Luego puede usar `addBranchToUser` para agregar la sucursal
-
-### Ejemplo de Flujo
-
-```
-1. Usuario A registra "Mi Tienda" (businessId: "abc123")
-   → Usuario A ahora tiene businessIds: ["abc123"]
-
-2. Se crean sucursales para "Mi Tienda":
-   - Sucursal Centro (branchId: "br001")
-   - Sucursal Norte (branchId: "br002")
-
-3. Usuario A quiere acceso a Sucursal Centro:
-   → Usa addBranchToUser con branchId: "br001"
-   → Usuario A ahora tiene branchIds: ["br001"]
-```
-
----
-
 ## Notas de Seguridad
 
 - Solo el usuario autenticado puede modificar su propio perfil
 - Solo el usuario puede eliminar su propia cuenta
-- Para agregar una sucursal, el usuario debe demostrar propiedad del negocio (tenerlo en businessIds)
-- El avatar anterior se elimina de S3 cuando se actualiza
+- Para agregar una sucursal, debe tener el negocio en `businessIds`
+- El avatar anterior se elimina de S3 al actualizar
+- Queries de usuarios (`users`, `user`, `searchUsers`) requieren rol `admin` o `manager`

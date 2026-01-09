@@ -1,103 +1,136 @@
 # API de Negocios y Sucursales
 
-## Flujo de Imágenes
-
-Para cualquier operación que incluya imágenes (avatar, cover):
-
-1. **Subir imagen** via REST endpoint
-2. **Recibir** `image_path` en la respuesta
-3. **Usar** `image_path` en la mutation GraphQL
-
----
-
-## Endpoints REST - Upload de Imágenes
-
-### Upload Avatar de Negocio
-```
-POST /upload/business/avatar
-Content-Type: multipart/form-data
-Authorization: Bearer {jwt}
-```
-
-**Form Data:**
-- `image`: Archivo de imagen
-
-**Response:**
-```json
-{
-  "image_path": "businesses/avatars/6774abc123.jpg",
-  "image_url": "https://s3.../businesses/avatars/6774abc123.jpg?X-Amz-..."
-}
-```
-
-### Upload Cover de Negocio
-```
-POST /upload/business/cover
-Authorization: Bearer {jwt}
-```
-
-### Upload Avatar de Sucursal
-```
-POST /upload/branch/avatar
-Authorization: Bearer {jwt}
-```
-
-### Upload Cover de Sucursal
-```
-POST /upload/branch/cover
-Authorization: Bearer {jwt}
-```
-
-> Las imágenes de negocios/sucursales se convierten a JPG y se redimensionan automáticamente.
+Documentación para integración frontend multiplataforma.
 
 ---
 
 ## Tipos GraphQL
 
 ### BusinessType
-```graphql
-type BusinessType {
-  id: String!
-  name: String!
-  type: String!
-  ownerId: String!
-  globalRating: Float!
-  avatar: String
-  coverImage: String
-  description: String
-  socialMedia: JSON
-  tags: [String!]!
-  isActive: Boolean!
-  createdAt: DateTime!
-  avatarUrl: String      # Presigned URL
-  coverUrl: String       # Presigned URL
+```typescript
+interface Business {
+  id: string;
+  name: string;
+  type: string;              // "coffee", "restaurant", etc.
+  ownerId: string;           // ID del usuario propietario
+  globalRating: float;       // Rating promedio (0-5)
+  avatar: string;            // Path en S3
+  coverImage?: string;       // Path en S3
+  description?: string;
+  socialMedia?: {            // Redes sociales
+    facebook?: string;
+    instagram?: string;
+    twitter?: string;
+  };
+  tags: string[];            // Tags para búsqueda
+  isActive: boolean;         // Default: true
+  createdAt: DateTime;
+  
+  // Campos computados (resolvers)
+  avatarUrl?: string;        // Presigned URL
+  coverUrl?: string;         // Presigned URL
 }
 ```
 
 ### BranchType
-```graphql
-type BranchType {
-  id: String!
-  businessId: String!
-  name: String!
-  address: String
-  coordinates: CoordinatesType!
-  phone: String!
-  schedule: JSON!
-  managerIds: [String!]!
-  status: String!
-  avatar: String
-  coverImage: String
-  deliveryRadius: Float
-  facilities: [String!]!
-  createdAt: DateTime!
-  avatarUrl: String      # Presigned URL
-  coverUrl: String       # Presigned URL
+```typescript
+interface Branch {
+  id: string;
+  businessId: string;        // ID del negocio padre
+  name: string;
+  address?: string;
+  coordinates: {             // GeoJSON Point
+    type: "Point";
+    coordinates: [lng, lat]; // [longitude, latitude]
+  };
+  phone: string;
+  schedule: {                // Horario por día
+    mon?: string[];          // ["08:00-12:00", "14:00-20:00"]
+    tue?: string[];
+    // ...
+  };
+  managerIds: string[];      // IDs de usuarios gestores
+  status: string;            // "active" | "inactive"
+  avatar?: string;           // Path en S3
+  coverImage?: string;       // Path en S3
+  deliveryRadius?: float;    // Radio de delivery en km
+  facilities: string[];      // ["wifi", "estacionamiento", ...]
+  tipos: BranchTipo[];       // ["restaurante", "dulceria", "tienda"]
+  createdAt: DateTime;
+  
+  // Campos computados (resolvers)
+  avatarUrl?: string;        // Presigned URL
+  coverUrl?: string;         // Presigned URL
+  products: Product[];       // Productos (con limit y availableOnly)
 }
 
-type CoordinatesType {
-  type: String!
-  coordinates: [Float!]!  # [lng, lat]
+enum BranchTipo {
+  RESTAURANTE = "restaurante"
+  DULCERIA = "dulceria"
+  TIENDA = "tienda"
+}
+```
+
+### ScoredBranchType (para queries paginadas)
+```typescript
+interface ScoredBranch extends Branch {
+  score: float;              // Score de relevancia (0-1)
+  distanceM?: float;         // Distancia en metros
+  distanceKm?: float;        // Distancia en km (computed)
+}
+```
+
+### NearbyBranchType (para nearbyBranches)
+```typescript
+interface NearbyBranch extends Branch {
+  distanceM: float;          // Distancia en metros
+  distanceKm: float;         // Distancia en km (computed)
+}
+```
+
+---
+
+## Endpoints REST - Upload de Imágenes
+
+### Avatar de Negocio
+```bash
+POST /upload/business/avatar
+Authorization: Bearer {jwt}
+Content-Type: multipart/form-data
+
+# Form: image=@logo.png
+# Output: 400x400 JPG
+```
+
+### Cover de Negocio
+```bash
+POST /upload/business/cover
+Authorization: Bearer {jwt}
+
+# Output: 1200x400 JPG
+```
+
+### Avatar de Sucursal
+```bash
+POST /upload/branch/avatar
+Authorization: Bearer {jwt}
+
+# Output: 400x400 JPG
+```
+
+### Cover de Sucursal
+```bash
+POST /upload/branch/cover
+Authorization: Bearer {jwt}
+
+# Output: 1200x400 JPG
+```
+
+**Response (todos):**
+```json
+{
+  "image_path": "businesses/avatars/6774abc123.jpg",
+  "image_url": "https://s3.../businesses/avatars/6774abc123.jpg?..."
 }
 ```
 
@@ -106,11 +139,12 @@ type CoordinatesType {
 ## Mutations
 
 ### Registrar Negocio con Sucursales
-
-> **Nota**: Al registrar un negocio exitosamente, el `businessId` se agrega automáticamente a la lista `businessIds` del usuario autenticado.
-
 ```graphql
-mutation RegisterBusiness($business: CreateBusinessInput!, $branches: [RegisterBranchInput!]!, $jwt: String) {
+mutation RegisterBusiness(
+  $business: CreateBusinessInput!,
+  $branches: [RegisterBranchInput!]!,
+  $jwt: String
+) {
   registerBusiness(businessInput: $business, branchesInput: $branches, jwt: $jwt) {
     id
     name
@@ -119,166 +153,125 @@ mutation RegisterBusiness($business: CreateBusinessInput!, $branches: [RegisterB
   }
 }
 ```
-
-**Variables:**
 ```json
 {
   "jwt": "eyJhbG...",
   "business": {
     "name": "Mi Tienda",
     "type": "restaurant",
-    "avatar": "businesses/avatars/6774abc123.jpg",
-    "coverImage": "businesses/covers/6774def456.jpg",
-    "description": "Descripción del negocio",
+    "avatar": "businesses/avatars/xxx.jpg",
+    "coverImage": "businesses/covers/xxx.jpg",
+    "description": "Descripción",
     "tags": ["comida", "rapida"]
   },
-  "branches": [
-    {
-      "name": "Sucursal Centro",
-      "coordinates": { "lat": -12.0464, "lng": -77.0428 },
-      "phone": "+51999999999",
-      "schedule": { "lun-vie": "9:00-18:00" },
-      "address": "Av. Principal 123",
-      "avatar": "branches/avatars/6774ghi789.jpg"
-    }
-  ]
+  "branches": [{
+    "name": "Sucursal Centro",
+    "coordinates": { "lat": -12.0464, "lng": -77.0428 },
+    "phone": "+51999999999",
+    "schedule": { "lun-vie": "9:00-18:00" },
+    "tipos": ["RESTAURANTE"],
+    "address": "Av. Principal 123"
+  }]
 }
 ```
-
-**Response:**
-```json
-{
-  "data": {
-    "registerBusiness": {
-      "id": "6774abc123def456",
-      "name": "Mi Tienda",
-      "avatarUrl": "https://s3.../businesses/avatars/6774abc123.jpg?...",
-      "coverUrl": "https://s3.../businesses/covers/6774def456.jpg?..."
-    }
-  }
-}
-```
-
----
+> El `businessId` se agrega automáticamente a `businessIds` del usuario.
 
 ### Actualizar Negocio
-
 ```graphql
 mutation UpdateBusiness($businessId: String!, $input: UpdateBusinessInput!, $jwt: String) {
   updateBusiness(businessId: $businessId, input: $input, jwt: $jwt) {
     id
     name
     avatarUrl
-    coverUrl
   }
 }
 ```
-
-**Variables:**
 ```json
 {
   "jwt": "eyJhbG...",
-  "businessId": "6774abc123def456",
+  "businessId": "6774abc123",
   "input": {
     "name": "Nuevo Nombre",
     "description": "Nueva descripción",
-    "avatar": "businesses/avatars/new123.jpg",
     "isActive": true
   }
 }
 ```
 
----
-
 ### Crear Sucursal
-
 ```graphql
 mutation CreateBranch($input: CreateBranchInput!, $jwt: String) {
   createBranch(input: $input, jwt: $jwt) {
     id
     name
     avatarUrl
-    coverUrl
   }
 }
 ```
-
-**Variables:**
 ```json
 {
   "jwt": "eyJhbG...",
   "input": {
-    "businessId": "6774abc123def456",
+    "businessId": "6774abc123",
     "name": "Nueva Sucursal",
     "coordinates": { "lat": -12.1, "lng": -77.05 },
     "phone": "+51988888888",
     "schedule": { "lun-sab": "10:00-20:00" },
+    "tipos": ["RESTAURANTE", "TIENDA"],
     "address": "Calle Nueva 456",
-    "avatar": "branches/avatars/xyz123.jpg",
-    "coverImage": "branches/covers/xyz456.jpg",
     "deliveryRadius": 5.0,
     "facilities": ["wifi", "estacionamiento"]
   }
 }
 ```
 
----
-
 ### Actualizar Sucursal
-
 ```graphql
 mutation UpdateBranch($branchId: String!, $input: UpdateBranchInput!, $jwt: String) {
   updateBranch(branchId: $branchId, input: $input, jwt: $jwt) {
     id
     name
     status
-    avatarUrl
   }
 }
 ```
-
-**Variables:**
 ```json
 {
   "jwt": "eyJhbG...",
   "branchId": "6774branch123",
   "input": {
     "name": "Sucursal Renovada",
-    "phone": "+51977777777",
     "status": "active",
-    "avatar": "branches/avatars/updated123.jpg"
+    "tipos": ["RESTAURANTE", "DULCERIA"]
   }
 }
 ```
+> Solo el `ownerId` puede modificar `managerIds`.
 
 ---
 
 ## Queries
 
-### Obtener Negocios
-
+### Lista de Negocios
 ```graphql
-query GetBusinesses($jwt: String) {
-  businesses(jwt: $jwt) {
+query GetBusinesses($ownerId: String, $jwt: String) {
+  businesses(ownerId: $ownerId, jwt: $jwt) {
     id
     name
     type
     avatarUrl
-    coverUrl
     globalRating
     isActive
   }
 }
 ```
 
-### Obtener Negocio por ID
-
+### Negocio por ID
 ```graphql
 query GetBusiness($id: String!, $jwt: String) {
   business(id: $id, jwt: $jwt) {
     id
     name
-    type
     description
     avatarUrl
     coverUrl
@@ -287,27 +280,66 @@ query GetBusiness($id: String!, $jwt: String) {
 }
 ```
 
-### Obtener Sucursales de un Negocio
-
+### Buscar Negocios
 ```graphql
-query GetBranches($businessId: String, $jwt: String) {
-  branches(businessId: $businessId, jwt: $jwt) {
+query SearchBusinesses($query: String!, $useVectorSearch: Boolean, $jwt: String) {
+  searchBusinesses(query: $query, useVectorSearch: $useVectorSearch, jwt: $jwt) {
     id
     name
-    address
-    phone
-    status
     avatarUrl
-    coverUrl
-    coordinates {
-      coordinates
-    }
   }
 }
 ```
 
-### Obtener Sucursal por ID
+### Sucursales (Paginado con Scoring)
+```graphql
+query GetBranches(
+  $first: Int,
+  $after: String,
+  $businessId: String,
+  $tipo: BranchTipo,
+  $radiusKm: Float,
+  $jwt: String
+) {
+  branches(
+    first: $first,
+    after: $after,
+    businessId: $businessId,
+    tipo: $tipo,
+    radiusKm: $radiusKm,
+    jwt: $jwt
+  ) {
+    edges {
+      node {
+        id
+        name
+        address
+        phone
+        status
+        avatarUrl
+        score
+        distanceKm
+        tipos
+        products(limit: 6) {
+          id
+          name
+          price
+          imageUrl
+        }
+      }
+      cursor
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+      totalCount
+    }
+  }
+}
+```
+> Sin `first`: retorna todos. Con `first`: paginación cursor-based.
 
+### Sucursal por ID
 ```graphql
 query GetBranch($id: String!, $jwt: String) {
   branch(id: $id, jwt: $jwt) {
@@ -317,8 +349,101 @@ query GetBranch($id: String!, $jwt: String) {
     phone
     schedule
     facilities
+    tipos
     avatarUrl
     coverUrl
+    products { id name price imageUrl }
+  }
+}
+```
+
+### Sucursales Cercanas (Geoespacial)
+```graphql
+query NearbyBranches(
+  $longitude: Float!,
+  $latitude: Float!,
+  $first: Int,
+  $after: String,
+  $radiusKm: Float,
+  $onlyActive: Boolean,
+  $tipo: BranchTipo,
+  $jwt: String
+) {
+  nearbyBranches(
+    longitude: $longitude,
+    latitude: $latitude,
+    first: $first,
+    after: $after,
+    radiusKm: $radiusKm,
+    onlyActive: $onlyActive,
+    tipo: $tipo,
+    jwt: $jwt
+  ) {
+    edges {
+      node {
+        id
+        name
+        address
+        phone
+        distanceM
+        distanceKm
+        avatarUrl
+        tipos
+        products(limit: 6) { id name price imageUrl }
+      }
+      cursor
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+      totalCount
+    }
+  }
+}
+```
+```json
+{
+  "longitude": -77.0428,
+  "latitude": -12.0464,
+  "first": 10,
+  "radiusKm": 5.0,
+  "onlyActive": true,
+  "tipo": "RESTAURANTE"
+}
+```
+> Resultados ordenados por cercanía.
+
+### Buscar Sucursales
+```graphql
+query SearchBranches(
+  $query: String!,
+  $first: Int,
+  $useVectorSearch: Boolean,
+  $radiusKm: Float,
+  $jwt: String
+) {
+  searchBranches(
+    query: $query,
+    first: $first,
+    useVectorSearch: $useVectorSearch,
+    radiusKm: $radiusKm,
+    jwt: $jwt
+  ) {
+    edges {
+      node { id name score distanceKm }
+      cursor
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}
+```
+
+### Ubicación de Sucursal
+```graphql
+query BranchLocation($branchId: String!, $jwt: String) {
+  branchLocation(branchId: $branchId, jwt: $jwt) {
+    type
+    coordinates
   }
 }
 ```
@@ -350,6 +475,21 @@ query GetBranch($id: String!, $jwt: String) {
 | avatar | String | No |
 | coverImage | String | No |
 
+### RegisterBranchInput (para registerBusiness)
+| Campo | Tipo | Requerido |
+|-------|------|-----------|
+| name | String | Sí |
+| coordinates | CoordinatesInput | Sí |
+| phone | String | Sí |
+| schedule | JSON | Sí |
+| tipos | [BranchTipo] | Sí |
+| address | String | No |
+| managerIds | [String] | No |
+| avatar | String | No |
+| coverImage | String | No |
+| deliveryRadius | Float | No |
+| facilities | [String] | No |
+
 ### CreateBranchInput
 | Campo | Tipo | Requerido |
 |-------|------|-----------|
@@ -358,6 +498,7 @@ query GetBranch($id: String!, $jwt: String) {
 | coordinates | CoordinatesInput | Sí |
 | phone | String | Sí |
 | schedule | JSON | Sí |
+| tipos | [BranchTipo] | Sí |
 | address | String | No |
 | managerIds | [String] | No |
 | avatar | String | No |
@@ -379,6 +520,7 @@ query GetBranch($id: String!, $jwt: String) {
 | managerIds | [String] | No |
 | avatar | String | No |
 | coverImage | String | No |
+| tipos | [BranchTipo] | No |
 
 ### CoordinatesInput
 | Campo | Tipo | Requerido |
@@ -386,90 +528,18 @@ query GetBranch($id: String!, $jwt: String) {
 | lat | Float | Sí |
 | lng | Float | Sí |
 
-
----
-
-## Queries Geoespaciales
-
-### Buscar Sucursales Cercanas
-
-```graphql
-query NearbyBranches($longitude: Float!, $latitude: Float!, $radiusKm: Float, $onlyActive: Boolean, $jwt: String) {
-  nearbyBranches(longitude: $longitude, latitude: $latitude, radiusKm: $radiusKm, onlyActive: $onlyActive, jwt: $jwt) {
-    id
-    name
-    address
-    phone
-    distanceM
-    distanceKm
-    coordinates {
-      coordinates
-    }
-    avatarUrl
-  }
-}
-```
-
-**Variables:**
-```json
-{
-  "jwt": "eyJhbG...",
-  "longitude": -82.3830,
-  "latitude": 23.1136,
-  "radiusKm": 5.0,
-  "onlyActive": true
-}
-```
-
-**Response:**
-```json
-{
-  "data": {
-    "nearbyBranches": [
-      {
-        "id": "6774branch123",
-        "name": "Sucursal Centro",
-        "address": "Calle Principal 123",
-        "phone": "+5355555555",
-        "distanceM": 1250.5,
-        "distanceKm": 1.2505,
-        "coordinates": {
-          "coordinates": [-82.3830, 23.1136]
-        },
-        "avatarUrl": "https://s3.../branches/avatars/xyz.jpg?..."
-      }
-    ]
-  }
-}
-```
-
-> **Nota**: Los resultados vienen ordenados por cercanía (más cercano primero).
-
-### Obtener Ubicación de Sucursal
-
-```graphql
-query BranchLocation($branchId: String!, $jwt: String) {
-  branchLocation(branchId: $branchId, jwt: $jwt) {
-    type
-    coordinates
-  }
-}
-```
-
-**Variables:**
-```json
-{
-  "jwt": "eyJhbG...",
-  "branchId": "6774branch123"
-}
-```
+### BranchTipo (Enum)
+| Valor | Descripción |
+|-------|-------------|
+| RESTAURANTE | Restaurante |
+| DULCERIA | Dulcería |
+| TIENDA | Tienda |
 
 ---
 
 ## Notas sobre Coordenadas
 
-- Las coordenadas se almacenan en formato GeoJSON: `[longitude, latitude]`
-- **IMPORTANTE**: El orden es `[lon, lat]`, NO `[lat, lon]`
-- Las ubicaciones se guardan en la colección `stores_location` de MongoDB con índice geoespacial
-- Al crear/actualizar una sucursal, las coordenadas se sincronizan automáticamente
-- Al cambiar el `status` de una sucursal, se actualiza el campo `active` en `stores_location`
+- Formato GeoJSON: `[longitude, latitude]` (lng, lat)
+- Input usa `{ lat, lng }` para mayor claridad
+- Las ubicaciones se sincronizan en MongoDB `stores_location` con índice geoespacial
+- Al cambiar `status`, se actualiza `active` en `stores_location`

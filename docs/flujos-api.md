@@ -1,6 +1,6 @@
 # Flujos de la API
 
-Este documento describe los flujos principales de la aplicación y cómo interactúan usuarios, negocios, sucursales y productos.
+Guía de flujos principales para integración frontend multiplataforma.
 
 ---
 
@@ -8,18 +8,20 @@ Este documento describe los flujos principales de la aplicación y cómo interac
 
 ```
 Usuario (MongoDB)
-├── businessIds[]     ← Lista de negocios que posee
-├── branchIds[]       ← Lista de sucursales a las que tiene acceso
+├── businessIds[]     ← Negocios que posee
+├── branchIds[]       ← Sucursales con acceso directo
+├── location          ← Ubicación actual (GeoJSON)
 └── avatar
 
 Negocio (Qdrant)
 ├── ownerId           ← Usuario propietario
 └── branches[]        ← Sucursales del negocio
 
-Sucursal (Qdrant)
-├── businessId        ← Negocio al que pertenece
-├── managerIds[]      ← Usuarios que pueden gestionar
-└── products[]        ← Productos de la sucursal
+Sucursal (Qdrant + MongoDB)
+├── businessId        ← Negocio padre
+├── managerIds[]      ← Usuarios gestores
+├── tipos[]           ← ["restaurante", "dulceria", "tienda"]
+└── products[]        ← Productos
 
 Producto (Qdrant)
 └── branchId          ← Sucursal a la que pertenece
@@ -27,35 +29,78 @@ Producto (Qdrant)
 
 ---
 
-## Flujo 1: Registro de Usuario y Negocio
+## Flujo 1: Registro y Autenticación
 
-### Paso 1: Registrar Usuario
+### Registro con Email
 ```graphql
-mutation {
-  register(input: {
-    name: "Juan Pérez"
-    email: "juan@ejemplo.com"
-    password: "secreto123"
-    role: "merchant"
-  }) {
+mutation Register($input: RegisterInput!) {
+  register(input: $input) {
     access_token
-    user { id name businessIds branchIds }
+    user { id name email role }
+  }
+}
+```
+```json
+{
+  "input": {
+    "name": "Juan Pérez",
+    "email": "juan@ejemplo.com",
+    "password": "secreto123",
+    "phone": "+51999999999"
+  }
+}
+```
+> El rol siempre es `customer`. Solo se cambia vía DB.
+
+### Login con Email
+```graphql
+mutation Login($input: LoginInput!) {
+  login(input: $input) {
+    access_token
+    user { id name email role }
   }
 }
 ```
 
-**Resultado:**
-- Usuario creado con `businessIds: []` y `branchIds: []`
-- Se obtiene JWT para autenticación
+### Login con Google
+```graphql
+mutation LoginGoogle($input: SocialLoginInput!) {
+  loginWithGoogle(input: $input) {
+    access_token
+    user { id name email role }
+  }
+}
+```
+```json
+{
+  "input": {
+    "id_token": "eyJhbG...",
+    "nonce": "random_nonce"
+  }
+}
+```
+
+### Login con Apple
+```graphql
+mutation LoginApple($input: AppleLoginInput!) {
+  loginWithApple(input: $input) {
+    access_token
+    user { id name email role }
+  }
+}
+```
 
 ---
 
-### Paso 2: Subir Imágenes (Opcional)
+## Flujo 2: Crear Negocio con Sucursales
+
+### Paso 1: Subir Imágenes (Opcional)
 ```bash
 # Avatar del negocio
 curl -X POST "/upload/business/avatar" \
   -H "Authorization: Bearer {jwt}" \
   -F "image=@logo.png"
+# Response: { "image_path": "businesses/avatars/xxx.jpg" }
 
 # Cover del negocio
 curl -X POST "/upload/business/cover" \
@@ -63,186 +108,243 @@ curl -X POST "/upload/business/cover" \
   -F "image=@cover.jpg"
 ```
 
----
-
-### Paso 3: Registrar Negocio con Sucursales
+### Paso 2: Registrar Negocio
 ```graphql
-mutation {
-  registerBusiness(
-    businessInput: {
-      name: "Mi Restaurante"
-      type: "restaurant"
-      avatar: "businesses/avatars/xxx.jpg"
-      description: "El mejor restaurante"
-    }
-    branchesInput: [{
-      name: "Sucursal Centro"
-      coordinates: { lat: -12.0464, lng: -77.0428 }
-      phone: "+51999999999"
-      schedule: { "lun-vie": "9:00-18:00" }
-      address: "Av. Principal 123"
-    }]
-    jwt: "{jwt}"
-  ) {
+mutation RegisterBusiness(
+  $business: CreateBusinessInput!,
+  $branches: [RegisterBranchInput!]!,
+  $jwt: String
+) {
+  registerBusiness(businessInput: $business, branchesInput: $branches, jwt: $jwt) {
     id
     name
+    avatarUrl
+    coverUrl
   }
 }
 ```
-
-**Lo que sucede automáticamente:**
-1. Se crea el negocio con `ownerId = usuario_actual`
-2. Se crea(n) la(s) sucursal(es) con `businessId = negocio_creado`
-3. **El `businessId` se agrega a `businessIds` del usuario**
-
-**Estado del usuario después:**
 ```json
 {
-  "businessIds": ["negocio_abc123"],
-  "branchIds": []
+  "jwt": "eyJhbG...",
+  "business": {
+    "name": "Mi Restaurante",
+    "type": "restaurant",
+    "avatar": "businesses/avatars/xxx.jpg",
+    "description": "El mejor restaurante"
+  },
+  "branches": [{
+    "name": "Sucursal Centro",
+    "coordinates": { "lat": -12.0464, "lng": -77.0428 },
+    "phone": "+51999999999",
+    "schedule": { "lun-vie": "9:00-18:00" },
+    "tipos": ["RESTAURANTE"],
+    "address": "Av. Principal 123"
+  }]
 }
 ```
+
+**Resultado automático:**
+- Negocio creado con `ownerId = usuario_actual`
+- Sucursal(es) creada(s) con `businessId = negocio_creado`
+- `businessId` agregado a `businessIds` del usuario
 
 ---
 
-## Flujo 2: Agregar Acceso a Sucursales
+## Flujo 3: Gestión de Sucursales
 
-El usuario propietario del negocio puede agregar sucursales a su lista de acceso directo.
-
-### Requisito
-El usuario debe tener el `businessId` del negocio padre en su lista `businessIds`.
-
-### Mutation
+### Crear Sucursal Adicional
 ```graphql
-mutation {
-  addBranchToUser(
-    input: { branchId: "branch_xyz789" }
-    jwt: "{jwt}"
-  ) {
-    id
-    branchIds
-  }
-}
-```
-
-**Validaciones:**
-1. ✅ Usuario autenticado
-2. ✅ Sucursal existe
-3. ✅ El `businessId` de la sucursal está en `businessIds` del usuario
-4. ✅ La sucursal no está ya en `branchIds`
-
-**Estado del usuario después:**
-```json
-{
-  "businessIds": ["negocio_abc123"],
-  "branchIds": ["branch_xyz789"]
-}
-```
-
----
-
-## Flujo 3: Crear Productos
-
-### Opción A: Con branchId específico
-```graphql
-mutation {
-  createProduct(
-    input: {
-      branchId: "branch_xyz789"
-      name: "Hamburguesa Clásica"
-      description: "Deliciosa hamburguesa"
-      price: 15.99
-      image: "products/xxx.png"
-    }
-    jwt: "{jwt}"
-  ) {
-    id
-    name
-  }
-}
-```
-
-**Validación de permisos:**
-- Usuario es `ownerId` del negocio, O
-- Usuario está en `managerIds` de la sucursal
-
----
-
-### Opción B: Con businessId (sin sucursal específica)
-```graphql
-mutation {
-  createProduct(
-    input: {
-      businessId: "negocio_abc123"
-      name: "Hamburguesa Clásica"
-      description: "Deliciosa hamburguesa"
-      price: 15.99
-      image: "products/xxx.png"
-    }
-    jwt: "{jwt}"
-  ) {
-    id
-    name
-  }
-}
-```
-
-**Lo que sucede:**
-1. Se busca el negocio
-2. Se obtienen las sucursales del negocio
-3. **El producto se asigna a la primera sucursal**
-4. Solo el `ownerId` del negocio puede usar esta opción
-
----
-
-## Flujo 4: Gestión de Usuarios como Managers
-
-### El propietario puede agregar managers a sucursales
-```graphql
-mutation {
-  updateBranch(
-    branchId: "branch_xyz789"
-    input: {
-      managerIds: ["user_manager1", "user_manager2"]
-    }
-    jwt: "{jwt}"
-  ) {
-    id
-    managerIds
-  }
-}
-```
-
-**Nota:** Solo el `ownerId` del negocio puede modificar `managerIds`.
-
----
-
-## Flujo 5: Actualizar Perfil de Usuario
-
-### Subir Avatar
-```bash
-curl -X POST "/upload/user/avatar" \
-  -H "Authorization: Bearer {jwt}" \
-  -F "image=@foto.jpg"
-```
-
-### Actualizar Perfil
-```graphql
-mutation {
-  updateUser(
-    input: {
-      name: "Juan Carlos Pérez"
-      phone: "+51988888888"
-      avatar: "users/avatars/xxx.jpg"
-    }
-    jwt: "{jwt}"
-  ) {
+mutation CreateBranch($input: CreateBranchInput!, $jwt: String) {
+  createBranch(input: $input, jwt: $jwt) {
     id
     name
     avatarUrl
   }
 }
 ```
+```json
+{
+  "jwt": "eyJhbG...",
+  "input": {
+    "businessId": "negocio_abc123",
+    "name": "Nueva Sucursal",
+    "coordinates": { "lat": -12.1, "lng": -77.05 },
+    "phone": "+51988888888",
+    "schedule": { "lun-sab": "10:00-20:00" },
+    "tipos": ["RESTAURANTE", "TIENDA"]
+  }
+}
+```
+
+### Agregar Sucursal a Usuario
+```graphql
+mutation AddBranchToUser($input: AddBranchToUserInput!, $jwt: String!) {
+  addBranchToUser(input: $input, jwt: $jwt) {
+    id
+    branchIds
+  }
+}
+```
+> Requisito: El `businessId` de la sucursal debe estar en `businessIds` del usuario.
+
+---
+
+## Flujo 4: Crear Productos
+
+### Paso 1: Subir Imagen
+```bash
+curl -X POST "/upload/product/image" \
+  -H "Authorization: Bearer {jwt}" \
+  -F "image=@hamburguesa.png"
+# Response: { "image_path": "products/xxx.png" }
+```
+
+### Paso 2: Crear Producto
+```graphql
+mutation CreateProduct($input: CreateProductInput!, $jwt: String) {
+  createProduct(input: $input, jwt: $jwt) {
+    id
+    name
+    price
+    imageUrl
+  }
+}
+```
+```json
+{
+  "jwt": "eyJhbG...",
+  "input": {
+    "branchId": "branch_xyz789",
+    "name": "Hamburguesa Clásica",
+    "description": "Deliciosa hamburguesa",
+    "price": 15.99,
+    "image": "products/xxx.png"
+  }
+}
+```
+
+---
+
+## Flujo 5: Consultas con Paginación
+
+Las queries principales usan paginación cursor-based (Relay-style):
+
+### Productos Cercanos
+```graphql
+query Products($first: Int, $after: String, $jwt: String) {
+  products(first: $first, after: $after, jwt: $jwt) {
+    edges {
+      node {
+        id
+        name
+        price
+        imageUrl
+        score
+        distanceKm
+      }
+      cursor
+    }
+    pageInfo {
+      hasNextPage
+      endCursor
+      totalCount
+    }
+  }
+}
+```
+
+### Sucursales Cercanas
+```graphql
+query NearbyBranches(
+  $longitude: Float!,
+  $latitude: Float!,
+  $first: Int,
+  $radiusKm: Float,
+  $tipo: BranchTipo
+) {
+  nearbyBranches(
+    longitude: $longitude,
+    latitude: $latitude,
+    first: $first,
+    radiusKm: $radiusKm,
+    tipo: $tipo
+  ) {
+    edges {
+      node {
+        id
+        name
+        distanceKm
+        avatarUrl
+        productos { id name price imageUrl }
+      }
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}
+```
+
+---
+
+## Flujo 6: Actualizar Ubicación del Usuario
+
+```graphql
+mutation UpdateLocation($input: UpdateLocationInput!, $jwt: String) {
+  updateLocation(input: $input, jwt: $jwt) {
+    id
+    name
+  }
+}
+```
+```json
+{
+  "jwt": "eyJhbG...",
+  "input": {
+    "longitude": -77.0428,
+    "latitude": -12.0464
+  }
+}
+```
+> Importante: Actualizar ubicación para que el scoring por cercanía funcione.
+
+---
+
+## Resumen de Endpoints
+
+### REST (Uploads)
+| Endpoint | Descripción | Output |
+|----------|-------------|--------|
+| `POST /upload/user/avatar` | Avatar usuario | 400x400 JPG |
+| `POST /upload/business/avatar` | Avatar negocio | 400x400 JPG |
+| `POST /upload/business/cover` | Cover negocio | 1200x400 JPG |
+| `POST /upload/branch/avatar` | Avatar sucursal | 400x400 JPG |
+| `POST /upload/branch/cover` | Cover sucursal | 1200x400 JPG |
+| `POST /upload/product/image` | Imagen producto | Preserva transparencia |
+
+### GraphQL Mutations Principales
+| Mutation | Descripción |
+|----------|-------------|
+| `register` | Registrar usuario |
+| `login` | Login email/password |
+| `loginWithGoogle` | Login con Google |
+| `loginWithApple` | Login con Apple |
+| `updateUser` | Actualizar perfil |
+| `updateLocation` | Actualizar ubicación |
+| `registerBusiness` | Crear negocio + sucursales |
+| `createBranch` | Crear sucursal |
+| `createProduct` | Crear producto |
+| `updateProduct` | Actualizar producto |
+| `deleteProduct` | Eliminar producto |
+
+### GraphQL Queries Principales
+| Query | Descripción |
+|-------|-------------|
+| `me` | Usuario actual |
+| `businesses` | Lista negocios (con filtro ownerId) |
+| `branches` | Sucursales (paginado, con scoring) |
+| `nearbyBranches` | Sucursales cercanas (paginado) |
+| `products` | Productos (paginado, con scoring) |
+| `searchProducts` | Búsqueda productos (vector search) |
+| `searchBranches` | Búsqueda sucursales (vector search) |
 
 ---
 
@@ -252,94 +354,18 @@ mutation {
 ┌─────────────────────────────────────────────────────────────┐
 │                         USUARIO                              │
 ├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│   businessIds: ["biz1", "biz2"]                             │
-│   branchIds: ["br1", "br3"]                                 │
-│                                                              │
+│  businessIds: ["biz1"]  →  Es dueño de estos negocios       │
+│  branchIds: ["br1"]     →  Tiene acceso directo             │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    ¿QUÉ PUEDE HACER?                        │
+│                    PERMISOS                                  │
 ├─────────────────────────────────────────────────────────────┤
-│                                                              │
 │  ✅ Crear/Editar negocios donde es ownerId                  │
-│  ✅ Crear sucursales en negocios donde es ownerId           │
-│  ✅ Editar sucursales donde es ownerId o está en managerIds │
-│  ✅ Crear productos en sucursales donde tiene permiso       │
-│  ✅ Agregar a branchIds sucursales de sus negocios          │
-│                                                              │
-│  ❌ NO puede editar negocios de otros                       │
-│  ❌ NO puede crear sucursales en negocios de otros          │
-│  ❌ NO puede agregar branches de negocios que no posee      │
-│                                                              │
+│  ✅ Crear sucursales en sus negocios                        │
+│  ✅ Editar sucursales donde es owner o está en managerIds   │
+│  ✅ Crear productos donde tiene permiso                     │
+│  ❌ NO puede editar negocios/sucursales de otros            │
 └─────────────────────────────────────────────────────────────┘
 ```
-
----
-
-## Flujo Completo: De Registro a Venta
-
-```
-1. REGISTRO
-   └── Usuario se registra → businessIds: [], branchIds: []
-
-2. CREAR NEGOCIO
-   └── registerBusiness → businessIds: ["biz1"], branchIds: []
-       └── Se crean sucursales automáticamente
-
-3. AGREGAR ACCESO A SUCURSALES (Opcional)
-   └── addBranchToUser → branchIds: ["br1", "br2"]
-
-4. SUBIR IMÁGENES DE PRODUCTOS
-   └── POST /upload/product/image → image_path
-
-5. CREAR PRODUCTOS
-   └── createProduct (con branchId o businessId)
-
-6. CONSULTAR PRODUCTOS
-   └── products(branchId: "br1") → Lista de productos
-```
-
----
-
-## Resumen de Endpoints
-
-### REST (Uploads)
-| Endpoint | Descripción |
-|----------|-------------|
-| `POST /upload/user/avatar` | Avatar de usuario |
-| `POST /upload/business/avatar` | Avatar de negocio |
-| `POST /upload/business/cover` | Cover de negocio |
-| `POST /upload/branch/avatar` | Avatar de sucursal |
-| `POST /upload/branch/cover` | Cover de sucursal |
-| `POST /upload/product/image` | Imagen de producto |
-
-### GraphQL Mutations
-| Mutation | Descripción |
-|----------|-------------|
-| `register` | Registrar usuario |
-| `login` | Iniciar sesión |
-| `updateUser` | Actualizar perfil |
-| `addBranchToUser` | Agregar sucursal a usuario |
-| `removeBranchFromUser` | Remover sucursal de usuario |
-| `deleteUser` | Eliminar cuenta |
-| `registerBusiness` | Crear negocio + sucursales |
-| `updateBusiness` | Actualizar negocio |
-| `createBranch` | Crear sucursal |
-| `updateBranch` | Actualizar sucursal |
-| `createProduct` | Crear producto |
-| `updateProduct` | Actualizar producto |
-| `deleteProduct` | Eliminar producto |
-
-### GraphQL Queries
-| Query | Descripción |
-|-------|-------------|
-| `me` | Usuario actual |
-| `user(id)` | Usuario por ID |
-| `businesses` | Lista de negocios |
-| `business(id)` | Negocio por ID |
-| `branches(businessId)` | Sucursales de un negocio |
-| `branch(id)` | Sucursal por ID |
-| `products(branchId)` | Productos de una sucursal |
-| `product(id)` | Producto por ID |
