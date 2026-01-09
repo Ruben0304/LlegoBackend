@@ -548,6 +548,74 @@ class ProductRepository:
             print(f"Error fetching products by branch IDs from Qdrant: {e}")
             return []
 
+    async def get_feed_products(
+        self,
+        branch_ids: Optional[List[str]] = None,
+        apply_category_filter: bool = True
+    ) -> List[Product]:
+        """
+        Get products for the feed with category filtering.
+
+        Feed filtering rules:
+        - When viewing a specific branch: show ALL products (apply_category_filter=False)
+        - When viewing feed (multiple branches): apply category filtering
+        - Don't show "dulceria" category products when branch has multiple tipos
+        - Only show products whose category matches one of the branch's tipos
+
+        Args:
+            branch_ids: List of branch IDs to get products from (None = all branches)
+            apply_category_filter: Whether to apply feed category filtering rules
+
+        Returns:
+            List of filtered products
+        """
+        # Get products
+        if branch_ids:
+            products = await self.get_by_branch_ids(branch_ids)
+        else:
+            products = await self.get_all()
+
+        # If no category filtering, return all products
+        if not apply_category_filter:
+            return products
+
+        # Apply feed category filtering
+        from repositories import branches_repo, product_categories_repo
+
+        filtered_products = []
+
+        for product in products:
+            # Skip products without category
+            if not product.categoryId:
+                filtered_products.append(product)
+                continue
+
+            # Get product category
+            category = await product_categories_repo.get_by_id(product.categoryId)
+            if not category:
+                # If category not found, include the product
+                filtered_products.append(product)
+                continue
+
+            # Get branch to check its tipos
+            branch = await branches_repo.get_by_id(product.branchId)
+            if not branch:
+                continue
+
+            # Feed filtering rules:
+            # 1. If branch has multiple tipos and one is "dulceria",
+            #    exclude products from dulceria categories
+            if len(branch.tipos) > 1 and "dulceria" in branch.tipos:
+                if category.branchType == "dulceria":
+                    # Skip dulceria products in multi-category branches
+                    continue
+
+            # 2. Only show products whose category matches one of the branch's tipos
+            if category.branchType in branch.tipos:
+                filtered_products.append(product)
+
+        return filtered_products
+
     @staticmethod
     def _point_to_product(point) -> Optional[Product]:
         """Convert a Qdrant point to a Product model."""

@@ -88,6 +88,21 @@ class Category(BaseModel):
         json_encoders = {datetime: lambda v: v.isoformat()}
 
 
+class ProductCategory(BaseModel):
+    """Product category model for organizing products by branch type."""
+    id: str = Field(alias="_id")
+    branchType: str  # "restaurante", "dulceria", "tienda"
+    name: str
+    iconIos: str  # iOS SF Symbol name
+    iconWeb: str  # Material Design icon name for web
+    iconAndroid: str  # Material Design icon name for Android
+    createdAt: datetime
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat()}
+
+
 class Product(BaseModel):
     id: str = Field(alias="_id")
     branchId: str
@@ -140,6 +155,7 @@ from repositories import (
     businesses_repo,
     branches_repo,
     products_repo,
+    product_categories_repo,
     payments_repo,
     payment_methods_repo,
 )
@@ -151,6 +167,7 @@ __all__ = [
     "Branch",
     "Subcategory",
     "Category",
+    "ProductCategory",
     "Product",
     "SmsOcr",
     "PaymentMethod",
@@ -158,6 +175,7 @@ __all__ = [
     "businesses_repo",
     "branches_repo",
     "products_repo",
+    "product_categories_repo",
     "payments_repo",
     "payment_methods_repo",
 ]

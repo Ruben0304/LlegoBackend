@@ -25,6 +25,22 @@ class ProductType:
     def image_url(self) -> str:
         return generate_presigned_url(self.image)
 
+    @strawberry.field(description="Product category")
+    async def category(
+        self, info: Info
+    ) -> Optional[Annotated["ProductCategoryType", strawberry.lazy("schema.product_categories.types")]]:
+        """Resolve the product category relationship."""
+        if not self.categoryId:
+            return None
+
+        from schema.product_categories.types import ProductCategoryType
+        from models import product_categories_repo
+
+        category_data = await product_categories_repo.get_by_id(self.categoryId)
+        if category_data:
+            return ProductCategoryType(**category_data.model_dump())
+        return None
+
     @strawberry.field(description="Branch associated with this product")
     async def branch(
         self, info: Info
@@ -103,6 +119,22 @@ class ScoredProductType:
     def distance_km(self) -> Optional[float]:
         if self.distance_m is not None:
             return self.distance_m / 1000
+        return None
+
+    @strawberry.field(description="Product category")
+    async def category(
+        self, info: Info
+    ) -> Optional[Annotated["ProductCategoryType", strawberry.lazy("schema.product_categories.types")]]:
+        """Resolve the product category relationship."""
+        if not self.categoryId:
+            return None
+
+        from schema.product_categories.types import ProductCategoryType
+        from models import product_categories_repo
+
+        category_data = await product_categories_repo.get_by_id(self.categoryId)
+        if category_data:
+            return ProductCategoryType(**category_data.model_dump())
         return None
 
     @strawberry.field(description="Branch associated with this product")

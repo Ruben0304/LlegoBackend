@@ -4,6 +4,7 @@ from .business_repository import BusinessRepository
 from .branch_repository import BranchRepository
 from .product_repository import ProductRepository
 from .category_repository import CategoryRepository
+from .product_category_repository import ProductCategoryRepository
 from .auth_repository import AuthRepository
 from .payment_repository import PaymentRepository
 from .payment_method_repository import PaymentMethodRepository
@@ -15,6 +16,7 @@ businesses_repo = BusinessRepository()
 branches_repo = BranchRepository()
 products_repo = ProductRepository()
 categories_repo = CategoryRepository()
+product_categories_repo = ProductCategoryRepository()
 auth_repo = AuthRepository()
 payments_repo = PaymentRepository()
 payment_methods_repo = PaymentMethodRepository()
@@ -25,6 +27,7 @@ __all__ = [
     "BranchRepository",
     "ProductRepository",
     "CategoryRepository",
+    "ProductCategoryRepository",
     "AuthRepository",
     "PaymentRepository",
     "PaymentMethodRepository",
@@ -34,6 +37,7 @@ __all__ = [
     "branches_repo",
     "products_repo",
     "categories_repo",
+    "product_categories_repo",
     "auth_repo",
     "payments_repo",
     "payment_methods_repo",
