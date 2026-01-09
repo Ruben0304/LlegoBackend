@@ -1,0 +1,163 @@
+[
+  {
+    "branchType": "restaurante",
+    "name": "Desayuno",
+    "iconIos": "sunrise.fill",
+    "iconWeb": "wb_sunny",
+    "iconAndroid": "wb_sunny"
+  },
+  {
+    "branchType": "restaurante",
+    "name": "Entrantes",
+    "iconIos": "leaf.fill",
+    "iconWeb": "eco",
+    "iconAndroid": "eco"
+  },
+  {
+    "branchType": "restaurante",
+    "name": "Platos principales",
+    "iconIos": "fork.knife",
+    "iconWeb": "restaurant",
+    "iconAndroid": "restaurant"
+  },
+  {
+    "branchType": "restaurante",
+    "name": "Postres",
+    "iconIos": "birthday.cake.fill",
+    "iconWeb": "cake",
+    "iconAndroid": "cake"
+  },
+  {
+    "branchType": "restaurante",
+    "name": "Italiano",
+    "iconIos": "fork.knife.circle.fill",
+    "iconWeb": "local_pizza",
+    "iconAndroid": "local_pizza"
+  },
+  {
+    "branchType": "restaurante",
+    "name": "Cócteles",
+    "iconIos": "wineglass.fill",
+    "iconWeb": "local_bar",
+    "iconAndroid": "local_bar"
+  },
+  {
+    "branchType": "restaurante",
+    "name": "Bebidas frías",
+    "iconIos": "snowflake",
+    "iconWeb": "ac_unit",
+    "iconAndroid": "ac_unit"
+  },
+  {
+    "branchType": "restaurante",
+    "name": "Bebidas calientes",
+    "iconIos": "thermometer.sun.fill",
+    "iconWeb": "local_cafe",
+    "iconAndroid": "local_cafe"
+  },
+  {
+    "branchType": "dulceria",
+    "name": "Chocolates",
+    "iconIos": "gift.fill",
+    "iconWeb": "card_giftcard",
+    "iconAndroid": "card_giftcard"
+  },
+  {
+    "branchType": "dulceria",
+    "name": "Caramelos",
+    "iconIos": "sparkles",
+    "iconWeb": "stars",
+    "iconAndroid": "stars"
+  },
+  {
+    "branchType": "dulceria",
+    "name": "Gomitas",
+    "iconIos": "star.fill",
+    "iconWeb": "star",
+    "iconAndroid": "star"
+  },
+  {
+    "branchType": "dulceria",
+    "name": "Galletas",
+    "iconIos": "rectangle.stack.fill",
+    "iconWeb": "cookie",
+    "iconAndroid": "cookie"
+  },
+  {
+    "branchType": "dulceria",
+    "name": "Pasteles",
+    "iconIos": "birthday.cake.fill",
+    "iconWeb": "cake",
+    "iconAndroid": "cake"
+  },
+  {
+    "branchType": "dulceria",
+    "name": "Helados",
+    "iconIos": "snowflake",
+    "iconWeb": "icecream",
+    "iconAndroid": "icecream"
+  },
+  {
+    "branchType": "dulceria",
+    "name": "Bebidas",
+    "iconIos": "cup.and.saucer.fill",
+    "iconWeb": "local_drink",
+    "iconAndroid": "local_drink"
+  },
+  {
+    "branchType": "tienda",
+    "name": "Alimentos",
+    "iconIos": "cart.fill",
+    "iconWeb": "shopping_cart",
+    "iconAndroid": "shopping_cart"
+  },
+  {
+    "branchType": "tienda",
+    "name": "Bebidas",
+    "iconIos": "cup.and.saucer.fill",
+    "iconWeb": "local_drink",
+    "iconAndroid": "local_drink"
+  },
+  {
+    "branchType": "tienda",
+    "name": "Snacks",
+    "iconIos": "bag.fill",
+    "iconWeb": "shopping_bag",
+    "iconAndroid": "shopping_bag"
+  },
+  {
+    "branchType": "tienda",
+    "name": "Lácteos",
+    "iconIos": "drop.fill",
+    "iconWeb": "opacity",
+    "iconAndroid": "opacity"
+  },
+  {
+    "branchType": "tienda",
+    "name": "Panadería",
+    "iconIos": "leaf.fill",
+    "iconWeb": "bakery_dining",
+    "iconAndroid": "bakery_dining"
+  },
+  {
+    "branchType": "tienda",
+    "name": "Limpieza",
+    "iconIos": "sparkles",
+    "iconWeb": "cleaning_services",
+    "iconAndroid": "cleaning_services"
+  },
+  {
+    "branchType": "tienda",
+    "name": "Higiene personal",
+    "iconIos": "heart.fill",
+    "iconWeb": "favorite",
+    "iconAndroid": "favorite"
+  },
+  {
+    "branchType": "tienda",
+    "name": "Otros",
+    "iconIos": "ellipsis.circle.fill",
+    "iconWeb": "more_horiz",
+    "iconAndroid": "more_horiz"
+  }
+]

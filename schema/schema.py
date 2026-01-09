@@ -9,6 +9,7 @@ from .businesses.queries import BusinessQuery
 from .branches.queries import BranchQuery
 from .products.queries import ProductQuery
 from .categories.queries import CategoryQuery
+from .product_categories.queries import ProductCategoryQuery
 from .auth.mutations import AuthMutation
 from .businesses.mutations import BusinessMutation
 from .branches.mutations import BranchMutation
@@ -22,7 +23,7 @@ from utils.graphql_auth import apply_optional_jwt
 
 
 @strawberry.type
-class Query(UserQuery, BusinessQuery, BranchQuery, ProductQuery, CategoryQuery, AiAssistantQuery, OrderQuery):
+class Query(UserQuery, BusinessQuery, BranchQuery, ProductQuery, CategoryQuery, ProductCategoryQuery, AiAssistantQuery, OrderQuery):
     @strawberry.field(description="Saludo de ejemplo")
     def hello(self, info: Info, jwt: Optional[str] = None) -> str:
         apply_optional_jwt(jwt, info)
