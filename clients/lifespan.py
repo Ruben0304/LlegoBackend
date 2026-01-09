@@ -1,6 +1,6 @@
 """FastAPI lifespan context manager for all clients."""
 from contextlib import asynccontextmanager
-from clients.mongodb_client import connect_to_mongo, close_mongo_connection
+from clients.mongodb_client import connect_to_mongo, close_mongo_connection, get_database
 from clients.qdrant_client import connect_to_qdrant, close_qdrant_connection
 from clients.gemini_client import connect_to_gemini, close_gemini_connection
 
@@ -17,14 +17,22 @@ async def lifespan(app):
     await connect_to_mongo()
     await connect_to_qdrant()
     connect_to_gemini()
-    
+
     # Create order indexes
     try:
         from orders.repository import create_order_indexes
         await create_order_indexes()
     except Exception as e:
         print(f"⚠ Warning: Could not create order indexes: {e}")
-    
+
+    # Seed product categories if they don't exist
+    try:
+        from seed_product_categories import seed_product_categories_from_db
+        db = get_database()
+        await seed_product_categories_from_db(db)
+    except Exception as e:
+        print(f"⚠ Warning: Could not seed product categories: {e}")
+
     print("✓ All clients initialized successfully\n")
 
     yield
