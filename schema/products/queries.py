@@ -58,22 +58,32 @@ class ProductQuery:
         if ids:
             all_products = await products_repo.get_by_ids(ids)
         elif branchId:
-            # Filter by specific branch (highest priority)
-            all_products = await products_repo.get_by_branch(branchId)
+            # Filter by specific branch - show ALL products (no category filter)
+            all_products = await products_repo.get_feed_products(
+                branch_ids=[branchId],
+                apply_category_filter=False
+            )
         elif branchTipo:
-            # Filter by branch type (only if no branchId)
+            # Filter by branch type - apply category filtering
             branch_ids = await branches_repo.get_ids_by_tipo(branchTipo.value)
             if not branch_ids:
                 return ProductConnection(edges=[], page_info=PageInfo(
                     has_next_page=False, has_previous_page=False, total_count=0
                 ))
-            all_products = await products_repo.get_by_branch_ids(branch_ids)
+            all_products = await products_repo.get_feed_products(
+                branch_ids=branch_ids,
+                apply_category_filter=True
+            )
         elif categoryId:
             all_products = await products_repo.get_by_category(categoryId)
         elif availableOnly:
             all_products = await products_repo.get_available()
         else:
-            all_products = await products_repo.get_all()
+            # Feed general - apply category filtering
+            all_products = await products_repo.get_feed_products(
+                branch_ids=None,
+                apply_category_filter=True
+            )
         
         # Apply scoring if user is authenticated
         scored_products: List[ScoredProductType] = []
