@@ -28,7 +28,9 @@ class ProductCategoryRepository:
     async def get_by_branch_type(self, branch_type: str) -> List[ProductCategory]:
         """Get product categories for a specific branch type."""
         db = get_database()
-        cursor = db[self.collection_name].find({"branchType": branch_type})
+        # Normalize branch_type to lowercase to match database storage
+        normalized_type = branch_type.lower() if branch_type else None
+        cursor = db[self.collection_name].find({"branchType": normalized_type})
         categories = await cursor.to_list(length=None)
         return [ProductCategory(**self._convert_id(c)) for c in categories]
 
@@ -37,7 +39,8 @@ class ProductCategoryRepository:
         db = get_database()
         query = {"name": name}
         if branch_type:
-            query["branchType"] = branch_type
+            # Normalize branch_type to lowercase to match database storage
+            query["branchType"] = branch_type.lower()
         category = await db[self.collection_name].find_one(query)
         return ProductCategory(**self._convert_id(category)) if category else None
 
