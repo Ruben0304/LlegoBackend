@@ -72,17 +72,18 @@ class ProductQuery:
                 ))
             all_products = await products_repo.get_feed_products(
                 branch_ids=branch_ids,
-                apply_category_filter=True
+                apply_category_filter=True,
+                requested_branch_tipo=branchTipo.value
             )
         elif categoryId:
             all_products = await products_repo.get_by_category(categoryId)
         elif availableOnly:
             all_products = await products_repo.get_available()
         else:
-            # Feed general - apply category filtering
+            # Feed general - no category filtering (show all)
             all_products = await products_repo.get_feed_products(
                 branch_ids=None,
-                apply_category_filter=True
+                apply_category_filter=False
             )
         
         # Apply scoring if user is authenticated
