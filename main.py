@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, Response
 from strawberry.fastapi import GraphQLRouter
@@ -11,6 +11,7 @@ from api import router
 from core.config import settings
 from utils.rate_limit import limiter, rate_limit_exceeded_handler, get_redis_status
 from utils.dataloaders import create_dataloaders
+from utils.exception_handler import global_exception_handler, http_exception_handler
 
 
 # FastAPI application with lifespan for all clients
@@ -28,6 +29,10 @@ app = FastAPI(
 # Add rate limiter to app state
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+
+# Add global exception handlers for error logging
+app.add_exception_handler(Exception, global_exception_handler)
+app.add_exception_handler(HTTPException, http_exception_handler)
 
 # CORS configuration
 # Mobile apps (iOS/Android) don't need CORS - they make native requests
