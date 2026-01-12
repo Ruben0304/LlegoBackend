@@ -9,7 +9,6 @@ from schema.branches.types import BranchTipo
 class CreateBusinessInput:
     """Input for creating a new business."""
     name: str
-    type: str
     avatar: Optional[str] = None  # Optional, upload via REST endpoint
     coverImage: Optional[str] = None
     description: Optional[str] = None
@@ -21,7 +20,6 @@ class CreateBusinessInput:
 class UpdateBusinessInput:
     """Input for updating a business."""
     name: Optional[str] = None
-    type: Optional[str] = None
     description: Optional[str] = None
     socialMedia: Optional[JSON] = None
     tags: Optional[List[str]] = None

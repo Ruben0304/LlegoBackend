@@ -148,10 +148,7 @@ class BusinessRepository:
             return []
 
     async def search(self, query: str) -> List[Business]:
-        """Search businesses by name or type in Qdrant (client-side filtering for simplicity if no vectors)."""
-        # Note: Ideally we should use vector search if we have embeddings, 
-        # but the interface asks for 'search' which might imply text match.
-        # For consistency with other repos, we scroll and filter.
+        """Search businesses by name in Qdrant."""
         try:
             qdrant_client = get_qdrant_client()
             businesses = []
@@ -174,9 +171,8 @@ class BusinessRepository:
                 for point in points:
                     metadata = point.payload.get("metadata", {})
                     name = metadata.get("name", "").lower()
-                    b_type = metadata.get("type", "").lower()
                     
-                    if query_lower in name or query_lower in b_type:
+                    if query_lower in name:
                         business = self._point_to_business(point)
                         if business:
                             businesses.append(business)
@@ -235,7 +231,7 @@ class BusinessRepository:
         try:
             # Generate embedding
             embedding_service = GeminiEmbeddingService()
-            text_to_embed = f"{business.name} {business.type} {business.description or ''} {' '.join(business.tags)}"
+            text_to_embed = f"{business.name} {business.description or ''} {' '.join(business.tags)}"
             embedding = embedding_service.generate_embedding(text_to_embed)
 
             qdrant_client = get_qdrant_client()
@@ -244,7 +240,6 @@ class BusinessRepository:
                 "metadata": {
                     "mongo_id": str(business.id),
                     "name": business.name,
-                    "type": business.type,
                     "ownerId": business.ownerId,
                     "globalRating": business.globalRating,
                     "avatar": business.avatar,
@@ -308,12 +303,12 @@ class BusinessRepository:
             for key, value in updates.items():
                 metadata[key] = value
 
-            # Regenerate embedding if name, type, description or tags changed
-            if any(k in updates for k in ["name", "type", "description", "tags"]):
+            # Regenerate embedding if name, description or tags changed
+            if any(k in updates for k in ["name", "description", "tags"]):
                 embedding_service = GeminiEmbeddingService()
                 tags = metadata.get("tags", [])
                 tags_str = " ".join(tags) if tags else ""
-                text_to_embed = f"{metadata.get('name', '')} {metadata.get('type', '')} {metadata.get('description', '')} {tags_str}"
+                text_to_embed = f"{metadata.get('name', '')} {metadata.get('description', '')} {tags_str}"
                 new_vector = embedding_service.generate_embedding(text_to_embed)
             else:
                 new_vector = point.vector
@@ -350,7 +345,6 @@ class BusinessRepository:
             return Business(
                 _id=metadata.get("mongo_id"),
                 name=metadata.get("name"),
-                type=metadata.get("type"),
                 ownerId=metadata.get("ownerId"),
                 globalRating=metadata.get("globalRating"),
                 avatar=metadata.get("avatar"),

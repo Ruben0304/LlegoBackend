@@ -11,7 +11,6 @@ Documentación para integración frontend multiplataforma.
 interface Business {
   id: string;
   name: string;
-  type: string;              // "coffee", "restaurant", etc.
   ownerId: string;           // ID del usuario propietario
   globalRating: float;       // Rating promedio (0-5)
   avatar: string;            // Path en S3
@@ -158,7 +157,6 @@ mutation RegisterBusiness(
   "jwt": "eyJhbG...",
   "business": {
     "name": "Mi Tienda",
-    "type": "restaurant",
     "avatar": "businesses/avatars/xxx.jpg",
     "coverImage": "businesses/covers/xxx.jpg",
     "description": "Descripción",
@@ -258,7 +256,6 @@ query GetBusinesses($ownerId: String, $jwt: String) {
   businesses(ownerId: $ownerId, jwt: $jwt) {
     id
     name
-    type
     avatarUrl
     globalRating
     isActive
@@ -456,7 +453,6 @@ query BranchLocation($branchId: String!, $jwt: String) {
 | Campo | Tipo | Requerido |
 |-------|------|-----------|
 | name | String | Sí |
-| type | String | Sí |
 | avatar | String | No |
 | coverImage | String | No |
 | description | String | No |
@@ -467,7 +463,6 @@ query BranchLocation($branchId: String!, $jwt: String) {
 | Campo | Tipo | Requerido |
 |-------|------|-----------|
 | name | String | No |
-| type | String | No |
 | description | String | No |
 | socialMedia | JSON | No |
 | tags | [String] | No |

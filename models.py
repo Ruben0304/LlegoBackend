@@ -28,7 +28,6 @@ class User(BaseModel):
 class Business(BaseModel):
     id: str = Field(alias="_id")
     name: str
-    type: str  # "coffee", "restaurant", etc.
     ownerId: str
     globalRating: float
     avatar: str
