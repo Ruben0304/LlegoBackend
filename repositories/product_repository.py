@@ -551,20 +551,21 @@ class ProductRepository:
     async def get_feed_products(
         self,
         branch_ids: Optional[List[str]] = None,
-        apply_category_filter: bool = True
+        apply_category_filter: bool = True,
+        requested_branch_tipo: Optional[str] = None
     ) -> List[Product]:
         """
         Get products for the feed with category filtering.
 
         Feed filtering rules:
         - When viewing a specific branch: show ALL products (apply_category_filter=False)
-        - When viewing feed (multiple branches): apply category filtering
-        - Don't show "dulceria" category products when branch has multiple tipos
-        - Only show products whose category matches one of the branch's tipos
+        - When viewing feed by branchTipo: only show products whose category matches the requested tipo
+        - Products without category are included only if no specific tipo is requested
 
         Args:
             branch_ids: List of branch IDs to get products from (None = all branches)
             apply_category_filter: Whether to apply feed category filtering rules
+            requested_branch_tipo: The branch type being requested (e.g., "restaurante", "dulceria")
 
         Returns:
             List of filtered products
@@ -580,38 +581,33 @@ class ProductRepository:
             return products
 
         # Apply feed category filtering
-        from repositories import branches_repo, product_categories_repo
+        from repositories import product_categories_repo
 
         filtered_products = []
 
         for product in products:
-            # Skip products without category
+            # Handle products without category
             if not product.categoryId:
-                filtered_products.append(product)
+                # Only include if no specific tipo is requested
+                if not requested_branch_tipo:
+                    filtered_products.append(product)
                 continue
 
             # Get product category
             category = await product_categories_repo.get_by_id(product.categoryId)
             if not category:
-                # If category not found, include the product
-                filtered_products.append(product)
+                # If category not found, include only if no specific tipo requested
+                if not requested_branch_tipo:
+                    filtered_products.append(product)
                 continue
 
-            # Get branch to check its tipos
-            branch = await branches_repo.get_by_id(product.branchId)
-            if not branch:
-                continue
-
-            # Feed filtering rules:
-            # 1. If branch has multiple tipos and one is "dulceria",
-            #    exclude products from dulceria categories
-            if len(branch.tipos) > 1 and "dulceria" in branch.tipos:
-                if category.branchType == "dulceria":
-                    # Skip dulceria products in multi-category branches
-                    continue
-
-            # 2. Only show products whose category matches one of the branch's tipos
-            if category.branchType in branch.tipos:
+            # If a specific branchTipo is requested, only show products 
+            # whose category matches that tipo
+            if requested_branch_tipo:
+                if category.branchType == requested_branch_tipo:
+                    filtered_products.append(product)
+            else:
+                # No specific tipo requested - include all products with valid categories
                 filtered_products.append(product)
 
         return filtered_products

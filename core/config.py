@@ -33,6 +33,13 @@ class Settings(BaseSettings):
     google_client_id: str = "your-google-client-id"
     apple_client_id: str = "your-apple-client-id"
     jwt_secret: str = ""
+    
+    # Apple Web Auth (for Android/Kotlin)
+    apple_team_id: str = ""
+    apple_key_id: str = ""
+    apple_private_key: str = ""  # Contenido del .p8 (sin archivo)
+    apple_web_service_id: str = ""
+    apple_web_redirect_uri: str = ""
 
     # CORS Configuration
     # Comma-separated list of allowed origins for web

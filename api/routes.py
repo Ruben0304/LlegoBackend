@@ -4,6 +4,7 @@ from typing import Optional
 from pydantic import BaseModel
 
 from .endpoints.uploads import router as uploads_router
+from .endpoints.apple_auth import router as apple_auth_router
 from repositories import auth_repo
 from utils.auth import create_access_token
 from utils.rate_limit import limiter, RATE_LIMIT_AUTH
@@ -12,6 +13,7 @@ from core.config import settings
 
 router = APIRouter()
 router.include_router(uploads_router)
+router.include_router(apple_auth_router)
 
 
 # =============================================================================
