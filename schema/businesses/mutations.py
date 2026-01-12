@@ -42,7 +42,6 @@ class BusinessMutation:
         business = Business(
             id=business_id,
             name=business_input.name,
-            type=business_input.type,
             ownerId=user_id,
             globalRating=0.0,
             avatar=business_input.avatar or "",
@@ -94,7 +93,6 @@ class BusinessMutation:
         return BusinessType(
             id=created_business.id,
             name=created_business.name,
-            type=created_business.type,
             ownerId=created_business.ownerId,
             globalRating=created_business.globalRating,
             avatar=created_business.avatar,
@@ -136,8 +134,6 @@ class BusinessMutation:
         updates = {}
         if input.name is not None:
             updates["name"] = input.name
-        if input.type is not None:
-            updates["type"] = input.type
         if input.description is not None:
             updates["description"] = input.description
         if input.socialMedia is not None:
@@ -168,7 +164,6 @@ class BusinessMutation:
         return BusinessType(
             id=updated_business.id,
             name=updated_business.name,
-            type=updated_business.type,
             ownerId=updated_business.ownerId,
             globalRating=updated_business.globalRating,
             avatar=updated_business.avatar,

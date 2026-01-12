@@ -10,7 +10,6 @@ from utils.s3 import generate_presigned_url
 class BusinessType:
     id: str
     name: str
-    type: str
     ownerId: str
     globalRating: float
     avatar: Optional[str]
