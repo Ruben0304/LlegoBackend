@@ -18,12 +18,14 @@ from .ai_assistant.queries import AiAssistantQuery
 from .orders.queries import OrderQuery
 from .orders.mutations import OrderMutation
 from .orders.subscriptions import OrderSubscription
+from .business_types.queries import BusinessTypeQuery
+from .business_types.mutations import BusinessTypeMutation
 from .extensions import UserIdExtension
 from utils.graphql_auth import apply_optional_jwt
 
 
 @strawberry.type
-class Query(UserQuery, BusinessQuery, BranchQuery, ProductQuery, CategoryQuery, ProductCategoryQuery, AiAssistantQuery, OrderQuery):
+class Query(UserQuery, BusinessQuery, BranchQuery, ProductQuery, CategoryQuery, ProductCategoryQuery, AiAssistantQuery, OrderQuery, BusinessTypeQuery):
     @strawberry.field(description="Saludo de ejemplo")
     def hello(self, info: Info, jwt: Optional[str] = None) -> str:
         apply_optional_jwt(jwt, info)
@@ -36,7 +38,7 @@ class Query(UserQuery, BusinessQuery, BranchQuery, ProductQuery, CategoryQuery, 
 
 
 @strawberry.type
-class Mutation(AuthMutation, UserMutation, BusinessMutation, BranchMutation, ProductMutation, OrderMutation):
+class Mutation(AuthMutation, UserMutation, BusinessMutation, BranchMutation, ProductMutation, OrderMutation, BusinessTypeMutation):
     pass
 
 

@@ -12,6 +12,9 @@ from .ai_assistant.queries import AiAssistantQuery
 from .orders.types import OrderType, OrderStatusEnum, PaymentStatusEnum
 from .orders.queries import OrderQuery
 from .orders.mutations import OrderMutation
+from .business_types.types import BusinessTypeConfigType, DeviceTokenType
+from .business_types.queries import BusinessTypeQuery
+from .business_types.mutations import BusinessTypeMutation
 from .schema import schema
 
 __all__ = [
@@ -33,5 +36,9 @@ __all__ = [
     "PaymentStatusEnum",
     "OrderQuery",
     "OrderMutation",
+    "BusinessTypeConfigType",
+    "DeviceTokenType",
+    "BusinessTypeQuery",
+    "BusinessTypeMutation",
     "schema",
 ]
