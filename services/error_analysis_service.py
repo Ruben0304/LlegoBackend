@@ -137,6 +137,8 @@ class ErrorAnalysisService:
         from repositories.error_log_repository import error_log_repo
         from services.push_notification_service import notify_critical_error
         
+        print(f"🔍 Starting analysis for error {error_id}")
+        
         try:
             analysis = await self.analyze_error(
                 error_type=error_data.get("error_type", "Unknown"),
@@ -148,19 +150,22 @@ class ErrorAnalysisService:
             )
 
             if analysis:
+                print(f"✅ Analysis complete - severidad: {analysis.severidad}")
                 await error_log_repo.update_analysis(error_id, analysis.model_dump())
                 
-                # Send push notification for high/critical severity errors
-                if analysis.severidad in ("alta", "critica"):
-                    await notify_critical_error(
-                        error_id=error_id,
-                        error_type=error_data.get("error_type", "Unknown"),
-                        error_message=error_data.get("error_message", ""),
-                        severity=analysis.severidad
-                    )
+                # Send push notification for ALL errors
+                print(f"🚨 Sending push notification for error...")
+                await notify_critical_error(
+                    error_id=error_id,
+                    error_type=error_data.get("error_type", "Unknown"),
+                    error_message=error_data.get("error_message", ""),
+                    severity=analysis.severidad
+                )
+            else:
+                print(f"⚠️ No analysis returned from Gemini")
 
         except Exception as e:
-            print(f"Error in background analysis for {error_id}: {e}")
+            print(f"❌ Error in background analysis for {error_id}: {e}")
 
 
 # Singleton instance

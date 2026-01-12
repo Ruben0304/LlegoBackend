@@ -259,25 +259,19 @@ async def notify_critical_error(
 ) -> Dict[str, Any]:
     """
     Send push notification for critical errors to admin devices.
-    
-    Args:
-        error_id: The error log ID
-        error_type: Type of error
-        error_message: Error message (will be truncated)
-        severity: Error severity level
-    
-    Returns:
-        Result of push notification attempt
     """
     from repositories.device_token_repository import device_token_repo
     
-    # Get all active iOS tokens (admin notification)
-    # In production, you might want to filter by admin users
+    logger.info(f"🔔 notify_critical_error called - severity: {severity}, error_type: {error_type}")
+    
+    # Get all active iOS tokens
     tokens = await device_token_repo.get_all_active()
     ios_tokens = [t.token for t in tokens if t.platform == "IOS"]
     
+    logger.info(f"📱 Found {len(ios_tokens)} iOS device tokens")
+    
     if not ios_tokens:
-        logger.info("No iOS devices registered for error notifications")
+        logger.warning("⚠️ No iOS devices registered for error notifications")
         return {"success": 0, "failed": 0, "no_devices": True}
     
     # Build notification
@@ -298,10 +292,16 @@ async def notify_critical_error(
         "severity": severity
     }
     
-    return await push_service.send_to_all(
+    logger.info(f"📤 Sending push: {title}")
+    
+    result = await push_service.send_to_all(
         tokens=ios_tokens,
         title=title,
         body=body,
         data=data,
         platform="IOS"
     )
+    
+    logger.info(f"📬 Push result: {result}")
+    
+    return result
