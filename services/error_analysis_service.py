@@ -5,6 +5,7 @@ import asyncio
 from typing import Optional, Dict, Any
 
 from clients import get_gemini_client
+from core.config import settings
 from models_error_logs import GeminiAnalysis
 
 
@@ -70,7 +71,7 @@ class ErrorAnalysisService:
     """Service for analyzing errors using Gemini AI."""
 
     def __init__(self):
-        self.model_name = "gemini-2.0-flash"
+        self.model_name = settings.gemini_model
 
     def _build_prompt(
         self,
