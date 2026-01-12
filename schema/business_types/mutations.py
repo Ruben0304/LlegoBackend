@@ -8,13 +8,17 @@ from .types import (
     DeviceTokenType,
     CreateBusinessTypeConfigInput,
     UpdateBusinessTypeConfigInput,
-    RegisterDeviceTokenInput
+    RegisterDeviceTokenInput,
+    GradientConfigType,
+    CameraConfigType,
+    FeatureType,
+    DevicePlatformEnum
 )
 from repositories.business_type_repository import business_type_repo
 from repositories.device_token_repository import device_token_repo
 from services.push_notification_service import push_service
 from models_business_types import BusinessTypeConfig, DeviceToken
-from utils.graphql_auth import apply_jwt, require_admin
+from utils.graphql_auth import apply_optional_jwt, require_role
 
 
 def convert_business_type_to_graphql(config: BusinessTypeConfig) -> BusinessTypeConfigType:
@@ -28,10 +32,31 @@ def convert_business_type_to_graphql(config: BusinessTypeConfig) -> BusinessType
         model3d_file_name=config.model3dFileName,
         model3d_url=config.model3dUrl,
         model3d_version=config.model3dVersion,
-        gradient=config.gradient,
-        camera=config.camera,
+        gradient=GradientConfigType(
+            dark_color=config.gradient.darkColor,
+            medium_color=config.gradient.mediumColor,
+            light_color=config.gradient.lightColor,
+            very_light_color=config.gradient.veryLightColor,
+            overlay_color=config.gradient.overlayColor
+        ),
+        camera=CameraConfigType(
+            position_x=config.camera.positionX,
+            position_y=config.camera.positionY,
+            position_z=config.camera.positionZ,
+            euler_x=config.camera.eulerX,
+            euler_y=config.camera.eulerY,
+            euler_z=config.camera.eulerZ
+        ),
         glow_color=config.glowColor,
-        features=config.features,
+        features=[
+            FeatureType(
+                icon=f.icon,
+                title=f.title,
+                subtitle=f.subtitle,
+                sort_order=f.sortOrder
+            )
+            for f in config.features
+        ],
         sort_order=config.sortOrder,
         is_active=config.isActive,
         created_at=config.createdAt,
@@ -45,7 +70,7 @@ def convert_device_token_to_graphql(token: DeviceToken) -> DeviceTokenType:
         id=token.id,
         user_id=token.userId,
         token=token.token,
-        platform=token.platform,
+        platform=DevicePlatformEnum(token.platform),
         app_version=token.appVersion,
         os_version=token.osVersion,
         is_active=token.isActive,
@@ -65,21 +90,12 @@ class BusinessTypeMutation:
     ) -> DeviceTokenType:
         """
         Register a device token for push notifications.
-        
-        Args:
-            input: Device token registration data
-            jwt: Optional JWT token (if user is logged in)
-        
-        Returns:
-            Registered device token
         """
         user_id = None
         if jwt:
             try:
-                apply_jwt(jwt, info)
-                user_id = info.context.get("user_id")
+                user_id = apply_optional_jwt(jwt, info)
             except:
-                # If JWT is invalid, continue without user_id
                 pass
         
         token_data = {
@@ -99,15 +115,7 @@ class BusinessTypeMutation:
         info: Info,
         token: str
     ) -> bool:
-        """
-        Unregister a device token (e.g., on logout or app uninstall).
-        
-        Args:
-            token: Device token to unregister
-        
-        Returns:
-            True if successful
-        """
+        """Unregister a device token (e.g., on logout or app uninstall)."""
         return await device_token_repo.deactivate(token)
 
     @strawberry.mutation(description="Create new business type configuration (Admin only, triggers push notification)")
@@ -120,20 +128,9 @@ class BusinessTypeMutation:
         """
         Create a new business type configuration.
         This will trigger push notifications to all registered devices.
-        
-        Args:
-            input: Business type configuration data
-            jwt: Admin JWT token (required)
-        
-        Returns:
-            Created business type configuration
-        
-        Raises:
-            PermissionError: If user is not an admin
         """
         # Validate admin permission
-        apply_jwt(jwt, info)
-        require_admin(info)
+        require_role(jwt, info, ["admin"])
         
         # Prepare config data
         config_data = {
@@ -212,22 +209,9 @@ class BusinessTypeMutation:
         """
         Update an existing business type configuration.
         This does NOT trigger push notifications.
-        
-        Args:
-            id: Business type configuration ID
-            input: Update data
-            jwt: Admin JWT token (required)
-        
-        Returns:
-            Updated business type configuration
-        
-        Raises:
-            PermissionError: If user is not an admin
-            ValueError: If configuration not found
         """
         # Validate admin permission
-        apply_jwt(jwt, info)
-        require_admin(info)
+        require_role(jwt, info, ["admin"])
         
         # Prepare update data (only include non-None fields)
         update_data = {}
@@ -293,23 +277,9 @@ class BusinessTypeMutation:
         id: str,
         jwt: str
     ) -> BusinessTypeConfigType:
-        """
-        Deactivate (soft delete) a business type configuration.
-        
-        Args:
-            id: Business type configuration ID
-            jwt: Admin JWT token (required)
-        
-        Returns:
-            Deactivated business type configuration
-        
-        Raises:
-            PermissionError: If user is not an admin
-            ValueError: If configuration not found
-        """
+        """Deactivate (soft delete) a business type configuration."""
         # Validate admin permission
-        apply_jwt(jwt, info)
-        require_admin(info)
+        require_role(jwt, info, ["admin"])
         
         # Deactivate configuration
         deactivated_config = await business_type_repo.deactivate(id)
