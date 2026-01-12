@@ -20,7 +20,7 @@ from .orders.mutations import OrderMutation
 from .orders.subscriptions import OrderSubscription
 from .business_types.queries import BusinessTypeQuery
 from .business_types.mutations import BusinessTypeMutation
-from .extensions import UserIdExtension
+from .extensions import UserIdExtension, ErrorLoggingExtension
 from utils.graphql_auth import apply_optional_jwt
 
 
@@ -52,5 +52,5 @@ schema = strawberry.Schema(
     query=Query,
     mutation=Mutation,
     subscription=Subscription,
-    extensions=[UserIdExtension]
+    extensions=[UserIdExtension, ErrorLoggingExtension]
 )
