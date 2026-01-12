@@ -2,10 +2,11 @@
 import strawberry
 from typing import List, Optional
 from datetime import datetime
+from enum import Enum
 
 
 @strawberry.enum
-class DevicePlatformEnum:
+class DevicePlatformEnum(Enum):
     """Device platform enum."""
     IOS = "IOS"
     ANDROID = "ANDROID"
