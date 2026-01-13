@@ -154,6 +154,8 @@ class UpdateBusinessTypeConfigInput:
     features: Optional[List[FeatureInput]] = None
     sort_order: Optional[int] = strawberry.field(name="sortOrder", default=None)
     is_active: Optional[bool] = strawberry.field(name="isActive", default=None)
+    push_title: Optional[str] = strawberry.field(name="pushTitle", default=None)
+    push_body: Optional[str] = strawberry.field(name="pushBody", default=None)
 
 
 @strawberry.input

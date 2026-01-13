@@ -182,8 +182,8 @@ class BusinessTypeMutation:
         android_tokens = [t.token for t in all_tokens if t.platform == "ANDROID"]
         
         # Prepare push notification
-        push_title = input.push_title or "¡Nueva categoría disponible!"
-        push_body = input.push_body or f"Descubre {input.name} en Llego"
+        push_title = input.push_title or f"✨ Llegó {input.name}"
+        push_body = input.push_body or "Ya puedes explorar esta nueva sección"
         push_data = {
             "type": "NEW_BUSINESS_TYPE",
             "businessTypeKey": input.key,
@@ -199,7 +199,7 @@ class BusinessTypeMutation:
         
         return convert_business_type_to_graphql(new_config)
 
-    @strawberry.mutation(description="Update business type configuration (Admin only)")
+    @strawberry.mutation(description="Update business type configuration (Admin only, triggers push notification)")
     async def update_business_type_config(
         self,
         info: Info,
@@ -210,7 +210,7 @@ class BusinessTypeMutation:
         """
         Update an existing business type configuration.
         If model3dUrl is updated, the old model file will be deleted from S3.
-        This does NOT trigger push notifications.
+        Triggers push notifications to all registered devices.
         """
         # Validate admin permission
         require_role(jwt, info, ["admin"])
@@ -282,6 +282,26 @@ class BusinessTypeMutation:
         
         if not updated_config:
             raise ValueError(f"Business type configuration with id {id} not found")
+        
+        # Send push notifications for the update
+        all_tokens = await device_token_repo.get_all_active()
+        
+        ios_tokens = [t.token for t in all_tokens if t.platform == "IOS"]
+        android_tokens = [t.token for t in all_tokens if t.platform == "ANDROID"]
+        
+        push_title = input.push_title or f"🔄 {updated_config.name} se renovó"
+        push_body = input.push_body or "Hay cambios que te pueden interesar"
+        push_data = {
+            "type": "UPDATED_BUSINESS_TYPE",
+            "businessTypeKey": updated_config.key,
+            "businessTypeId": updated_config.id,
+            "action": "SYNC_BUSINESS_TYPES"
+        }
+        
+        if ios_tokens:
+            await push_service.send_to_all(ios_tokens, push_title, push_body, push_data, "IOS")
+        if android_tokens:
+            await push_service.send_to_all(android_tokens, push_title, push_body, push_data, "ANDROID")
         
         return convert_business_type_to_graphql(updated_config)
 
