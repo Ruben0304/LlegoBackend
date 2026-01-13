@@ -13,7 +13,6 @@ class BusinessType:
     ownerId: str
     globalRating: float
     avatar: Optional[str]
-    coverImage: Optional[str]
     description: Optional[str]
     socialMedia: Optional[strawberry.scalars.JSON]
     tags: List[str]
@@ -24,10 +23,4 @@ class BusinessType:
     def avatar_url(self) -> Optional[str]:
         if self.avatar:
             return generate_presigned_url(self.avatar)
-        return None
-
-    @strawberry.field(description="Presigned URL for the business cover image")
-    def cover_url(self) -> Optional[str]:
-        if self.coverImage:
-            return generate_presigned_url(self.coverImage)
         return None
