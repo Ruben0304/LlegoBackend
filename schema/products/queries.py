@@ -171,9 +171,6 @@ class ProductQuery:
     async def product(self, info: Info, id: str, jwt: Optional[str] = None) -> Optional[ProductType]:
         apply_optional_jwt(jwt, info)
         
-        # TODO: ELIMINAR - Error temporal para probar sistema de logging
-        raise Exception(f"Error crítico simulado: No se pudo procesar el producto {id}. Conexión a base de datos fallida.")
-        
         product = await products_repo.get_by_id(id)
         return ProductType(**product.model_dump()) if product else None
 
