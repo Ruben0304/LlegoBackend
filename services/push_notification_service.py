@@ -166,12 +166,14 @@ class PushNotificationService:
                     
                     if response.status_code == 200:
                         success_count += 1
+                        logger.info(f"✅ Push sent successfully to {token[:10]}...")
                     else:
-                        logger.error(f"APNs error for token {token[:10]}...: {response.status_code} - {response.text}")
+                        error_body = response.text
+                        logger.error(f"❌ APNs error {response.status_code} for {token[:10]}...: {error_body}")
                         failed_tokens.append(token)
                         
                 except Exception as e:
-                    logger.error(f"Failed to send to token {token[:10]}...: {e}")
+                    logger.error(f"❌ Exception sending to {token[:10]}...: {type(e).__name__}: {e}")
                     failed_tokens.append(token)
         
         return {

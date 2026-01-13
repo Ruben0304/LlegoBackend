@@ -172,15 +172,23 @@ async def test_push_notification():
     Test endpoint to verify push notifications are working.
     Sends a test notification to all registered iOS devices.
     """
-    from services.push_notification_service import push_service, notify_critical_error
+    from services.push_notification_service import push_service
     from repositories.device_token_repository import device_token_repo
+    from core.config import settings
     
     # Get device tokens
     tokens = await device_token_repo.get_all_active()
     ios_tokens = [t.token for t in tokens if t.platform == "IOS"]
     
+    # Debug info
+    bundle_id = settings.apple_client_id.split(",")[0].strip()
+    apns_url = push_service._get_apns_url()
+    
     result = {
         "apns_configured": push_service.apns_configured,
+        "apns_url": apns_url,
+        "bundle_id": bundle_id,
+        "environment": settings.environment,
         "total_tokens": len(tokens),
         "ios_tokens": len(ios_tokens),
         "tokens_preview": [t[:20] + "..." for t in ios_tokens[:3]] if ios_tokens else []
