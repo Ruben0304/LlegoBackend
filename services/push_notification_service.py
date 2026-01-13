@@ -66,8 +66,8 @@ class PushNotificationService:
     
     def _get_apns_url(self) -> str:
         """Get APNs URL based on environment."""
-        if settings.environment == "production":
-            return self.APNS_PRODUCTION
+        # Always use sandbox for now (development/TestFlight builds)
+        # Change to production only when app is in App Store
         return self.APNS_SANDBOX
     
     async def send_to_all(
