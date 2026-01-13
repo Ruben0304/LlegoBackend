@@ -83,7 +83,8 @@ class PushNotificationService:
         title: str,
         body: str,
         data: Optional[Dict[str, Any]] = None,
-        platform: str = "IOS"
+        platform: str = "IOS",
+        bundle_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Send push notification to multiple devices.
@@ -94,6 +95,7 @@ class PushNotificationService:
             body: Notification body
             data: Additional data payload
             platform: "IOS" or "ANDROID"
+            bundle_id: Optional bundle ID override for APNs
         
         Returns:
             Dict with success count and failed tokens
@@ -104,7 +106,7 @@ class PushNotificationService:
         logger.info(f"Sending push to {len(tokens)} {platform} devices: {title}")
         
         if platform == "IOS":
-            return await self._send_apns(tokens, title, body, data)
+            return await self._send_apns(tokens, title, body, data, bundle_id)
         elif platform == "ANDROID":
             return await self._send_fcm(tokens, title, body, data)
         else:
@@ -116,7 +118,8 @@ class PushNotificationService:
         tokens: List[str],
         title: str,
         body: str,
-        data: Optional[Dict[str, Any]] = None
+        data: Optional[Dict[str, Any]] = None,
+        bundle_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """Send push notification via Apple Push Notification service (APNs)."""
         if not self.apns_configured:
@@ -151,15 +154,17 @@ class PushNotificationService:
         apns_url = self._get_apns_url()
         jwt_token = self._get_apns_token()
         
-        # Use dedicated push bundle ID or fall back to first apple_client_id
-        bundle_id = settings.apns_bundle_id or settings.apple_client_id.split(",")[0].strip()
+        # Use provided bundle_id or default
+        topic = bundle_id or settings.apns_bundle_id or settings.apple_client_id.split(",")[0].strip()
         
         headers = {
             "authorization": f"bearer {jwt_token}",
-            "apns-topic": bundle_id,
+            "apns-topic": topic,
             "apns-push-type": "alert",
             "apns-priority": "10"
         }
+        
+        logger.info(f"📤 Sending to APNs: {apns_url}, topic: {topic}")
         
         async with httpx.AsyncClient(http2=True, timeout=30.0) as client:
             for token in tokens:
