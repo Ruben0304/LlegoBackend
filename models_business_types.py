@@ -70,6 +70,8 @@ class DeviceToken(BaseModel):
     platform: DevicePlatform
     appVersion: Optional[str] = None
     osVersion: Optional[str] = None
+    bundleId: Optional[str] = None  # Bundle ID of the app
+    environment: str = "sandbox"  # "sandbox" or "production"
     isActive: bool = True
     createdAt: datetime
     updatedAt: datetime

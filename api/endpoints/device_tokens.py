@@ -34,6 +34,8 @@ class RegisterTokenRequest(BaseModel):
     app_version: Optional[str] = None
     os_version: Optional[str] = None
     device_model: Optional[str] = None
+    bundle_id: Optional[str] = None
+    environment: Literal["sandbox", "production"] = "sandbox"  # iOS app should send this
 
 
 class RegisterTokenResponse(BaseModel):
@@ -70,7 +72,9 @@ async def register_device_token(data: RegisterTokenRequest):
             "platform": data.platform,
             "appVersion": data.app_version,
             "osVersion": data.os_version,
-            "deviceModel": data.device_model
+            "deviceModel": data.device_model,
+            "bundleId": data.bundle_id,
+            "environment": data.environment
         })
         
         return RegisterTokenResponse(
