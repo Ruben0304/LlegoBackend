@@ -31,7 +31,6 @@ class Business(BaseModel):
     ownerId: str
     globalRating: float
     avatar: str
-    coverImage: Optional[str] = None
     description: Optional[str] = None
     socialMedia: Optional[Dict[str, str]] = None
     tags: List[str] = []

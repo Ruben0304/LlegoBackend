@@ -198,39 +198,6 @@ async def upload_business_avatar(
     return {"image_path": image_path, "image_url": generate_presigned_url(image_path)}
 
 
-@router.post("/business/cover", status_code=status.HTTP_200_OK)
-@limiter.limit(RATE_LIMIT_UPLOADS)
-async def upload_business_cover(
-    request: Request,
-    image: UploadFile = File(...),
-    user_id: str = Depends(get_current_user_id_from_header)
-):
-    """
-    Upload cover image for a business.
-    Max size: 5MB | Output: 1200x400 JPG
-    """
-    if not user_id:
-        raise HTTPException(status_code=401, detail="No autorizado")
-
-    file_content = await validate_upload(image, "cover", MAX_FILE_SIZES["cover"])
-    
-    try:
-        processed_content, extension = process_image_for_store(
-            file_content, "business_cover", convert_to_jpg=True
-        )
-    except Exception:
-        raise HTTPException(status_code=400, detail="Error procesando imagen")
-
-    entity_id = str(ObjectId())
-
-    try:
-        image_path = await upload_file(processed_content, "businesses/covers", entity_id, extension)
-    except Exception:
-        raise HTTPException(status_code=500, detail="Error subiendo imagen")
-
-    return {"image_path": image_path, "image_url": generate_presigned_url(image_path)}
-
-
 @router.post("/branch/avatar", status_code=status.HTTP_200_OK)
 @limiter.limit(RATE_LIMIT_UPLOADS)
 async def upload_branch_avatar(

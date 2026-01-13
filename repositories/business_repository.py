@@ -243,7 +243,6 @@ class BusinessRepository:
                     "ownerId": business.ownerId,
                     "globalRating": business.globalRating,
                     "avatar": business.avatar,
-                    "coverImage": business.coverImage,
                     "description": business.description,
                     "socialMedia": business.socialMedia,
                     "tags": business.tags,
@@ -342,13 +341,13 @@ class BusinessRepository:
     def _point_to_business(point) -> Optional[Business]:
         try:
             metadata = point.payload.get("metadata", {})
+            # Note: coverImage is intentionally ignored for legacy data compatibility
             return Business(
                 _id=metadata.get("mongo_id"),
                 name=metadata.get("name"),
                 ownerId=metadata.get("ownerId"),
                 globalRating=metadata.get("globalRating"),
                 avatar=metadata.get("avatar"),
-                coverImage=metadata.get("coverImage"),
                 description=metadata.get("description"),
                 socialMedia=metadata.get("socialMedia"),
                 tags=metadata.get("tags", []),

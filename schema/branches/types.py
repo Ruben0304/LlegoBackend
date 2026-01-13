@@ -40,10 +40,18 @@ class BranchType:
     tipos: List[BranchTipo]
     createdAt: datetime
 
-    @strawberry.field(description="Presigned URL for the branch avatar")
-    def avatar_url(self) -> Optional[str]:
+    @strawberry.field(description="Presigned URL for the branch avatar (inherits from business if not set)")
+    async def avatar_url(self, info: Info) -> Optional[str]:
+        # Si la sucursal tiene avatar propio, usarlo
         if self.avatar:
             return generate_presigned_url(self.avatar)
+        
+        # Si no, intentar heredar del negocio padre
+        from repositories import businesses_repo
+        business = await businesses_repo.get_by_id(self.businessId)
+        if business and business.avatar:
+            return generate_presigned_url(business.avatar)
+        
         return None
 
     @strawberry.field(description="Presigned URL for the branch cover image")
@@ -95,10 +103,18 @@ class NearbyBranchType:
     createdAt: datetime
     distance_m: float
 
-    @strawberry.field(description="Presigned URL for the branch avatar")
-    def avatar_url(self) -> Optional[str]:
+    @strawberry.field(description="Presigned URL for the branch avatar (inherits from business if not set)")
+    async def avatar_url(self, info: Info) -> Optional[str]:
+        # Si la sucursal tiene avatar propio, usarlo
         if self.avatar:
             return generate_presigned_url(self.avatar)
+        
+        # Si no, intentar heredar del negocio padre
+        from repositories import businesses_repo
+        business = await businesses_repo.get_by_id(self.businessId)
+        if business and business.avatar:
+            return generate_presigned_url(business.avatar)
+        
         return None
 
     @strawberry.field(description="Presigned URL for the branch cover image")
@@ -155,10 +171,18 @@ class ScoredBranchType:
     score: float
     distance_m: Optional[float] = None
 
-    @strawberry.field(description="Presigned URL for the branch avatar")
-    def avatar_url(self) -> Optional[str]:
+    @strawberry.field(description="Presigned URL for the branch avatar (inherits from business if not set)")
+    async def avatar_url(self, info: Info) -> Optional[str]:
+        # Si la sucursal tiene avatar propio, usarlo
         if self.avatar:
             return generate_presigned_url(self.avatar)
+        
+        # Si no, intentar heredar del negocio padre
+        from repositories import businesses_repo
+        business = await businesses_repo.get_by_id(self.businessId)
+        if business and business.avatar:
+            return generate_presigned_url(business.avatar)
+        
         return None
 
     @strawberry.field(description="Presigned URL for the branch cover image")

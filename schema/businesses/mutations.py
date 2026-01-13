@@ -45,7 +45,6 @@ class BusinessMutation:
             ownerId=user_id,
             globalRating=0.0,
             avatar=business_input.avatar or "",
-            coverImage=business_input.coverImage,
             description=business_input.description,
             socialMedia=business_input.socialMedia,
             tags=business_input.tags or [],
@@ -96,7 +95,6 @@ class BusinessMutation:
             ownerId=created_business.ownerId,
             globalRating=created_business.globalRating,
             avatar=created_business.avatar,
-            coverImage=created_business.coverImage,
             description=created_business.description,
             socialMedia=created_business.socialMedia,
             tags=created_business.tags,
@@ -114,7 +112,7 @@ class BusinessMutation:
     ) -> BusinessType:
         """
         Actualiza datos de un negocio. Para imágenes, subirlas primero via
-        POST /upload/business/avatar o POST /upload/business/cover.
+        POST /upload/business/avatar endpoint.
         """
         apply_optional_jwt(jwt, info)
         user_id = info.context.get("user_id")
@@ -147,11 +145,6 @@ class BusinessMutation:
             if business.avatar:
                 await delete_file(business.avatar)
             updates["avatar"] = input.avatar
-        if input.coverImage is not None:
-            # Delete old cover if exists
-            if business.coverImage:
-                await delete_file(business.coverImage)
-            updates["coverImage"] = input.coverImage
 
         if not updates:
             raise Exception("No hay campos para actualizar")
@@ -167,7 +160,6 @@ class BusinessMutation:
             ownerId=updated_business.ownerId,
             globalRating=updated_business.globalRating,
             avatar=updated_business.avatar,
-            coverImage=updated_business.coverImage,
             description=updated_business.description,
             socialMedia=updated_business.socialMedia,
             tags=updated_business.tags,

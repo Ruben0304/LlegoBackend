@@ -10,7 +10,6 @@ class CreateBusinessInput:
     """Input for creating a new business."""
     name: str
     avatar: Optional[str] = None  # Optional, upload via REST endpoint
-    coverImage: Optional[str] = None
     description: Optional[str] = None
     socialMedia: Optional[JSON] = None
     tags: Optional[List[str]] = None
@@ -25,7 +24,6 @@ class UpdateBusinessInput:
     tags: Optional[List[str]] = None
     isActive: Optional[bool] = None
     avatar: Optional[str] = None  # Path from /upload/business/avatar
-    coverImage: Optional[str] = None  # Path from /upload/business/cover
 
 
 @strawberry.input
