@@ -164,3 +164,40 @@ async def cleanup_old_errors(
         "deleted_count": deleted_count,
         "criteria": f"Errores resueltos con más de {days} días"
     }
+
+
+@router.post("/test-push")
+async def test_push_notification():
+    """
+    Test endpoint to verify push notifications are working.
+    Sends a test notification to all registered iOS devices.
+    """
+    from services.push_notification_service import push_service, notify_critical_error
+    from repositories.device_token_repository import device_token_repo
+    
+    # Get device tokens
+    tokens = await device_token_repo.get_all_active()
+    ios_tokens = [t.token for t in tokens if t.platform == "IOS"]
+    
+    result = {
+        "apns_configured": push_service.apns_configured,
+        "total_tokens": len(tokens),
+        "ios_tokens": len(ios_tokens),
+        "tokens_preview": [t[:20] + "..." for t in ios_tokens[:3]] if ios_tokens else []
+    }
+    
+    if not ios_tokens:
+        result["error"] = "No iOS tokens registered"
+        return result
+    
+    # Try to send test notification
+    push_result = await push_service.send_to_all(
+        tokens=ios_tokens,
+        title="🧪 Test Notification",
+        body="Si ves esto, las notificaciones funcionan!",
+        data={"type": "test"},
+        platform="IOS"
+    )
+    
+    result["push_result"] = push_result
+    return result
