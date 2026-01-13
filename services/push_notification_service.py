@@ -20,12 +20,15 @@ class PushNotificationService:
     APNS_SANDBOX = "https://api.sandbox.push.apple.com"
     
     def __init__(self):
-        # Check if APNs is configured
+        # Check if APNs is configured (use dedicated push key or fall back to auth key)
+        push_key = settings.apns_private_key or settings.apple_private_key
+        push_key_id = settings.apns_key_id or settings.apple_key_id
+        
         self.apns_configured = bool(
             settings.apple_team_id and 
-            settings.apple_key_id and 
-            settings.apple_private_key and
-            settings.apple_private_key != "-----BEGIN PRIVATE KEY-----\nTU_LLAVE_AQUI\n-----END PRIVATE KEY-----"
+            push_key_id and 
+            push_key and
+            push_key != "-----BEGIN PRIVATE KEY-----\nTU_LLAVE_AQUI\n-----END PRIVATE KEY-----"
         )
         self.fcm_configured = False
         
@@ -46,10 +49,14 @@ class PushNotificationService:
         if self._apns_token and (current_time - self._apns_token_time) < 3000:
             return self._apns_token
         
+        # Use dedicated push key or fall back to auth key
+        key_id = settings.apns_key_id or settings.apple_key_id
+        private_key = settings.apns_private_key or settings.apple_private_key
+        
         # Generate new token
         headers = {
             "alg": "ES256",
-            "kid": settings.apple_key_id
+            "kid": key_id
         }
         payload = {
             "iss": settings.apple_team_id,
@@ -57,7 +64,7 @@ class PushNotificationService:
         }
         
         # Handle escaped newlines in private key
-        private_key = settings.apple_private_key.replace("\\n", "\n")
+        private_key = private_key.replace("\\n", "\n")
         
         self._apns_token = jwt.encode(payload, private_key, algorithm="ES256", headers=headers)
         self._apns_token_time = current_time
@@ -65,10 +72,10 @@ class PushNotificationService:
         return self._apns_token
     
     def _get_apns_url(self) -> str:
-        """Get APNs URL based on environment."""
-        # Always use sandbox for now (development/TestFlight builds)
-        # Change to production only when app is in App Store
-        return self.APNS_SANDBOX
+        """Get APNs URL based on configuration."""
+        if settings.apns_use_sandbox:
+            return self.APNS_SANDBOX
+        return self.APNS_PRODUCTION
     
     async def send_to_all(
         self,
@@ -144,8 +151,8 @@ class PushNotificationService:
         apns_url = self._get_apns_url()
         jwt_token = self._get_apns_token()
         
-        # Use bundle ID from config (first one if multiple)
-        bundle_id = settings.apple_client_id.split(",")[0].strip()
+        # Use dedicated push bundle ID or fall back to first apple_client_id
+        bundle_id = settings.apns_bundle_id or settings.apple_client_id.split(",")[0].strip()
         
         headers = {
             "authorization": f"bearer {jwt_token}",

@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     apple_client_id: str = "your-apple-client-id"
     jwt_secret: str = ""
     
+    # Push Notifications - Bundle ID for APNs (can be different from auth bundle)
+    apns_bundle_id: str = ""  # If empty, uses first apple_client_id
+    apns_key_id: str = ""  # Key ID for push notifications (if different from auth)
+    apns_private_key: str = ""  # Private key for push (.p8 content)
+    apns_use_sandbox: bool = True  # True for development/TestFlight, False for App Store
+    
     # Apple Web Auth (for Android/Kotlin)
     apple_team_id: str = ""
     apple_key_id: str = ""
