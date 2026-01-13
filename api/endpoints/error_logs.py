@@ -166,46 +166,51 @@ async def cleanup_old_errors(
     }
 
 
-@router.post("/test-push")
-async def test_push_notification():
-    """
-    Test endpoint to verify push notifications are working.
-    Sends a test notification to all registered iOS devices.
-    """
+@router.post("/test-push/clientes")
+async def test_push_clientes():
+    """Test push notification to Llego Clientes app (com.ruben.LlegoiOS)."""
     from services.push_notification_service import push_service
     from repositories.device_token_repository import device_token_repo
-    from core.config import settings
     
-    # Get device tokens
+    bundle_id = "com.ruben.LlegoiOS"
     tokens = await device_token_repo.get_all_active()
     ios_tokens = [t.token for t in tokens if t.platform == "IOS"]
     
-    # Debug info
-    bundle_id = settings.apple_client_id.split(",")[0].strip()
-    apns_url = push_service._get_apns_url()
-    
-    result = {
-        "apns_configured": push_service.apns_configured,
-        "apns_url": apns_url,
-        "bundle_id": bundle_id,
-        "environment": settings.environment,
-        "total_tokens": len(tokens),
-        "ios_tokens": len(ios_tokens),
-        "tokens_preview": [t[:20] + "..." for t in ios_tokens[:3]] if ios_tokens else []
-    }
-    
     if not ios_tokens:
-        result["error"] = "No iOS tokens registered"
-        return result
+        return {"error": "No iOS tokens registered", "bundle_id": bundle_id}
     
-    # Try to send test notification
-    push_result = await push_service.send_to_all(
+    result = await push_service.send_to_all(
         tokens=ios_tokens,
-        title="🧪 Test Notification",
-        body="Si ves esto, las notificaciones funcionan!",
+        title="🧪 Test Clientes",
+        body="Notificación de prueba para Llego Clientes",
         data={"type": "test"},
-        platform="IOS"
+        platform="IOS",
+        bundle_id=bundle_id
     )
     
-    result["push_result"] = push_result
-    return result
+    return {"bundle_id": bundle_id, "tokens": len(ios_tokens), "result": result}
+
+
+@router.post("/test-push/negocios")
+async def test_push_negocios():
+    """Test push notification to Llego Negocios app (com.llego.business.LlegoBusiness)."""
+    from services.push_notification_service import push_service
+    from repositories.device_token_repository import device_token_repo
+    
+    bundle_id = "com.llego.business.LlegoBusiness"
+    tokens = await device_token_repo.get_all_active()
+    ios_tokens = [t.token for t in tokens if t.platform == "IOS"]
+    
+    if not ios_tokens:
+        return {"error": "No iOS tokens registered", "bundle_id": bundle_id}
+    
+    result = await push_service.send_to_all(
+        tokens=ios_tokens,
+        title="🧪 Test Negocios",
+        body="Notificación de prueba para Llego Negocios",
+        data={"type": "test"},
+        platform="IOS",
+        bundle_id=bundle_id
+    )
+    
+    return {"bundle_id": bundle_id, "tokens": len(ios_tokens), "result": result}
