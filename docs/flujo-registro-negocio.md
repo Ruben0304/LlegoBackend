@@ -154,9 +154,10 @@ catering, efectivo, tarjeta, transferencia, qr, pet_friendly, musica_vivo
 | Endpoint | Output |
 |----------|--------|
 | `POST /upload/business/avatar` | 400x400 JPG |
-| `POST /upload/business/cover` | 1200x400 JPG |
 | `POST /upload/branch/avatar` | 400x400 JPG |
 | `POST /upload/branch/cover` | 1200x400 JPG |
+
+> Nota: El negocio NO tiene endpoint de cover. Solo las sucursales tienen cover.
 
 - Max: 10MB
 - Formatos: JPEG, PNG, WebP, GIF

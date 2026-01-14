@@ -376,6 +376,56 @@ class BranchRepository:
         """Update a single field of a branch."""
         return await self.update(branch_id, {field: value})
 
+    async def delete(self, branch_id: str) -> bool:
+        """Delete a branch from Qdrant by its mongo_id."""
+        try:
+            qdrant_client = get_qdrant_client()
+
+            # Find the point by mongo_id to get its Qdrant UUID
+            result = await qdrant_client.scroll(
+                collection_name=self.qdrant_collection_name,
+                scroll_filter=qdrant_models.Filter(
+                    must=[
+                        qdrant_models.FieldCondition(
+                            key="metadata.mongo_id",
+                            match=qdrant_models.MatchValue(value=branch_id)
+                        )
+                    ]
+                ),
+                limit=1,
+                with_payload=True,
+                with_vectors=False
+            )
+
+            points, _ = result
+            if not points:
+                return False
+
+            point = points[0]
+            metadata = point.payload.get("metadata", {})
+            business_id = metadata.get("businessId")
+
+            # Delete the point from Qdrant
+            await qdrant_client.delete(
+                collection_name=self.qdrant_collection_name,
+                points_selector=qdrant_models.PointIdsList(
+                    points=[point.id]
+                )
+            )
+
+            # Invalidate cache
+            invalidate_branch_cache(branch_id=branch_id)
+            if business_id:
+                invalidate_branch_cache(business_id=business_id)
+            invalidate_branch_cache()  # Invalidate get_all cache
+            invalidate_product_cache(branch_id=branch_id)
+
+            return True
+
+        except Exception as e:
+            print(f"Error deleting branch {branch_id}: {e}")
+            raise e
+
     @staticmethod
     def _point_to_branch(point) -> Optional[Branch]:
         """Convert a Qdrant point to a Branch model."""

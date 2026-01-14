@@ -8,7 +8,7 @@ from bson import ObjectId
 from .types import BranchType, CoordinatesType, BranchTipo
 from .inputs import CreateBranchInput, UpdateBranchInput
 from models import Branch, Coordinates
-from repositories import branches_repo, businesses_repo, store_locations_repo
+from repositories import branches_repo, businesses_repo, store_locations_repo, products_repo
 from utils.graphql_auth import apply_optional_jwt
 from utils.s3 import delete_file
 
@@ -205,3 +205,59 @@ class BranchMutation:
             tipos=[BranchTipo(t) for t in (updated_branch.tipos or [])],
             createdAt=updated_branch.createdAt
         )
+
+    @strawberry.mutation(description="Eliminar una sucursal")
+    async def delete_branch(
+        self,
+        info: Info,
+        branch_id: str,
+        jwt: Optional[str] = None
+    ) -> bool:
+        """
+        Delete a branch and all its associated data.
+        Only the business owner can delete branches.
+        This will also delete:
+        - All products associated with the branch
+        - The branch location from stores_location
+        - Branch images from S3
+        """
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+
+        # Verify branch exists
+        branch = await branches_repo.get_by_id(branch_id)
+        if not branch:
+            raise Exception("Sucursal no encontrada")
+
+        # Verify user is the business owner (only owner can delete, not managers)
+        business = await businesses_repo.get_by_id(branch.businessId)
+        if not business:
+            raise Exception("Negocio no encontrado")
+
+        if business.ownerId != user_id:
+            raise Exception("Solo el propietario del negocio puede eliminar sucursales")
+
+        # Delete branch images from S3
+        if branch.avatar:
+            await delete_file(branch.avatar)
+        if branch.coverImage:
+            await delete_file(branch.coverImage)
+
+        # Delete all products associated with this branch
+        products = await products_repo.get_by_branch(branch_id)
+        for product in products:
+            if product.image:
+                await delete_file(product.image)
+            await products_repo.delete(product.id)
+
+        # Delete location from MongoDB stores_location
+        await store_locations_repo.delete(branch_id)
+
+        # Delete branch from Qdrant
+        deleted = await branches_repo.delete(branch_id)
+        if not deleted:
+            raise Exception("Error al eliminar la sucursal")
+
+        return True
