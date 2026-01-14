@@ -25,12 +25,20 @@ ALLOWED_IMAGE_TYPES = {
     "image/gif",
 }
 
+# Allowed 3D model MIME types
+ALLOWED_3D_TYPES = {
+    "model/vnd.usdz+zip",      # USDZ (iOS)
+    "model/gltf-binary",        # GLB
+    "application/octet-stream", # Generic binary (fallback)
+}
+
 # File size limits per upload type (in bytes)
 # Images are resized and compressed after upload, so we can accept larger files
 MAX_FILE_SIZES = {
     "avatar": 10 * 1024 * 1024,     # 10MB - will be resized to 400x400
     "cover": 10 * 1024 * 1024,      # 10MB - will be resized to 1200x400
     "product": 10 * 1024 * 1024,    # 10MB - will be resized to max 1000x1000
+    "model3d": 50 * 1024 * 1024,    # 50MB - 3D models can be large
 }
 
 # Magic bytes for image validation (file signatures)
@@ -40,6 +48,12 @@ IMAGE_SIGNATURES = {
     b'RIFF': 'image/webp',                    # WebP (partial, needs WEBP check)
     b'GIF87a': 'image/gif',                   # GIF87a
     b'GIF89a': 'image/gif',                   # GIF89a
+}
+
+# 3D model file signatures
+MODEL_3D_SIGNATURES = {
+    b'PK': 'model/vnd.usdz+zip',             # USDZ (ZIP-based)
+    b'glTF': 'model/gltf-binary',            # GLB (starts with glTF magic)
 }
 
 
@@ -69,6 +83,34 @@ def validate_image_signature(content: bytes) -> str | None:
     # Check GIF
     if content[:6] in (b'GIF87a', b'GIF89a'):
         return 'image/gif'
+    
+    return None
+
+
+def validate_3d_model_signature(content: bytes, filename: str) -> str | None:
+    """
+    Validate 3D model by checking magic bytes and file extension.
+    Returns detected MIME type or None if invalid.
+    """
+    if len(content) < 12:
+        return None
+    
+    filename_lower = filename.lower() if filename else ""
+    
+    # Check USDZ (ZIP-based format)
+    if content[:2] == b'PK' and filename_lower.endswith('.usdz'):
+        return 'model/vnd.usdz+zip'
+    
+    # Check GLB (glTF binary)
+    # GLB magic: 0x46546C67 (glTF in ASCII, little-endian)
+    if content[:4] == b'glTF' or filename_lower.endswith('.glb'):
+        return 'model/gltf-binary'
+    
+    # Fallback: trust extension for known 3D formats
+    if filename_lower.endswith('.usdz'):
+        return 'model/vnd.usdz+zip'
+    if filename_lower.endswith('.glb'):
+        return 'model/gltf-binary'
     
     return None
 
@@ -159,6 +201,78 @@ async def validate_upload(
         )
     
     return content
+
+
+async def validate_3d_upload(
+    file: UploadFile,
+    max_size: int
+) -> tuple[bytes, str]:
+    """
+    Validate 3D model upload.
+    
+    Checks:
+    1. File extension is allowed (.usdz, .glb)
+    2. File size is within limits
+    3. Magic bytes match expected format
+    
+    Args:
+        file: The uploaded file
+        max_size: Maximum allowed file size in bytes
+        
+    Returns:
+        Tuple of (file content as bytes, detected extension)
+        
+    Raises:
+        HTTPException with appropriate error
+    """
+    filename = file.filename or ""
+    filename_lower = filename.lower()
+    
+    # 1. Validate file extension
+    if not (filename_lower.endswith('.usdz') or filename_lower.endswith('.glb')):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Tipo de archivo no permitido. Permitidos: .usdz, .glb"
+        )
+    
+    # 2. Read file with size limit
+    chunks = []
+    total_size = 0
+    chunk_size = 256 * 1024  # 256KB chunks for larger files
+    
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            break
+        total_size += len(chunk)
+        
+        if total_size > max_size:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"Archivo muy grande. Máximo: {max_size // (1024*1024)}MB para modelos 3D"
+            )
+        chunks.append(chunk)
+    
+    content = b''.join(chunks)
+    
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Archivo vacío"
+        )
+    
+    # 3. Validate magic bytes
+    detected_type = validate_3d_model_signature(content, filename)
+    if not detected_type:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El archivo no es un modelo 3D válido"
+        )
+    
+    # Determine extension
+    extension = ".usdz" if filename_lower.endswith('.usdz') else ".glb"
+    
+    return content, extension
 
 
 # =============================================================================
@@ -333,3 +447,39 @@ async def upload_user_avatar(
         raise HTTPException(status_code=500, detail="Error subiendo imagen")
 
     return {"image_path": image_path, "image_url": generate_presigned_url(image_path)}
+
+
+@router.post("/business-type/model3d", status_code=status.HTTP_200_OK)
+@limiter.limit(RATE_LIMIT_UPLOADS)
+async def upload_business_type_model3d(
+    request: Request,
+    model: UploadFile = File(...),
+    user_id: str = Depends(get_current_user_id_from_header)
+):
+    """
+    Upload 3D model for a business type configuration.
+    Max size: 50MB | Allowed formats: .usdz, .glb
+    
+    This endpoint uploads the 3D model to S3 and returns the path and presigned URL.
+    Use the returned model_path in the createBusinessTypeConfig or updateBusinessTypeConfig mutation.
+    
+    Note: Only admins should use this endpoint (validated in the GraphQL mutation).
+    """
+    if not user_id:
+        raise HTTPException(status_code=401, detail="No autorizado")
+
+    # Validate and read the 3D model file
+    file_content, extension = await validate_3d_upload(model, MAX_FILE_SIZES["model3d"])
+
+    # Generate unique ID for the model
+    entity_id = str(ObjectId())
+
+    try:
+        model_path = await upload_file(file_content, "business-types/models", entity_id, extension)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Error subiendo modelo 3D")
+
+    return {
+        "model_path": model_path,
+        "model_url": generate_presigned_url(model_path)
+    }

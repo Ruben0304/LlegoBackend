@@ -4,6 +4,8 @@ from typing import List, Optional
 from datetime import datetime
 from enum import Enum
 
+from utils.s3 import generate_presigned_url
+
 
 @strawberry.enum
 class DevicePlatformEnum(Enum):
@@ -61,6 +63,17 @@ class BusinessTypeConfigType:
     is_active: bool = strawberry.field(name="isActive")
     created_at: datetime = strawberry.field(name="createdAt")
     updated_at: datetime = strawberry.field(name="updatedAt")
+
+    @strawberry.field(name="model3dPresignedUrl", description="Presigned URL for the 3D model (auto-generated from model3dUrl)")
+    def model3d_presigned_url(self) -> Optional[str]:
+        """Generate presigned URL for the 3D model if it's an S3 path."""
+        if not self.model3d_url:
+            return None
+        # If it's already a full URL (external), return as-is
+        if self.model3d_url.startswith("http"):
+            return self.model3d_url
+        # Generate presigned URL for S3 path
+        return generate_presigned_url(self.model3d_url)
 
 
 @strawberry.type
@@ -141,6 +154,8 @@ class UpdateBusinessTypeConfigInput:
     features: Optional[List[FeatureInput]] = None
     sort_order: Optional[int] = strawberry.field(name="sortOrder", default=None)
     is_active: Optional[bool] = strawberry.field(name="isActive", default=None)
+    push_title: Optional[str] = strawberry.field(name="pushTitle", default=None)
+    push_body: Optional[str] = strawberry.field(name="pushBody", default=None)
 
 
 @strawberry.input

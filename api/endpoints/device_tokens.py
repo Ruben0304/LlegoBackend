@@ -8,6 +8,25 @@ from repositories.device_token_repository import device_token_repo
 router = APIRouter(prefix="/api/device-tokens", tags=["Device Tokens"])
 
 
+@router.get("/")
+async def list_device_tokens():
+    """List all registered device tokens (for debugging)."""
+    tokens = await device_token_repo.get_all_active()
+    return {
+        "total": len(tokens),
+        "tokens": [
+            {
+                "id": t.id,
+                "token_preview": t.token[:20] + "...",
+                "platform": t.platform,
+                "app_version": t.appVersion,
+                "created_at": t.createdAt.isoformat() if t.createdAt else None
+            }
+            for t in tokens
+        ]
+    }
+
+
 class RegisterTokenRequest(BaseModel):
     """Request to register a device token for push notifications."""
     token: str
@@ -15,6 +34,8 @@ class RegisterTokenRequest(BaseModel):
     app_version: Optional[str] = None
     os_version: Optional[str] = None
     device_model: Optional[str] = None
+    bundle_id: Optional[str] = None
+    environment: Literal["sandbox", "production"] = "sandbox"  # iOS app should send this
 
 
 class RegisterTokenResponse(BaseModel):
@@ -51,7 +72,9 @@ async def register_device_token(data: RegisterTokenRequest):
             "platform": data.platform,
             "appVersion": data.app_version,
             "osVersion": data.os_version,
-            "deviceModel": data.device_model
+            "deviceModel": data.device_model,
+            "bundleId": data.bundle_id,
+            "environment": data.environment
         })
         
         return RegisterTokenResponse(
@@ -78,3 +101,27 @@ async def unregister_device_token(token: str):
         raise HTTPException(status_code=404, detail="Token no encontrado")
     
     return {"success": True, "message": "Token desactivado"}
+
+
+@router.delete("/cleanup-invalid")
+async def cleanup_invalid_tokens():
+    """
+    Remove all invalid/expired device tokens from database.
+    Call this to clean up tokens that fail with BadDeviceToken or DeviceTokenNotForTopic.
+    """
+    from clients import get_database
+    
+    db = get_database()
+    
+    # Get count before
+    before_count = await db["device_tokens"].count_documents({})
+    
+    # Delete all tokens (nuclear option - users will re-register on next app open)
+    result = await db["device_tokens"].delete_many({})
+    
+    return {
+        "success": True,
+        "message": "Tokens limpiados",
+        "deleted": result.deleted_count,
+        "before": before_count
+    }

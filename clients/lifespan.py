@@ -33,6 +33,14 @@ async def lifespan(app):
     except Exception as e:
         print(f"⚠ Warning: Could not seed product categories: {e}")
 
+    # Seed business types if they don't exist
+    try:
+        from seed_business_types import seed_business_types_from_db
+        db = get_database()
+        await seed_business_types_from_db(db)
+    except Exception as e:
+        print(f"⚠ Warning: Could not seed business types: {e}")
+
     print("✓ All clients initialized successfully\n")
 
     yield

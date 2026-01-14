@@ -67,6 +67,21 @@ class BusinessTypeRepository:
         """Soft delete a business type configuration."""
         return await self.update(config_id, {"isActive": False})
 
+    async def delete(self, config_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Hard delete a business type configuration.
+        Returns the deleted document (for cleanup purposes like S3 deletion).
+        """
+        db = get_database()
+        # First get the document to return it
+        doc = await db[self.collection_name].find_one({"_id": config_id})
+        if not doc:
+            return None
+        
+        # Delete from database
+        await db[self.collection_name].delete_one({"_id": config_id})
+        return doc
+
     @staticmethod
     def _convert_id(doc: Dict[str, Any]) -> Dict[str, Any]:
         """Convert ObjectId to string if needed."""

@@ -194,8 +194,36 @@ BUSINESS_TYPE_CONFIGS = [
 ]
 
 
+async def seed_business_types_from_db(db):
+    """
+    Seed business type configurations into the database.
+    
+    Args:
+        db: MongoDB database instance
+        
+    Returns:
+        bool: True if seeding was performed, False if skipped
+    """
+    collection = db["business_type_configs"]
+    
+    # Check if already seeded
+    existing_count = await collection.count_documents({})
+    if existing_count > 0:
+        print(f"ℹ Business types already exist ({existing_count} found). Skipping seed.")
+        return False
+    
+    print("🌱 Seeding business type configurations...")
+    
+    for config in BUSINESS_TYPE_CONFIGS:
+        await collection.insert_one(config)
+        print(f"  ✅ Created {config['name']}")
+    
+    print("✨ Business type configurations seeded successfully!")
+    return True
+
+
 async def seed_business_types():
-    """Seed business type configurations into the database."""
+    """Standalone function to seed business types (for manual execution)."""
     db = get_database()
     collection = db["business_type_configs"]
     
