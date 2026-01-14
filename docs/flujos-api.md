@@ -101,12 +101,8 @@ curl -X POST "/upload/business/avatar" \
   -H "Authorization: Bearer {jwt}" \
   -F "image=@logo.png"
 # Response: { "image_path": "businesses/avatars/xxx.jpg" }
-
-# Cover del negocio
-curl -X POST "/upload/business/cover" \
-  -H "Authorization: Bearer {jwt}" \
-  -F "image=@cover.jpg"
 ```
+> Nota: El negocio solo tiene avatar, no tiene imagen de portada (coverImage).
 
 ### Paso 2: Registrar Negocio
 ```graphql
@@ -315,10 +311,11 @@ mutation UpdateLocation($input: UpdateLocationInput!, $jwt: String) {
 |----------|-------------|--------|
 | `POST /upload/user/avatar` | Avatar usuario | 400x400 JPG |
 | `POST /upload/business/avatar` | Avatar negocio | 400x400 JPG |
-| `POST /upload/business/cover` | Cover negocio | 1200x400 JPG |
 | `POST /upload/branch/avatar` | Avatar sucursal | 400x400 JPG |
 | `POST /upload/branch/cover` | Cover sucursal | 1200x400 JPG |
 | `POST /upload/product/image` | Imagen producto | Preserva transparencia |
+
+> Nota: El negocio NO tiene endpoint de cover. Solo las sucursales tienen cover.
 
 ### GraphQL Mutations Principales
 | Mutation | Descripción |

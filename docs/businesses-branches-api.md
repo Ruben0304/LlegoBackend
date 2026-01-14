@@ -14,7 +14,6 @@ interface Business {
   ownerId: string;           // ID del usuario propietario
   globalRating: float;       // Rating promedio (0-5)
   avatar: string;            // Path en S3
-  coverImage?: string;       // Path en S3
   description?: string;
   socialMedia?: {            // Redes sociales
     facebook?: string;
@@ -27,9 +26,10 @@ interface Business {
   
   // Campos computados (resolvers)
   avatarUrl?: string;        // Presigned URL
-  coverUrl?: string;         // Presigned URL
 }
 ```
+
+> Nota: El negocio NO tiene coverImage. Solo las sucursales tienen avatar y coverImage.
 
 ### BranchType
 ```typescript
@@ -101,13 +101,7 @@ Content-Type: multipart/form-data
 # Output: 400x400 JPG
 ```
 
-### Cover de Negocio
-```bash
-POST /upload/business/cover
-Authorization: Bearer {jwt}
-
-# Output: 1200x400 JPG
-```
+> Nota: El negocio solo tiene avatar, NO tiene imagen de portada (coverImage).
 
 ### Avatar de Sucursal
 ```bash
@@ -148,7 +142,6 @@ mutation RegisterBusiness(
     id
     name
     avatarUrl
-    coverUrl
   }
 }
 ```
@@ -158,7 +151,6 @@ mutation RegisterBusiness(
   "business": {
     "name": "Mi Tienda",
     "avatar": "businesses/avatars/xxx.jpg",
-    "coverImage": "businesses/covers/xxx.jpg",
     "description": "Descripción",
     "tags": ["comida", "rapida"]
   },
@@ -245,6 +237,21 @@ mutation UpdateBranch($branchId: String!, $input: UpdateBranchInput!, $jwt: Stri
 }
 ```
 > Solo el `ownerId` puede modificar `managerIds`.
+
+### Eliminar Sucursal
+```graphql
+mutation DeleteBranch($branchId: String!, $jwt: String) {
+  deleteBranch(branchId: $branchId, jwt: $jwt)
+}
+```
+```json
+{
+  "jwt": "eyJhbG...",
+  "branchId": "6774branch123"
+}
+```
+> Solo el `ownerId` del negocio puede eliminar sucursales.
+> Al eliminar se borran también: productos, imágenes en S3, ubicación en stores_location.
 
 ---
 
@@ -454,10 +461,11 @@ query BranchLocation($branchId: String!, $jwt: String) {
 |-------|------|-----------|
 | name | String | Sí |
 | avatar | String | No |
-| coverImage | String | No |
 | description | String | No |
 | socialMedia | JSON | No |
 | tags | [String] | No |
+
+> Nota: coverImage NO está disponible para negocios.
 
 ### UpdateBusinessInput
 | Campo | Tipo | Requerido |
@@ -468,7 +476,8 @@ query BranchLocation($branchId: String!, $jwt: String) {
 | tags | [String] | No |
 | isActive | Boolean | No |
 | avatar | String | No |
-| coverImage | String | No |
+
+> Nota: coverImage NO está disponible para negocios.
 
 ### RegisterBranchInput (para registerBusiness)
 | Campo | Tipo | Requerido |
