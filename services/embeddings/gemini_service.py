@@ -11,7 +11,7 @@ class GeminiEmbeddingService:
     def __init__(self):
         """Initialize Gemini service with settings."""
         self.client = get_gemini_client()
-        self.model = settings.gemini_model
+        self.model = settings.gemini_embedding_model
         self.dimension = settings.embedding_dimension
 
     def generate_embedding(
