@@ -8,6 +8,7 @@ from .endpoints.apple_auth import router as apple_auth_router
 from .endpoints.error_logs import router as error_logs_router
 from .endpoints.device_tokens import router as device_tokens_router
 from .endpoints.push_notifications import router as push_notifications_router
+from .endpoints.users import router as users_router
 from repositories import auth_repo
 from utils.auth import create_access_token
 from utils.rate_limit import limiter, RATE_LIMIT_AUTH
@@ -20,6 +21,7 @@ router.include_router(apple_auth_router)
 router.include_router(error_logs_router)
 router.include_router(device_tokens_router)
 router.include_router(push_notifications_router)
+router.include_router(users_router)
 
 
 # =============================================================================
