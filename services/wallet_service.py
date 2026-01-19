@@ -6,20 +6,11 @@ from uuid import uuid4
 from fastapi import HTTPException
 
 from clients.mongodb_client import get_database
+from repositories import wallet_transactions_repo
 
 
 class WalletService:
     """Service for wallet operations."""
-
-    def __init__(self):
-        self._db = None
-
-    @property
-    def db(self):
-        """Lazy load database connection."""
-        if self._db is None:
-            self._db = get_database()
-        return self._db
 
     async def get_balance(
         self,
@@ -27,7 +18,8 @@ class WalletService:
         owner_type: Literal["user", "branch"]
     ) -> Dict[str, float]:
         """Get wallet balance for a user or branch."""
-        collection = self.db.users if owner_type == "user" else self.db.branches
+        db = get_database()
+        collection = db.users if owner_type == "user" else db.branches
         
         owner = await collection.find_one({"_id": owner_id})
         if not owner:
@@ -66,12 +58,13 @@ class WalletService:
         if amount <= 0:
             raise HTTPException(status_code=400, detail="Amount must be greater than 0")
 
-        # Get collections
-        from_collection = self.db.users if from_owner_type == "user" else self.db.branches
-        to_collection = self.db.users if to_owner_type == "user" else self.db.branches
+        # Get database and collections
+        db = get_database()
+        from_collection = db.users if from_owner_type == "user" else db.branches
+        to_collection = db.users if to_owner_type == "user" else db.branches
 
         # Start MongoDB transaction
-        async with await self.db.client.start_session() as session:
+        async with await db.client.start_session() as session:
             async with session.start_transaction():
                 # 1. Validate and deduct from sender
                 from_owner = await from_collection.find_one({"_id": from_owner_id}, session=session)
@@ -131,7 +124,8 @@ class WalletService:
                     "completedAt": datetime.utcnow()
                 }
                 
-                await self.db.wallet_transactions.insert_one(transaction, session=session)
+                # Use repository to create transaction (within session)
+                await db.wallet_transactions.insert_one(transaction, session=session)
 
                 return {
                     "transaction_id": transaction_id,
@@ -160,7 +154,8 @@ class WalletService:
         if amount <= 0:
             raise HTTPException(status_code=400, detail="Amount must be greater than 0")
 
-        collection = self.db.users if owner_type == "user" else self.db.branches
+        db = get_database()
+        collection = db.users if owner_type == "user" else db.branches
 
         # Validate owner exists and wallet is active
         owner = await collection.find_one({"_id": owner_id})
@@ -171,7 +166,7 @@ class WalletService:
             raise HTTPException(status_code=403, detail="Wallet is not active")
 
         # Start transaction
-        async with await self.db.client.start_session() as session:
+        async with await db.client.start_session() as session:
             async with session.start_transaction():
                 # Add to wallet
                 await collection.update_one(
@@ -198,7 +193,7 @@ class WalletService:
                     "completedAt": datetime.utcnow()
                 }
                 
-                await self.db.wallet_transactions.insert_one(transaction, session=session)
+                await db.wallet_transactions.insert_one(transaction, session=session)
 
                 return {
                     "transaction_id": transaction_id,
@@ -225,10 +220,11 @@ class WalletService:
         if amount <= 0:
             raise HTTPException(status_code=400, detail="Amount must be greater than 0")
 
-        collection = self.db.users if owner_type == "user" else self.db.branches
+        db = get_database()
+        collection = db.users if owner_type == "user" else db.branches
 
         # Start transaction
-        async with await self.db.client.start_session() as session:
+        async with await db.client.start_session() as session:
             async with session.start_transaction():
                 # Validate and deduct from wallet
                 owner = await collection.find_one({"_id": owner_id}, session=session)
@@ -273,7 +269,7 @@ class WalletService:
                     "completedAt": None
                 }
                 
-                await self.db.wallet_transactions.insert_one(transaction, session=session)
+                await db.wallet_transactions.insert_one(transaction, session=session)
 
                 return {
                     "transaction_id": transaction_id,
@@ -293,23 +289,14 @@ class WalletService:
         currency: Optional[Literal["local", "usd"]] = None
     ) -> list:
         """Get transaction history for a wallet."""
-        query = {
-            "$or": [
-                {"fromOwnerId": owner_id, "fromOwnerType": owner_type},
-                {"toOwnerId": owner_id, "toOwnerType": owner_type}
-            ]
-        }
-        
-        if currency:
-            query["currency"] = currency
-
-        transactions = await self.db.wallet_transactions.find(query)\
-            .sort("createdAt", -1)\
-            .skip(skip)\
-            .limit(limit)\
-            .to_list(length=limit)
-
-        return transactions
+        transactions = await wallet_transactions_repo.get_by_owner(
+            owner_id=owner_id,
+            owner_type=owner_type,
+            limit=limit,
+            skip=skip,
+            currency=currency
+        )
+        return [tx.model_dump(by_alias=True) for tx in transactions]
 
     async def freeze_wallet(
         self,
@@ -317,7 +304,8 @@ class WalletService:
         owner_type: Literal["user", "branch"]
     ) -> dict:
         """Freeze a wallet (admin operation)."""
-        collection = self.db.users if owner_type == "user" else self.db.branches
+        db = get_database()
+        collection = db.users if owner_type == "user" else db.branches
         
         result = await collection.update_one(
             {"_id": owner_id},
@@ -335,7 +323,8 @@ class WalletService:
         owner_type: Literal["user", "branch"]
     ) -> dict:
         """Unfreeze a wallet (admin operation)."""
-        collection = self.db.users if owner_type == "user" else self.db.branches
+        db = get_database()
+        collection = db.users if owner_type == "user" else db.branches
         
         result = await collection.update_one(
             {"_id": owner_id},
@@ -348,5 +337,5 @@ class WalletService:
         return {"status": "active", "owner_id": owner_id}
 
 
-# Singleton instance
+# Create instance when needed
 wallet_service = WalletService()

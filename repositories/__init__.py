@@ -12,6 +12,7 @@ from .store_location_repository import StoreLocationRepository, store_locations_
 from .business_type_repository import BusinessTypeRepository, business_type_repo
 from .device_token_repository import DeviceTokenRepository, device_token_repo
 from .error_log_repository import ErrorLogRepository, error_log_repo
+from .wallet_repository import WalletTransactionRepository
 
 # Repository instances
 users_repo = UserRepository()
@@ -23,6 +24,7 @@ product_categories_repo = ProductCategoryRepository()
 auth_repo = AuthRepository()
 payments_repo = PaymentRepository()
 payment_methods_repo = PaymentMethodRepository()
+wallet_transactions_repo = WalletTransactionRepository()
 
 __all__ = [
     "UserRepository",
@@ -37,6 +39,7 @@ __all__ = [
     "StoreLocationRepository",
     "BusinessTypeRepository",
     "DeviceTokenRepository",
+    "WalletTransactionRepository",
     "users_repo",
     "businesses_repo",
     "branches_repo",
@@ -51,4 +54,5 @@ __all__ = [
     "device_token_repo",
     "ErrorLogRepository",
     "error_log_repo",
+    "wallet_transactions_repo",
 ]

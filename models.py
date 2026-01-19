@@ -152,6 +152,33 @@ class PaymentMethod(BaseModel):
         populate_by_name = True
 
 
+class WalletTransaction(BaseModel):
+    """Transaction record for wallet operations."""
+    id: str = Field(alias="_id")
+    fromOwnerId: Optional[str] = None  # None for external deposits
+    fromOwnerType: Optional[str] = None  # "user" or "branch"
+    toOwnerId: Optional[str] = None  # None for withdrawals
+    toOwnerType: Optional[str] = None  # "user" or "branch"
+    amount: float
+    currency: str  # "local" or "usd"
+    type: str  # "transfer", "deposit", "withdrawal"
+    status: str = "completed"  # "pending", "completed", "failed", "reversed"
+    description: Optional[str] = None
+    metadata: Optional[dict] = None  # Additional info (order_id, payment_gateway_id, etc)
+    createdAt: datetime
+    completedAt: Optional[datetime] = None
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat()}
+
+
+class WalletBalance(BaseModel):
+    """Wallet balance response model."""
+    local: float = 0.00
+    usd: float = 0.00
+
+
 # Export repository instances for backward compatibility
 from repositories import (
     users_repo,
@@ -162,9 +189,6 @@ from repositories import (
     payments_repo,
     payment_methods_repo,
 )
-
-# Export wallet models
-from models_wallet import WalletTransaction, WalletBalance
 
 __all__ = [
     "User",
