@@ -19,6 +19,10 @@ class ErrorLogRepository:
             error_data["created_at"] = datetime.utcnow()
         if "resolved" not in error_data:
             error_data["resolved"] = False
+        if "occurrence_count" not in error_data:
+            error_data["occurrence_count"] = 1
+        if "last_occurrence_at" not in error_data:
+            error_data["last_occurrence_at"] = datetime.utcnow()
 
         await db[self.collection_name].insert_one(error_data)
         return ErrorLog(**self._convert_id(error_data))
@@ -175,6 +179,34 @@ class ErrorLogRepository:
             "created_at": {"$lt": cutoff}
         })
         return result.deleted_count
+
+    async def find_similar_pending(
+        self,
+        error_type: str,
+        error_message: str,
+        source: str
+    ) -> Optional[ErrorLog]:
+        """Find a similar unresolved error to avoid duplicates."""
+        db = get_database()
+        doc = await db[self.collection_name].find_one({
+            "error_type": error_type,
+            "error_message": error_message,
+            "source": source,
+            "resolved": False
+        })
+        return ErrorLog(**self._convert_id(doc)) if doc else None
+
+    async def increment_occurrence(self, error_id: str) -> bool:
+        """Increment occurrence count for an existing error."""
+        db = get_database()
+        result = await db[self.collection_name].update_one(
+            {"_id": error_id},
+            {
+                "$inc": {"occurrence_count": 1},
+                "$set": {"last_occurrence_at": datetime.utcnow()}
+            }
+        )
+        return result.modified_count > 0
 
     @staticmethod
     def _convert_id(doc: Dict[str, Any]) -> Dict[str, Any]:

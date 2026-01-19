@@ -52,6 +52,8 @@ class ErrorLog(BaseModel):
     resolved: bool = False
     resolved_at: Optional[datetime] = None
     resolved_by: Optional[str] = None
+    occurrence_count: int = 1
+    last_occurrence_at: datetime = Field(default_factory=datetime.utcnow)
     created_at: datetime
 
     class Config:
@@ -93,6 +95,8 @@ class ErrorLogResponse(BaseModel):
     resolved: bool
     resolved_at: Optional[datetime] = None
     resolved_by: Optional[str] = None
+    occurrence_count: int = 1
+    last_occurrence_at: datetime
     created_at: datetime
 
 

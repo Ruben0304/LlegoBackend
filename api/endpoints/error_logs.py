@@ -38,6 +38,8 @@ def _to_response(error_log) -> ErrorLogResponse:
         resolved=error_log.resolved,
         resolved_at=error_log.resolved_at,
         resolved_by=error_log.resolved_by,
+        occurrence_count=error_log.occurrence_count,
+        last_occurrence_at=error_log.last_occurrence_at,
         created_at=error_log.created_at
     )
 
@@ -101,6 +103,22 @@ async def report_mobile_error(
     # Sanitize stack trace
     sanitized_stack = sanitize_sensitive_data(report.stack_trace) if report.stack_trace else None
 
+    # Check if there's a similar pending error
+    existing_error = await error_log_repo.find_similar_pending(
+        error_type=report.error_type,
+        error_message=report.error_message,
+        source=report.source
+    )
+
+    if existing_error:
+        # Increment occurrence count instead of creating new error
+        await error_log_repo.increment_occurrence(existing_error.id)
+        # Fetch updated error to return correct count
+        updated_error = await error_log_repo.get_by_id(existing_error.id)
+        print(f"🔁 Duplicate error detected - incrementing count to {updated_error.occurrence_count} for error {existing_error.id}")
+        return _to_response(updated_error)
+
+    # No duplicate found - create new error
     error_data = {
         "error_type": report.error_type,
         "error_message": report.error_message,
@@ -115,7 +133,7 @@ async def report_mobile_error(
 
     error_log = await error_log_repo.create(error_data)
 
-    # Schedule background analysis
+    # Schedule background analysis only for NEW errors
     background_tasks.add_task(
         error_analysis_service.analyze_and_update,
         error_log.id,
