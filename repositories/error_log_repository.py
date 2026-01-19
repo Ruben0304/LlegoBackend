@@ -199,36 +199,29 @@ class ErrorLogRepository:
             "resolved": False
         }
 
-        logger.info(f"🔍 MongoDB Query:")
-        logger.info(f"   - error_type: '{error_type}'")
-        logger.info(f"   - error_message (len={len(error_message)}): '{error_message[:100]}...'")
-        logger.info(f"   - source: '{source}'")
-        logger.info(f"   - resolved: False")
+        print(f"   Query: type='{error_type}', msg_len={len(error_message)}, source='{source}'")
 
         doc = await db[self.collection_name].find_one(query)
 
         if doc:
-            logger.info(f"✅ MATCH FOUND in MongoDB:")
-            logger.info(f"   - ID: {doc['_id']}")
-            logger.info(f"   - Occurrences: {doc.get('occurrence_count', 1)}")
-            logger.info(f"   - Created: {doc.get('created_at')}")
+            print(f"   ✅ MATCH! ID={doc['_id']}, occurrences={doc.get('occurrence_count', 1)}")
             return ErrorLog(**self._convert_id(doc))
         else:
-            logger.info(f"❌ NO MATCH - This is a new unique error")
+            print(f"   ❌ NO MATCH - creating new error")
             # Debug: mostrar algunos errores existentes para comparar
             sample = await db[self.collection_name].find(
                 {"source": source, "resolved": False}
-            ).limit(3).to_list(3)
+            ).limit(2).to_list(2)
             if sample:
-                logger.info(f"📋 Sample of existing unresolved {source} errors:")
+                print(f"   📋 Existing {source} errors (first 2):")
                 for s in sample:
-                    logger.info(f"   - {s['_id']}: type='{s['error_type']}', msg='{s['error_message'][:50]}...'")
+                    print(f"      - type='{s['error_type']}', msg='{s['error_message'][:60]}...'")
             return None
 
     async def increment_occurrence(self, error_id: str) -> bool:
         """Increment occurrence count for an existing error."""
         db = get_database()
-        logger.info(f"📈 Incrementing occurrence for error {error_id}")
+        print(f"   📈 Incrementing occurrence for error {error_id}")
         result = await db[self.collection_name].update_one(
             {"_id": error_id},
             {
@@ -237,9 +230,9 @@ class ErrorLogRepository:
             }
         )
         if result.modified_count > 0:
-            logger.info(f"✅ Successfully incremented occurrence count")
+            print(f"   ✅ MongoDB update successful")
         else:
-            logger.error(f"❌ Failed to increment - document not found or not modified")
+            print(f"   ❌ MongoDB update FAILED")
         return result.modified_count > 0
 
     @staticmethod

@@ -102,12 +102,12 @@ async def report_mobile_error(
     background_tasks: BackgroundTasks
 ):
     """Endpoint for mobile apps to report errors."""
-    logger.info(f"="*80)
-    logger.info(f"📥 MOBILE ERROR RECEIVED")
-    logger.info(f"Error type: {report.error_type}")
-    logger.info(f"Error message: {report.error_message[:100]}")
-    logger.info(f"Source: {report.source}")
-    logger.info(f"="*80)
+    print("\n" + "="*80)
+    print("📥 MOBILE ERROR RECEIVED")
+    print(f"Type: {report.error_type}")
+    print(f"Message: {report.error_message[:100]}")
+    print(f"Source: {report.source}")
+    print("="*80)
 
     # Sanitize stack trace
     sanitized_stack = sanitize_sensitive_data(report.stack_trace) if report.stack_trace else None
@@ -117,7 +117,7 @@ async def report_mobile_error(
 
     try:
         # Check if there's a similar pending error
-        logger.info(f"🔍 Checking for duplicates...")
+        print(f"🔍 Checking for duplicates...")
         existing_error = await error_log_repo.find_similar_pending(
             error_type=report.error_type.strip(),
             error_message=normalized_message,
@@ -126,15 +126,15 @@ async def report_mobile_error(
 
         if existing_error:
             # Increment occurrence count instead of creating new error
-            logger.warning(f"🔁 DUPLICATE FOUND! Error ID: {existing_error.id}")
+            print(f"🔁 DUPLICATE FOUND! Error ID: {existing_error.id}")
             await error_log_repo.increment_occurrence(existing_error.id)
             # Fetch updated error to return correct count
             updated_error = await error_log_repo.get_by_id(existing_error.id)
-            logger.info(f"✅ Count incremented to {updated_error.occurrence_count}")
-            logger.info(f"🚫 Skipping Gemini analysis and notification")
+            print(f"✅ Count incremented to {updated_error.occurrence_count}")
+            print(f"🚫 Skipping Gemini analysis and notification\n")
             return _to_response(updated_error)
 
-        logger.info(f"✨ NEW ERROR - Creating entry")
+        print(f"✨ NEW ERROR - Creating entry")
 
         # No duplicate found - create new error
         error_data = {
@@ -150,10 +150,10 @@ async def report_mobile_error(
         }
 
         error_log = await error_log_repo.create(error_data)
-        logger.info(f"✅ Error created with ID: {error_log.id}")
+        print(f"✅ Error created with ID: {error_log.id}")
 
         # Schedule background analysis only for NEW errors
-        logger.info(f"📤 Scheduling Gemini analysis and notification")
+        print(f"📤 Scheduling Gemini analysis and notification\n")
         background_tasks.add_task(
             error_analysis_service.analyze_and_update,
             error_log.id,
@@ -163,6 +163,7 @@ async def report_mobile_error(
         return _to_response(error_log)
 
     except Exception as e:
+        print(f"❌ ERROR in report_mobile_error: {e}")
         logger.error(f"❌ ERROR in report_mobile_error: {e}", exc_info=True)
         raise
 

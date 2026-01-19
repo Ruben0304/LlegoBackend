@@ -4,6 +4,7 @@ from fastapi.responses import PlainTextResponse, Response
 from strawberry.fastapi import GraphQLRouter
 from slowapi.errors import RateLimitExceeded
 import uvicorn
+import logging
 
 from clients import lifespan
 from schema import schema
@@ -12,6 +13,12 @@ from core.config import settings
 from utils.rate_limit import limiter, rate_limit_exceeded_handler, get_redis_status
 from utils.dataloaders import create_dataloaders
 from utils.exception_handler import global_exception_handler, http_exception_handler
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 
 # FastAPI application with lifespan for all clients
