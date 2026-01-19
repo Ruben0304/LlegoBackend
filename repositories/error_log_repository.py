@@ -2,9 +2,12 @@
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 from bson import ObjectId
+import logging
 
 from clients import get_database
 from models_error_logs import ErrorLog, ErrorSource, ErrorSeverity
+
+logger = logging.getLogger(__name__)
 
 
 class ErrorLogRepository:
@@ -196,20 +199,36 @@ class ErrorLogRepository:
             "resolved": False
         }
 
-        print(f"🔍 Searching for duplicate with query: error_type='{error_type}', message_len={len(error_message)}, source='{source}', resolved=False")
+        logger.info(f"🔍 MongoDB Query:")
+        logger.info(f"   - error_type: '{error_type}'")
+        logger.info(f"   - error_message (len={len(error_message)}): '{error_message[:100]}...'")
+        logger.info(f"   - source: '{source}'")
+        logger.info(f"   - resolved: False")
 
         doc = await db[self.collection_name].find_one(query)
 
         if doc:
-            print(f"✅ Found existing error: {doc['_id']} (occurrences: {doc.get('occurrence_count', 1)})")
+            logger.info(f"✅ MATCH FOUND in MongoDB:")
+            logger.info(f"   - ID: {doc['_id']}")
+            logger.info(f"   - Occurrences: {doc.get('occurrence_count', 1)}")
+            logger.info(f"   - Created: {doc.get('created_at')}")
             return ErrorLog(**self._convert_id(doc))
         else:
-            print(f"❌ No duplicate found - will create new error")
+            logger.info(f"❌ NO MATCH - This is a new unique error")
+            # Debug: mostrar algunos errores existentes para comparar
+            sample = await db[self.collection_name].find(
+                {"source": source, "resolved": False}
+            ).limit(3).to_list(3)
+            if sample:
+                logger.info(f"📋 Sample of existing unresolved {source} errors:")
+                for s in sample:
+                    logger.info(f"   - {s['_id']}: type='{s['error_type']}', msg='{s['error_message'][:50]}...'")
             return None
 
     async def increment_occurrence(self, error_id: str) -> bool:
         """Increment occurrence count for an existing error."""
         db = get_database()
+        logger.info(f"📈 Incrementing occurrence for error {error_id}")
         result = await db[self.collection_name].update_one(
             {"_id": error_id},
             {
@@ -217,6 +236,10 @@ class ErrorLogRepository:
                 "$set": {"last_occurrence_at": datetime.utcnow()}
             }
         )
+        if result.modified_count > 0:
+            logger.info(f"✅ Successfully incremented occurrence count")
+        else:
+            logger.error(f"❌ Failed to increment - document not found or not modified")
         return result.modified_count > 0
 
     @staticmethod

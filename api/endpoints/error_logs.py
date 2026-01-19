@@ -2,6 +2,7 @@
 from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 from typing import Optional
 from math import ceil
+import logging
 
 from models_error_logs import (
     MobileErrorReport,
@@ -14,6 +15,7 @@ from repositories.error_log_repository import error_log_repo
 from services.error_analysis_service import error_analysis_service, sanitize_sensitive_data
 
 router = APIRouter(prefix="/api/error-logs", tags=["Error Logs"])
+logger = logging.getLogger(__name__)
 
 
 def _to_response(error_log) -> ErrorLogResponse:
@@ -100,54 +102,69 @@ async def report_mobile_error(
     background_tasks: BackgroundTasks
 ):
     """Endpoint for mobile apps to report errors."""
+    logger.info(f"="*80)
+    logger.info(f"📥 MOBILE ERROR RECEIVED")
+    logger.info(f"Error type: {report.error_type}")
+    logger.info(f"Error message: {report.error_message[:100]}")
+    logger.info(f"Source: {report.source}")
+    logger.info(f"="*80)
+
     # Sanitize stack trace
     sanitized_stack = sanitize_sensitive_data(report.stack_trace) if report.stack_trace else None
 
     # Normalize error_message (trim whitespace, consistent format)
     normalized_message = report.error_message.strip()
 
-    print(f"📥 Received error: type='{report.error_type}', message='{normalized_message[:50]}...', source='{report.source}'")
+    try:
+        # Check if there's a similar pending error
+        logger.info(f"🔍 Checking for duplicates...")
+        existing_error = await error_log_repo.find_similar_pending(
+            error_type=report.error_type.strip(),
+            error_message=normalized_message,
+            source=report.source
+        )
 
-    # Check if there's a similar pending error
-    existing_error = await error_log_repo.find_similar_pending(
-        error_type=report.error_type.strip(),
-        error_message=normalized_message,
-        source=report.source
-    )
+        if existing_error:
+            # Increment occurrence count instead of creating new error
+            logger.warning(f"🔁 DUPLICATE FOUND! Error ID: {existing_error.id}")
+            await error_log_repo.increment_occurrence(existing_error.id)
+            # Fetch updated error to return correct count
+            updated_error = await error_log_repo.get_by_id(existing_error.id)
+            logger.info(f"✅ Count incremented to {updated_error.occurrence_count}")
+            logger.info(f"🚫 Skipping Gemini analysis and notification")
+            return _to_response(updated_error)
 
-    if existing_error:
-        # Increment occurrence count instead of creating new error
-        await error_log_repo.increment_occurrence(existing_error.id)
-        # Fetch updated error to return correct count
-        updated_error = await error_log_repo.get_by_id(existing_error.id)
-        print(f"🔁 Duplicate detected! Incrementing count to {updated_error.occurrence_count} for error {existing_error.id}")
-        return _to_response(updated_error)
+        logger.info(f"✨ NEW ERROR - Creating entry")
 
-    print(f"✨ New error - creating entry and scheduling analysis")
+        # No duplicate found - create new error
+        error_data = {
+            "error_type": report.error_type.strip(),
+            "error_message": normalized_message,
+            "stack_trace": sanitized_stack,
+            "source": report.source,
+            "app_version": report.app_version,
+            "device_info": report.device_info,
+            "screen": report.screen,
+            "action": report.action,
+            "extra_data": report.extra_data
+        }
 
-    # No duplicate found - create new error
-    error_data = {
-        "error_type": report.error_type.strip(),
-        "error_message": normalized_message,
-        "stack_trace": sanitized_stack,
-        "source": report.source,
-        "app_version": report.app_version,
-        "device_info": report.device_info,
-        "screen": report.screen,
-        "action": report.action,
-        "extra_data": report.extra_data
-    }
+        error_log = await error_log_repo.create(error_data)
+        logger.info(f"✅ Error created with ID: {error_log.id}")
 
-    error_log = await error_log_repo.create(error_data)
+        # Schedule background analysis only for NEW errors
+        logger.info(f"📤 Scheduling Gemini analysis and notification")
+        background_tasks.add_task(
+            error_analysis_service.analyze_and_update,
+            error_log.id,
+            error_data
+        )
 
-    # Schedule background analysis only for NEW errors
-    background_tasks.add_task(
-        error_analysis_service.analyze_and_update,
-        error_log.id,
-        error_data
-    )
+        return _to_response(error_log)
 
-    return _to_response(error_log)
+    except Exception as e:
+        logger.error(f"❌ ERROR in report_mobile_error: {e}", exc_info=True)
+        raise
 
 
 @router.patch("/{error_id}/resolve")
