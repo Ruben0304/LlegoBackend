@@ -55,18 +55,29 @@ interface Branch {
   deliveryRadius?: float;    // Radio de delivery en km
   facilities: string[];      // ["wifi", "estacionamiento", ...]
   tipos: BranchTipo[];       // ["restaurante", "dulceria", "tienda"]
+  paymentMethodIds: string[]; // IDs de métodos de pago aceptados
   createdAt: DateTime;
   
   // Campos computados (resolvers)
   avatarUrl?: string;        // Presigned URL
   coverUrl?: string;         // Presigned URL
   products: Product[];       // Productos (con limit y availableOnly)
+  paymentMethods: PaymentMethod[]; // Métodos de pago aceptados
 }
 
 enum BranchTipo {
   RESTAURANTE = "restaurante"
   DULCERIA = "dulceria"
   TIENDA = "tienda"
+}
+```
+
+### PaymentMethodType
+```typescript
+interface PaymentMethod {
+  id: string;
+  currency: string;          // "CUP", "USD", etc.
+  method: string;            // "tarjeta", "efectivo", "transferencia", etc.
 }
 ```
 
@@ -160,6 +171,7 @@ mutation RegisterBusiness(
     "phone": "+51999999999",
     "schedule": { "lun-vie": "9:00-18:00" },
     "tipos": ["RESTAURANTE"],
+    "paymentMethodIds": ["payment_method_id_1", "payment_method_id_2"],
     "address": "Av. Principal 123"
   }]
 }
@@ -208,6 +220,7 @@ mutation CreateBranch($input: CreateBranchInput!, $jwt: String) {
     "phone": "+51988888888",
     "schedule": { "lun-sab": "10:00-20:00" },
     "tipos": ["RESTAURANTE", "TIENDA"],
+    "paymentMethodIds": ["payment_method_id_1", "payment_method_id_2"],
     "address": "Calle Nueva 456",
     "deliveryRadius": 5.0,
     "facilities": ["wifi", "estacionamiento"]
@@ -356,6 +369,11 @@ query GetBranch($id: String!, $jwt: String) {
     tipos
     avatarUrl
     coverUrl
+    paymentMethods {
+      id
+      currency
+      method
+    }
     products { id name price imageUrl }
   }
 }
@@ -487,6 +505,7 @@ query BranchLocation($branchId: String!, $jwt: String) {
 | phone | String | Sí |
 | schedule | JSON | Sí |
 | tipos | [BranchTipo] | Sí |
+| paymentMethodIds | [String] | Sí |
 | address | String | No |
 | managerIds | [String] | No |
 | avatar | String | No |
@@ -503,6 +522,7 @@ query BranchLocation($branchId: String!, $jwt: String) {
 | phone | String | Sí |
 | schedule | JSON | Sí |
 | tipos | [BranchTipo] | Sí |
+| paymentMethodIds | [String] | Sí |
 | address | String | No |
 | managerIds | [String] | No |
 | avatar | String | No |
@@ -525,6 +545,7 @@ query BranchLocation($branchId: String!, $jwt: String) {
 | avatar | String | No |
 | coverImage | String | No |
 | tipos | [BranchTipo] | No |
+| paymentMethodIds | [String] | No |
 
 ### CoordinatesInput
 | Campo | Tipo | Requerido |

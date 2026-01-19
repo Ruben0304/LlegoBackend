@@ -62,6 +62,7 @@ class Branch(BaseModel):
     deliveryRadius: Optional[float] = None
     facilities: List[str] = []
     tipos: List[str] = []  # ["restaurante", "dulceria", "tienda"]
+    paymentMethodIds: List[str] = []  # IDs de métodos de pago aceptados
     createdAt: datetime
 
     class Config:

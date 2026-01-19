@@ -34,6 +34,7 @@ class RegisterBranchInput:
     phone: str
     schedule: JSON
     tipos: List[BranchTipo]  # Obligatorio: ["restaurante", "dulceria", "tienda"]
+    paymentMethodIds: List[str]  # Obligatorio: IDs de métodos de pago aceptados
     address: Optional[str] = None
     managerIds: Optional[List[str]] = None
     avatar: Optional[str] = None  # Optional, upload via REST endpoint

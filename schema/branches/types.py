@@ -38,6 +38,7 @@ class BranchType:
     deliveryRadius: Optional[float]
     facilities: List[str]
     tipos: List[BranchTipo]
+    paymentMethodIds: List[str]
     createdAt: datetime
 
     @strawberry.field(description="Presigned URL for the branch avatar (inherits from business if not set)")
@@ -82,6 +83,18 @@ class BranchType:
         
         return [ProductType(**p.model_dump()) for p in all_products[:limit]]
 
+    @strawberry.field(description="Payment methods accepted by this branch")
+    async def payment_methods(self, info: Info) -> List[Annotated["PaymentMethodType", strawberry.lazy("schema.ai_assistant.types")]]:
+        """Get payment methods for this branch."""
+        from schema.ai_assistant.types import PaymentMethodType
+        from models import payment_methods_repo
+        
+        if not self.paymentMethodIds:
+            return []
+        
+        payment_methods = await payment_methods_repo.get_by_ids(self.paymentMethodIds)
+        return [PaymentMethodType(**pm.model_dump()) for pm in payment_methods]
+
 
 @strawberry.type
 class NearbyBranchType:
@@ -100,6 +113,7 @@ class NearbyBranchType:
     deliveryRadius: Optional[float]
     facilities: List[str]
     tipos: List[BranchTipo]
+    paymentMethodIds: List[str]
     createdAt: datetime
     distance_m: float
 
@@ -149,6 +163,18 @@ class NearbyBranchType:
         
         return [ProductType(**p.model_dump()) for p in all_products[:limit]]
 
+    @strawberry.field(description="Payment methods accepted by this branch")
+    async def payment_methods(self, info: Info) -> List[Annotated["PaymentMethodType", strawberry.lazy("schema.ai_assistant.types")]]:
+        """Get payment methods for this branch."""
+        from schema.ai_assistant.types import PaymentMethodType
+        from models import payment_methods_repo
+        
+        if not self.paymentMethodIds:
+            return []
+        
+        payment_methods = await payment_methods_repo.get_by_ids(self.paymentMethodIds)
+        return [PaymentMethodType(**pm.model_dump()) for pm in payment_methods]
+
 
 @strawberry.type
 class ScoredBranchType:
@@ -167,6 +193,7 @@ class ScoredBranchType:
     deliveryRadius: Optional[float]
     facilities: List[str]
     tipos: List[BranchTipo]
+    paymentMethodIds: List[str]
     createdAt: datetime
     score: float
     distance_m: Optional[float] = None
@@ -218,3 +245,15 @@ class ScoredBranchType:
             all_products = [p for p in all_products if p.availability]
         
         return [ProductType(**p.model_dump()) for p in all_products[:limit]]
+
+    @strawberry.field(description="Payment methods accepted by this branch")
+    async def payment_methods(self, info: Info) -> List[Annotated["PaymentMethodType", strawberry.lazy("schema.ai_assistant.types")]]:
+        """Get payment methods for this branch."""
+        from schema.ai_assistant.types import PaymentMethodType
+        from models import payment_methods_repo
+        
+        if not self.paymentMethodIds:
+            return []
+        
+        payment_methods = await payment_methods_repo.get_by_ids(self.paymentMethodIds)
+        return [PaymentMethodType(**pm.model_dump()) for pm in payment_methods]

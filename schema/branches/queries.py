@@ -73,6 +73,7 @@ class BranchQuery:
                         branch_data = branch.model_dump()
                         branch_data['coordinates'] = CoordinatesType(**branch.coordinates.model_dump())
                         branch_data['tipos'] = [BranchTipo(t) for t in (branch.tipos or [])]
+                        branch_data['paymentMethodIds'] = branch.paymentMethodIds or []
                         scored_branches.append(ScoredBranchType(
                             **branch_data,
                             score=item.score,
@@ -85,7 +86,8 @@ class BranchQuery:
                     **{
                         **b.model_dump(),
                         'coordinates': CoordinatesType(**b.coordinates.model_dump()),
-                        'tipos': [BranchTipo(t) for t in (b.tipos or [])]
+                        'tipos': [BranchTipo(t) for t in (b.tipos or [])],
+                        'paymentMethodIds': b.paymentMethodIds or []
                     },
                     score=0.0,
                     distance_m=None
@@ -155,7 +157,8 @@ class BranchQuery:
                 **{
                     **branch.model_dump(),
                     'coordinates': CoordinatesType(**branch.coordinates.model_dump()),
-                    'tipos': [BranchTipo(t) for t in (branch.tipos or [])]
+                    'tipos': [BranchTipo(t) for t in (branch.tipos or [])],
+                    'paymentMethodIds': branch.paymentMethodIds or []
                 }
             )
         return None
@@ -222,6 +225,7 @@ class BranchQuery:
                         branch_data = branch.model_dump()
                         branch_data['coordinates'] = CoordinatesType(**branch.coordinates.model_dump())
                         branch_data['tipos'] = [BranchTipo(t) for t in (branch.tipos or [])]
+                        branch_data['paymentMethodIds'] = branch.paymentMethodIds or []
                         scored_branches.append(ScoredBranchType(
                             **branch_data,
                             score=item.score,
@@ -234,7 +238,8 @@ class BranchQuery:
                     **{
                         **b.model_dump(),
                         'coordinates': CoordinatesType(**b.coordinates.model_dump()),
-                        'tipos': [BranchTipo(t) for t in (b.tipos or [])]
+                        'tipos': [BranchTipo(t) for t in (b.tipos or [])],
+                        'paymentMethodIds': b.paymentMethodIds or []
                     },
                     score=0.0,
                     distance_m=None
@@ -370,6 +375,7 @@ class BranchQuery:
                     deliveryRadius=branch.deliveryRadius,
                     facilities=branch.facilities,
                     tipos=[BranchTipo(t) for t in (branch.tipos or [])],
+                    paymentMethodIds=branch.paymentMethodIds or [],
                     createdAt=branch.createdAt,
                     distance_m=store.get("distance_m", 0.0)
                 ))

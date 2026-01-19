@@ -63,6 +63,16 @@ class BusinessMutation:
             if not branch_inp.tipos:
                 raise Exception("Debe especificar al menos un tipo de establecimiento para cada sucursal")
             
+            # Validar que paymentMethodIds no esté vacío
+            if not branch_inp.paymentMethodIds:
+                raise Exception("Debe especificar al menos un método de pago para cada sucursal")
+            
+            # Verificar que los métodos de pago existan
+            from models import payment_methods_repo
+            payment_methods = await payment_methods_repo.get_by_ids(branch_inp.paymentMethodIds)
+            if len(payment_methods) != len(branch_inp.paymentMethodIds):
+                raise Exception("Uno o más métodos de pago no existen")
+            
             branch_id = str(ObjectId())
 
             branch = Branch(
@@ -83,6 +93,7 @@ class BusinessMutation:
                 deliveryRadius=branch_inp.deliveryRadius,
                 facilities=branch_inp.facilities or [],
                 tipos=[t.value for t in branch_inp.tipos],
+                paymentMethodIds=branch_inp.paymentMethodIds,
                 createdAt=datetime.now()
             )
 

@@ -22,6 +22,7 @@ class CreateBranchInput:
     phone: str
     schedule: JSON
     tipos: List[BranchTipo]  # Obligatorio: ["restaurante", "dulceria", "tienda"]
+    paymentMethodIds: List[str]  # Obligatorio: IDs de métodos de pago aceptados
     address: Optional[str] = None
     managerIds: Optional[List[str]] = None
     avatar: Optional[str] = None  # Path from /upload/branch/avatar
@@ -45,3 +46,4 @@ class UpdateBranchInput:
     avatar: Optional[str] = None  # Path from /upload/branch/avatar
     coverImage: Optional[str] = None  # Path from /upload/branch/cover
     tipos: Optional[List[BranchTipo]] = None  # ["restaurante", "dulceria", "tienda"]
+    paymentMethodIds: Optional[List[str]] = None  # IDs de métodos de pago aceptados

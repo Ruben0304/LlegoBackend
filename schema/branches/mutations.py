@@ -43,6 +43,16 @@ class BranchMutation:
         if not input.tipos:
             raise Exception("Debe especificar al menos un tipo de establecimiento")
 
+        # Validate paymentMethodIds is not empty
+        if not input.paymentMethodIds:
+            raise Exception("Debe especificar al menos un método de pago")
+
+        # Verify payment methods exist
+        from models import payment_methods_repo
+        payment_methods = await payment_methods_repo.get_by_ids(input.paymentMethodIds)
+        if len(payment_methods) != len(input.paymentMethodIds):
+            raise Exception("Uno o más métodos de pago no existen")
+
         # Create branch
         branch_id = str(ObjectId())
         branch = Branch(
@@ -63,6 +73,7 @@ class BranchMutation:
             deliveryRadius=input.deliveryRadius,
             facilities=input.facilities or [],
             tipos=[t.value for t in input.tipos],
+            paymentMethodIds=input.paymentMethodIds,
             createdAt=datetime.now()
         )
 
@@ -91,6 +102,7 @@ class BranchMutation:
             deliveryRadius=created_branch.deliveryRadius,
             facilities=created_branch.facilities,
             tipos=[BranchTipo(t) for t in created_branch.tipos],
+            paymentMethodIds=created_branch.paymentMethodIds,
             createdAt=created_branch.createdAt
         )
 
@@ -159,6 +171,15 @@ class BranchMutation:
             if not input.tipos:
                 raise Exception("Debe especificar al menos un tipo de establecimiento")
             updates["tipos"] = [t.value for t in input.tipos]
+        if input.paymentMethodIds is not None:
+            if not input.paymentMethodIds:
+                raise Exception("Debe especificar al menos un método de pago")
+            # Verify payment methods exist
+            from models import payment_methods_repo
+            payment_methods = await payment_methods_repo.get_by_ids(input.paymentMethodIds)
+            if len(payment_methods) != len(input.paymentMethodIds):
+                raise Exception("Uno o más métodos de pago no existen")
+            updates["paymentMethodIds"] = input.paymentMethodIds
 
         # Handle coordinates update - save to MongoDB stores_location
         if input.coordinates is not None:
@@ -203,6 +224,7 @@ class BranchMutation:
             deliveryRadius=updated_branch.deliveryRadius,
             facilities=updated_branch.facilities,
             tipos=[BranchTipo(t) for t in (updated_branch.tipos or [])],
+            paymentMethodIds=updated_branch.paymentMethodIds,
             createdAt=updated_branch.createdAt
         )
 
