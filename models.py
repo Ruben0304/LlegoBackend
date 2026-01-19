@@ -14,6 +14,8 @@ class User(BaseModel):
     avatar: Optional[str] = None
     businessIds: List[str] = []
     branchIds: List[str] = []
+    wallet: Dict[str, float] = Field(default_factory=lambda: {"local": 0.00, "usd": 0.00})
+    walletStatus: str = "active"  # "active", "frozen", "closed"
     createdAt: datetime
     authProvider: str = "local"
     providerUserId: Optional[str] = None
@@ -63,6 +65,8 @@ class Branch(BaseModel):
     facilities: List[str] = []
     tipos: List[str] = []  # ["restaurante", "dulceria", "tienda"]
     paymentMethodIds: List[str] = []  # IDs de métodos de pago aceptados
+    wallet: Dict[str, float] = Field(default_factory=lambda: {"local": 0.00, "usd": 0.00})
+    walletStatus: str = "active"  # "active", "frozen", "closed"
     createdAt: datetime
 
     class Config:
@@ -159,6 +163,9 @@ from repositories import (
     payment_methods_repo,
 )
 
+# Export wallet models
+from models_wallet import WalletTransaction, WalletBalance
+
 __all__ = [
     "User",
     "Business",
@@ -170,6 +177,8 @@ __all__ = [
     "Product",
     "SmsOcr",
     "PaymentMethod",
+    "WalletTransaction",
+    "WalletBalance",
     "users_repo",
     "businesses_repo",
     "branches_repo",

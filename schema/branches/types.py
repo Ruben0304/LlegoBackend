@@ -17,6 +17,13 @@ class BranchTipo(Enum):
 
 
 @strawberry.type
+class WalletBalance:
+    """Wallet balance embedded in branch."""
+    local: float
+    usd: float
+
+
+@strawberry.type
 class CoordinatesType:
     type: str
     coordinates: List[float]
@@ -40,6 +47,16 @@ class BranchType:
     tipos: List[BranchTipo]
     paymentMethodIds: List[str]
     createdAt: datetime
+
+    @strawberry.field(description="Wallet balance de la sucursal")
+    def wallet(self) -> WalletBalance:
+        """Get wallet with default values if not exists."""
+        return WalletBalance(local=0.0, usd=0.0)
+    
+    @strawberry.field(description="Estado de la wallet")
+    def wallet_status(self) -> str:
+        """Get wallet status with default value if not exists."""
+        return "active"
 
     @strawberry.field(description="Presigned URL for the branch avatar (inherits from business if not set)")
     async def avatar_url(self, info: Info) -> Optional[str]:
@@ -116,6 +133,16 @@ class NearbyBranchType:
     paymentMethodIds: List[str]
     createdAt: datetime
     distance_m: float
+
+    @strawberry.field(description="Wallet balance de la sucursal")
+    def wallet(self) -> WalletBalance:
+        """Get wallet with default values if not exists."""
+        return WalletBalance(local=0.0, usd=0.0)
+    
+    @strawberry.field(description="Estado de la wallet")
+    def wallet_status(self) -> str:
+        """Get wallet status with default value if not exists."""
+        return "active"
 
     @strawberry.field(description="Presigned URL for the branch avatar (inherits from business if not set)")
     async def avatar_url(self, info: Info) -> Optional[str]:
@@ -197,6 +224,16 @@ class ScoredBranchType:
     createdAt: datetime
     score: float
     distance_m: Optional[float] = None
+
+    @strawberry.field(description="Wallet balance de la sucursal")
+    def wallet(self) -> WalletBalance:
+        """Get wallet with default values if not exists."""
+        return WalletBalance(local=0.0, usd=0.0)
+    
+    @strawberry.field(description="Estado de la wallet")
+    def wallet_status(self) -> str:
+        """Get wallet status with default value if not exists."""
+        return "active"
 
     @strawberry.field(description="Presigned URL for the branch avatar (inherits from business if not set)")
     async def avatar_url(self, info: Info) -> Optional[str]:

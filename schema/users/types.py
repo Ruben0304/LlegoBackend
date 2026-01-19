@@ -7,6 +7,13 @@ from utils.s3 import generate_presigned_url
 
 
 @strawberry.type
+class WalletBalance:
+    """Wallet balance."""
+    local: float
+    usd: float
+
+
+@strawberry.type
 class UserType:
     id: str
     name: str
@@ -20,6 +27,17 @@ class UserType:
     authProvider: str
     providerUserId: Optional[str]
     applePrivateEmail: Optional[str]
+
+    @strawberry.field(description="Wallet balance del usuario")
+    def wallet(self) -> WalletBalance:
+        """Get wallet with default values if not exists."""
+        # Si el usuario no tiene wallet, retornar valores por defecto
+        return WalletBalance(local=0.0, usd=0.0)
+    
+    @strawberry.field(description="Estado de la wallet")
+    def wallet_status(self) -> str:
+        """Get wallet status with default value if not exists."""
+        return "active"
 
     @strawberry.field(description="URL firmada del avatar del usuario")
     def avatar_url(self) -> Optional[str]:
