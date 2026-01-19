@@ -188,13 +188,24 @@ class ErrorLogRepository:
     ) -> Optional[ErrorLog]:
         """Find a similar unresolved error to avoid duplicates."""
         db = get_database()
-        doc = await db[self.collection_name].find_one({
+
+        query = {
             "error_type": error_type,
             "error_message": error_message,
             "source": source,
             "resolved": False
-        })
-        return ErrorLog(**self._convert_id(doc)) if doc else None
+        }
+
+        print(f"🔍 Searching for duplicate with query: error_type='{error_type}', message_len={len(error_message)}, source='{source}', resolved=False")
+
+        doc = await db[self.collection_name].find_one(query)
+
+        if doc:
+            print(f"✅ Found existing error: {doc['_id']} (occurrences: {doc.get('occurrence_count', 1)})")
+            return ErrorLog(**self._convert_id(doc))
+        else:
+            print(f"❌ No duplicate found - will create new error")
+            return None
 
     async def increment_occurrence(self, error_id: str) -> bool:
         """Increment occurrence count for an existing error."""

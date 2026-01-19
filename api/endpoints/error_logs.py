@@ -103,10 +103,15 @@ async def report_mobile_error(
     # Sanitize stack trace
     sanitized_stack = sanitize_sensitive_data(report.stack_trace) if report.stack_trace else None
 
+    # Normalize error_message (trim whitespace, consistent format)
+    normalized_message = report.error_message.strip()
+
+    print(f"📥 Received error: type='{report.error_type}', message='{normalized_message[:50]}...', source='{report.source}'")
+
     # Check if there's a similar pending error
     existing_error = await error_log_repo.find_similar_pending(
-        error_type=report.error_type,
-        error_message=report.error_message,
+        error_type=report.error_type.strip(),
+        error_message=normalized_message,
         source=report.source
     )
 
@@ -115,13 +120,15 @@ async def report_mobile_error(
         await error_log_repo.increment_occurrence(existing_error.id)
         # Fetch updated error to return correct count
         updated_error = await error_log_repo.get_by_id(existing_error.id)
-        print(f"🔁 Duplicate error detected - incrementing count to {updated_error.occurrence_count} for error {existing_error.id}")
+        print(f"🔁 Duplicate detected! Incrementing count to {updated_error.occurrence_count} for error {existing_error.id}")
         return _to_response(updated_error)
+
+    print(f"✨ New error - creating entry and scheduling analysis")
 
     # No duplicate found - create new error
     error_data = {
-        "error_type": report.error_type,
-        "error_message": report.error_message,
+        "error_type": report.error_type.strip(),
+        "error_message": normalized_message,
         "stack_trace": sanitized_stack,
         "source": report.source,
         "app_version": report.app_version,
