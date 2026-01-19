@@ -45,6 +45,7 @@ class BranchRepository:
                 "deliveryRadius": branch.deliveryRadius,
                 "facilities": branch.facilities,
                 "tipos": branch.tipos,
+                "paymentMethodIds": branch.paymentMethodIds,
                 "avatar": branch.avatar,
                 "coverImage": branch.coverImage,
                 "createdAt": branch.createdAt.isoformat()
@@ -458,6 +459,7 @@ class BranchRepository:
                 "deliveryRadius": metadata.get("deliveryRadius"),
                 "facilities": metadata.get("facilities", []),
                 "tipos": metadata.get("tipos", []),
+                "paymentMethodIds": metadata.get("paymentMethodIds", []),  # Default to empty array
                 "createdAt": metadata.get("createdAt")
             }
 
