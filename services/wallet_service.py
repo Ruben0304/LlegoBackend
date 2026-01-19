@@ -12,7 +12,14 @@ class WalletService:
     """Service for wallet operations."""
 
     def __init__(self):
-        self.db = get_database()
+        self._db = None
+
+    @property
+    def db(self):
+        """Lazy load database connection."""
+        if self._db is None:
+            self._db = get_database()
+        return self._db
 
     async def get_balance(
         self,
