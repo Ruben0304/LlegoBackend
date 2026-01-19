@@ -6,6 +6,7 @@ from enum import Enum
 from strawberry.types import Info
 
 from utils.s3 import generate_presigned_url
+from schema.wallet.types import WalletBalanceType
 
 
 @strawberry.enum
@@ -14,13 +15,6 @@ class BranchTipo(Enum):
     RESTAURANTE = "restaurante"
     DULCERIA = "dulceria"
     TIENDA = "tienda"
-
-
-@strawberry.type
-class WalletBalance:
-    """Wallet balance embedded in branch."""
-    local: float
-    usd: float
 
 
 @strawberry.type
@@ -135,9 +129,9 @@ class NearbyBranchType:
     distance_m: float
 
     @strawberry.field(description="Wallet balance de la sucursal")
-    def wallet(self) -> WalletBalance:
+    def wallet(self) -> WalletBalanceType:
         """Get wallet with default values if not exists."""
-        return WalletBalance(local=0.0, usd=0.0)
+        return WalletBalanceType(local=0.0, usd=0.0)
     
     @strawberry.field(description="Estado de la wallet")
     def wallet_status(self) -> str:
@@ -226,9 +220,9 @@ class ScoredBranchType:
     distance_m: Optional[float] = None
 
     @strawberry.field(description="Wallet balance de la sucursal")
-    def wallet(self) -> WalletBalance:
+    def wallet(self) -> WalletBalanceType:
         """Get wallet with default values if not exists."""
-        return WalletBalance(local=0.0, usd=0.0)
+        return WalletBalanceType(local=0.0, usd=0.0)
     
     @strawberry.field(description="Estado de la wallet")
     def wallet_status(self) -> str:

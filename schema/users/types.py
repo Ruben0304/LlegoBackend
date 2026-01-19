@@ -4,13 +4,7 @@ from datetime import datetime
 from typing import Optional, List
 
 from utils.s3 import generate_presigned_url
-
-
-@strawberry.type
-class WalletBalance:
-    """Wallet balance."""
-    local: float
-    usd: float
+from schema.wallet.types import WalletBalanceType
 
 
 @strawberry.type
@@ -29,10 +23,10 @@ class UserType:
     applePrivateEmail: Optional[str]
 
     @strawberry.field(description="Wallet balance del usuario")
-    def wallet(self) -> WalletBalance:
+    def wallet(self) -> WalletBalanceType:
         """Get wallet with default values if not exists."""
         # Si el usuario no tiene wallet, retornar valores por defecto
-        return WalletBalance(local=0.0, usd=0.0)
+        return WalletBalanceType(local=0.0, usd=0.0)
     
     @strawberry.field(description="Estado de la wallet")
     def wallet_status(self) -> str:
