@@ -255,7 +255,7 @@ class OrderType:
         user = await users_repo.get_by_id(self.customerId)
         if not user:
             raise Exception(f"Customer not found: {self.customerId}")
-        return UserType(**user.model_dump())
+        return UserType(**user.model_dump(exclude={'password', 'location'}))
     
     @strawberry.field(description="Branch preparing the order")
     async def branch(self) -> BranchType:
