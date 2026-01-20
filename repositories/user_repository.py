@@ -166,6 +166,63 @@ class UserRepository:
         result = await db[self.collection_name].delete_one({"_id": object_id})
         return result.deleted_count > 0
 
+    async def get_wallet(self, user_id: str) -> Optional[Dict[str, float]]:
+        """Get user wallet balance."""
+        user = await self.get_by_id(user_id)
+        return user.wallet if user else None
+
+    async def update_wallet(self, user_id: str, currency: str, amount: float) -> Optional[User]:
+        """
+        Update user wallet balance for a specific currency.
+
+        Args:
+            user_id: The user ID
+            currency: Currency type ('local' or 'usd')
+            amount: New amount to set
+
+        Returns:
+            Updated user or None
+        """
+        return await self.update(user_id, {f"wallet.{currency}": amount})
+
+    async def increment_wallet(self, user_id: str, currency: str, amount: float) -> Optional[User]:
+        """
+        Increment user wallet balance for a specific currency.
+
+        Args:
+            user_id: The user ID
+            currency: Currency type ('local' or 'usd')
+            amount: Amount to increment (can be negative for decrement)
+
+        Returns:
+            Updated user or None
+        """
+        db = get_database()
+        try:
+            object_id = ObjectId(user_id)
+        except Exception:
+            object_id = user_id
+
+        result = await db[self.collection_name].find_one_and_update(
+            {"_id": object_id},
+            {"$inc": {f"wallet.{currency}": amount}},
+            return_document=True
+        )
+        return User(**self._convert_id(result)) if result else None
+
+    async def update_wallet_status(self, user_id: str, status: str) -> Optional[User]:
+        """
+        Update user wallet status.
+
+        Args:
+            user_id: The user ID
+            status: New wallet status ('active', 'frozen', 'closed')
+
+        Returns:
+            Updated user or None
+        """
+        return await self.update(user_id, {"walletStatus": status})
+
     @staticmethod
     def _convert_id(doc: Dict[str, Any]) -> Dict[str, Any]:
         if doc and "_id" in doc:

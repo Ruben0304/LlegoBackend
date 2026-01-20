@@ -46,6 +46,8 @@ class BranchRepository:
                 "facilities": branch.facilities,
                 "tipos": branch.tipos,
                 "paymentMethodIds": branch.paymentMethodIds,
+                "wallet": branch.wallet,
+                "walletStatus": branch.walletStatus,
                 "avatar": branch.avatar,
                 "coverImage": branch.coverImage,
                 "createdAt": branch.createdAt.isoformat()
@@ -459,7 +461,9 @@ class BranchRepository:
                 "deliveryRadius": metadata.get("deliveryRadius"),
                 "facilities": metadata.get("facilities", []),
                 "tipos": metadata.get("tipos", []),
-                "paymentMethodIds": metadata.get("paymentMethodIds", []),  # Default to empty array
+                "paymentMethodIds": metadata.get("paymentMethodIds", []),
+                "wallet": metadata.get("wallet", {"local": 0.0, "usd": 0.0}),
+                "walletStatus": metadata.get("walletStatus", "active"),
                 "createdAt": metadata.get("createdAt")
             }
 
@@ -557,3 +561,61 @@ class BranchRepository:
         except Exception as e:
             print(f"Error fetching branch IDs by tipo from Qdrant: {e}")
             return []
+
+    async def get_wallet(self, branch_id: str) -> Optional[Dict[str, float]]:
+        """Get branch wallet balance."""
+        branch = await self.get_by_id(branch_id)
+        return branch.wallet if branch else None
+
+    async def update_wallet(self, branch_id: str, currency: str, amount: float) -> Optional[Branch]:
+        """
+        Update branch wallet balance for a specific currency.
+
+        Args:
+            branch_id: The branch ID
+            currency: Currency type ('local' or 'usd')
+            amount: New amount to set
+
+        Returns:
+            Updated branch or None
+        """
+        branch = await self.get_by_id(branch_id)
+        if not branch:
+            return None
+
+        wallet = branch.wallet.copy()
+        wallet[currency] = amount
+        return await self.update(branch_id, {"wallet": wallet})
+
+    async def increment_wallet(self, branch_id: str, currency: str, amount: float) -> Optional[Branch]:
+        """
+        Increment branch wallet balance for a specific currency.
+
+        Args:
+            branch_id: The branch ID
+            currency: Currency type ('local' or 'usd')
+            amount: Amount to increment (can be negative for decrement)
+
+        Returns:
+            Updated branch or None
+        """
+        branch = await self.get_by_id(branch_id)
+        if not branch:
+            return None
+
+        wallet = branch.wallet.copy()
+        wallet[currency] = wallet.get(currency, 0.0) + amount
+        return await self.update(branch_id, {"wallet": wallet})
+
+    async def update_wallet_status(self, branch_id: str, status: str) -> Optional[Branch]:
+        """
+        Update branch wallet status.
+
+        Args:
+            branch_id: The branch ID
+            status: New wallet status ('active', 'frozen', 'closed')
+
+        Returns:
+            Updated branch or None
+        """
+        return await self.update(branch_id, {"walletStatus": status})

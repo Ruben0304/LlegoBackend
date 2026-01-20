@@ -15,14 +15,14 @@ class UserQuery:
         """List all users. Requires admin or manager role."""
         require_role(jwt, info, ["admin", "manager"])
         users = await users_repo.get_all()
-        return [UserType(**u.model_dump(exclude={'password', 'location'})) for u in users]
+        return [UserType(**{**u.model_dump(exclude={'password', 'location'}), '_wallet': u.wallet, '_wallet_status': u.walletStatus}) for u in users]
 
     @strawberry.field(description="Obtener usuario por ID (requiere rol admin o manager)")
     async def user(self, info: Info, id: str, jwt: str) -> Optional[UserType]:
         """Get user by ID. Requires admin or manager role."""
         require_role(jwt, info, ["admin", "manager"])
         user = await users_repo.get_by_id(id)
-        return UserType(**user.model_dump(exclude={'password', 'location'})) if user else None
+        return UserType(**{**user.model_dump(exclude={'password', 'location'}), '_wallet': user.wallet, '_wallet_status': user.walletStatus}) if user else None
 
     @strawberry.field(description="Buscar usuarios (requiere rol admin o manager)")
     async def search_users(
@@ -34,11 +34,11 @@ class UserQuery:
         """Search users. Requires admin or manager role."""
         require_role(jwt, info, ["admin", "manager"])
         users = await users_repo.search(query)
-        return [UserType(**u.model_dump(exclude={'password', 'location'})) for u in users]
+        return [UserType(**{**u.model_dump(exclude={'password', 'location'}), '_wallet': u.wallet, '_wallet_status': u.walletStatus}) for u in users]
 
     @strawberry.field(description="Usuario actual desde JWT")
     async def me(self, info: Info, jwt: str) -> Optional[UserType]:
         """Get current authenticated user."""
         user_id = require_auth(jwt, info)
         user = await users_repo.get_by_id(user_id)
-        return UserType(**user.model_dump(exclude={'password', 'location'})) if user else None
+        return UserType(**{**user.model_dump(exclude={'password', 'location'}), '_wallet': user.wallet, '_wallet_status': user.walletStatus}) if user else None

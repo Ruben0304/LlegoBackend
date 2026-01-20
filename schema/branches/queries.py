@@ -74,6 +74,8 @@ class BranchQuery:
                         branch_data['coordinates'] = CoordinatesType(**branch.coordinates.model_dump())
                         branch_data['tipos'] = [BranchTipo(t) for t in (branch.tipos or [])]
                         branch_data['paymentMethodIds'] = branch.paymentMethodIds or []
+                        branch_data['_wallet'] = branch.wallet
+                        branch_data['_wallet_status'] = branch.walletStatus
                         scored_branches.append(ScoredBranchType(
                             **branch_data,
                             score=item.score,
@@ -87,7 +89,9 @@ class BranchQuery:
                         **b.model_dump(),
                         'coordinates': CoordinatesType(**b.coordinates.model_dump()),
                         'tipos': [BranchTipo(t) for t in (b.tipos or [])],
-                        'paymentMethodIds': b.paymentMethodIds or []
+                        'paymentMethodIds': b.paymentMethodIds or [],
+                        '_wallet': b.wallet,
+                        '_wallet_status': b.walletStatus
                     },
                     score=0.0,
                     distance_m=None
@@ -158,7 +162,9 @@ class BranchQuery:
                     **branch.model_dump(),
                     'coordinates': CoordinatesType(**branch.coordinates.model_dump()),
                     'tipos': [BranchTipo(t) for t in (branch.tipos or [])],
-                    'paymentMethodIds': branch.paymentMethodIds or []
+                    'paymentMethodIds': branch.paymentMethodIds or [],
+                    '_wallet': branch.wallet,
+                    '_wallet_status': branch.walletStatus
                 }
             )
         return None
@@ -226,6 +232,8 @@ class BranchQuery:
                         branch_data['coordinates'] = CoordinatesType(**branch.coordinates.model_dump())
                         branch_data['tipos'] = [BranchTipo(t) for t in (branch.tipos or [])]
                         branch_data['paymentMethodIds'] = branch.paymentMethodIds or []
+                        branch_data['_wallet'] = branch.wallet
+                        branch_data['_wallet_status'] = branch.walletStatus
                         scored_branches.append(ScoredBranchType(
                             **branch_data,
                             score=item.score,
@@ -239,7 +247,9 @@ class BranchQuery:
                         **b.model_dump(),
                         'coordinates': CoordinatesType(**b.coordinates.model_dump()),
                         'tipos': [BranchTipo(t) for t in (b.tipos or [])],
-                        'paymentMethodIds': b.paymentMethodIds or []
+                        'paymentMethodIds': b.paymentMethodIds or [],
+                        '_wallet': b.wallet,
+                        '_wallet_status': b.walletStatus
                     },
                     score=0.0,
                     distance_m=None
@@ -359,7 +369,7 @@ class BranchQuery:
             if branch:
                 location = store.get("location", {})
                 coords = location.get("coordinates", [0.0, 0.0])
-                
+
                 all_branches.append(NearbyBranchType(
                     id=branch.id,
                     businessId=branch.businessId,
@@ -377,7 +387,9 @@ class BranchQuery:
                     tipos=[BranchTipo(t) for t in (branch.tipos or [])],
                     paymentMethodIds=branch.paymentMethodIds or [],
                     createdAt=branch.createdAt,
-                    distance_m=store.get("distance_m", 0.0)
+                    distance_m=store.get("distance_m", 0.0),
+                    _wallet=branch.wallet,
+                    _wallet_status=branch.walletStatus
                 ))
         
         total_count = len(all_branches)
