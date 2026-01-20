@@ -72,6 +72,11 @@ class Settings(BaseSettings):
     # CACHE_PRESIGNED_URL_TTL: TTL for S3 presigned URLs (always uses TTL since URLs expire)
     cache_presigned_url_ttl: int = 3000  # 50 minutes (URLs expire in 60)
 
+    # Stripe Configuration
+    stripe_secret_key: str = ""
+    stripe_publishable_key: str = ""
+    stripe_webhook_secret: str = ""
+
     # AWS Configuration
     aws_access_key_id: str
     aws_default_region: str
