@@ -4,6 +4,7 @@ from typing import Optional
 from strawberry.types import Info
 
 from .types import UserType
+from schema.wallet.types import WalletBalanceType
 from .inputs import UpdateUserInput, AddBranchToUserInput, UpdateLocationInput
 from repositories import users_repo, branches_repo, businesses_repo
 from utils.graphql_auth import apply_optional_jwt
@@ -66,8 +67,8 @@ class UserMutation:
             authProvider=updated_user.authProvider,
             providerUserId=updated_user.providerUserId,
             applePrivateEmail=updated_user.applePrivateEmail,
-            _wallet=updated_user.wallet,
-            _wallet_status=updated_user.walletStatus
+            wallet=WalletBalanceType(local=updated_user.wallet.get('local', 0.0), usd=updated_user.wallet.get('usd', 0.0)),
+            walletStatus=updated_user.walletStatus
         )
 
     @strawberry.mutation(description="Agregar sucursal a usuario")
@@ -122,8 +123,8 @@ class UserMutation:
             authProvider=updated_user.authProvider,
             providerUserId=updated_user.providerUserId,
             applePrivateEmail=updated_user.applePrivateEmail,
-            _wallet=updated_user.wallet,
-            _wallet_status=updated_user.walletStatus
+            wallet=WalletBalanceType(local=updated_user.wallet.get('local', 0.0), usd=updated_user.wallet.get('usd', 0.0)),
+            walletStatus=updated_user.walletStatus
         )
 
     @strawberry.mutation(description="Remover sucursal de usuario")
@@ -169,8 +170,8 @@ class UserMutation:
             authProvider=updated_user.authProvider,
             providerUserId=updated_user.providerUserId,
             applePrivateEmail=updated_user.applePrivateEmail,
-            _wallet=updated_user.wallet,
-            _wallet_status=updated_user.walletStatus
+            wallet=WalletBalanceType(local=updated_user.wallet.get('local', 0.0), usd=updated_user.wallet.get('usd', 0.0)),
+            walletStatus=updated_user.walletStatus
         )
 
     @strawberry.mutation(description="Eliminar cuenta de usuario")
@@ -247,6 +248,6 @@ class UserMutation:
             authProvider=updated_user.authProvider,
             providerUserId=updated_user.providerUserId,
             applePrivateEmail=updated_user.applePrivateEmail,
-            _wallet=updated_user.wallet,
-            _wallet_status=updated_user.walletStatus
+            wallet=WalletBalanceType(local=updated_user.wallet.get('local', 0.0), usd=updated_user.wallet.get('usd', 0.0)),
+            walletStatus=updated_user.walletStatus
         )

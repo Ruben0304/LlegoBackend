@@ -7,6 +7,7 @@ from bson import ObjectId
 
 from .types import BranchType, CoordinatesType, BranchTipo
 from .inputs import CreateBranchInput, UpdateBranchInput
+from .utils import branch_to_dict
 from models import Branch, Coordinates
 from repositories import branches_repo, businesses_repo, store_locations_repo, products_repo
 from utils.graphql_auth import apply_optional_jwt
@@ -89,24 +90,7 @@ class BranchMutation:
             active=True
         )
 
-        return BranchType(
-            id=created_branch.id,
-            businessId=created_branch.businessId,
-            name=created_branch.name,
-            address=created_branch.address,
-            coordinates=CoordinatesType(**created_branch.coordinates.model_dump()),
-            phone=created_branch.phone,
-            schedule=created_branch.schedule,
-            managerIds=created_branch.managerIds,
-            status=created_branch.status,
-            avatar=created_branch.avatar,
-            coverImage=created_branch.coverImage,
-            deliveryRadius=created_branch.deliveryRadius,
-            facilities=created_branch.facilities,
-            tipos=[BranchTipo(t) for t in created_branch.tipos],
-            paymentMethodIds=created_branch.paymentMethodIds,
-            createdAt=created_branch.createdAt
-        )
+        return BranchType(**branch_to_dict(created_branch))
 
     @strawberry.mutation(description="Actualizar una sucursal")
     async def update_branch(
@@ -211,24 +195,7 @@ class BranchMutation:
         if not updated_branch:
             raise Exception("Error al actualizar la sucursal")
 
-        return BranchType(
-            id=updated_branch.id,
-            businessId=updated_branch.businessId,
-            name=updated_branch.name,
-            address=updated_branch.address,
-            coordinates=CoordinatesType(**updated_branch.coordinates.model_dump()),
-            phone=updated_branch.phone,
-            schedule=updated_branch.schedule,
-            managerIds=updated_branch.managerIds,
-            status=updated_branch.status,
-            avatar=updated_branch.avatar,
-            coverImage=updated_branch.coverImage,
-            deliveryRadius=updated_branch.deliveryRadius,
-            facilities=updated_branch.facilities,
-            tipos=[BranchTipo(t) for t in (updated_branch.tipos or [])],
-            paymentMethodIds=updated_branch.paymentMethodIds,
-            createdAt=updated_branch.createdAt
-        )
+        return BranchType(**branch_to_dict(updated_branch))
 
     @strawberry.mutation(description="Eliminar una sucursal")
     async def delete_branch(

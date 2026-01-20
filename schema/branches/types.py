@@ -1,10 +1,9 @@
 """GraphQL type definitions for Branch entity."""
 import strawberry
-from typing import List, Optional, Annotated, Dict
+from typing import List, Optional, Annotated
 from datetime import datetime
 from enum import Enum
 from strawberry.types import Info
-from strawberry import Private
 
 from utils.s3 import generate_presigned_url
 from schema.wallet.types import WalletBalanceType
@@ -42,25 +41,8 @@ class BranchType:
     tipos: List[BranchTipo]
     paymentMethodIds: List[str]
     createdAt: datetime
-
-    # Private fields to store wallet data
-    _wallet: Private[Optional[Dict[str, float]]] = None
-    _wallet_status: Private[Optional[str]] = None
-
-    @strawberry.field(description="Wallet balance de la sucursal")
-    def wallet(self) -> WalletBalanceType:
-        """Get wallet with default values if not exists."""
-        if self._wallet:
-            return WalletBalanceType(
-                local=self._wallet.get('local', 0.0),
-                usd=self._wallet.get('usd', 0.0)
-            )
-        return WalletBalanceType(local=0.0, usd=0.0)
-
-    @strawberry.field(description="Estado de la wallet")
-    def wallet_status(self) -> str:
-        """Get wallet status with default value if not exists."""
-        return self._wallet_status if self._wallet_status else "active"
+    wallet: WalletBalanceType
+    walletStatus: str = "active"
 
     @strawberry.field(description="Presigned URL for the branch avatar (inherits from business if not set)")
     async def avatar_url(self, info: Info) -> Optional[str]:
@@ -137,25 +119,8 @@ class NearbyBranchType:
     paymentMethodIds: List[str]
     createdAt: datetime
     distance_m: float
-
-    # Private fields to store wallet data
-    _wallet: Private[Optional[Dict[str, float]]] = None
-    _wallet_status: Private[Optional[str]] = None
-
-    @strawberry.field(description="Wallet balance de la sucursal")
-    def wallet(self) -> WalletBalanceType:
-        """Get wallet with default values if not exists."""
-        if self._wallet:
-            return WalletBalanceType(
-                local=self._wallet.get('local', 0.0),
-                usd=self._wallet.get('usd', 0.0)
-            )
-        return WalletBalanceType(local=0.0, usd=0.0)
-
-    @strawberry.field(description="Estado de la wallet")
-    def wallet_status(self) -> str:
-        """Get wallet status with default value if not exists."""
-        return self._wallet_status if self._wallet_status else "active"
+    wallet: WalletBalanceType
+    walletStatus: str = "active"
 
     @strawberry.field(description="Presigned URL for the branch avatar (inherits from business if not set)")
     async def avatar_url(self, info: Info) -> Optional[str]:
@@ -237,25 +202,8 @@ class ScoredBranchType:
     createdAt: datetime
     score: float
     distance_m: Optional[float] = None
-
-    # Private fields to store wallet data
-    _wallet: Private[Optional[Dict[str, float]]] = None
-    _wallet_status: Private[Optional[str]] = None
-
-    @strawberry.field(description="Wallet balance de la sucursal")
-    def wallet(self) -> WalletBalanceType:
-        """Get wallet with default values if not exists."""
-        if self._wallet:
-            return WalletBalanceType(
-                local=self._wallet.get('local', 0.0),
-                usd=self._wallet.get('usd', 0.0)
-            )
-        return WalletBalanceType(local=0.0, usd=0.0)
-
-    @strawberry.field(description="Estado de la wallet")
-    def wallet_status(self) -> str:
-        """Get wallet status with default value if not exists."""
-        return self._wallet_status if self._wallet_status else "active"
+    wallet: WalletBalanceType
+    walletStatus: str = "active"
 
     @strawberry.field(description="Presigned URL for the branch avatar (inherits from business if not set)")
     async def avatar_url(self, info: Info) -> Optional[str]:

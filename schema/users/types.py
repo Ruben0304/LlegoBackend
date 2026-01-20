@@ -2,7 +2,6 @@
 import strawberry
 from datetime import datetime
 from typing import Optional, List, Dict
-from strawberry import Private
 
 from utils.s3 import generate_presigned_url
 from schema.wallet.types import WalletBalanceType
@@ -22,26 +21,8 @@ class UserType:
     authProvider: str
     providerUserId: Optional[str]
     applePrivateEmail: Optional[str]
-
-    # Private fields to store wallet data
-    _wallet: Private[Optional[Dict[str, float]]] = None
-    _wallet_status: Private[Optional[str]] = None
-
-    @strawberry.field(description="Wallet balance del usuario")
-    def wallet(self) -> WalletBalanceType:
-        """Get wallet with default values if not exists."""
-        if self._wallet:
-            return WalletBalanceType(
-                local=self._wallet.get('local', 0.0),
-                usd=self._wallet.get('usd', 0.0)
-            )
-        # Si el usuario no tiene wallet, retornar valores por defecto
-        return WalletBalanceType(local=0.0, usd=0.0)
-
-    @strawberry.field(description="Estado de la wallet")
-    def wallet_status(self) -> str:
-        """Get wallet status with default value if not exists."""
-        return self._wallet_status if self._wallet_status else "active"
+    wallet: WalletBalanceType
+    walletStatus: str = "active"
 
     @strawberry.field(description="URL firmada del avatar del usuario")
     def avatar_url(self) -> Optional[str]:

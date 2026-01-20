@@ -5,6 +5,7 @@ from typing import Optional, List
 from enum import Enum
 
 from schema.users.types import UserType
+from schema.wallet.types import WalletBalanceType
 from schema.branches.types import BranchType, CoordinatesType
 from schema.businesses.types import BusinessType
 from repositories import users_repo, branches_repo, businesses_repo
@@ -255,7 +256,11 @@ class OrderType:
         user = await users_repo.get_by_id(self.customerId)
         if not user:
             raise Exception(f"Customer not found: {self.customerId}")
-        return UserType(**{**user.model_dump(exclude={'password', 'location'}), '_wallet': user.wallet, '_wallet_status': user.walletStatus})
+        return UserType(
+            **{**user.model_dump(exclude={'password', 'location', 'wallet', 'walletStatus'}),
+               'wallet': WalletBalanceType(local=user.wallet.get('local', 0.0), usd=user.wallet.get('usd', 0.0)),
+               'walletStatus': user.walletStatus}
+        )
     
     @strawberry.field(description="Branch preparing the order")
     async def branch(self) -> BranchType:
