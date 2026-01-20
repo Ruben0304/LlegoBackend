@@ -23,6 +23,26 @@ class UserRepository:
         user = await db[self.collection_name].find_one({"_id": object_id})
         return User(**self._convert_id(user)) if user else None
 
+    async def get_by_username(self, username: str) -> Optional[User]:
+        """Get a user by username."""
+        db = get_database()
+        user = await db[self.collection_name].find_one({"username": username})
+        return User(**self._convert_id(user)) if user else None
+
+    async def username_exists(self, username: str, exclude_user_id: Optional[str] = None) -> bool:
+        """Check if username already exists (excluding a specific user ID)."""
+        db = get_database()
+        query = {"username": username}
+        if exclude_user_id:
+            try:
+                object_id = ObjectId(exclude_user_id)
+            except Exception:
+                object_id = exclude_user_id
+            query["_id"] = {"$ne": object_id}
+        
+        user = await db[self.collection_name].find_one(query)
+        return user is not None
+
     async def search(self, query: str) -> List[User]:
         db = get_database()
         cursor = db[self.collection_name].find({

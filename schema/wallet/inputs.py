@@ -6,7 +6,9 @@ from typing import Optional
 @strawberry.input
 class TransferInput:
     """Input for transferring money between wallets."""
-    to_owner_id: str
+    to_owner_id: Optional[str] = None  # User/Branch ID
+    to_owner_email: Optional[str] = None  # User email (alternative to ID)
+    to_owner_username: Optional[str] = None  # User username (alternative to ID)
     to_owner_type: str  # "user" or "branch"
     amount: float
     currency: str  # "local" or "usd"

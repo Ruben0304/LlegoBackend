@@ -8,6 +8,7 @@ class User(BaseModel):
     id: str = Field(alias="_id")
     name: str
     email: str
+    username: str  # Unique username, defaults to email prefix
     phone: Optional[str] = None
     password: Optional[str] = None
     role: str = "customer"  # "merchant" or "customer"

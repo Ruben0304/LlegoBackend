@@ -38,6 +38,11 @@ class UserMutation:
         updates = {}
         if input.name is not None:
             updates["name"] = input.name
+        if input.username is not None:
+            # Validate username is unique
+            if await users_repo.username_exists(input.username, exclude_user_id=user_id):
+                raise Exception(f"El nombre de usuario '{input.username}' ya está en uso")
+            updates["username"] = input.username
         if input.phone is not None:
             updates["phone"] = input.phone
         if input.avatar is not None:
@@ -58,6 +63,7 @@ class UserMutation:
             id=updated_user.id,
             name=updated_user.name,
             email=updated_user.email,
+            username=updated_user.username,
             phone=updated_user.phone,
             role=updated_user.role,
             avatar=updated_user.avatar,
@@ -114,6 +120,7 @@ class UserMutation:
             id=updated_user.id,
             name=updated_user.name,
             email=updated_user.email,
+            username=updated_user.username,
             phone=updated_user.phone,
             role=updated_user.role,
             avatar=updated_user.avatar,
@@ -161,6 +168,7 @@ class UserMutation:
             id=updated_user.id,
             name=updated_user.name,
             email=updated_user.email,
+            username=updated_user.username,
             phone=updated_user.phone,
             role=updated_user.role,
             avatar=updated_user.avatar,
@@ -239,6 +247,7 @@ class UserMutation:
             id=updated_user.id,
             name=updated_user.name,
             email=updated_user.email,
+            username=updated_user.username,
             phone=updated_user.phone,
             role=updated_user.role,
             avatar=updated_user.avatar,

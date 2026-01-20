@@ -32,10 +32,33 @@ class WalletMutation:
         if input.to_owner_type not in ["user", "branch"]:
             raise Exception("Tipo de destinatario inválido. Debe ser 'user' o 'branch'")
         
+        # Resolve recipient ID from email or username if provided
+        to_owner_id = input.to_owner_id
+        if not to_owner_id and (input.to_owner_email or input.to_owner_username):
+            # Look up user by email or username
+            if input.to_owner_type == "user":
+                from repositories import auth_repo, users_repo
+                
+                if input.to_owner_email:
+                    recipient = await auth_repo.get_user_by_email(input.to_owner_email)
+                    if not recipient:
+                        raise Exception(f"Usuario con email {input.to_owner_email} no encontrado")
+                elif input.to_owner_username:
+                    recipient = await users_repo.get_by_username(input.to_owner_username)
+                    if not recipient:
+                        raise Exception(f"Usuario con username {input.to_owner_username} no encontrado")
+                
+                to_owner_id = recipient.id
+            else:
+                raise Exception("La búsqueda por email/username solo está disponible para usuarios, no para sucursales")
+        
+        if not to_owner_id:
+            raise Exception("Debe proporcionar to_owner_id, to_owner_email o to_owner_username")
+        
         result = await wallet_service.transfer(
             from_owner_id=user_id,
             from_owner_type="user",
-            to_owner_id=input.to_owner_id,
+            to_owner_id=to_owner_id,
             to_owner_type=input.to_owner_type,
             amount=Decimal(str(input.amount)),
             currency=input.currency,

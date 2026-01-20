@@ -49,6 +49,14 @@ async def lifespan(app):
     except Exception as e:
         print(f"⚠ Warning: Could not migrate wallets: {e}")
 
+    # Migrate username to users
+    try:
+        from scripts.migrate_add_username_to_users import migrate_add_username_from_db
+        db = get_database()
+        await migrate_add_username_from_db(db)
+    except Exception as e:
+        print(f"⚠ Warning: Could not migrate usernames: {e}")
+
     print("✓ All clients initialized successfully\n")
 
     yield

@@ -7,6 +7,7 @@ from typing import Optional, List
 class UpdateUserInput:
     """Input for updating user profile."""
     name: Optional[str] = None
+    username: Optional[str] = None
     phone: Optional[str] = None
     avatar: Optional[str] = None  # Path from /upload/user/avatar endpoint
 

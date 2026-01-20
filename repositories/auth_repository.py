@@ -24,10 +24,21 @@ class AuthRepository:
         """Create a new user with hashed password."""
         db = get_database()
         hashed_password = hash_password(password)
+        
+        # Generate username from email (part before @)
+        username = email.split("@")[0]
+        
+        # Ensure username is unique by appending numbers if needed
+        base_username = username
+        counter = 1
+        while await db[self.collection_name].find_one({"username": username}):
+            username = f"{base_username}{counter}"
+            counter += 1
 
         user_data = {
             "name": name,
             "email": email,
+            "username": username,
             "phone": phone,
             "password": hashed_password,
             "role": role,
@@ -103,9 +114,20 @@ class AuthRepository:
                 return User(**user_data)
         
         # 3. Create new user
+        # Generate username from email (part before @)
+        username = email.split("@")[0] if email else "user"
+        
+        # Ensure username is unique by appending numbers if needed
+        base_username = username
+        counter = 1
+        while await db[self.collection_name].find_one({"username": username}):
+            username = f"{base_username}{counter}"
+            counter += 1
+        
         user_data = {
             "name": name or (email.split("@")[0] if email else "User"),
             "email": email,
+            "username": username,
             "password": None,
             "role": "customer",
             "wallet": {"local": 0.0, "usd": 0.0},

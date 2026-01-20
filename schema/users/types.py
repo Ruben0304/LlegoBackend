@@ -12,6 +12,7 @@ class UserType:
     id: str
     name: str
     email: str
+    username: str
     phone: Optional[str]
     role: str
     avatar: Optional[str]
