@@ -65,7 +65,9 @@ class UserMutation:
             createdAt=updated_user.createdAt,
             authProvider=updated_user.authProvider,
             providerUserId=updated_user.providerUserId,
-            applePrivateEmail=updated_user.applePrivateEmail
+            applePrivateEmail=updated_user.applePrivateEmail,
+            _wallet=updated_user.wallet,
+            _wallet_status=updated_user.walletStatus
         )
 
     @strawberry.mutation(description="Agregar sucursal a usuario")
@@ -119,7 +121,9 @@ class UserMutation:
             createdAt=updated_user.createdAt,
             authProvider=updated_user.authProvider,
             providerUserId=updated_user.providerUserId,
-            applePrivateEmail=updated_user.applePrivateEmail
+            applePrivateEmail=updated_user.applePrivateEmail,
+            _wallet=updated_user.wallet,
+            _wallet_status=updated_user.walletStatus
         )
 
     @strawberry.mutation(description="Remover sucursal de usuario")
@@ -164,7 +168,9 @@ class UserMutation:
             createdAt=updated_user.createdAt,
             authProvider=updated_user.authProvider,
             providerUserId=updated_user.providerUserId,
-            applePrivateEmail=updated_user.applePrivateEmail
+            applePrivateEmail=updated_user.applePrivateEmail,
+            _wallet=updated_user.wallet,
+            _wallet_status=updated_user.walletStatus
         )
 
     @strawberry.mutation(description="Eliminar cuenta de usuario")
@@ -240,5 +246,7 @@ class UserMutation:
             createdAt=updated_user.createdAt,
             authProvider=updated_user.authProvider,
             providerUserId=updated_user.providerUserId,
-            applePrivateEmail=updated_user.applePrivateEmail
+            applePrivateEmail=updated_user.applePrivateEmail,
+            _wallet=updated_user.wallet,
+            _wallet_status=updated_user.walletStatus
         )
