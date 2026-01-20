@@ -5,6 +5,7 @@ from typing import Optional, Literal, Dict
 from uuid import uuid4
 from fastapi import HTTPException
 from bson import ObjectId
+import os
 
 from clients.mongodb_client import get_database
 from repositories import wallet_transactions_repo
@@ -16,6 +17,10 @@ def _to_object_id(id_str: str):
         return ObjectId(id_str)
     except Exception:
         return id_str
+
+
+# Check if we should use transactions (only works with replica sets)
+USE_TRANSACTIONS = os.getenv("MONGODB_USE_TRANSACTIONS", "false").lower() == "true"
 
 
 class WalletService:
@@ -62,7 +67,7 @@ class WalletService:
     ) -> dict:
         """
         Transfer money between wallets.
-        Uses MongoDB transaction for atomicity.
+        Note: Without transactions, this is not fully atomic. For production, use MongoDB replica set.
         """
         if amount <= 0:
             raise HTTPException(status_code=400, detail="Amount must be greater than 0")
@@ -72,78 +77,72 @@ class WalletService:
         from_collection = db.users if from_owner_type == "user" else db.branches
         to_collection = db.users if to_owner_type == "user" else db.branches
 
-        # Start MongoDB transaction
-        async with await db.client.start_session() as session:
-            async with session.start_transaction():
-                # 1. Validate and deduct from sender
-                from_owner = await from_collection.find_one({"_id": _to_object_id(from_owner_id)}, session=session)
-                if not from_owner:
-                    raise HTTPException(status_code=404, detail=f"Sender {from_owner_type} not found")
-                
-                if from_owner.get("walletStatus") != "active":
-                    raise HTTPException(status_code=403, detail="Sender wallet is not active")
+        # 1. Validate sender
+        from_owner = await from_collection.find_one({"_id": _to_object_id(from_owner_id)})
+        if not from_owner:
+            raise HTTPException(status_code=404, detail=f"Sender {from_owner_type} not found")
+        
+        if from_owner.get("walletStatus") != "active":
+            raise HTTPException(status_code=403, detail="Sender wallet is not active")
 
-                from_balance = Decimal(str(from_owner.get("wallet", {}).get(currency, 0)))
-                if from_balance < amount:
-                    raise HTTPException(status_code=400, detail="Insufficient balance")
+        from_balance = Decimal(str(from_owner.get("wallet", {}).get(currency, 0)))
+        if from_balance < amount:
+            raise HTTPException(status_code=400, detail="Insufficient balance")
 
-                # Deduct from sender using atomic operation
-                result = await from_collection.update_one(
-                    {
-                        "_id": _to_object_id(from_owner_id),
-                        f"wallet.{currency}": {"$gte": float(amount)}
-                    },
-                    {"$inc": {f"wallet.{currency}": -float(amount)}},
-                    session=session
-                )
-                
-                if result.modified_count == 0:
-                    raise HTTPException(status_code=400, detail="Insufficient balance or concurrent modification")
+        # 2. Validate receiver
+        to_owner = await to_collection.find_one({"_id": _to_object_id(to_owner_id)})
+        if not to_owner:
+            raise HTTPException(status_code=404, detail=f"Receiver {to_owner_type} not found")
+        
+        if to_owner.get("walletStatus") != "active":
+            raise HTTPException(status_code=403, detail="Receiver wallet is not active")
 
-                # 2. Validate and add to receiver
-                to_owner = await to_collection.find_one({"_id": _to_object_id(to_owner_id)}, session=session)
-                if not to_owner:
-                    raise HTTPException(status_code=404, detail=f"Receiver {to_owner_type} not found")
-                
-                if to_owner.get("walletStatus") != "active":
-                    raise HTTPException(status_code=403, detail="Receiver wallet is not active")
+        # 3. Deduct from sender using atomic operation
+        result = await from_collection.update_one(
+            {
+                "_id": _to_object_id(from_owner_id),
+                f"wallet.{currency}": {"$gte": float(amount)}
+            },
+            {"$inc": {f"wallet.{currency}": -float(amount)}}
+        )
+        
+        if result.modified_count == 0:
+            raise HTTPException(status_code=400, detail="Insufficient balance or concurrent modification")
 
-                # Add to receiver
-                await to_collection.update_one(
-                    {"_id": _to_object_id(to_owner_id)},
-                    {"$inc": {f"wallet.{currency}": float(amount)}},
-                    session=session
-                )
+        # 4. Add to receiver
+        await to_collection.update_one(
+            {"_id": _to_object_id(to_owner_id)},
+            {"$inc": {f"wallet.{currency}": float(amount)}}
+        )
 
-                # 3. Create transaction record
-                transaction_id = str(uuid4())
-                transaction = {
-                    "_id": transaction_id,
-                    "fromOwnerId": from_owner_id,
-                    "fromOwnerType": from_owner_type,
-                    "toOwnerId": to_owner_id,
-                    "toOwnerType": to_owner_type,
-                    "amount": float(amount),
-                    "currency": currency,
-                    "type": "transfer",
-                    "status": "completed",
-                    "description": description,
-                    "metadata": metadata,
-                    "createdAt": datetime.utcnow(),
-                    "completedAt": datetime.utcnow()
-                }
-                
-                # Use repository to create transaction (within session)
-                await db.wallet_transactions.insert_one(transaction, session=session)
+        # 5. Create transaction record
+        transaction_id = str(uuid4())
+        transaction = {
+            "_id": transaction_id,
+            "fromOwnerId": from_owner_id,
+            "fromOwnerType": from_owner_type,
+            "toOwnerId": to_owner_id,
+            "toOwnerType": to_owner_type,
+            "amount": float(amount),
+            "currency": currency,
+            "type": "transfer",
+            "status": "completed",
+            "description": description,
+            "metadata": metadata,
+            "createdAt": datetime.utcnow(),
+            "completedAt": datetime.utcnow()
+        }
+        
+        await db.wallet_transactions.insert_one(transaction)
 
-                return {
-                    "transaction_id": transaction_id,
-                    "status": "completed",
-                    "from_owner_id": from_owner_id,
-                    "to_owner_id": to_owner_id,
-                    "amount": float(amount),
-                    "currency": currency
-                }
+        return {
+            "transaction_id": transaction_id,
+            "status": "completed",
+            "from_owner_id": from_owner_id,
+            "to_owner_id": to_owner_id,
+            "amount": float(amount),
+            "currency": currency
+        }
 
     async def deposit(
         self,
@@ -174,43 +173,39 @@ class WalletService:
         if owner.get("walletStatus") != "active":
             raise HTTPException(status_code=403, detail="Wallet is not active")
 
-        # Start transaction
-        async with await db.client.start_session() as session:
-            async with session.start_transaction():
-                # Add to wallet
-                await collection.update_one(
-                    {"_id": _to_object_id(owner_id)},
-                    {"$inc": {f"wallet.{currency}": float(amount)}},
-                    session=session
-                )
+        # Add to wallet
+        await collection.update_one(
+            {"_id": _to_object_id(owner_id)},
+            {"$inc": {f"wallet.{currency}": float(amount)}}
+        )
 
-                # Create transaction record
-                transaction_id = str(uuid4())
-                transaction = {
-                    "_id": transaction_id,
-                    "fromOwnerId": None,
-                    "fromOwnerType": None,
-                    "toOwnerId": owner_id,
-                    "toOwnerType": owner_type,
-                    "amount": float(amount),
-                    "currency": currency,
-                    "type": "deposit",
-                    "status": "completed",  # For MVP, mark as completed immediately
-                    "description": description or f"Deposit from {source}",
-                    "metadata": {**(metadata or {}), "source": source},
-                    "createdAt": datetime.utcnow(),
-                    "completedAt": datetime.utcnow()
-                }
-                
-                await db.wallet_transactions.insert_one(transaction, session=session)
+        # Create transaction record
+        transaction_id = str(uuid4())
+        transaction = {
+            "_id": transaction_id,
+            "fromOwnerId": None,
+            "fromOwnerType": None,
+            "toOwnerId": owner_id,
+            "toOwnerType": owner_type,
+            "amount": float(amount),
+            "currency": currency,
+            "type": "deposit",
+            "status": "completed",  # For MVP, mark as completed immediately
+            "description": description or f"Deposit from {source}",
+            "metadata": {**(metadata or {}), "source": source},
+            "createdAt": datetime.utcnow(),
+            "completedAt": datetime.utcnow()
+        }
+        
+        await db.wallet_transactions.insert_one(transaction)
 
-                return {
-                    "transaction_id": transaction_id,
-                    "status": "completed",
-                    "owner_id": owner_id,
-                    "amount": float(amount),
-                    "currency": currency
-                }
+        return {
+            "transaction_id": transaction_id,
+            "status": "completed",
+            "owner_id": owner_id,
+            "amount": float(amount),
+            "currency": currency
+        }
 
     async def withdraw(
         self,
@@ -232,62 +227,58 @@ class WalletService:
         db = get_database()
         collection = db.users if owner_type == "user" else db.branches
 
-        # Start transaction
-        async with await db.client.start_session() as session:
-            async with session.start_transaction():
-                # Validate and deduct from wallet
-                owner = await collection.find_one({"_id": _to_object_id(owner_id)}, session=session)
-                if not owner:
-                    raise HTTPException(status_code=404, detail=f"{owner_type.capitalize()} not found")
-                
-                if owner.get("walletStatus") != "active":
-                    raise HTTPException(status_code=403, detail="Wallet is not active")
+        # Validate and deduct from wallet
+        owner = await collection.find_one({"_id": _to_object_id(owner_id)})
+        if not owner:
+            raise HTTPException(status_code=404, detail=f"{owner_type.capitalize()} not found")
+        
+        if owner.get("walletStatus") != "active":
+            raise HTTPException(status_code=403, detail="Wallet is not active")
 
-                balance = Decimal(str(owner.get("wallet", {}).get(currency, 0)))
-                if balance < amount:
-                    raise HTTPException(status_code=400, detail="Insufficient balance")
+        balance = Decimal(str(owner.get("wallet", {}).get(currency, 0)))
+        if balance < amount:
+            raise HTTPException(status_code=400, detail="Insufficient balance")
 
-                # Deduct from wallet
-                result = await collection.update_one(
-                    {
-                        "_id": _to_object_id(owner_id),
-                        f"wallet.{currency}": {"$gte": float(amount)}
-                    },
-                    {"$inc": {f"wallet.{currency}": -float(amount)}},
-                    session=session
-                )
-                
-                if result.modified_count == 0:
-                    raise HTTPException(status_code=400, detail="Insufficient balance or concurrent modification")
+        # Deduct from wallet
+        result = await collection.update_one(
+            {
+                "_id": _to_object_id(owner_id),
+                f"wallet.{currency}": {"$gte": float(amount)}
+            },
+            {"$inc": {f"wallet.{currency}": -float(amount)}}
+        )
+        
+        if result.modified_count == 0:
+            raise HTTPException(status_code=400, detail="Insufficient balance or concurrent modification")
 
-                # Create transaction record
-                transaction_id = str(uuid4())
-                transaction = {
-                    "_id": transaction_id,
-                    "fromOwnerId": owner_id,
-                    "fromOwnerType": owner_type,
-                    "toOwnerId": None,
-                    "toOwnerType": None,
-                    "amount": float(amount),
-                    "currency": currency,
-                    "type": "withdrawal",
-                    "status": "pending",  # Pending until manual approval
-                    "description": description or f"Withdrawal to {destination}",
-                    "metadata": {**(metadata or {}), "destination": destination},
-                    "createdAt": datetime.utcnow(),
-                    "completedAt": None
-                }
-                
-                await db.wallet_transactions.insert_one(transaction, session=session)
+        # Create transaction record
+        transaction_id = str(uuid4())
+        transaction = {
+            "_id": transaction_id,
+            "fromOwnerId": owner_id,
+            "fromOwnerType": owner_type,
+            "toOwnerId": None,
+            "toOwnerType": None,
+            "amount": float(amount),
+            "currency": currency,
+            "type": "withdrawal",
+            "status": "pending",  # Pending until manual approval
+            "description": description or f"Withdrawal to {destination}",
+            "metadata": {**(metadata or {}), "destination": destination},
+            "createdAt": datetime.utcnow(),
+            "completedAt": None
+        }
+        
+        await db.wallet_transactions.insert_one(transaction)
 
-                return {
-                    "transaction_id": transaction_id,
-                    "status": "pending",
-                    "owner_id": owner_id,
-                    "amount": float(amount),
-                    "currency": currency,
-                    "message": "Withdrawal request submitted. Pending approval."
-                }
+        return {
+            "transaction_id": transaction_id,
+            "status": "pending",
+            "owner_id": owner_id,
+            "amount": float(amount),
+            "currency": currency,
+            "message": "Withdrawal request submitted. Pending approval."
+        }
 
     async def get_transaction_history(
         self,
