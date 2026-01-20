@@ -180,6 +180,25 @@ class WalletBalance(BaseModel):
     usd: float = 0.00
 
 
+class StripePaymentLink(BaseModel):
+    """Stripe Payment Link model for tracking recharge links."""
+    id: str = Field(alias="_id")
+    userId: str
+    url: str
+    productId: str
+    priceId: str
+    currency: str
+    isActive: bool = True
+    totalReceived: float = 0.0
+    usageCount: int = 0
+    createdAt: datetime
+    lastUsedAt: Optional[datetime] = None
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat()}
+
+
 # Export repository instances for backward compatibility
 from repositories import (
     users_repo,
@@ -204,6 +223,7 @@ __all__ = [
     "PaymentMethod",
     "WalletTransaction",
     "WalletBalance",
+    "StripePaymentLink",
     "users_repo",
     "businesses_repo",
     "branches_repo",
