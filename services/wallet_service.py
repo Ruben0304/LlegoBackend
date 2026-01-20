@@ -4,9 +4,18 @@ from datetime import datetime
 from typing import Optional, Literal, Dict
 from uuid import uuid4
 from fastapi import HTTPException
+from bson import ObjectId
 
 from clients.mongodb_client import get_database
 from repositories import wallet_transactions_repo
+
+
+def _to_object_id(id_str: str):
+    """Convert string ID to ObjectId if possible, otherwise return as is."""
+    try:
+        return ObjectId(id_str)
+    except Exception:
+        return id_str
 
 
 class WalletService:
@@ -21,7 +30,7 @@ class WalletService:
         db = get_database()
         collection = db.users if owner_type == "user" else db.branches
         
-        owner = await collection.find_one({"_id": owner_id})
+        owner = await collection.find_one({"_id": _to_object_id(owner_id)})
         if not owner:
             raise HTTPException(status_code=404, detail=f"{owner_type.capitalize()} not found")
         
@@ -31,7 +40,7 @@ class WalletService:
         # If wallet doesn't exist in DB, create it
         if "wallet" not in owner:
             await collection.update_one(
-                {"_id": owner_id},
+                {"_id": _to_object_id(owner_id)},
                 {"$set": {
                     "wallet": {"local": 0.00, "usd": 0.00},
                     "walletStatus": "active"
@@ -67,7 +76,7 @@ class WalletService:
         async with await db.client.start_session() as session:
             async with session.start_transaction():
                 # 1. Validate and deduct from sender
-                from_owner = await from_collection.find_one({"_id": from_owner_id}, session=session)
+                from_owner = await from_collection.find_one({"_id": _to_object_id(from_owner_id)}, session=session)
                 if not from_owner:
                     raise HTTPException(status_code=404, detail=f"Sender {from_owner_type} not found")
                 
@@ -81,7 +90,7 @@ class WalletService:
                 # Deduct from sender using atomic operation
                 result = await from_collection.update_one(
                     {
-                        "_id": from_owner_id,
+                        "_id": _to_object_id(from_owner_id),
                         f"wallet.{currency}": {"$gte": float(amount)}
                     },
                     {"$inc": {f"wallet.{currency}": -float(amount)}},
@@ -92,7 +101,7 @@ class WalletService:
                     raise HTTPException(status_code=400, detail="Insufficient balance or concurrent modification")
 
                 # 2. Validate and add to receiver
-                to_owner = await to_collection.find_one({"_id": to_owner_id}, session=session)
+                to_owner = await to_collection.find_one({"_id": _to_object_id(to_owner_id)}, session=session)
                 if not to_owner:
                     raise HTTPException(status_code=404, detail=f"Receiver {to_owner_type} not found")
                 
@@ -101,7 +110,7 @@ class WalletService:
 
                 # Add to receiver
                 await to_collection.update_one(
-                    {"_id": to_owner_id},
+                    {"_id": _to_object_id(to_owner_id)},
                     {"$inc": {f"wallet.{currency}": float(amount)}},
                     session=session
                 )
@@ -158,7 +167,7 @@ class WalletService:
         collection = db.users if owner_type == "user" else db.branches
 
         # Validate owner exists and wallet is active
-        owner = await collection.find_one({"_id": owner_id})
+        owner = await collection.find_one({"_id": _to_object_id(owner_id)})
         if not owner:
             raise HTTPException(status_code=404, detail=f"{owner_type.capitalize()} not found")
         
@@ -170,7 +179,7 @@ class WalletService:
             async with session.start_transaction():
                 # Add to wallet
                 await collection.update_one(
-                    {"_id": owner_id},
+                    {"_id": _to_object_id(owner_id)},
                     {"$inc": {f"wallet.{currency}": float(amount)}},
                     session=session
                 )
@@ -227,7 +236,7 @@ class WalletService:
         async with await db.client.start_session() as session:
             async with session.start_transaction():
                 # Validate and deduct from wallet
-                owner = await collection.find_one({"_id": owner_id}, session=session)
+                owner = await collection.find_one({"_id": _to_object_id(owner_id)}, session=session)
                 if not owner:
                     raise HTTPException(status_code=404, detail=f"{owner_type.capitalize()} not found")
                 
@@ -241,7 +250,7 @@ class WalletService:
                 # Deduct from wallet
                 result = await collection.update_one(
                     {
-                        "_id": owner_id,
+                        "_id": _to_object_id(owner_id),
                         f"wallet.{currency}": {"$gte": float(amount)}
                     },
                     {"$inc": {f"wallet.{currency}": -float(amount)}},
@@ -308,7 +317,7 @@ class WalletService:
         collection = db.users if owner_type == "user" else db.branches
         
         result = await collection.update_one(
-            {"_id": owner_id},
+            {"_id": _to_object_id(owner_id)},
             {"$set": {"walletStatus": "frozen"}}
         )
         
@@ -327,7 +336,7 @@ class WalletService:
         collection = db.users if owner_type == "user" else db.branches
         
         result = await collection.update_one(
-            {"_id": owner_id},
+            {"_id": _to_object_id(owner_id)},
             {"$set": {"walletStatus": "active"}}
         )
         
