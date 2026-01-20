@@ -5,6 +5,7 @@ from strawberry.types import Info
 from decimal import Decimal
 
 from .types import WalletStatusType, WalletBalanceType, WalletTransactionType
+from .utils import to_object_id
 from services.wallet_service import wallet_service
 from utils.graphql_auth import require_auth
 
@@ -21,7 +22,7 @@ class WalletQuery:
         # Get wallet status from user document
         from clients.mongodb_client import get_database
         db = get_database()
-        user = await db.users.find_one({"_id": user_id})
+        user = await db.users.find_one({"_id": to_object_id(user_id)})
         wallet_status = user.get("walletStatus", "active") if user else "active"
         
         return WalletStatusType(
@@ -83,7 +84,7 @@ class WalletQuery:
         # Verify user is manager of branch or owner of business
         from clients.mongodb_client import get_database
         db = get_database()
-        branch = await db.branches.find_one({"_id": branch_id})
+        branch = await db.branches.find_one({"_id": to_object_id(branch_id)})
         
         if not branch:
             raise Exception("Sucursal no encontrada")
@@ -92,7 +93,7 @@ class WalletQuery:
         is_manager = user_id in branch.get("managerIds", [])
         
         # Check if user is owner of the business
-        business = await db.businesses.find_one({"_id": branch["businessId"]})
+        business = await db.businesses.find_one({"_id": to_object_id(branch["businessId"])})
         is_owner = business and business["ownerId"] == user_id
         
         if not is_manager and not is_owner:
@@ -125,7 +126,7 @@ class WalletQuery:
         # Verify user is manager of branch or owner of business
         from clients.mongodb_client import get_database
         db = get_database()
-        branch = await db.branches.find_one({"_id": branch_id})
+        branch = await db.branches.find_one({"_id": to_object_id(branch_id)})
         
         if not branch:
             raise Exception("Sucursal no encontrada")
@@ -134,7 +135,7 @@ class WalletQuery:
         is_manager = user_id in branch.get("managerIds", [])
         
         # Check if user is owner of the business
-        business = await db.businesses.find_one({"_id": branch["businessId"]})
+        business = await db.businesses.find_one({"_id": to_object_id(branch["businessId"])})
         is_owner = business and business["ownerId"] == user_id
         
         if not is_manager and not is_owner:
