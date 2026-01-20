@@ -37,15 +37,15 @@ class UserQuery:
                'walletStatus': user.walletStatus}
         )
 
-    @strawberry.field(description="Buscar usuarios (requiere rol admin o manager)")
+    @strawberry.field(description="Buscar usuarios (requiere autenticación)")
     async def search_users(
         self,
         info: Info,
         query: str,
         jwt: str
     ) -> List[UserType]:
-        """Search users. Requires admin or manager role."""
-        require_role(jwt, info, ["admin", "manager"])
+        """Search users. Requires authentication."""
+        require_auth(jwt, info)
         users = await users_repo.search(query)
         return [
             UserType(
