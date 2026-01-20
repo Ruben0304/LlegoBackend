@@ -31,6 +31,8 @@ class AuthRepository:
             "phone": phone,
             "password": hashed_password,
             "role": role,
+            "wallet": {"local": 0.0, "usd": 0.0},
+            "walletStatus": "active",
             "createdAt": datetime.utcnow(),
         }
 
@@ -106,6 +108,8 @@ class AuthRepository:
             "email": email,
             "password": None,
             "role": "customer",
+            "wallet": {"local": 0.0, "usd": 0.0},
+            "walletStatus": "active",
             "createdAt": datetime.utcnow(),
             "authProvider": provider,
             "providerUserId": provider_user_id,

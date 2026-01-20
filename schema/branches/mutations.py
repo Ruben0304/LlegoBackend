@@ -74,6 +74,8 @@ class BranchMutation:
             facilities=input.facilities or [],
             tipos=[t.value for t in input.tipos],
             paymentMethodIds=input.paymentMethodIds,
+            wallet={"local": 0.0, "usd": 0.0},
+            walletStatus="active",
             createdAt=datetime.now()
         )
 

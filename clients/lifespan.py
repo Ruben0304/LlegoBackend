@@ -41,6 +41,14 @@ async def lifespan(app):
     except Exception as e:
         print(f"⚠ Warning: Could not seed business types: {e}")
 
+    # Migrate wallet to users and branches
+    try:
+        from scripts.migrate_add_wallet_to_users_branches import migrate_add_wallet_from_db
+        db = get_database()
+        await migrate_add_wallet_from_db(db)
+    except Exception as e:
+        print(f"⚠ Warning: Could not migrate wallets: {e}")
+
     print("✓ All clients initialized successfully\n")
 
     yield
