@@ -1,6 +1,7 @@
 """GraphQL type definitions for AI Assistant entity."""
 import strawberry
 from typing import List, Union, Optional
+from datetime import datetime
 from schema.products.types import ProductType
 from schema.branches.types import BranchType
 
@@ -23,6 +24,8 @@ class PaymentMethodType:
     displayOrder: int = strawberry.field(description="Display order in UI")
     iconUrl: Optional[str] = strawberry.field(description="Icon URL")
     instructions: Optional[str] = strawberry.field(description="Payment instructions for user")
+    createdAt: Optional[datetime] = strawberry.field(description="Creation timestamp", default=None)
+    updatedAt: Optional[datetime] = strawberry.field(description="Last update timestamp", default=None)
 
 
 # Union type for different entity types returned by AI
