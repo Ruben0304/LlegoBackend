@@ -182,6 +182,8 @@ class OrderType:
     deliveryPersonId: Optional[str] = None
     estimatedDeliveryTime: Optional[datetime] = None
     paymentId: Optional[str] = None
+    currentPaymentAttemptId: Optional[str] = None
+    paidAt: Optional[datetime] = None
     rating: Optional[int] = None
     ratingComment: Optional[str] = None
     
@@ -342,6 +344,8 @@ def order_to_type(order) -> OrderType:
         deliveryPersonId=order.deliveryPersonId,
         estimatedDeliveryTime=order.estimatedDeliveryTime,
         paymentId=order.paymentId,
+        currentPaymentAttemptId=order.currentPaymentAttemptId,
+        paidAt=order.paidAt,
         rating=order.rating,
         ratingComment=order.ratingComment,
         _items=[item.model_dump() for item in order.items],

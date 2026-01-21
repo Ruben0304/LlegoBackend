@@ -144,13 +144,43 @@ class SmsOcr(BaseModel):
 
 
 class PaymentMethod(BaseModel):
-    """Payment method model."""
+    """
+    Payment method model.
+
+    Defines available payment methods with their commission rates,
+    refund policies, and configuration.
+    """
     id: str = Field(alias="_id")
-    currency: str  # "CUP", "USD", etc.
-    method: str  # "tarjeta", "efectivo", "transferencia", etc.
+
+    # Basic info
+    name: str  # "Wallet USD", "Transfermóvil", "Stripe", "Efectivo"
+    code: str  # "wallet_usd", "wallet_cup", "transfermovil", "stripe", "cash"
+    currency: str  # "CUP", "USD"
+    method: str  # "wallet", "transfer", "stripe", "cash"
+
+    # Commission configuration
+    commissionPercent: float = 0.0  # e.g., 2.5 = 2.5% charged to customer
+    deliveryFeePercent: float = 0.0  # Extra % for cash payments covering delivery
+
+    # Refund and confirmation settings
+    isRefundable: bool = True
+    requiresProof: bool = False  # True for bank transfers
+    requiresBusinessConfirmation: bool = False  # True for manual methods
+    expirationMinutes: Optional[int] = None  # Time limit to complete payment (null = no limit)
+
+    # Display configuration
+    isActive: bool = True
+    displayOrder: int = 0  # Order in UI
+    iconUrl: Optional[str] = None
+    instructions: Optional[str] = None  # "Transferir a cuenta X..."
+
+    # Timestamps
+    createdAt: datetime = Field(default_factory=datetime.utcnow)
+    updatedAt: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:
         populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat()}
 
 
 class WalletTransaction(BaseModel):

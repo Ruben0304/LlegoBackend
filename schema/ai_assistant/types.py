@@ -9,8 +9,20 @@ from schema.branches.types import BranchType
 class PaymentMethodType:
     """Payment method type."""
     id: str = strawberry.field(description="Payment method ID")
+    name: str = strawberry.field(description="Display name (e.g., Wallet USD, Transfermóvil)")
+    code: str = strawberry.field(description="Code (e.g., wallet_usd, transfermovil)")
     currency: str = strawberry.field(description="Currency (e.g., CUP, USD)")
-    method: str = strawberry.field(description="Payment method (e.g., tarjeta, efectivo, transferencia)")
+    method: str = strawberry.field(description="Payment method type (wallet, transfer, stripe, cash)")
+    commissionPercent: float = strawberry.field(description="Commission percentage charged to customer")
+    deliveryFeePercent: float = strawberry.field(description="Extra percentage for cash delivery payments")
+    isRefundable: bool = strawberry.field(description="Whether this method supports refunds")
+    requiresProof: bool = strawberry.field(description="Whether proof/receipt is required")
+    requiresBusinessConfirmation: bool = strawberry.field(description="Whether business must confirm receipt")
+    expirationMinutes: Optional[int] = strawberry.field(description="Time limit to complete payment")
+    isActive: bool = strawberry.field(description="Whether this method is currently active")
+    displayOrder: int = strawberry.field(description="Display order in UI")
+    iconUrl: Optional[str] = strawberry.field(description="Icon URL")
+    instructions: Optional[str] = strawberry.field(description="Payment instructions for user")
 
 
 # Union type for different entity types returned by AI

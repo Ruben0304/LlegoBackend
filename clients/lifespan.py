@@ -57,6 +57,13 @@ async def lifespan(app):
     except Exception as e:
         print(f"⚠ Warning: Could not migrate usernames: {e}")
 
+    # Auto-migrate payment system
+    try:
+        from scripts.auto_migrate_payments import auto_migrate_payments
+        await auto_migrate_payments()
+    except Exception as e:
+        print(f"⚠ Warning: Could not migrate payment system: {e}")
+
     print("✓ All clients initialized successfully\n")
 
     yield

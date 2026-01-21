@@ -1,0 +1,274 @@
+"""Payment attempt repository for database operations."""
+from typing import List, Optional
+from datetime import datetime
+from bson import ObjectId
+
+from clients.mongodb_client import get_database
+from .models import PaymentAttempt, PaymentAttemptStatus
+
+
+class PaymentAttemptRepository:
+    """Repository for payment attempt operations."""
+
+    collection_name = "payment_attempts"
+
+    def _get_collection(self):
+        return get_database()[self.collection_name]
+
+    @staticmethod
+    def _doc_to_payment_attempt(doc: dict) -> PaymentAttempt:
+        """Convert MongoDB document to PaymentAttempt model."""
+        doc["_id"] = str(doc["_id"])
+        return PaymentAttempt(**doc)
+
+    async def create(self, payment_attempt: PaymentAttempt) -> PaymentAttempt:
+        """Create a new payment attempt."""
+        collection = self._get_collection()
+        doc = payment_attempt.model_dump(by_alias=True)
+        doc["_id"] = ObjectId(doc["_id"])
+        await collection.insert_one(doc)
+        return payment_attempt
+
+    async def get_by_id(self, attempt_id: str) -> Optional[PaymentAttempt]:
+        """Get payment attempt by ID."""
+        collection = self._get_collection()
+        try:
+            doc = await collection.find_one({"_id": ObjectId(attempt_id)})
+        except Exception:
+            doc = await collection.find_one({"_id": attempt_id})
+        return self._doc_to_payment_attempt(doc) if doc else None
+
+    async def get_by_order_id(self, order_id: str) -> List[PaymentAttempt]:
+        """Get all payment attempts for an order."""
+        collection = self._get_collection()
+        cursor = collection.find({"orderId": order_id}).sort("createdAt", -1)
+        return [self._doc_to_payment_attempt(doc) async for doc in cursor]
+
+    async def get_active_by_order_id(self, order_id: str) -> Optional[PaymentAttempt]:
+        """Get the active (non-final) payment attempt for an order."""
+        collection = self._get_collection()
+        final_statuses = [
+            PaymentAttemptStatus.COMPLETED.value,
+            PaymentAttemptStatus.FAILED.value,
+            PaymentAttemptStatus.EXPIRED.value,
+            PaymentAttemptStatus.CANCELLED.value,
+            PaymentAttemptStatus.REFUNDED.value,
+        ]
+        doc = await collection.find_one({
+            "orderId": order_id,
+            "status": {"$nin": final_statuses}
+        })
+        return self._doc_to_payment_attempt(doc) if doc else None
+
+    async def get_by_stripe_payment_intent(
+        self,
+        payment_intent_id: str
+    ) -> Optional[PaymentAttempt]:
+        """Get payment attempt by Stripe Payment Intent ID."""
+        collection = self._get_collection()
+        doc = await collection.find_one({"stripePaymentIntentId": payment_intent_id})
+        return self._doc_to_payment_attempt(doc) if doc else None
+
+    async def update_status(
+        self,
+        attempt_id: str,
+        status: PaymentAttemptStatus,
+        **extra_fields
+    ) -> Optional[PaymentAttempt]:
+        """Update payment attempt status and optional extra fields."""
+        collection = self._get_collection()
+        update_data = {
+            "status": status.value,
+            "updatedAt": datetime.utcnow(),
+            **extra_fields,
+        }
+
+        # Handle completion timestamps
+        if status == PaymentAttemptStatus.COMPLETED:
+            update_data["completedAt"] = datetime.utcnow()
+        elif status == PaymentAttemptStatus.FAILED:
+            update_data["failedAt"] = datetime.utcnow()
+
+        try:
+            result = await collection.find_one_and_update(
+                {"_id": ObjectId(attempt_id)},
+                {"$set": update_data},
+                return_document=True,
+            )
+        except Exception:
+            result = await collection.find_one_and_update(
+                {"_id": attempt_id},
+                {"$set": update_data},
+                return_document=True,
+            )
+
+        return self._doc_to_payment_attempt(result) if result else None
+
+    async def set_proof(
+        self,
+        attempt_id: str,
+        proof_url: str
+    ) -> Optional[PaymentAttempt]:
+        """Set proof URL and mark customer confirmed."""
+        return await self.update_status(
+            attempt_id,
+            PaymentAttemptStatus.AWAITING_BUSINESS,
+            proofUrl=proof_url,
+            customerConfirmedAt=datetime.utcnow(),
+        )
+
+    async def confirm_business_received(
+        self,
+        attempt_id: str
+    ) -> Optional[PaymentAttempt]:
+        """Mark that business confirmed payment received."""
+        return await self.update_status(
+            attempt_id,
+            PaymentAttemptStatus.COMPLETED,
+            businessConfirmedAt=datetime.utcnow(),
+        )
+
+    async def confirm_delivery_cash(
+        self,
+        attempt_id: str,
+        delivery_person_id: str
+    ) -> Optional[PaymentAttempt]:
+        """Mark that delivery person confirmed cash received."""
+        return await self.update_status(
+            attempt_id,
+            PaymentAttemptStatus.COMPLETED,
+            deliveryPersonConfirmedAt=datetime.utcnow(),
+            deliveryPersonId=delivery_person_id,
+        )
+
+    async def dispute(
+        self,
+        attempt_id: str,
+        reason: str
+    ) -> Optional[PaymentAttempt]:
+        """Mark payment as disputed."""
+        return await self.update_status(
+            attempt_id,
+            PaymentAttemptStatus.DISPUTED,
+            disputeReason=reason,
+        )
+
+    async def request_refund(
+        self,
+        attempt_id: str,
+        reason: str
+    ) -> Optional[PaymentAttempt]:
+        """Mark payment as refund requested."""
+        return await self.update_status(
+            attempt_id,
+            PaymentAttemptStatus.REFUND_REQUESTED,
+            refundRequestedAt=datetime.utcnow(),
+            refundReason=reason,
+        )
+
+    async def complete_refund(
+        self,
+        attempt_id: str,
+        refund_amount: float,
+        transaction_id: str
+    ) -> Optional[PaymentAttempt]:
+        """Mark refund as completed."""
+        return await self.update_status(
+            attempt_id,
+            PaymentAttemptStatus.REFUNDED,
+            refundedAt=datetime.utcnow(),
+            refundAmount=refund_amount,
+            refundTransactionId=transaction_id,
+        )
+
+    async def set_wallet_transaction(
+        self,
+        attempt_id: str,
+        wallet_transaction_id: str,
+        business_wallet_transaction_id: str,
+        commission_transaction_id: str
+    ) -> Optional[PaymentAttempt]:
+        """Set wallet transaction IDs after successful wallet payment."""
+        collection = self._get_collection()
+        try:
+            result = await collection.find_one_and_update(
+                {"_id": ObjectId(attempt_id)},
+                {
+                    "$set": {
+                        "walletTransactionId": wallet_transaction_id,
+                        "businessWalletTransactionId": business_wallet_transaction_id,
+                        "commissionTransactionId": commission_transaction_id,
+                        "updatedAt": datetime.utcnow(),
+                    }
+                },
+                return_document=True,
+            )
+        except Exception:
+            result = await collection.find_one_and_update(
+                {"_id": attempt_id},
+                {
+                    "$set": {
+                        "walletTransactionId": wallet_transaction_id,
+                        "businessWalletTransactionId": business_wallet_transaction_id,
+                        "commissionTransactionId": commission_transaction_id,
+                        "updatedAt": datetime.utcnow(),
+                    }
+                },
+                return_document=True,
+            )
+
+        return self._doc_to_payment_attempt(result) if result else None
+
+    async def get_expired(self) -> List[PaymentAttempt]:
+        """Get all expired payment attempts that need to be marked as expired."""
+        collection = self._get_collection()
+        now = datetime.utcnow()
+        cursor = collection.find({
+            "status": {"$in": [
+                PaymentAttemptStatus.PENDING.value,
+                PaymentAttemptStatus.AWAITING_PROOF.value,
+                PaymentAttemptStatus.AWAITING_BUSINESS.value,
+            ]},
+            "expiresAt": {"$lte": now, "$ne": None},
+        })
+        return [self._doc_to_payment_attempt(doc) async for doc in cursor]
+
+    async def get_by_customer(
+        self,
+        customer_id: str,
+        limit: int = 20,
+        offset: int = 0
+    ) -> List[PaymentAttempt]:
+        """Get payment attempts for a customer (via orders)."""
+        # This requires a join with orders collection
+        # For now, we'll implement a simpler version
+        db = get_database()
+        orders_collection = db["orders"]
+
+        # Get customer's order IDs
+        order_ids = await orders_collection.distinct(
+            "_id",
+            {"customerId": customer_id}
+        )
+        order_ids_str = [str(oid) for oid in order_ids]
+
+        collection = self._get_collection()
+        cursor = collection.find({"orderId": {"$in": order_ids_str}}) \
+            .sort("createdAt", -1) \
+            .skip(offset) \
+            .limit(limit)
+
+        return [self._doc_to_payment_attempt(doc) async for doc in cursor]
+
+
+async def create_payment_indexes():
+    """Create MongoDB indexes for payment attempts collection."""
+    db = get_database()
+    collection = db["payment_attempts"]
+
+    await collection.create_index("orderId")
+    await collection.create_index("stripePaymentIntentId", sparse=True)
+    await collection.create_index([("status", 1), ("expiresAt", 1)])
+    await collection.create_index("createdAt")
+
+    print("✓ Payment attempt indexes created")

@@ -1,4 +1,4 @@
-"""GraphQL mutations for payment validation using Gemini OCR."""
+"""GraphQL mutations for payment validation and payment processing."""
 import strawberry
 import os
 from typing import Optional
@@ -9,8 +9,9 @@ from strawberry.types import Info
 from google import genai
 from google.genai import types as genai_types
 
-from .types import PaymentType
-from repositories import payments_repo
+from .types import PaymentType, PaymentAttemptType, InitiatePaymentResult, payment_attempt_to_type
+from repositories import payments_repo, payment_methods_repo
+from payments import payment_service
 from utils.graphql_auth import apply_optional_jwt
 
 
@@ -120,3 +121,249 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
 
         except Exception as e:
             raise Exception(f"Error al procesar la imagen: {str(e)}")
+
+    # ============================================
+    # Payment Processing Mutations
+    # ============================================
+
+    @strawberry.mutation(description="Iniciar un pago para un pedido")
+    async def initiate_payment(
+        self,
+        info: Info,
+        orderId: str,
+        paymentMethodId: str,
+        jwt: str,
+        includeDeliveryFee: bool = True
+    ) -> InitiatePaymentResult:
+        """
+        Initiate a payment for an order.
+
+        For wallet payments: processes immediately if balance is sufficient.
+        For Stripe payments: returns client secret for completing payment in app.
+        For manual payments: returns instructions and awaits proof upload.
+        For cash payments: awaits delivery person confirmation.
+
+        Args:
+            orderId: The order to pay for
+            paymentMethodId: The payment method to use
+            jwt: User JWT token
+            includeDeliveryFee: Whether to include delivery fee in this payment
+
+        Returns:
+            Payment attempt with status and any necessary info (client secret, instructions)
+        """
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+
+        try:
+            attempt = await payment_service.initiate_payment(
+                order_id=orderId,
+                payment_method_id=paymentMethodId,
+                user_id=user_id,
+                include_delivery_fee=includeDeliveryFee,
+            )
+
+            # Get payment method for instructions
+            payment_method = await payment_methods_repo.get_by_id(paymentMethodId)
+            instructions = payment_method.instructions if payment_method else None
+
+            return InitiatePaymentResult(
+                paymentAttempt=payment_attempt_to_type(attempt),
+                instructions=instructions,
+            )
+
+        except ValueError as e:
+            raise Exception(str(e))
+
+    @strawberry.mutation(description="Confirmar que el cliente envió el pago (para métodos manuales)")
+    async def confirm_payment_sent(
+        self,
+        info: Info,
+        paymentAttemptId: str,
+        proofUrl: str,
+        jwt: str
+    ) -> PaymentAttemptType:
+        """
+        Customer confirms they sent the payment and uploads proof.
+
+        This is used for manual payment methods like bank transfers.
+        After this, the payment awaits business confirmation.
+
+        Args:
+            paymentAttemptId: The payment attempt ID
+            proofUrl: URL to the uploaded proof/receipt image
+            jwt: User JWT token
+        """
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+
+        try:
+            attempt = await payment_service.confirm_payment_sent(
+                payment_attempt_id=paymentAttemptId,
+                user_id=user_id,
+                proof_url=proofUrl,
+            )
+            return payment_attempt_to_type(attempt)
+        except ValueError as e:
+            raise Exception(str(e))
+
+    @strawberry.mutation(description="Negocio confirma que recibió el pago")
+    async def confirm_payment_received(
+        self,
+        info: Info,
+        paymentAttemptId: str,
+        jwt: str
+    ) -> PaymentAttemptType:
+        """
+        Business confirms they received the payment.
+
+        This completes the payment for manual methods.
+
+        Args:
+            paymentAttemptId: The payment attempt ID
+            jwt: Business user JWT token
+        """
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+
+        try:
+            attempt = await payment_service.confirm_payment_received(
+                payment_attempt_id=paymentAttemptId,
+                user_id=user_id,
+            )
+            return payment_attempt_to_type(attempt)
+        except ValueError as e:
+            raise Exception(str(e))
+
+    @strawberry.mutation(description="Repartidor confirma que recibió el pago en efectivo")
+    async def confirm_cash_received(
+        self,
+        info: Info,
+        paymentAttemptId: str,
+        jwt: str
+    ) -> PaymentAttemptType:
+        """
+        Delivery person confirms they received cash payment.
+
+        This completes the payment for cash on delivery orders.
+
+        Args:
+            paymentAttemptId: The payment attempt ID
+            jwt: Delivery person JWT token
+        """
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+
+        try:
+            # For cash payments, the delivery person's user ID is used
+            attempt = await payment_service.confirm_cash_received(
+                payment_attempt_id=paymentAttemptId,
+                delivery_person_id=user_id,
+            )
+            return payment_attempt_to_type(attempt)
+        except ValueError as e:
+            raise Exception(str(e))
+
+    @strawberry.mutation(description="Negocio disputa que no recibió el pago")
+    async def dispute_payment(
+        self,
+        info: Info,
+        paymentAttemptId: str,
+        reason: str,
+        jwt: str
+    ) -> PaymentAttemptType:
+        """
+        Business disputes that they didn't receive the payment.
+
+        This opens a dispute case for manual payment methods.
+
+        Args:
+            paymentAttemptId: The payment attempt ID
+            reason: Reason for the dispute
+            jwt: Business user JWT token
+        """
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+
+        try:
+            attempt = await payment_service.dispute_payment(
+                payment_attempt_id=paymentAttemptId,
+                user_id=user_id,
+                reason=reason,
+            )
+            return payment_attempt_to_type(attempt)
+        except ValueError as e:
+            raise Exception(str(e))
+
+    @strawberry.mutation(description="Solicitar reembolso de un pago")
+    async def request_refund(
+        self,
+        info: Info,
+        paymentAttemptId: str,
+        reason: str,
+        jwt: str
+    ) -> PaymentAttemptType:
+        """
+        Customer requests a refund for a completed payment.
+
+        Only works for refundable payment methods and orders not yet delivered.
+
+        Args:
+            paymentAttemptId: The payment attempt ID
+            reason: Reason for the refund request
+            jwt: Customer JWT token
+        """
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+
+        try:
+            attempt = await payment_service.request_refund(
+                payment_attempt_id=paymentAttemptId,
+                user_id=user_id,
+                reason=reason,
+            )
+            return payment_attempt_to_type(attempt)
+        except ValueError as e:
+            raise Exception(str(e))
+
+    @strawberry.mutation(description="Cancelar un intento de pago pendiente")
+    async def cancel_payment(
+        self,
+        info: Info,
+        paymentAttemptId: str,
+        jwt: str
+    ) -> PaymentAttemptType:
+        """
+        Cancel a pending payment attempt.
+
+        Only works for payments that haven't been completed yet.
+
+        Args:
+            paymentAttemptId: The payment attempt ID
+            jwt: Customer JWT token
+        """
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+
+        try:
+            attempt = await payment_service.cancel_payment(
+                payment_attempt_id=paymentAttemptId,
+                user_id=user_id,
+            )
+            return payment_attempt_to_type(attempt)
+        except ValueError as e:
+            raise Exception(str(e))

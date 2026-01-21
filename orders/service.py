@@ -192,6 +192,18 @@ class OrderService:
                 f"Transición de estado no permitida: {order.status.value} -> {new_status.value}"
             )
         
+        # VALIDACIÓN CRÍTICA: Verificar pago antes de PREPARING
+        if new_status == OrderStatus.PREPARING:
+            payment_method = order.paymentMethod.lower()
+            
+            # Efectivo no requiere pago previo (se paga al entregar)
+            if payment_method not in ["cash", "efectivo"]:
+                if order.paymentStatus != PaymentStatus.COMPLETED:
+                    raise ValueError(
+                        "El pedido debe estar pagado antes de prepararse. "
+                        "El cliente debe completar el pago primero."
+                    )
+        
         # Default messages
         if not message:
             messages = {

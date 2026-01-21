@@ -303,22 +303,33 @@ async def handle_payment_success(payment_intent: dict):
     """Handle successful payment."""
     try:
         payment_intent_id = payment_intent["id"]
-        user_id = payment_intent["metadata"].get("user_id")
+        metadata = payment_intent.get("metadata", {})
+        user_id = metadata.get("user_id")
+        payment_type = metadata.get("type", "wallet_recharge")
         amount_cents = payment_intent["amount"]
         amount = amount_cents / 100  # Convert cents to dollars
-        
-        logger.info(f"✅ Payment succeeded: {payment_intent_id} for user {user_id}, amount: ${amount}")
-        
+
+        logger.info(f"✅ Payment succeeded: {payment_intent_id} for user {user_id}, amount: ${amount}, type: {payment_type}")
+
         if not user_id:
             logger.error(f"No user_id in payment intent metadata: {payment_intent_id}")
             return
-        
-        # Update user wallet balance
-        wallet_repo = WalletRepository()
-        await wallet_repo.add_balance(user_id, amount, "stripe_recharge", payment_intent_id)
-        
-        logger.info(f"Wallet updated for user {user_id}: +${amount}")
-        
+
+        # Handle based on payment type
+        if payment_type == "order_payment":
+            # This is an order payment - use PaymentService
+            from payments import payment_service
+            await payment_service.handle_stripe_webhook(
+                payment_intent_id,
+                "payment_intent.succeeded"
+            )
+            logger.info(f"Order payment processed: {payment_intent_id}")
+        else:
+            # This is a wallet recharge
+            wallet_repo = WalletRepository()
+            await wallet_repo.add_balance(user_id, amount, "stripe_recharge", payment_intent_id)
+            logger.info(f"Wallet updated for user {user_id}: +${amount}")
+
     except Exception as e:
         logger.error(f"Error handling payment success: {e}")
 
@@ -327,14 +338,26 @@ async def handle_payment_failure(payment_intent: dict):
     """Handle failed payment."""
     try:
         payment_intent_id = payment_intent["id"]
-        user_id = payment_intent["metadata"].get("user_id")
+        metadata = payment_intent.get("metadata", {})
+        user_id = metadata.get("user_id")
+        payment_type = metadata.get("type", "wallet_recharge")
         error = payment_intent.get("last_payment_error", {})
-        
-        logger.error(f"❌ Payment failed: {payment_intent_id} for user {user_id}")
+
+        logger.error(f"❌ Payment failed: {payment_intent_id} for user {user_id}, type: {payment_type}")
         logger.error(f"Error: {error.get('message', 'Unknown error')}")
-        
-        # TODO: Optionally notify user or log to database
-        
+
+        # Handle based on payment type
+        if payment_type == "order_payment":
+            # This is an order payment - use PaymentService
+            from payments import payment_service
+            await payment_service.handle_stripe_webhook(
+                payment_intent_id,
+                "payment_intent.payment_failed"
+            )
+            logger.info(f"Order payment failure processed: {payment_intent_id}")
+
+        # TODO: Optionally notify user
+
     except Exception as e:
         logger.error(f"Error handling payment failure: {e}")
 

@@ -7,7 +7,9 @@ from enum import Enum
 
 class OrderStatus(str, Enum):
     """Order status enum."""
-    PENDING_ACCEPTANCE = "pending_acceptance"
+    PENDING_PAYMENT = "pending_payment"  # Waiting for payment
+    PAYMENT_IN_PROGRESS = "payment_in_progress"  # Payment being processed
+    PENDING_ACCEPTANCE = "pending_acceptance"  # Waiting for business to accept
     MODIFIED_BY_STORE = "modified_by_store"
     ACCEPTED = "accepted"
     PREPARING = "preparing"
@@ -118,6 +120,9 @@ class Order(BaseModel):
     paymentMethod: str
     paymentStatus: PaymentStatus = PaymentStatus.PENDING
     paymentId: Optional[str] = None
+    currentPaymentAttemptId: Optional[str] = None  # Current active payment attempt
+    paidAt: Optional[datetime] = None  # When payment was completed
+    deliveryFeePaid: float = 0.0  # Delivery fee actually paid (for tracking)
     rating: Optional[int] = None
     ratingComment: Optional[str] = None
     createdAt: datetime
