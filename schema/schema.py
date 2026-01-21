@@ -21,6 +21,7 @@ from .orders.subscriptions import OrderSubscription
 from .business_types.queries import BusinessTypeQuery
 from .business_types.mutations import BusinessTypeMutation
 from .payments.queries import PaymentMethodQuery
+from .payments.mutations import PaymentMutation
 from .wallet.queries import WalletQuery
 from .wallet.mutations import WalletMutation
 from .extensions import UserIdExtension, ErrorLoggingExtension
@@ -41,7 +42,7 @@ class Query(UserQuery, BusinessQuery, BranchQuery, ProductQuery, CategoryQuery, 
 
 
 @strawberry.type
-class Mutation(AuthMutation, UserMutation, BusinessMutation, BranchMutation, ProductMutation, OrderMutation, BusinessTypeMutation, WalletMutation):
+class Mutation(AuthMutation, UserMutation, BusinessMutation, BranchMutation, ProductMutation, OrderMutation, BusinessTypeMutation, PaymentMutation, WalletMutation):
     pass
 
 
