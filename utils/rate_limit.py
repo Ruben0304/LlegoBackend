@@ -18,7 +18,7 @@ from utils.auth import decode_access_token
 
 RATE_LIMITS = {
     "auth": 5,           # Login/register - by IP
-    "graphql": 20,       # General GraphQL queries
+    "graphql": 40,       # General GraphQL queries
     "graphql_anon": 30,  # GraphQL without auth
     "uploads": 6,        # File uploads
     "search": 10,        # Vector search (expensive)
