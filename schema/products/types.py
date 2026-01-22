@@ -25,6 +25,19 @@ class ProductType:
     def image_url(self) -> str:
         return generate_presigned_url(self.image)
 
+    @strawberry.field(description="Product category name")
+    async def category_name(self, info: Info) -> Optional[str]:
+        """Resolve the product category name."""
+        if not self.categoryId:
+            return None
+
+        from models import product_categories_repo
+
+        category_data = await product_categories_repo.get_by_id(self.categoryId)
+        if category_data:
+            return category_data.name
+        return None
+
     @strawberry.field(description="Product category")
     async def category(
         self, info: Info
@@ -119,6 +132,19 @@ class ScoredProductType:
     def distance_km(self) -> Optional[float]:
         if self.distance_m is not None:
             return self.distance_m / 1000
+        return None
+
+    @strawberry.field(description="Product category name")
+    async def category_name(self, info: Info) -> Optional[str]:
+        """Resolve the product category name."""
+        if not self.categoryId:
+            return None
+
+        from models import product_categories_repo
+
+        category_data = await product_categories_repo.get_by_id(self.categoryId)
+        if category_data:
+            return category_data.name
         return None
 
     @strawberry.field(description="Product category")

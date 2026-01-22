@@ -26,6 +26,7 @@ class BranchQuery:
         businessId: Optional[str] = None,
         tipo: Optional[BranchTipo] = None,
         radiusKm: Optional[float] = None,
+        productCategoryId: Optional[str] = None,
         jwt: Optional[str] = None
     ) -> BranchConnection:
         """
@@ -37,6 +38,7 @@ class BranchQuery:
             businessId: Filter by business ID
             tipo: Filter by branch type
             radiusKm: Filter by radius in km from user location
+            productCategoryId: Filter by product category ID (only branches with products in this category)
         """
         apply_optional_jwt(jwt, info)
         rate_limit_graphql(info, "graphql")
@@ -52,6 +54,16 @@ class BranchQuery:
             all_branches = await branches_repo.get_by_business(businessId)
         else:
             all_branches = await branches_repo.get_all()
+        
+        # Filter by product category if specified
+        if productCategoryId:
+            from models import products_repo
+            # Get products with the specified category
+            products_with_category = await products_repo.get_by_category(productCategoryId)
+            # Get unique branch IDs from those products
+            branch_ids_with_category = set(p.branchId for p in products_with_category)
+            # Filter branches to only those that have products with this category
+            all_branches = [b for b in all_branches if b.id in branch_ids_with_category]
         
         # Apply scoring if user is authenticated
         scored_branches: List[ScoredBranchType] = []
