@@ -86,9 +86,9 @@ async def _create_invitation_indexes():
             background=True
         )
 
-        print("ƒo" Branch invitation indexes created/verified")
+        print("✓ Branch invitation indexes created/verified")
     except Exception as e:
-        print(f"ƒsÿ Warning: Could not create branch invitation indexes: {e}")
+        print(f"⚠ Warning: Could not create branch invitation indexes: {e}")
 
 
 async def _create_business_access_indexes():
@@ -120,9 +120,9 @@ async def _create_business_access_indexes():
             background=True
         )
 
-        print("ƒo" Business access indexes created/verified")
+        print("✓ Business access indexes created/verified")
     except Exception as e:
-        print(f"ƒsÿ Warning: Could not create business access indexes: {e}")
+        print(f"⚠ Warning: Could not create business access indexes: {e}")
 
 
 async def close_mongo_connection():
