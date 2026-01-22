@@ -18,6 +18,14 @@ async def lifespan(app):
     await connect_to_qdrant()
     connect_to_gemini()
 
+    # Migrate Qdrant data to MongoDB (if collections are empty)
+    try:
+        from scripts.migrate_qdrant_to_mongo import migrate_qdrant_to_mongo_from_db
+        db = get_database()
+        await migrate_qdrant_to_mongo_from_db(db)
+    except Exception as e:
+        print(f"⚠ Warning: Could not migrate Qdrant to MongoDB: {e}")
+
     # Create order indexes
     try:
         from orders.repository import create_order_indexes

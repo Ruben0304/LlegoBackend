@@ -1,7 +1,14 @@
-"""Business repository for database operations."""
+"""Business repository for database operations.
+
+Hybrid repository pattern:
+- GET operations: MongoDB (source of truth for complete data)
+- Search: Qdrant vector similarity (semantic search)
+- Create/Update/Delete: Sync both databases
+"""
 from typing import List, Optional, Dict, Any
 import uuid
-from clients import get_qdrant_client
+
+from clients import get_database, get_qdrant_client
 from models import Business
 from qdrant_client.http import models as qdrant_models
 from qdrant_client.models import PointStruct
@@ -13,10 +20,16 @@ from utils.cache import (
 
 
 class BusinessRepository:
+    mongo_collection_name = "bussisnes"  # Note: intentional typo for compatibility
     qdrant_collection_name = "businesses"
 
+    # RAG fields stored in Qdrant
+    rag_fields = {"name", "description"}
+
+    # --- GET Methods (MongoDB) ---
+
     async def get_all(self) -> List[Business]:
-        """Get all businesses from Qdrant with caching."""
+        """Get all businesses from MongoDB with caching."""
         cache_key = get_business_cache_key("all")
         cached = get_cached(cache_key)
 
@@ -24,31 +37,12 @@ class BusinessRepository:
             return [Business(**b) for b in cached]
 
         try:
-            print("→ Fetching all businesses from database")
-            qdrant_client = get_qdrant_client()
-            businesses = []
-            offset = None
+            print("→ Fetching all businesses from MongoDB")
+            db = get_database()
+            cursor = db[self.mongo_collection_name].find()
+            documents = await cursor.to_list(length=None)
 
-            while True:
-                result = await qdrant_client.scroll(
-                    collection_name=self.qdrant_collection_name,
-                    limit=100,
-                    offset=offset,
-                    with_payload=True,
-                    with_vectors=False
-                )
-
-                points, offset = result
-                if not points:
-                    break
-
-                for point in points:
-                    business = self._point_to_business(point)
-                    if business:
-                        businesses.append(business)
-
-                if offset is None:
-                    break
+            businesses = [Business(**doc) for doc in documents]
 
             # Cache the results only if not too large
             if should_cache_result(businesses):
@@ -59,12 +53,13 @@ class BusinessRepository:
                 print(f"⚠ Skipped caching {len(businesses)} businesses (exceeds limit)")
 
             return businesses
+
         except Exception as e:
-            print(f"Error fetching all businesses: {e}")
+            print(f"Error fetching all businesses from MongoDB: {e}")
             return []
 
     async def get_by_id(self, business_id: str) -> Optional[Business]:
-        """Get business by ID from Qdrant with caching."""
+        """Get business by ID from MongoDB with caching."""
         cache_key = get_business_cache_key(f"id:{business_id}")
         cached = get_cached(cache_key)
 
@@ -72,37 +67,23 @@ class BusinessRepository:
             return Business(**cached)
 
         try:
-            print(f"→ Fetching business {business_id} from database")
-            qdrant_client = get_qdrant_client()
-            result = await qdrant_client.scroll(
-                collection_name=self.qdrant_collection_name,
-                scroll_filter=qdrant_models.Filter(
-                    must=[
-                        qdrant_models.FieldCondition(
-                            key="metadata.mongo_id",
-                            match=qdrant_models.MatchValue(value=business_id)
-                        )
-                    ]
-                ),
-                limit=1,
-                with_payload=True,
-                with_vectors=False
-            )
+            print(f"→ Fetching business {business_id} from MongoDB")
+            db = get_database()
+            doc = await db[self.mongo_collection_name].find_one({"_id": business_id})
 
-            points, _ = result
-            if points:
-                business = self._point_to_business(points[0])
-                if business:
-                    # Cache the result
-                    set_cached(cache_key, business.model_dump(), TTL_DEFAULT)
+            if doc:
+                business = Business(**doc)
+                # Cache the result
+                set_cached(cache_key, business.model_dump(), TTL_DEFAULT)
                 return business
             return None
+
         except Exception as e:
-            print(f"Error fetching business {business_id}: {e}")
+            print(f"Error fetching business {business_id} from MongoDB: {e}")
             return None
 
     async def get_by_ids(self, business_ids: List[str]) -> List[Business]:
-        """Get multiple businesses by IDs from Qdrant with caching."""
+        """Get multiple businesses by IDs from MongoDB with caching."""
         if not business_ids:
             return []
 
@@ -113,222 +94,127 @@ class BusinessRepository:
             return [Business(**b) for b in cached]
 
         try:
-            print(f"→ Fetching {len(business_ids)} businesses from database")
-            qdrant_client = get_qdrant_client()
-            result = await qdrant_client.scroll(
-                collection_name=self.qdrant_collection_name,
-                scroll_filter=qdrant_models.Filter(
-                    should=[
-                        qdrant_models.FieldCondition(
-                            key="metadata.mongo_id",
-                            match=qdrant_models.MatchValue(value=bid)
-                        )
-                        for bid in business_ids
-                    ]
-                ),
-                limit=len(business_ids),
-                with_payload=True,
-                with_vectors=False
-            )
+            print(f"→ Fetching {len(business_ids)} businesses from MongoDB")
+            db = get_database()
+            cursor = db[self.mongo_collection_name].find({"_id": {"$in": business_ids}})
+            documents = await cursor.to_list(length=None)
 
-            points, _ = result
-            businesses = []
-            for point in points:
-                business = self._point_to_business(point)
-                if business:
-                    businesses.append(business)
+            businesses = [Business(**doc) for doc in documents]
 
             # Cache the results
             serialized = [b.model_dump() for b in businesses]
             set_cached(cache_key, serialized, TTL_DEFAULT)
 
             return businesses
-        except Exception as e:
-            print(f"Error fetching businesses by IDs: {e}")
-            return []
 
-    async def search(self, query: str) -> List[Business]:
-        """Search businesses by name in Qdrant."""
-        try:
-            qdrant_client = get_qdrant_client()
-            businesses = []
-            offset = None
-            query_lower = query.lower()
-
-            while True:
-                result = await qdrant_client.scroll(
-                    collection_name=self.qdrant_collection_name,
-                    limit=100,
-                    offset=offset,
-                    with_payload=True,
-                    with_vectors=False
-                )
-                
-                points, offset = result
-                if not points:
-                    break
-                
-                for point in points:
-                    metadata = point.payload.get("metadata", {})
-                    name = metadata.get("name", "").lower()
-                    
-                    if query_lower in name:
-                        business = self._point_to_business(point)
-                        if business:
-                            businesses.append(business)
-                
-                if offset is None:
-                    break
-            
-            return businesses
         except Exception as e:
-            print(f"Error searching businesses: {e}")
+            print(f"Error fetching businesses by IDs from MongoDB: {e}")
             return []
 
     async def get_by_owner(self, owner_id: str) -> List[Business]:
-        """Get businesses by owner ID from Qdrant."""
+        """Get businesses by owner ID from MongoDB."""
         try:
-            qdrant_client = get_qdrant_client()
-            businesses = []
-            offset = None
+            db = get_database()
+            cursor = db[self.mongo_collection_name].find({"ownerId": owner_id})
+            documents = await cursor.to_list(length=None)
 
-            while True:
-                result = await qdrant_client.scroll(
-                    collection_name=self.qdrant_collection_name,
-                    scroll_filter=qdrant_models.Filter(
-                        must=[
-                            qdrant_models.FieldCondition(
-                                key="metadata.ownerId",
-                                match=qdrant_models.MatchValue(value=owner_id)
-                            )
-                        ]
-                    ),
-                    limit=100,
-                    offset=offset,
-                    with_payload=True,
-                    with_vectors=False
-                )
-                
-                points, offset = result
-                if not points:
-                    break
-                
-                for point in points:
-                    business = self._point_to_business(point)
-                    if business:
-                        businesses.append(business)
-                
-                if offset is None:
-                    break
-            
-            return businesses
+            return [Business(**doc) for doc in documents]
+
         except Exception as e:
-            print(f"Error fetching businesses by owner: {e}")
+            print(f"Error fetching businesses by owner from MongoDB: {e}")
             return []
 
-    async def create(self, business: Business) -> Business:
-        """Create a new business in Qdrant."""
+    # --- Search Method (Qdrant Vector Similarity) ---
+
+    async def search(self, query: str, limit: int = 20) -> List[Business]:
+        """Search businesses using Qdrant vector similarity."""
         try:
-            # Generate embedding
+            # Generate embedding for query
             embedding_service = GeminiEmbeddingService()
-            text_to_embed = f"{business.name} {business.description or ''} {' '.join(business.tags)}"
-            embedding = embedding_service.generate_embedding(text_to_embed)
+            query_vector = embedding_service.generate_embedding(query)
 
             qdrant_client = get_qdrant_client()
-            
-            payload = {
-                "metadata": {
-                    "mongo_id": str(business.id),
-                    "name": business.name,
-                    "ownerId": business.ownerId,
-                    "globalRating": business.globalRating,
-                    "avatar": business.avatar,
-                    "description": business.description,
-                    "socialMedia": business.socialMedia,
-                    "tags": business.tags,
-                    "isActive": business.isActive,
-                    "createdAt": business.createdAt.isoformat()
-                }
-            }
-            
-            point = PointStruct(
-                id=str(uuid.uuid4()),
-                vector=embedding,
-                payload=payload
-            )
-            
-            await qdrant_client.upsert(
+
+            # Vector similarity search
+            results = await qdrant_client.search(
                 collection_name=self.qdrant_collection_name,
-                points=[point]
+                query_vector=query_vector,
+                limit=limit,
             )
+
+            if not results:
+                return []
+
+            # Extract mongo_ids from results
+            mongo_ids = []
+            for result in results:
+                mongo_id = result.payload.get("mongo_id")
+                if mongo_id:
+                    mongo_ids.append(mongo_id)
+
+            # Fetch complete documents from MongoDB
+            if mongo_ids:
+                return await self.get_by_ids(mongo_ids)
+
+            return []
+
+        except Exception as e:
+            print(f"Error searching businesses in Qdrant: {e}")
+            return []
+
+    # --- Create Method (MongoDB + Qdrant) ---
+
+    async def create(self, business: Business) -> Business:
+        """Create a new business in both MongoDB and Qdrant."""
+        try:
+            db = get_database()
+
+            # 1. Insert into MongoDB (complete document)
+            doc = business.model_dump(by_alias=True)
+            await db[self.mongo_collection_name].insert_one(doc)
+
+            # 2. Insert into Qdrant (RAG fields + embedding)
+            await self._upsert_to_qdrant(business)
 
             # Invalidate cache for all businesses
             invalidate_business_cache()
 
             return business
+
         except Exception as e:
-            print(f"Error creating business in Qdrant: {e}")
+            print(f"Error creating business: {e}")
             raise e
 
+    # --- Update Method (MongoDB + Qdrant if RAG fields changed) ---
+
     async def update(self, business_id: str, updates: Dict[str, Any]) -> Optional[Business]:
-        """Update a business in Qdrant."""
+        """Update a business in MongoDB and Qdrant (if RAG fields changed)."""
         try:
-            qdrant_client = get_qdrant_client()
+            db = get_database()
 
-            # Find the point by mongo_id
-            result = await qdrant_client.scroll(
-                collection_name=self.qdrant_collection_name,
-                scroll_filter=qdrant_models.Filter(
-                    must=[
-                        qdrant_models.FieldCondition(
-                            key="metadata.mongo_id",
-                            match=qdrant_models.MatchValue(value=business_id)
-                        )
-                    ]
-                ),
-                limit=1,
-                with_payload=True,
-                with_vectors=True
-            )
-
-            points, _ = result
-            if not points:
+            # Verify business exists
+            current = await self.get_by_id(business_id)
+            if not current:
                 return None
 
-            point = points[0]
-            metadata = point.payload.get("metadata", {})
-
-            # Update metadata with new values
-            for key, value in updates.items():
-                metadata[key] = value
-
-            # Regenerate embedding if name, description or tags changed
-            if any(k in updates for k in ["name", "description", "tags"]):
-                embedding_service = GeminiEmbeddingService()
-                tags = metadata.get("tags", [])
-                tags_str = " ".join(tags) if tags else ""
-                text_to_embed = f"{metadata.get('name', '')} {metadata.get('description', '')} {tags_str}"
-                new_vector = embedding_service.generate_embedding(text_to_embed)
-            else:
-                new_vector = point.vector
-
-            # Update the point
-            updated_point = PointStruct(
-                id=point.id,
-                vector=new_vector,
-                payload={"metadata": metadata}
+            # 1. Update MongoDB
+            await db[self.mongo_collection_name].update_one(
+                {"_id": business_id},
+                {"$set": updates}
             )
 
-            await qdrant_client.upsert(
-                collection_name=self.qdrant_collection_name,
-                points=[updated_point]
-            )
+            # 2. If RAG fields changed, update Qdrant
+            if self.rag_fields.intersection(updates.keys()):
+                updated_business = await self.get_by_id(business_id)
+                if updated_business:
+                    await self._upsert_to_qdrant(updated_business)
 
             # Invalidate cache for this business and all businesses
             invalidate_business_cache(business_id=business_id)
             invalidate_business_cache()  # Invalidate get_all cache
 
-            return self._point_to_business(updated_point)
+            return await self.get_by_id(business_id)
+
         except Exception as e:
             print(f"Error updating business {business_id}: {e}")
             raise e
@@ -337,23 +223,111 @@ class BusinessRepository:
         """Update a single field of a business."""
         return await self.update(business_id, {field: value})
 
-    @staticmethod
-    def _point_to_business(point) -> Optional[Business]:
+    # --- Delete Method (MongoDB + Qdrant) ---
+
+    async def delete(self, business_id: str) -> bool:
+        """Delete a business from both MongoDB and Qdrant."""
         try:
-            metadata = point.payload.get("metadata", {})
-            # Note: coverImage is intentionally ignored for legacy data compatibility
-            return Business(
-                _id=metadata.get("mongo_id"),
-                name=metadata.get("name"),
-                ownerId=metadata.get("ownerId"),
-                globalRating=metadata.get("globalRating"),
-                avatar=metadata.get("avatar"),
-                description=metadata.get("description"),
-                socialMedia=metadata.get("socialMedia"),
-                tags=metadata.get("tags", []),
-                isActive=metadata.get("isActive", True),
-                createdAt=metadata.get("createdAt")
-            )
+            db = get_database()
+
+            # 1. Delete from MongoDB
+            result = await db[self.mongo_collection_name].delete_one({"_id": business_id})
+
+            if result.deleted_count == 0:
+                return False
+
+            # 2. Delete from Qdrant
+            await self._delete_from_qdrant(business_id)
+
+            # Invalidate cache
+            invalidate_business_cache(business_id=business_id)
+            invalidate_business_cache()  # Invalidate get_all cache
+
+            return True
+
         except Exception as e:
-            print(f"Error converting point to business: {e}")
+            print(f"Error deleting business {business_id}: {e}")
+            return False
+
+    # --- Qdrant Helper Methods ---
+
+    async def _upsert_to_qdrant(self, business: Business):
+        """Upsert business to Qdrant with RAG-only payload."""
+        try:
+            embedding_service = GeminiEmbeddingService()
+            text_to_embed = f"{business.name} {business.description or ''}"
+            embedding = embedding_service.generate_embedding(text_to_embed)
+
+            qdrant_client = get_qdrant_client()
+
+            # First, try to find existing point
+            existing = await self._find_qdrant_point(business.id)
+
+            # RAG-only payload
+            payload = {
+                "mongo_id": business.id,
+                "name": business.name,
+                "description": business.description,
+            }
+
+            point_id = existing.id if existing else str(uuid.uuid4())
+            point = PointStruct(
+                id=point_id,
+                vector=embedding,
+                payload=payload,
+            )
+
+            await qdrant_client.upsert(
+                collection_name=self.qdrant_collection_name,
+                points=[point],
+            )
+
+        except Exception as e:
+            print(f"Error upserting business to Qdrant: {e}")
+            # Don't raise - MongoDB is the source of truth
+
+    async def _delete_from_qdrant(self, business_id: str):
+        """Delete business from Qdrant by mongo_id."""
+        try:
+            qdrant_client = get_qdrant_client()
+
+            # Find point by mongo_id
+            existing = await self._find_qdrant_point(business_id)
+            if existing:
+                await qdrant_client.delete(
+                    collection_name=self.qdrant_collection_name,
+                    points_selector=qdrant_models.PointIdsList(
+                        points=[existing.id]
+                    ),
+                )
+
+        except Exception as e:
+            print(f"Error deleting business from Qdrant: {e}")
+            # Don't raise - MongoDB is the source of truth
+
+    async def _find_qdrant_point(self, mongo_id: str):
+        """Find Qdrant point by mongo_id."""
+        try:
+            qdrant_client = get_qdrant_client()
+
+            result = await qdrant_client.scroll(
+                collection_name=self.qdrant_collection_name,
+                scroll_filter=qdrant_models.Filter(
+                    must=[
+                        qdrant_models.FieldCondition(
+                            key="mongo_id",
+                            match=qdrant_models.MatchValue(value=mongo_id)
+                        )
+                    ]
+                ),
+                limit=1,
+                with_payload=False,
+                with_vectors=False,
+            )
+
+            points, _ = result
+            return points[0] if points else None
+
+        except Exception as e:
+            print(f"Error finding Qdrant point: {e}")
             return None
