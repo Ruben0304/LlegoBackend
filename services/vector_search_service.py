@@ -53,11 +53,18 @@ class VectorSearchService:
 
         print(f"Vector search for '{query}' returned {len(results)} results (threshold: {threshold})")
         for r in results:
-            metadata = r.payload.get('metadata', {})
-            print(f"  - Score: {r.score}, ID: {metadata.get('mongo_id')}")
+            # Handle both old (with metadata wrapper) and new (flat) structures
+            mongo_id = r.payload.get('mongo_id') or r.payload.get('metadata', {}).get('mongo_id')
+            print(f"  - Score: {r.score}, ID: {mongo_id}")
 
-        # Extract MongoDB IDs from payload metadata
-        return [point.payload.get("metadata", {}).get("mongo_id") for point in results if point.payload.get("metadata", {}).get("mongo_id")]
+        # Extract MongoDB IDs from payload (handle both old and new structures)
+        mongo_ids = []
+        for point in results:
+            # Try flat structure first, then old metadata wrapper structure
+            mongo_id = point.payload.get("mongo_id") or point.payload.get("metadata", {}).get("mongo_id")
+            if mongo_id:
+                mongo_ids.append(mongo_id)
+        return mongo_ids
 
     async def search_branches(
         self,
@@ -98,11 +105,18 @@ class VectorSearchService:
 
         print(f"Vector search for '{query}' returned {len(results)} results (threshold: {threshold})")
         for r in results:
-            metadata = r.payload.get('metadata', {})
-            print(f"  - Score: {r.score}, ID: {metadata.get('mongo_id')}")
+            # Handle both old (with metadata wrapper) and new (flat) structures
+            mongo_id = r.payload.get('mongo_id') or r.payload.get('metadata', {}).get('mongo_id')
+            print(f"  - Score: {r.score}, ID: {mongo_id}")
 
-        # Extract MongoDB IDs from payload metadata
-        return [point.payload.get("metadata", {}).get("mongo_id") for point in results if point.payload.get("metadata", {}).get("mongo_id")]
+        # Extract MongoDB IDs from payload (handle both old and new structures)
+        mongo_ids = []
+        for point in results:
+            # Try flat structure first, then old metadata wrapper structure
+            mongo_id = point.payload.get("mongo_id") or point.payload.get("metadata", {}).get("mongo_id")
+            if mongo_id:
+                mongo_ids.append(mongo_id)
+        return mongo_ids
 
     async def search_businesses(
         self,
@@ -143,8 +157,15 @@ class VectorSearchService:
 
         print(f"Vector search for '{query}' returned {len(results)} results (threshold: {threshold})")
         for r in results:
-            metadata = r.payload.get('metadata', {})
-            print(f"  - Score: {r.score}, ID: {metadata.get('mongo_id')}")
+            # Handle both old (with metadata wrapper) and new (flat) structures
+            mongo_id = r.payload.get('mongo_id') or r.payload.get('metadata', {}).get('mongo_id')
+            print(f"  - Score: {r.score}, ID: {mongo_id}")
 
-        # Extract MongoDB IDs from payload metadata
-        return [point.payload.get("metadata", {}).get("mongo_id") for point in results if point.payload.get("metadata", {}).get("mongo_id")]
+        # Extract MongoDB IDs from payload (handle both old and new structures)
+        mongo_ids = []
+        for point in results:
+            # Try flat structure first, then old metadata wrapper structure
+            mongo_id = point.payload.get("mongo_id") or point.payload.get("metadata", {}).get("mongo_id")
+            if mongo_id:
+                mongo_ids.append(mongo_id)
+        return mongo_ids
