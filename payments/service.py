@@ -11,6 +11,7 @@ from core.config import settings
 from clients.mongodb_client import get_database
 from .models import PaymentAttempt, PaymentAttemptStatus
 from .repository import PaymentAttemptRepository
+from repositories import branches_repo, users_repo, businesses_repo
 
 logger = logging.getLogger(__name__)
 
@@ -43,22 +44,14 @@ class PaymentService:
         return doc
 
     async def _get_branch(self, branch_id: str):
-        """Get branch by ID."""
-        db = get_database()
-        try:
-            doc = await db.branches.find_one({"_id": ObjectId(branch_id)})
-        except Exception:
-            doc = await db.branches.find_one({"_id": branch_id})
-        return doc
+        """Get branch by ID using the branch repository."""
+        branch = await branches_repo.get_by_id(branch_id)
+        return branch.model_dump() if branch else None
 
     async def _get_user(self, user_id: str):
-        """Get user by ID."""
-        db = get_database()
-        try:
-            doc = await db.users.find_one({"_id": ObjectId(user_id)})
-        except Exception:
-            doc = await db.users.find_one({"_id": user_id})
-        return doc
+        """Get user by ID using the user repository."""
+        user = await users_repo.get_by_id(user_id)
+        return user.model_dump() if user else None
 
     async def _get_platform(self):
         """Get or create platform document."""
@@ -283,13 +276,9 @@ class PaymentService:
             return payment_attempt
 
         # Credit branch wallet
-        try:
-            branch_id_obj = ObjectId(order.get("branchId"))
-        except Exception:
-            branch_id_obj = order.get("branchId")
-
+        branch_id = order.get("branchId")
         await db.branches.update_one(
-            {"_id": branch_id_obj},
+            {"_id": branch_id},
             {"$inc": {f"wallet.{currency}": amount_to_business}}
         )
 
@@ -494,11 +483,10 @@ class PaymentService:
             raise ValueError("Sucursal no encontrada")
 
         # Check if user is manager or owner
-        db = get_database()
-        business = await db.bussisnes.find_one({"_id": ObjectId(branch.get("businessId"))})
+        business = await businesses_repo.get_by_id(branch.get("businessId"))
 
         is_authorized = (
-            business and business.get("ownerId") == user_id
+            business and business.ownerId == user_id
         ) or user_id in branch.get("managerIds", [])
 
         if not is_authorized:
@@ -640,11 +628,10 @@ class PaymentService:
 
         # Verify business ownership
         branch = await self._get_branch(order.get("branchId"))
-        db = get_database()
-        business = await db.bussisnes.find_one({"_id": ObjectId(branch.get("businessId"))})
+        business = await businesses_repo.get_by_id(branch.get("businessId"))
 
         is_authorized = (
-            business and business.get("ownerId") == user_id
+            business and business.ownerId == user_id
         ) or user_id in branch.get("managerIds", [])
 
         if not is_authorized:
@@ -868,11 +855,7 @@ class PaymentService:
         currency = attempt.currency
 
         # Credit business wallet
-        try:
-            branch_id = ObjectId(order.get("branchId"))
-        except Exception:
-            branch_id = order.get("branchId")
-
+        branch_id = order.get("branchId")
         await db.branches.update_one(
             {"_id": branch_id},
             {"$inc": {f"wallet.{currency}": amount_to_business}}

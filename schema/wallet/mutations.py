@@ -9,6 +9,7 @@ from .inputs import TransferInput, DepositInput, WithdrawInput
 from .utils import to_object_id
 from services.wallet_service import wallet_service
 from utils.graphql_auth import require_auth
+from repositories import branches_repo, businesses_repo
 
 
 @strawberry.type
@@ -187,19 +188,17 @@ class WalletMutation:
         user_id = require_auth(jwt, info)
         
         # Verify user is manager of branch or owner of business
-        from clients.mongodb_client import get_database
-        db = get_database()
-        branch = await db.branches.find_one({"_id": to_object_id(branch_id)})
-        
+        branch = await branches_repo.get_by_id(branch_id)
+
         if not branch:
             raise Exception("Sucursal no encontrada")
-        
+
         # Check if user is manager of this branch
-        is_manager = user_id in branch.get("managerIds", [])
-        
+        is_manager = user_id in branch.managerIds
+
         # Check if user is owner of the business
-        business = await db.businesses.find_one({"_id": to_object_id(branch["businessId"])})
-        is_owner = business and business["ownerId"] == user_id
+        business = await businesses_repo.get_by_id(branch.businessId)
+        is_owner = business and business.ownerId == user_id
         
         if not is_manager and not is_owner:
             raise Exception("No autorizado: solo los managers de la sucursal o el dueño del negocio pueden transferir desde la wallet")
@@ -253,19 +252,17 @@ class WalletMutation:
         user_id = require_auth(jwt, info)
         
         # Verify user is manager of branch or owner of business
-        from clients.mongodb_client import get_database
-        db = get_database()
-        branch = await db.branches.find_one({"_id": to_object_id(branch_id)})
-        
+        branch = await branches_repo.get_by_id(branch_id)
+
         if not branch:
             raise Exception("Sucursal no encontrada")
-        
+
         # Check if user is manager of this branch
-        is_manager = user_id in branch.get("managerIds", [])
-        
+        is_manager = user_id in branch.managerIds
+
         # Check if user is owner of the business
-        business = await db.businesses.find_one({"_id": to_object_id(branch["businessId"])})
-        is_owner = business and business["ownerId"] == user_id
+        business = await businesses_repo.get_by_id(branch.businessId)
+        is_owner = business and business.ownerId == user_id
         
         if not is_manager and not is_owner:
             raise Exception("No autorizado: solo los managers de la sucursal o el dueño del negocio pueden retirar de la wallet")
