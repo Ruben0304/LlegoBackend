@@ -24,12 +24,27 @@ from .payments.queries import PaymentMethodQuery
 from .payments.mutations import PaymentMutation
 from .wallet.queries import WalletQuery
 from .wallet.mutations import WalletMutation
+from .invitations.queries import InvitationQuery
+from .invitations.mutations import InvitationMutation
 from .extensions import UserIdExtension, ErrorLoggingExtension
 from utils.graphql_auth import apply_optional_jwt
 
 
 @strawberry.type
-class Query(UserQuery, BusinessQuery, BranchQuery, ProductQuery, CategoryQuery, ProductCategoryQuery, AiAssistantQuery, OrderQuery, BusinessTypeQuery, PaymentMethodQuery, WalletQuery):
+class Query(
+    UserQuery,
+    BusinessQuery,
+    BranchQuery,
+    ProductQuery,
+    CategoryQuery,
+    ProductCategoryQuery,
+    AiAssistantQuery,
+    OrderQuery,
+    BusinessTypeQuery,
+    PaymentMethodQuery,
+    WalletQuery,
+    InvitationQuery
+):
     @strawberry.field(description="Saludo de ejemplo")
     def hello(self, info: Info, jwt: Optional[str] = None) -> str:
         apply_optional_jwt(jwt, info)
@@ -42,7 +57,18 @@ class Query(UserQuery, BusinessQuery, BranchQuery, ProductQuery, CategoryQuery, 
 
 
 @strawberry.type
-class Mutation(AuthMutation, UserMutation, BusinessMutation, BranchMutation, ProductMutation, OrderMutation, BusinessTypeMutation, PaymentMutation, WalletMutation):
+class Mutation(
+    AuthMutation,
+    UserMutation,
+    BusinessMutation,
+    BranchMutation,
+    ProductMutation,
+    OrderMutation,
+    BusinessTypeMutation,
+    PaymentMutation,
+    WalletMutation,
+    InvitationMutation
+):
     pass
 
 

@@ -90,6 +90,10 @@ class BranchMutation:
             active=True
         )
 
+        # Sync business-level access to the new branch
+        from services.access_manager import access_manager
+        await access_manager.sync_business_access_to_new_branch(created_branch.id)
+
         return BranchType(**branch_to_dict(created_branch))
 
     @strawberry.mutation(description="Actualizar una sucursal")

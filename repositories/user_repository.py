@@ -129,6 +129,36 @@ class UserRepository:
         )
         return User(**self._convert_id(result)) if result else None
 
+    async def add_business_access_id(self, user_id: str, access_id: str) -> Optional[User]:
+        """Add a business access ID to the user's businessAccessIds list."""
+        db = get_database()
+        try:
+            object_id = ObjectId(user_id)
+        except Exception:
+            object_id = user_id
+
+        result = await db[self.collection_name].find_one_and_update(
+            {"_id": object_id},
+            {"$addToSet": {"businessAccessIds": access_id}},
+            return_document=True
+        )
+        return User(**self._convert_id(result)) if result else None
+
+    async def remove_business_access_id(self, user_id: str, access_id: str) -> Optional[User]:
+        """Remove a business access ID from the user's businessAccessIds list."""
+        db = get_database()
+        try:
+            object_id = ObjectId(user_id)
+        except Exception:
+            object_id = user_id
+
+        result = await db[self.collection_name].find_one_and_update(
+            {"_id": object_id},
+            {"$pull": {"businessAccessIds": access_id}},
+            return_document=True
+        )
+        return User(**self._convert_id(result)) if result else None
+
     async def update_location(self, user_id: str, longitude: float, latitude: float) -> Optional[User]:
         """
         Update user location.

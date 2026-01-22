@@ -13,6 +13,8 @@ from .business_type_repository import BusinessTypeRepository, business_type_repo
 from .device_token_repository import DeviceTokenRepository, device_token_repo
 from .error_log_repository import ErrorLogRepository, error_log_repo
 from .wallet_repository import WalletTransactionRepository
+from .branch_invitation_repository import BranchInvitationRepository, branch_invitations_repo
+from .business_access_repository import BusinessAccessRepository, business_access_repo
 
 # Repository instances
 users_repo = UserRepository()
@@ -40,6 +42,8 @@ __all__ = [
     "BusinessTypeRepository",
     "DeviceTokenRepository",
     "WalletTransactionRepository",
+    "BranchInvitationRepository",
+    "BusinessAccessRepository",
     "users_repo",
     "businesses_repo",
     "branches_repo",
@@ -55,4 +59,6 @@ __all__ = [
     "ErrorLogRepository",
     "error_log_repo",
     "wallet_transactions_repo",
+    "branch_invitations_repo",
+    "business_access_repo",
 ]

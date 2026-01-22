@@ -15,6 +15,7 @@ class User(BaseModel):
     avatar: Optional[str] = None
     businessIds: List[str] = []
     branchIds: List[str] = []
+    businessAccessIds: List[str] = []  # IDs de BusinessAccess activos (acceso a negocios completos)
     wallet: Dict[str, float] = Field(default_factory=lambda: {"local": 0.00, "usd": 0.00})
     walletStatus: str = "active"  # "active", "frozen", "closed"
     createdAt: datetime
@@ -229,6 +230,63 @@ class StripePaymentLink(BaseModel):
         json_encoders = {datetime: lambda v: v.isoformat()}
 
 
+class BranchInvitation(BaseModel):
+    """
+    Código de invitación para administrar sucursales o negocios completos.
+    Permite a dueños de negocios invitar usuarios con acceso temporal o indefinido.
+    """
+    id: str = Field(alias="_id")
+    code: str  # Código único, ej. "INV-A7B3C2-D9E4F1"
+
+    # Tipo de invitación
+    invitationType: str  # "branch" (sucursal específica) o "business" (negocio completo)
+    branchId: Optional[str] = None  # Específico para tipo "branch"
+    businessId: str  # Siempre presente
+
+    # Control de acceso temporal
+    accessDurationDays: Optional[int] = None  # None = indefinido, int = días de acceso
+
+    # Metadatos
+    createdBy: str  # ID del usuario dueño del negocio
+    createdAt: datetime
+
+    # Estado del código
+    status: str = "pending"  # "pending", "used", "revoked"
+    usedBy: Optional[str] = None  # ID del usuario que canjeó el código
+    usedAt: Optional[datetime] = None
+
+    # Expiración del acceso (calculado al momento del canje)
+    accessExpiresAt: Optional[datetime] = None
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat()}
+
+
+class BusinessAccess(BaseModel):
+    """
+    Registro de acceso de usuario a nivel de negocio completo.
+    Permite acceso automático a todas las sucursales (presentes y futuras).
+    """
+    id: str = Field(alias="_id")
+    userId: str
+    businessId: str
+    invitationId: str  # Referencia al código que otorgó el acceso
+
+    # Control temporal
+    grantedAt: datetime
+    expiresAt: Optional[datetime] = None  # None = indefinido
+
+    # Estado
+    isActive: bool = True
+    revokedAt: Optional[datetime] = None
+    revokedBy: Optional[str] = None
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat()}
+
+
 # Export repository instances for backward compatibility
 from repositories import (
     users_repo,
@@ -254,6 +312,8 @@ __all__ = [
     "WalletTransaction",
     "WalletBalance",
     "StripePaymentLink",
+    "BranchInvitation",
+    "BusinessAccess",
     "users_repo",
     "businesses_repo",
     "branches_repo",
