@@ -345,6 +345,95 @@ class BusinessAppConfig(BaseModel):
         json_encoders = {datetime: lambda v: v.isoformat()}
 
 
+class FeedbackType(str):
+    """Enum for feedback types."""
+    BUG = "BUG"
+    FEATURE_REQUEST = "FEATURE_REQUEST"
+    IMPROVEMENT = "IMPROVEMENT"
+
+
+class FeedbackStatus(str):
+    """Enum for feedback status."""
+    PENDING = "PENDING"
+    IN_REVIEW = "IN_REVIEW"
+    RESOLVED = "RESOLVED"
+    DISMISSED = "DISMISSED"
+
+
+class Feedback(BaseModel):
+    """
+    User feedback model for bug reports, feature requests, and improvements.
+    Allows users to provide feedback and ratings about the app.
+    """
+    id: str = Field(alias="_id")
+    userId: str  # Reference to User
+    type: str  # FeedbackType enum value
+    description: str
+    rating: int = Field(ge=1, le=5)  # 1-5 stars validation
+    status: str = "PENDING"  # FeedbackStatus enum value
+    createdAt: datetime = Field(default_factory=datetime.utcnow)
+    updatedAt: Optional[datetime] = None
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat()}
+
+
+class QuestionType(str):
+    """Enum for survey question types."""
+    MULTIPLE_CHOICE = "MULTIPLE_CHOICE"
+    TEXT = "TEXT"
+
+
+class SurveyQuestion(BaseModel):
+    """Embedded survey question model."""
+    questionId: str  # Unique ID for this question
+    text: str  # Question text
+    type: str  # QuestionType enum value
+    options: Optional[List[str]] = None  # Only for MULTIPLE_CHOICE
+    required: bool = True
+
+
+class Survey(BaseModel):
+    """
+    Survey model with embedded questions.
+    Allows admins to create surveys for user feedback.
+    """
+    id: str = Field(alias="_id")
+    title: str
+    description: Optional[str] = None
+    questions: List[SurveyQuestion]  # Embedded questions
+    isActive: bool = True
+    createdAt: datetime = Field(default_factory=datetime.utcnow)
+    updatedAt: Optional[datetime] = None
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat()}
+
+
+class QuestionResponse(BaseModel):
+    """Embedded question response model."""
+    questionId: str
+    answer: str  # Selected option or free text
+
+
+class SurveyResponse(BaseModel):
+    """
+    User response to a survey.
+    Stores answers to all questions in a survey.
+    """
+    id: str = Field(alias="_id")
+    surveyId: str  # Reference to Survey
+    userId: str  # Reference to User
+    responses: List[QuestionResponse]  # Embedded responses
+    createdAt: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat()}
+
+
 # Export repository instances for backward compatibility
 from repositories import (
     users_repo,
@@ -356,6 +445,9 @@ from repositories import (
     payment_methods_repo,
     app_config_repo,
     business_app_config_repo,
+    feedbacks_repo,
+    surveys_repo,
+    survey_responses_repo,
 )
 
 __all__ = [
@@ -379,6 +471,11 @@ __all__ = [
     "MaintenanceConfig",
     "AppConfig",
     "BusinessAppConfig",
+    "Feedback",
+    "Survey",
+    "SurveyQuestion",
+    "SurveyResponse",
+    "QuestionResponse",
     "users_repo",
     "businesses_repo",
     "branches_repo",
@@ -388,4 +485,7 @@ __all__ = [
     "payment_methods_repo",
     "app_config_repo",
     "business_app_config_repo",
+    "feedbacks_repo",
+    "surveys_repo",
+    "survey_responses_repo",
 ]

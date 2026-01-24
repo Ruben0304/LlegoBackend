@@ -28,6 +28,10 @@ from .invitations.queries import InvitationQuery
 from .invitations.mutations import InvitationMutation
 from .app_config.queries import AppConfigQueries
 from .app_config.mutations import AppConfigMutations
+from .feedbacks.queries import FeedbackQuery
+from .feedbacks.mutations import FeedbackMutation
+from .surveys.queries import SurveyQuery
+from .surveys.mutations import SurveyMutation
 from .extensions import UserIdExtension, ErrorLoggingExtension
 from utils.graphql_auth import apply_optional_jwt
 
@@ -46,7 +50,9 @@ class Query(
     PaymentMethodQuery,
     WalletQuery,
     InvitationQuery,
-    AppConfigQueries
+    AppConfigQueries,
+    FeedbackQuery,
+    SurveyQuery
 ):
     @strawberry.field(description="Saludo de ejemplo")
     def hello(self, info: Info, jwt: Optional[str] = None) -> str:
@@ -71,7 +77,9 @@ class Mutation(
     PaymentMutation,
     WalletMutation,
     InvitationMutation,
-    AppConfigMutations
+    AppConfigMutations,
+    FeedbackMutation,
+    SurveyMutation
 ):
     pass
 

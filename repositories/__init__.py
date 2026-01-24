@@ -16,6 +16,9 @@ from .wallet_repository import WalletTransactionRepository
 from .branch_invitation_repository import BranchInvitationRepository, branch_invitations_repo
 from .business_access_repository import BusinessAccessRepository, business_access_repo
 from .app_config_repository import AppConfigRepository, BusinessAppConfigRepository
+from .feedback_repository import FeedbackRepository
+from .survey_repository import SurveyRepository
+from .survey_response_repository import SurveyResponseRepository
 
 # Repository instances
 users_repo = UserRepository()
@@ -30,6 +33,9 @@ payment_methods_repo = PaymentMethodRepository()
 wallet_transactions_repo = WalletTransactionRepository()
 app_config_repo = AppConfigRepository()
 business_app_config_repo = BusinessAppConfigRepository()
+feedbacks_repo = FeedbackRepository()
+surveys_repo = SurveyRepository()
+survey_responses_repo = SurveyResponseRepository()
 
 __all__ = [
     "UserRepository",
@@ -68,4 +74,10 @@ __all__ = [
     "business_access_repo",
     "app_config_repo",
     "business_app_config_repo",
+    "FeedbackRepository",
+    "SurveyRepository",
+    "SurveyResponseRepository",
+    "feedbacks_repo",
+    "surveys_repo",
+    "survey_responses_repo",
 ]
