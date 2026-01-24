@@ -27,6 +27,7 @@ from .wallet.mutations import WalletMutation
 from .invitations.queries import InvitationQuery
 from .invitations.mutations import InvitationMutation
 from .app_config.queries import AppConfigQueries
+from .app_config.mutations import AppConfigMutations
 from .extensions import UserIdExtension, ErrorLoggingExtension
 from utils.graphql_auth import apply_optional_jwt
 
@@ -69,7 +70,8 @@ class Mutation(
     BusinessTypeMutation,
     PaymentMutation,
     WalletMutation,
-    InvitationMutation
+    InvitationMutation,
+    AppConfigMutations
 ):
     pass
 

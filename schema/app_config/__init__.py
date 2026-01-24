@@ -1,6 +1,8 @@
 """GraphQL schema for app configuration."""
 from .types import AndroidConfigType, IosConfigType, MaintenanceConfigType, AppConfigType
 from .queries import AppConfigQueries
+from .mutations import AppConfigMutations
+from .inputs import UpdateAndroidConfigInput, UpdateIosConfigInput, UpdateMaintenanceConfigInput, UpdateAppConfigInput
 
 __all__ = [
     "AndroidConfigType",
@@ -8,4 +10,9 @@ __all__ = [
     "MaintenanceConfigType",
     "AppConfigType",
     "AppConfigQueries",
+    "AppConfigMutations",
+    "UpdateAndroidConfigInput",
+    "UpdateIosConfigInput",
+    "UpdateMaintenanceConfigInput",
+    "UpdateAppConfigInput",
 ]
