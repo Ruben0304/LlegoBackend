@@ -18,6 +18,7 @@ class UserType:
     avatar: Optional[str]
     businessIds: List[str]
     branchIds: List[str]
+    businessAccessIds: List[str]
     createdAt: datetime
     authProvider: str
     providerUserId: Optional[str]
