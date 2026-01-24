@@ -15,6 +15,7 @@ from .error_log_repository import ErrorLogRepository, error_log_repo
 from .wallet_repository import WalletTransactionRepository
 from .branch_invitation_repository import BranchInvitationRepository, branch_invitations_repo
 from .business_access_repository import BusinessAccessRepository, business_access_repo
+from .app_config_repository import AppConfigRepository
 
 # Repository instances
 users_repo = UserRepository()
@@ -27,6 +28,7 @@ auth_repo = AuthRepository()
 payments_repo = PaymentRepository()
 payment_methods_repo = PaymentMethodRepository()
 wallet_transactions_repo = WalletTransactionRepository()
+app_config_repo = AppConfigRepository()
 
 __all__ = [
     "UserRepository",
@@ -44,6 +46,7 @@ __all__ = [
     "WalletTransactionRepository",
     "BranchInvitationRepository",
     "BusinessAccessRepository",
+    "AppConfigRepository",
     "users_repo",
     "businesses_repo",
     "branches_repo",
@@ -61,4 +64,5 @@ __all__ = [
     "wallet_transactions_repo",
     "branch_invitations_repo",
     "business_access_repo",
+    "app_config_repo",
 ]

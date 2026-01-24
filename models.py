@@ -287,6 +287,46 @@ class BusinessAccess(BaseModel):
         json_encoders = {datetime: lambda v: v.isoformat()}
 
 
+class AndroidConfig(BaseModel):
+    """Android app version configuration."""
+    minVersion: str  # Minimum version allowed
+    currentVersion: str  # Latest available version
+    updateUrl: str  # URL to download the update
+    storeUrl: str  # Google Play Store URL
+    appSize: str  # App size (e.g., "25 MB")
+
+
+class IosConfig(BaseModel):
+    """iOS app version configuration."""
+    minVersion: str  # Minimum version allowed
+    currentVersion: str  # Latest available version
+    storeUrl: str  # App Store URL
+
+
+class MaintenanceConfig(BaseModel):
+    """Maintenance mode configuration."""
+    enabled: bool  # Whether maintenance mode is active
+    message: Optional[str] = None  # Message to display during maintenance
+
+
+class AppConfig(BaseModel):
+    """
+    App version and configuration management.
+    Controls minimum versions, update URLs, maintenance mode, etc.
+    """
+    id: str = Field(alias="_id")
+    android: AndroidConfig
+    ios: IosConfig
+    maintenance: MaintenanceConfig
+    updateMessage: Optional[str] = None  # Message to show when update is available
+    changelog: Optional[str] = None  # Release notes
+    releaseDate: datetime  # Date of the latest release
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat()}
+
+
 # Export repository instances for backward compatibility
 from repositories import (
     users_repo,
@@ -296,6 +336,7 @@ from repositories import (
     product_categories_repo,
     payments_repo,
     payment_methods_repo,
+    app_config_repo,
 )
 
 __all__ = [
@@ -314,6 +355,10 @@ __all__ = [
     "StripePaymentLink",
     "BranchInvitation",
     "BusinessAccess",
+    "AndroidConfig",
+    "IosConfig",
+    "MaintenanceConfig",
+    "AppConfig",
     "users_repo",
     "businesses_repo",
     "branches_repo",
@@ -321,4 +366,5 @@ __all__ = [
     "product_categories_repo",
     "payments_repo",
     "payment_methods_repo",
+    "app_config_repo",
 ]

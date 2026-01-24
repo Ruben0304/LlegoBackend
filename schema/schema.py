@@ -26,6 +26,7 @@ from .wallet.queries import WalletQuery
 from .wallet.mutations import WalletMutation
 from .invitations.queries import InvitationQuery
 from .invitations.mutations import InvitationMutation
+from .app_config.queries import AppConfigQueries
 from .extensions import UserIdExtension, ErrorLoggingExtension
 from utils.graphql_auth import apply_optional_jwt
 
@@ -43,7 +44,8 @@ class Query(
     BusinessTypeQuery,
     PaymentMethodQuery,
     WalletQuery,
-    InvitationQuery
+    InvitationQuery,
+    AppConfigQueries
 ):
     @strawberry.field(description="Saludo de ejemplo")
     def hello(self, info: Info, jwt: Optional[str] = None) -> str:
