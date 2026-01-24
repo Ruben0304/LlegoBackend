@@ -31,7 +31,19 @@ class MaintenanceConfigType:
 
 @strawberry.type
 class AppConfigType:
-    """App version and configuration management."""
+    """App version and configuration management for customer app."""
+    id: str
+    android: AndroidConfigType
+    ios: IosConfigType
+    maintenance: MaintenanceConfigType
+    update_message: Optional[str] = strawberry.field(name="updateMessage", description="Message to show when update is available")
+    changelog: Optional[str] = strawberry.field(description="Release notes")
+    release_date: datetime = strawberry.field(name="releaseDate", description="Date of the latest release")
+
+
+@strawberry.type
+class BusinessAppConfigType:
+    """App version and configuration management for business/merchant app."""
     id: str
     android: AndroidConfigType
     ios: IosConfigType

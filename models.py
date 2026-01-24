@@ -311,7 +311,25 @@ class MaintenanceConfig(BaseModel):
 
 class AppConfig(BaseModel):
     """
-    App version and configuration management.
+    App version and configuration management for customer app.
+    Controls minimum versions, update URLs, maintenance mode, etc.
+    """
+    id: str = Field(alias="_id")
+    android: AndroidConfig
+    ios: IosConfig
+    maintenance: MaintenanceConfig
+    updateMessage: Optional[str] = None  # Message to show when update is available
+    changelog: Optional[str] = None  # Release notes
+    releaseDate: datetime  # Date of the latest release
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat()}
+
+
+class BusinessAppConfig(BaseModel):
+    """
+    App version and configuration management for business/merchant app.
     Controls minimum versions, update URLs, maintenance mode, etc.
     """
     id: str = Field(alias="_id")
@@ -337,6 +355,7 @@ from repositories import (
     payments_repo,
     payment_methods_repo,
     app_config_repo,
+    business_app_config_repo,
 )
 
 __all__ = [
@@ -359,6 +378,7 @@ __all__ = [
     "IosConfig",
     "MaintenanceConfig",
     "AppConfig",
+    "BusinessAppConfig",
     "users_repo",
     "businesses_repo",
     "branches_repo",
@@ -367,4 +387,5 @@ __all__ = [
     "payments_repo",
     "payment_methods_repo",
     "app_config_repo",
+    "business_app_config_repo",
 ]
