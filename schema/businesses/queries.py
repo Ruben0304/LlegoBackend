@@ -5,6 +5,7 @@ from strawberry.types import Info
 
 from .types import BusinessType
 from models import businesses_repo
+from repositories import searches_repo
 from utils.graphql_auth import apply_optional_jwt
 
 
@@ -40,6 +41,12 @@ class BusinessQuery:
         jwt: Optional[str] = None
     ) -> List[BusinessType]:
         apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+
+        # Save search to database if user is authenticated
+        if user_id:
+            await searches_repo.create_search(user_id, query)
+
         if use_vector_search:
             # Use vector search
             from services.vector_search_service import VectorSearchService

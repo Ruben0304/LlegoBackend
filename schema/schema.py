@@ -32,6 +32,8 @@ from .feedbacks.queries import FeedbackQuery
 from .feedbacks.mutations import FeedbackMutation
 from .surveys.queries import SurveyQuery
 from .surveys.mutations import SurveyMutation
+from .favorites_cart.mutations import FavoritesCartMutation
+from .searches.mutations import SearchesMutation
 from .extensions import UserIdExtension, ErrorLoggingExtension
 from utils.graphql_auth import apply_optional_jwt
 
@@ -79,7 +81,9 @@ class Mutation(
     InvitationMutation,
     AppConfigMutations,
     FeedbackMutation,
-    SurveyMutation
+    SurveyMutation,
+    FavoritesCartMutation,
+    SearchesMutation
 ):
     pass
 

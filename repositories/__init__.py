@@ -19,6 +19,8 @@ from .app_config_repository import AppConfigRepository, BusinessAppConfigReposit
 from .feedback_repository import FeedbackRepository
 from .survey_repository import SurveyRepository
 from .survey_response_repository import SurveyResponseRepository
+from .favorites_cart_repository import FavoritesCartRepository
+from .searches_repository import SearchesRepository
 
 # Repository instances
 users_repo = UserRepository()
@@ -36,6 +38,8 @@ business_app_config_repo = BusinessAppConfigRepository()
 feedbacks_repo = FeedbackRepository()
 surveys_repo = SurveyRepository()
 survey_responses_repo = SurveyResponseRepository()
+favorites_cart_repo = FavoritesCartRepository()
+searches_repo = SearchesRepository()
 
 __all__ = [
     "UserRepository",
@@ -77,7 +81,11 @@ __all__ = [
     "FeedbackRepository",
     "SurveyRepository",
     "SurveyResponseRepository",
+    "FavoritesCartRepository",
+    "SearchesRepository",
     "feedbacks_repo",
     "surveys_repo",
     "survey_responses_repo",
+    "favorites_cart_repo",
+    "searches_repo",
 ]

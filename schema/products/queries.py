@@ -5,6 +5,7 @@ from strawberry.types import Info
 
 from .types import ProductType, ScoredProductType
 from models import products_repo, branches_repo
+from repositories import searches_repo
 from schema.branches.types import BranchTipo
 from schema.pagination import (
     ProductConnection, ProductEdge, PageInfo,
@@ -188,7 +189,7 @@ class ProductQuery:
     ) -> ProductConnection:
         """
         Search products with proximity scoring and cursor-based pagination.
-        
+
         Args:
             query: Search query string
             first: Number of items to fetch. If not provided, returns all items (no pagination)
@@ -200,6 +201,10 @@ class ProductQuery:
         apply_optional_jwt(jwt, info)
         rate_limit_graphql(info, "search")
         user_id = info.context.get("user_id")
+
+        # Save search to database if user is authenticated
+        if user_id:
+            await searches_repo.create_search(user_id, query)
         
         use_pagination = first is not None
         if use_pagination:

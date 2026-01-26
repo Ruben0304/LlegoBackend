@@ -434,6 +434,45 @@ class SurveyResponse(BaseModel):
         json_encoders = {datetime: lambda v: v.isoformat()}
 
 
+class FavoriteCart(BaseModel):
+    """
+    User favorites and cart items.
+    Stores product favorites and cart items for users.
+    """
+    id: str = Field(alias="_id")
+    userId: str  # Reference to User
+    productId: str  # Reference to Product
+    type: str  # "favorite" or "cart"
+    createdAt: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat()}
+
+
+class ClickedItem(BaseModel):
+    """Embedded clicked item in search."""
+    itemId: str  # Product or Business ID
+    itemType: str  # "product" or "business"
+    clicks: List[datetime]  # Array of click timestamps
+
+
+class Search(BaseModel):
+    """
+    User search history with clicked items tracking.
+    Stores search queries and tracks which items were clicked.
+    """
+    id: str = Field(alias="_id")
+    userId: str  # Reference to User
+    query: str  # Search query text
+    clickedItems: List[ClickedItem] = []  # Items clicked from this search
+    createdAt: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat()}
+
+
 # Export repository instances for backward compatibility
 from repositories import (
     users_repo,
@@ -448,6 +487,8 @@ from repositories import (
     feedbacks_repo,
     surveys_repo,
     survey_responses_repo,
+    favorites_cart_repo,
+    searches_repo,
 )
 
 __all__ = [
@@ -476,6 +517,9 @@ __all__ = [
     "SurveyQuestion",
     "SurveyResponse",
     "QuestionResponse",
+    "FavoriteCart",
+    "ClickedItem",
+    "Search",
     "users_repo",
     "businesses_repo",
     "branches_repo",
@@ -488,4 +532,6 @@ __all__ = [
     "feedbacks_repo",
     "surveys_repo",
     "survey_responses_repo",
+    "favorites_cart_repo",
+    "searches_repo",
 ]
