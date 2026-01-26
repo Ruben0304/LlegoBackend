@@ -19,10 +19,22 @@ class BusinessQuery:
         jwt: Optional[str] = None
     ) -> List[BusinessType]:
         apply_optional_jwt(jwt, info)
+
+        # Priority-based filtering:
+        # 1. If explicit ownerId provided -> use it
+        # 2. If no ownerId but authenticated (user_id in context) -> filter by authenticated user
+        # 3. If no ownerId and not authenticated -> return all (public query)
         if ownerId:
+            # Explicit ownerId takes priority (for admin or specific queries)
             businesses = await businesses_repo.get_by_owner(ownerId)
+        elif info.context.get("user_id"):
+            # Authenticated user without explicit ownerId -> filter by their user_id
+            user_id = info.context["user_id"]
+            businesses = await businesses_repo.get_by_owner(user_id)
         else:
+            # No ownerId and not authenticated -> return all (public query)
             businesses = await businesses_repo.get_all()
+
         return [BusinessType(**b.model_dump()) for b in businesses]
 
     @strawberry.field(description="Obtener negocio por ID")
