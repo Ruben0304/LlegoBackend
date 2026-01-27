@@ -2,12 +2,36 @@
 import strawberry
 from typing import List, Optional
 from strawberry.types import Info
+from datetime import datetime
 
-from .types import BusinessType, BusinessWithBranchesType
+from .types import BusinessType
 from models import businesses_repo
 from repositories import searches_repo, branches_repo
 from schema.branches.types import BranchType, CoordinatesType, BranchTipo
 from utils.graphql_auth import apply_optional_jwt
+from utils.s3 import generate_presigned_url
+
+
+@strawberry.type
+class BusinessWithBranchesType:
+    """Business type with nested branches for optimized queries."""
+    id: str
+    name: str
+    ownerId: str
+    globalRating: float
+    avatar: Optional[str]
+    description: Optional[str]
+    socialMedia: Optional[strawberry.scalars.JSON]
+    tags: List[str]
+    isActive: bool
+    createdAt: datetime
+    branches: List[BranchType]
+
+    @strawberry.field(description="Presigned URL for the business avatar")
+    def avatar_url(self) -> Optional[str]:
+        if self.avatar:
+            return generate_presigned_url(self.avatar)
+        return None
 
 
 @strawberry.type
