@@ -124,6 +124,22 @@ class BranchRepository:
             print(f"Error fetching branches by business from MongoDB: {e}")
             return []
 
+    async def get_by_business_ids(self, business_ids: List[str]) -> List[Branch]:
+        """Get branches by multiple business IDs from MongoDB."""
+        if not business_ids:
+            return []
+
+        try:
+            db = get_database()
+            cursor = db[self.mongo_collection_name].find({"businessId": {"$in": business_ids}})
+            documents = await cursor.to_list(length=None)
+
+            return [self._dict_to_branch(doc) for doc in documents]
+
+        except Exception as e:
+            print(f"Error fetching branches by business IDs from MongoDB: {e}")
+            return []
+
     async def get_by_tipo(self, tipo: str) -> List[Branch]:
         """Get branches that have a specific tipo from MongoDB."""
         try:

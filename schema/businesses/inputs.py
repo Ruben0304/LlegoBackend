@@ -41,3 +41,10 @@ class RegisterBranchInput:
     coverImage: Optional[str] = None  # Optional, upload via REST endpoint
     deliveryRadius: Optional[float] = None
     facilities: Optional[List[str]] = None
+
+
+@strawberry.input
+class RegisterBusinessWithBranchesInput:
+    """Input for registering a business with its branches in a single operation."""
+    business: CreateBusinessInput
+    branches: List[RegisterBranchInput]
