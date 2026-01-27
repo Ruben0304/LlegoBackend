@@ -473,6 +473,57 @@ class Search(BaseModel):
         json_encoders = {datetime: lambda v: v.isoformat()}
 
 
+class ChatMessage(BaseModel):
+    """
+    Chat message for AI assistant conversation memory.
+    Stores user and AI messages for context in conversations.
+    """
+    id: str = Field(alias="_id")
+    sessionId: str  # user_id from JWT
+    role: str  # "user" or "assistant"
+    content: str  # Message text
+    createdAt: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat()}
+
+
+class DraftOrderItem(BaseModel):
+    """Item in a draft order."""
+    productId: str
+    name: str
+    price: float
+    quantity: int
+    imageUrl: str
+
+
+class DraftOrder(BaseModel):
+    """
+    Draft order created by AI assistant.
+    Pending user confirmation before creating real order.
+    """
+    id: str = Field(alias="_id")
+    sessionId: str  # user_id from JWT
+    customerId: str  # Same as sessionId
+    branchId: str
+    businessId: str
+    items: List[DraftOrderItem]
+    subtotal: float
+    deliveryFee: float
+    total: float
+    currency: str = "USD"
+    deliveryAddress: Optional[Dict[str, Any]] = None  # Will be structured as DeliveryAddress
+    paymentMethodId: Optional[str] = None
+    status: str = "pending_confirmation"  # "pending_confirmation", "confirmed", "cancelled"
+    createdAt: datetime = Field(default_factory=datetime.utcnow)
+    expiresAt: datetime  # Auto-expire after 1 hour
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat()}
+
+
 # Export repository instances for backward compatibility
 from repositories import (
     users_repo,
@@ -489,6 +540,8 @@ from repositories import (
     survey_responses_repo,
     favorites_cart_repo,
     searches_repo,
+    chat_memory_repo,
+    draft_orders_repo,
 )
 
 __all__ = [
@@ -520,6 +573,9 @@ __all__ = [
     "FavoriteCart",
     "ClickedItem",
     "Search",
+    "ChatMessage",
+    "DraftOrder",
+    "DraftOrderItem",
     "users_repo",
     "businesses_repo",
     "branches_repo",
@@ -534,4 +590,6 @@ __all__ = [
     "survey_responses_repo",
     "favorites_cart_repo",
     "searches_repo",
+    "chat_memory_repo",
+    "draft_orders_repo",
 ]

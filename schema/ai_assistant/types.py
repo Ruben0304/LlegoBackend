@@ -7,54 +7,76 @@ from schema.branches.types import BranchType
 
 
 @strawberry.type
-class PaymentMethodType:
-    """Payment method type."""
-    id: str = strawberry.field(description="Payment method ID")
-    name: str = strawberry.field(description="Display name (e.g., Wallet USD, Transfermóvil)")
-    code: str = strawberry.field(description="Code (e.g., wallet_usd, transfermovil)")
-    currency: str = strawberry.field(description="Currency (e.g., CUP, USD)")
-    method: str = strawberry.field(description="Payment method type (wallet, transfer, stripe, cash)")
-    commissionPercent: float = strawberry.field(description="Commission percentage charged to customer")
-    deliveryFeePercent: float = strawberry.field(description="Extra percentage for cash delivery payments")
-    isRefundable: bool = strawberry.field(description="Whether this method supports refunds")
-    requiresProof: bool = strawberry.field(description="Whether proof/receipt is required")
-    requiresBusinessConfirmation: bool = strawberry.field(description="Whether business must confirm receipt")
-    expirationMinutes: Optional[int] = strawberry.field(description="Time limit to complete payment")
-    isActive: bool = strawberry.field(description="Whether this method is currently active")
-    displayOrder: int = strawberry.field(description="Display order in UI")
-    iconUrl: Optional[str] = strawberry.field(description="Icon URL")
-    instructions: Optional[str] = strawberry.field(description="Payment instructions for user")
-    createdAt: Optional[datetime] = strawberry.field(description="Creation timestamp", default=None)
-    updatedAt: Optional[datetime] = strawberry.field(description="Last update timestamp", default=None)
-
-
-# Union type for different entity types returned by AI
-EntityType = strawberry.union("EntityType", [ProductType, BranchType, PaymentMethodType])
+class ProductSuggestionType:
+    """Product suggestion from AI."""
+    product: ProductType = strawberry.field(description="The suggested product")
+    reason: str = strawberry.field(description="Why this product was suggested")
 
 
 @strawberry.type
-class AiAssistantOutputType:
-    """AI Assistant output containing response details."""
-    type: str = strawberry.field(description="Type of response (e.g., 'payment_method', 'products', 'branches')")
-    ai_text: str = strawberry.field(description="AI-generated response text", name="AItext")
-    ids: List[str] = strawberry.field(description="List of relevant IDs (for debugging)")
-    entities: Optional[List[EntityType]] = strawberry.field(
-        description="List of resolved entities (products, branches, or payment methods)",
-        default=None
-    )
+class BranchSuggestionType:
+    """Branch/store suggestion from AI."""
+    branch: BranchType = strawberry.field(description="The suggested branch")
+    reason: str = strawberry.field(description="Why this branch was suggested")
+
+
+@strawberry.type
+class DraftOrderItemType:
+    """Item in a draft order."""
+    product_id: str = strawberry.field(description="Product ID")
+    name: str = strawberry.field(description="Product name")
+    price: float = strawberry.field(description="Product price")
+    quantity: int = strawberry.field(description="Quantity")
+    image_url: str = strawberry.field(description="Product image URL")
+
+
+@strawberry.type
+class DraftOrderType:
+    """Draft order created by AI assistant."""
+    id: str = strawberry.field(description="Draft order ID")
+    session_id: str = strawberry.field(description="Session ID (user ID)")
+    customer_id: str = strawberry.field(description="Customer ID")
+    branch_id: str = strawberry.field(description="Branch ID")
+    business_id: str = strawberry.field(description="Business ID")
+    items: List[DraftOrderItemType] = strawberry.field(description="Order items")
+    subtotal: float = strawberry.field(description="Subtotal amount")
+    delivery_fee: float = strawberry.field(description="Delivery fee")
+    total: float = strawberry.field(description="Total amount")
+    currency: str = strawberry.field(description="Currency code")
+    delivery_address: Optional[str] = strawberry.field(description="Delivery address", default=None)
+    payment_method_id: Optional[str] = strawberry.field(description="Payment method ID", default=None)
+    status: str = strawberry.field(description="Draft status")
+    created_at: datetime = strawberry.field(description="Creation timestamp")
+    expires_at: datetime = strawberry.field(description="Expiration timestamp")
 
 
 @strawberry.type
 class AiAssistantResponseType:
-    """Complete AI Assistant response."""
-    output: AiAssistantOutputType = strawberry.field(description="Response output from AI assistant")
+    """Complete AI Assistant response with RAG."""
+    response_type: str = strawberry.field(
+        description="Type of response: search_products, search_branches, create_draft_order, request_details, general_response"
+    )
+    ai_text: str = strawberry.field(description="Natural language response from AI")
+    suggested_products: List[ProductSuggestionType] = strawberry.field(
+        description="Products suggested by AI",
+        default_factory=list
+    )
+    suggested_branches: List[BranchSuggestionType] = strawberry.field(
+        description="Branches suggested by AI",
+        default_factory=list
+    )
+    draft_order: Optional[DraftOrderType] = strawberry.field(
+        description="Draft order created by AI (if applicable)",
+        default=None
+    )
+    missing_fields: List[str] = strawberry.field(
+        description="Fields that AI needs from user",
+        default_factory=list
+    )
+    confidence: float = strawberry.field(description="AI confidence score (0.0 to 1.0)")
 
 
 @strawberry.input
 class AiAssistantChatInput:
     """Input for sending a message to the AI assistant."""
     message: str = strawberry.field(description="The user message/query to send")
-    session_id: Optional[str] = strawberry.field(
-        description="Session ID for conversation context (deprecated: now uses user_id from JWT)",
-        default=None
-    )

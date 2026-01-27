@@ -21,6 +21,8 @@ from .survey_repository import SurveyRepository
 from .survey_response_repository import SurveyResponseRepository
 from .favorites_cart_repository import FavoritesCartRepository
 from .searches_repository import SearchesRepository
+from .chat_memory_repository import ChatMemoryRepository
+from .draft_order_repository import DraftOrderRepository
 
 # Repository instances
 users_repo = UserRepository()
@@ -40,6 +42,8 @@ surveys_repo = SurveyRepository()
 survey_responses_repo = SurveyResponseRepository()
 favorites_cart_repo = FavoritesCartRepository()
 searches_repo = SearchesRepository()
+chat_memory_repo = ChatMemoryRepository()
+draft_orders_repo = DraftOrderRepository()
 
 __all__ = [
     "UserRepository",
@@ -83,9 +87,13 @@ __all__ = [
     "SurveyResponseRepository",
     "FavoritesCartRepository",
     "SearchesRepository",
+    "ChatMemoryRepository",
+    "DraftOrderRepository",
     "feedbacks_repo",
     "surveys_repo",
     "survey_responses_repo",
     "favorites_cart_repo",
     "searches_repo",
+    "chat_memory_repo",
+    "draft_orders_repo",
 ]
