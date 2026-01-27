@@ -87,9 +87,9 @@ class BranchType:
         return [ProductType(**p.model_dump()) for p in all_products[:limit]]
 
     @strawberry.field(description="Payment methods accepted by this branch")
-    async def payment_methods(self, info: Info) -> List[Annotated["PaymentMethodType", strawberry.lazy("schema.ai_assistant.types")]]:
+    async def payment_methods(self, info: Info) -> List[Annotated["PaymentMethodType", strawberry.lazy("schema.payments.types")]]:
         """Get payment methods for this branch."""
-        from schema.ai_assistant.types import PaymentMethodType
+        from schema.payments.types import PaymentMethodType
         from models import payment_methods_repo
         
         if not self.paymentMethodIds:
@@ -169,9 +169,9 @@ class NearbyBranchType:
         return [ProductType(**p.model_dump()) for p in all_products[:limit]]
 
     @strawberry.field(description="Payment methods accepted by this branch")
-    async def payment_methods(self, info: Info) -> List[Annotated["PaymentMethodType", strawberry.lazy("schema.ai_assistant.types")]]:
+    async def payment_methods(self, info: Info) -> List[Annotated["PaymentMethodType", strawberry.lazy("schema.payments.types")]]:
         """Get payment methods for this branch."""
-        from schema.ai_assistant.types import PaymentMethodType
+        from schema.payments.types import PaymentMethodType
         from models import payment_methods_repo
         
         if not self.paymentMethodIds:
@@ -254,9 +254,9 @@ class ScoredBranchType:
         return [ProductType(**p.model_dump()) for p in all_products[:limit]]
 
     @strawberry.field(description="Payment methods accepted by this branch")
-    async def payment_methods(self, info: Info) -> List[Annotated["PaymentMethodType", strawberry.lazy("schema.ai_assistant.types")]]:
+    async def payment_methods(self, info: Info) -> List[Annotated["PaymentMethodType", strawberry.lazy("schema.payments.types")]]:
         """Get payment methods for this branch."""
-        from schema.ai_assistant.types import PaymentMethodType
+        from schema.payments.types import PaymentMethodType
         from models import payment_methods_repo
         
         if not self.paymentMethodIds:

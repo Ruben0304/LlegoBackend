@@ -1,6 +1,7 @@
 """Payment schema module."""
 from .types import (
     PaymentType,
+    PaymentMethodType,
     PaymentAttemptType,
     PaymentAttemptStatusEnum,
     InitiatePaymentResult,
@@ -13,6 +14,7 @@ from .mutations import PaymentMutation
 
 __all__ = [
     "PaymentType",
+    "PaymentMethodType",
     "PaymentAttemptType",
     "PaymentAttemptStatusEnum",
     "InitiatePaymentResult",

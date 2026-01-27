@@ -39,6 +39,28 @@ class PaymentType:
 
 
 @strawberry.type
+class PaymentMethodType:
+    """Payment method configuration."""
+    id: str = strawberry.field(description="Payment method ID")
+    name: str = strawberry.field(description="Display name")
+    code: str = strawberry.field(description="Internal code")
+    currency: str = strawberry.field(description="Currency code")
+    method: str = strawberry.field(description="Method type")
+    commissionPercent: float = strawberry.field(description="Commission percentage charged")
+    deliveryFeePercent: float = strawberry.field(description="Delivery fee percentage")
+    isRefundable: bool = strawberry.field(description="Whether refunds are allowed")
+    requiresProof: bool = strawberry.field(description="Whether proof is required")
+    requiresBusinessConfirmation: bool = strawberry.field(description="Whether business confirmation is required")
+    expirationMinutes: Optional[int] = strawberry.field(description="Expiration in minutes", default=None)
+    isActive: bool = strawberry.field(description="Whether method is active")
+    displayOrder: int = strawberry.field(description="Display order")
+    iconUrl: Optional[str] = strawberry.field(description="Icon URL", default=None)
+    instructions: Optional[str] = strawberry.field(description="Payment instructions", default=None)
+    createdAt: datetime = strawberry.field(description="Creation time")
+    updatedAt: datetime = strawberry.field(description="Last update time")
+
+
+@strawberry.type
 class PaymentAttemptType:
     """Payment attempt for an order."""
     id: str = strawberry.field(description="Payment attempt ID")

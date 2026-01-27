@@ -3,8 +3,7 @@ import strawberry
 from typing import List, Optional
 from strawberry.types import Info
 
-from schema.ai_assistant.types import PaymentMethodType
-from schema.payments.types import PaymentAttemptType, payment_attempt_to_type
+from schema.payments.types import PaymentAttemptType, PaymentMethodType, payment_attempt_to_type
 from models import payment_methods_repo
 from payments import payment_attempts_repo, payment_service
 from utils.graphql_auth import apply_optional_jwt
