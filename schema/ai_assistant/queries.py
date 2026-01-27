@@ -13,7 +13,7 @@ from .types import (
 )
 from services.ai_assistant_service import AiAssistantService
 from models import products_repo, branches_repo, payment_methods_repo
-from utils.graphql_auth import apply_optional_jwt
+from utils.graphql_auth import require_auth
 from utils.rate_limit import rate_limit_graphql
 
 
@@ -27,13 +27,13 @@ class AiAssistantQuery:
         jwt: Optional[str] = None
     ) -> Optional[AiAssistantResponseType]:
         """Send a message to the AI assistant."""
-        apply_optional_jwt(jwt, info)
+        user_id = require_auth(jwt, info)  # JWT is required, get user_id as session_id
         rate_limit_graphql(info, "ai")  # 2/min - very expensive (Gemini API)
         try:
             ai_service = AiAssistantService()
             response = await ai_service.send_message(
                 message=input.message,
-                session_id=input.session_id
+                session_id=user_id  # Use user_id from JWT as session_id
             )
 
             # Convert Pydantic model to dict

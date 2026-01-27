@@ -54,4 +54,7 @@ class AiAssistantResponseType:
 class AiAssistantChatInput:
     """Input for sending a message to the AI assistant."""
     message: str = strawberry.field(description="The user message/query to send")
-    session_id: str = strawberry.field(description="Session ID for conversation context")
+    session_id: Optional[str] = strawberry.field(
+        description="Session ID for conversation context (deprecated: now uses user_id from JWT)",
+        default=None
+    )
