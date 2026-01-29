@@ -1,9 +1,18 @@
 """Vector search service using Qdrant."""
-from typing import List, Optional
-from qdrant_client.models import ScoredPoint
+from typing import List, Optional, Dict, Any
+from dataclasses import dataclass
 
 from clients import get_qdrant_client
 from services.embeddings.gemini_service import GeminiEmbeddingService
+
+
+@dataclass
+class VectorSearchResult:
+    """Result from vector search with metadata."""
+    mongo_id: str
+    score: float
+    name: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 class VectorSearchService:
@@ -19,7 +28,7 @@ class VectorSearchService:
         query: str,
         limit: int = 10,
         score_threshold: Optional[float] = None
-    ) -> List[str]:
+    ) -> List[VectorSearchResult]:
         """
         Search products using vector similarity.
 
@@ -29,11 +38,9 @@ class VectorSearchService:
             score_threshold: Minimum similarity score (optional, default: 0.60)
 
         Returns:
-            List of product IDs (MongoDB ObjectIDs) ordered by relevance
+            List of VectorSearchResult with mongo_id, score, name, and metadata
         """
         # Generate query embedding with RETRIEVAL_QUERY task type
-        # embedding generation may be synchronous (Gemini client used synchronously),
-        # keep as-is but allow future async implementations.
         query_embedding = self.embedding_service.generate_embedding(
             query,
             task_type="RETRIEVAL_QUERY"
@@ -51,27 +58,42 @@ class VectorSearchService:
         # query_points returns a QueryResponse object with .points attribute
         results = response.points if hasattr(response, 'points') else response
 
-        print(f"Vector search for '{query}' returned {len(results)} results (threshold: {threshold})")
-        for r in results:
-            # Handle both old (with metadata wrapper) and new (flat) structures
-            mongo_id = r.payload.get('mongo_id') or r.payload.get('metadata', {}).get('mongo_id')
-            print(f"  - Score: {r.score}, ID: {mongo_id}")
+        count = len(results) if hasattr(results, '__len__') else 0
+        print(f"Vector search for '{query}' returned {count} results (threshold: {threshold})")
 
-        # Extract MongoDB IDs from payload (handle both old and new structures)
-        mongo_ids = []
+        # Extract MongoDB IDs and metadata from payload
+        search_results: List[VectorSearchResult] = []
         for point in results:
+            if not point or not hasattr(point, 'payload') or point.payload is None:
+                continue
+
+            payload = point.payload
             # Try flat structure first, then old metadata wrapper structure
-            mongo_id = point.payload.get("mongo_id") or point.payload.get("metadata", {}).get("mongo_id")
-            if mongo_id:
-                mongo_ids.append(mongo_id)
-        return mongo_ids
+            mongo_id = payload.get("mongo_id") if isinstance(payload.get("mongo_id"), str) else None
+            if not mongo_id and isinstance(payload.get("metadata"), dict):
+                mongo_id = payload.get("metadata", {}).get("mongo_id")
+
+            name = payload.get("name") if isinstance(payload.get("name"), str) else None
+            if not name and isinstance(payload.get("metadata"), dict):
+                name = payload.get("metadata", {}).get("name")
+
+            if mongo_id and isinstance(mongo_id, str):
+                score = point.score if hasattr(point, 'score') else 0.0
+                print(f"  - Score: {score}, ID: {mongo_id}, Name: {name}")
+                search_results.append(VectorSearchResult(
+                    mongo_id=mongo_id,
+                    score=score,
+                    name=name,
+                    metadata=dict(payload) if payload else None
+                ))
+        return search_results
 
     async def search_branches(
         self,
         query: str,
         limit: int = 10,
         score_threshold: Optional[float] = None
-    ) -> List[str]:
+    ) -> List[VectorSearchResult]:
         """
         Search branches using vector similarity.
 
@@ -81,11 +103,9 @@ class VectorSearchService:
             score_threshold: Minimum similarity score (optional, default: 0.55)
 
         Returns:
-            List of branch IDs (MongoDB ObjectIDs) ordered by relevance
+            List of VectorSearchResult with mongo_id, score, name, and metadata
         """
         # Generate query embedding with RETRIEVAL_QUERY task type
-        # embedding generation may be synchronous (Gemini client used synchronously),
-        # keep as-is but allow future async implementations.
         query_embedding = self.embedding_service.generate_embedding(
             query,
             task_type="RETRIEVAL_QUERY"
@@ -103,27 +123,42 @@ class VectorSearchService:
         # query_points returns a QueryResponse object with .points attribute
         results = response.points if hasattr(response, 'points') else response
 
-        print(f"Vector search for '{query}' returned {len(results)} results (threshold: {threshold})")
-        for r in results:
-            # Handle both old (with metadata wrapper) and new (flat) structures
-            mongo_id = r.payload.get('mongo_id') or r.payload.get('metadata', {}).get('mongo_id')
-            print(f"  - Score: {r.score}, ID: {mongo_id}")
+        count = len(results) if hasattr(results, '__len__') else 0
+        print(f"Vector search for '{query}' returned {count} results (threshold: {threshold})")
 
-        # Extract MongoDB IDs from payload (handle both old and new structures)
-        mongo_ids = []
+        # Extract MongoDB IDs and metadata from payload
+        search_results: List[VectorSearchResult] = []
         for point in results:
+            if not point or not hasattr(point, 'payload') or point.payload is None:
+                continue
+
+            payload = point.payload
             # Try flat structure first, then old metadata wrapper structure
-            mongo_id = point.payload.get("mongo_id") or point.payload.get("metadata", {}).get("mongo_id")
-            if mongo_id:
-                mongo_ids.append(mongo_id)
-        return mongo_ids
+            mongo_id = payload.get("mongo_id") if isinstance(payload.get("mongo_id"), str) else None
+            if not mongo_id and isinstance(payload.get("metadata"), dict):
+                mongo_id = payload.get("metadata", {}).get("mongo_id")
+
+            name = payload.get("name") if isinstance(payload.get("name"), str) else None
+            if not name and isinstance(payload.get("metadata"), dict):
+                name = payload.get("metadata", {}).get("name")
+
+            if mongo_id and isinstance(mongo_id, str):
+                score = point.score if hasattr(point, 'score') else 0.0
+                print(f"  - Score: {score}, ID: {mongo_id}, Name: {name}")
+                search_results.append(VectorSearchResult(
+                    mongo_id=mongo_id,
+                    score=score,
+                    name=name,
+                    metadata=dict(payload) if payload else None
+                ))
+        return search_results
 
     async def search_businesses(
         self,
         query: str,
         limit: int = 10,
         score_threshold: Optional[float] = None
-    ) -> List[str]:
+    ) -> List[VectorSearchResult]:
         """
         Search businesses using vector similarity.
 
@@ -133,11 +168,9 @@ class VectorSearchService:
             score_threshold: Minimum similarity score (optional, default: 0.55)
 
         Returns:
-            List of business IDs (MongoDB ObjectIDs) ordered by relevance
+            List of VectorSearchResult with mongo_id, score, name, and metadata
         """
         # Generate query embedding with RETRIEVAL_QUERY task type
-        # embedding generation may be synchronous (Gemini client used synchronously),
-        # keep as-is but allow future async implementations.
         query_embedding = self.embedding_service.generate_embedding(
             query,
             task_type="RETRIEVAL_QUERY"
@@ -155,17 +188,32 @@ class VectorSearchService:
         # query_points returns a QueryResponse object with .points attribute
         results = response.points if hasattr(response, 'points') else response
 
-        print(f"Vector search for '{query}' returned {len(results)} results (threshold: {threshold})")
-        for r in results:
-            # Handle both old (with metadata wrapper) and new (flat) structures
-            mongo_id = r.payload.get('mongo_id') or r.payload.get('metadata', {}).get('mongo_id')
-            print(f"  - Score: {r.score}, ID: {mongo_id}")
+        count = len(results) if hasattr(results, '__len__') else 0
+        print(f"Vector search for '{query}' returned {count} results (threshold: {threshold})")
 
-        # Extract MongoDB IDs from payload (handle both old and new structures)
-        mongo_ids = []
+        # Extract MongoDB IDs and metadata from payload
+        search_results: List[VectorSearchResult] = []
         for point in results:
+            if not point or not hasattr(point, 'payload') or point.payload is None:
+                continue
+
+            payload = point.payload
             # Try flat structure first, then old metadata wrapper structure
-            mongo_id = point.payload.get("mongo_id") or point.payload.get("metadata", {}).get("mongo_id")
-            if mongo_id:
-                mongo_ids.append(mongo_id)
-        return mongo_ids
+            mongo_id = payload.get("mongo_id") if isinstance(payload.get("mongo_id"), str) else None
+            if not mongo_id and isinstance(payload.get("metadata"), dict):
+                mongo_id = payload.get("metadata", {}).get("mongo_id")
+
+            name = payload.get("name") if isinstance(payload.get("name"), str) else None
+            if not name and isinstance(payload.get("metadata"), dict):
+                name = payload.get("metadata", {}).get("name")
+
+            if mongo_id and isinstance(mongo_id, str):
+                score = point.score if hasattr(point, 'score') else 0.0
+                print(f"  - Score: {score}, ID: {mongo_id}, Name: {name}")
+                search_results.append(VectorSearchResult(
+                    mongo_id=mongo_id,
+                    score=score,
+                    name=name,
+                    metadata=dict(payload) if payload else None
+                ))
+        return search_results

@@ -15,7 +15,7 @@ from repositories import (
     payment_methods_repo,
     users_repo
 )
-from services.vector_search_service import VectorSearchService
+from services.vector_search_service import VectorSearchService, VectorSearchResult
 from services.ai_models import (
     AiIntentAnalysis,
     AiFinalResponse,
@@ -57,12 +57,18 @@ All products in an order MUST be from the same branch/store."""
 
 You have access to search results from our database. Your job is to:
 1. Analyze the search results and their metadata
-2. Filter out irrelevant results
-3. Suggest the best matches to the user
+2. Use the product NAMES from the search results to determine if they match what the user requested
+3. Suggest ALL products that semantically match the user's request based on their names
 4. If creating an order, validate that all products are from the same branch
 5. Provide a natural, conversational response
 
-Be helpful and accurate. If search results don't match well, say so and ask for clarification.
+CRITICAL: The search results include product names from Qdrant vector search. You MUST examine these names carefully:
+- If the user asks for "batido" and you see "Suero sensación" in the results, check if "Suero" is a type of batido/smoothie
+- If the user asks for "pizza" and you see "Pizza de aceituna", that's a direct match
+- Suggest ALL items that could match what the user wants, not just exact name matches
+- Use semantic understanding: "suero" in Cuba often means a milkshake/smoothie (batido)
+
+Be helpful and accurate. If you're unsure if a product matches, include it and explain what it is.
 When suggesting products or stores, explain WHY they match the user's request.
 
 IMPORTANT: For draft orders, ALL products must be from the same branch. If user selects products from different branches, you must create separate orders or ask them to choose one branch."""
@@ -157,6 +163,8 @@ IMPORTANT: For draft orders, ALL products must be from the same branch. If user 
 
         # Parse response (response.text is already JSON string)
         import json
+        if not response.text:
+            raise ValueError("Empty response from AI model")
         return AiIntentAnalysis(**json.loads(response.text))
 
     async def _execute_searches(
@@ -176,28 +184,34 @@ IMPORTANT: For draft orders, ALL products must be from the same branch. If user 
 
         for query in queries:
             if query.collection == "products":
-                product_ids = await self.vector_search.search_products(
+                product_results = await self.vector_search.search_products(
                     query=query.query,
                     limit=query.limit
                 )
+                # Extract IDs from VectorSearchResult objects
+                product_ids = [r.mongo_id for r in product_results]
                 # Fetch full product data
                 products = await products_repo.get_by_ids(product_ids)
                 context.products.extend([p.model_dump() for p in products])
 
             elif query.collection == "branches":
-                branch_ids = await self.vector_search.search_branches(
+                branch_results = await self.vector_search.search_branches(
                     query=query.query,
                     limit=query.limit
                 )
+                # Extract IDs from VectorSearchResult objects
+                branch_ids = [r.mongo_id for r in branch_results]
                 # Fetch full branch data
                 branches = await branches_repo.get_by_ids(branch_ids)
                 context.branches.extend([b.model_dump() for b in branches])
 
             elif query.collection == "businesses":
-                business_ids = await self.vector_search.search_businesses(
+                business_results = await self.vector_search.search_businesses(
                     query=query.query,
                     limit=query.limit
                 )
+                # Extract IDs from VectorSearchResult objects
+                business_ids = [r.mongo_id for r in business_results]
                 # Fetch full business data
                 businesses = await businesses_repo.get_by_ids(business_ids)
                 context.businesses.extend([b.model_dump() for b in businesses])
@@ -242,7 +256,9 @@ IMPORTANT: For draft orders, ALL products must be from the same branch. If user 
             context_text += self._format_businesses(context.businesses)
 
         # Add intent analysis
-        prompt = f"{'\n'.join(conversation)}\n\nIntent Analysis:\n- Type: {intent.response_type}\n- Reasoning: {intent.reasoning}\n- Missing Info: {', '.join(intent.missing_info) if intent.missing_info else 'None'}{context_text}"
+        conversation_text = "\n".join(conversation)
+        missing_info_text = ', '.join(intent.missing_info) if intent.missing_info else 'None'
+        prompt = f"{conversation_text}\n\nIntent Analysis:\n- Type: {intent.response_type}\n- Reasoning: {intent.reasoning}\n- Missing Info: {missing_info_text}{context_text}"
 
         # Generate with structured output
         response = self.client.models.generate_content(
@@ -257,6 +273,8 @@ IMPORTANT: For draft orders, ALL products must be from the same branch. If user 
 
         # Parse response
         import json
+        if not response.text:
+            raise ValueError("Empty response from AI model")
         return AiFinalResponse(**json.loads(response.text))
 
     async def _create_draft_order(
