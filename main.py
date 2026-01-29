@@ -5,7 +5,6 @@ from strawberry.fastapi import GraphQLRouter
 from slowapi.errors import RateLimitExceeded
 import uvicorn
 import logging
-import asyncio
 
 from clients import lifespan
 from schema import schema
@@ -14,15 +13,12 @@ from core.config import settings
 from utils.rate_limit import limiter, rate_limit_exceeded_handler, get_redis_status
 from utils.dataloaders import create_dataloaders
 from utils.exception_handler import global_exception_handler, http_exception_handler
-from services.access_expiration_worker import expire_old_accesses
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-
-logger = logging.getLogger(__name__)
 
 
 # FastAPI application with lifespan for all clients
@@ -78,28 +74,6 @@ app.include_router(graphql_app, prefix="/graphql")
 
 # Mount REST API router
 app.include_router(router)
-
-
-# Background task for expiring old access
-async def run_expiration_worker():
-    """Background task that runs every 15 minutes to expire old access."""
-    while True:
-        try:
-            logger.info("Running access expiration worker...")
-            await expire_old_accesses()
-            logger.info("Access expiration worker completed successfully")
-        except Exception as e:
-            logger.error(f"Error in access expiration worker: {e}", exc_info=True)
-        
-        # Wait 15 minutes before next run
-        await asyncio.sleep(900)
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Start background tasks on application startup."""
-    logger.info("Starting access expiration worker...")
-    asyncio.create_task(run_expiration_worker())
 
 
 @app.get("/")
