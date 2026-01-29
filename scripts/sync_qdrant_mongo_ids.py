@@ -14,7 +14,6 @@ from qdrant_client.models import PointStruct
 
 from clients.mongodb_client import get_database, connect_to_mongo, close_mongo_connection
 from clients.qdrant_client import get_qdrant_client, connect_to_qdrant, close_qdrant_connection
-from services.embeddings.gemini_service import GeminiEmbeddingService
 
 # Configure logging
 logging.basicConfig(
