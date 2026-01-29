@@ -12,7 +12,8 @@ from repositories import (
     products_repo,
     branches_repo,
     businesses_repo,
-    payment_methods_repo
+    payment_methods_repo,
+    users_repo
 )
 from services.vector_search_service import VectorSearchService
 from services.ai_models import (
@@ -44,10 +45,12 @@ Your role is to help users:
 When analyzing user intent, determine:
 - What type of response is needed (search, order creation, request for details, or general conversation)
 - What vector searches should be executed (if any)
-- What information is missing (delivery address, payment method, etc.)
+- What information is missing (payment method, etc.)
+
+IMPORTANT: Users have a saved location in their profile. When creating orders, the system will automatically use their saved location for delivery. DO NOT ask for delivery address unless explicitly needed.
 
 Be conversational and helpful. If the user is vague, ask clarifying questions.
-If creating an order, ensure all required info is present: products, delivery address, payment method.
+If creating an order, ensure all required info is present: products and payment method. The delivery location will be taken from their profile automatically.
 All products in an order MUST be from the same branch/store."""
 
         self.final_response_system_prompt = """You are an intelligent shopping assistant for Llego.
@@ -268,8 +271,22 @@ IMPORTANT: For draft orders, ALL products must be from the same branch. If user 
             session_id: User session ID
             draft_data: Draft order data from AI
         """
+        print(f"\n{'='*80}")
+        print(f"[AI RAG] Creating draft order for session: {session_id}")
+        print(f"[AI RAG] Draft data received: {draft_data.model_dump()}")
+
+        # Get user to access their saved location
+        user = await users_repo.get_by_id(session_id)
+        if not user:
+            print(f"[AI RAG] ERROR: User not found: {session_id}")
+            return
+
+        print(f"[AI RAG] User found: {user.name} (ID: {user.id})")
+        print(f"[AI RAG] User location: {user.location}")
+
         # Fetch products to calculate totals
         products = await products_repo.get_by_ids(draft_data.product_ids)
+        print(f"[AI RAG] Products fetched: {len(products)} items")
 
         # Calculate totals
         items = []
@@ -287,14 +304,31 @@ IMPORTANT: For draft orders, ALL products must be from the same branch. If user 
                 "imageUrl": product.image
             })
 
+        print(f"[AI RAG] Order items: {items}")
+        print(f"[AI RAG] Subtotal: ${subtotal}")
+
         # Estimate delivery fee (simple for now)
         delivery_fee = 5.0  # TODO: Calculate based on distance
 
         total = subtotal + delivery_fee
 
-        # Prepare delivery address
+        # Prepare delivery address - Use user's saved location if available
         delivery_address = None
-        if draft_data.delivery_address:
+
+        # Priority 1: Use user's saved location from profile
+        if user.location and user.location.get("coordinates"):
+            coords = user.location["coordinates"]
+            delivery_address = {
+                "street": draft_data.delivery_address or "Ubicación guardada en perfil",
+                "reference": draft_data.delivery_reference,
+                "coordinates": {
+                    "type": "Point",
+                    "coordinates": coords  # [longitude, latitude]
+                }
+            }
+            print(f"[AI RAG] Using user's saved location: {coords}")
+        # Priority 2: Use delivery address from draft data if provided
+        elif draft_data.delivery_address:
             delivery_address = {
                 "street": draft_data.delivery_address,
                 "reference": draft_data.delivery_reference,
@@ -303,9 +337,14 @@ IMPORTANT: For draft orders, ALL products must be from the same branch. If user 
                     "coordinates": draft_data.delivery_coordinates or [0, 0]
                 }
             }
+            print(f"[AI RAG] Using provided address: {draft_data.delivery_address}")
+        else:
+            print(f"[AI RAG] WARNING: No delivery address available!")
+
+        print(f"[AI RAG] Final delivery address: {delivery_address}")
 
         # Create draft order
-        await draft_orders_repo.create_draft(
+        draft = await draft_orders_repo.create_draft(
             session_id=session_id,
             customer_id=session_id,
             branch_id=draft_data.branch_id,
@@ -318,6 +357,9 @@ IMPORTANT: For draft orders, ALL products must be from the same branch. If user 
             delivery_address=delivery_address,
             payment_method_id=draft_data.payment_method_id
         )
+
+        print(f"[AI RAG] Draft order created successfully: ID={draft.id}")
+        print(f"{'='*80}\n")
 
     @staticmethod
     def _format_history(history: List[Any]) -> List[str]:
