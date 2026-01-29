@@ -16,7 +16,14 @@ class QdrantIndexingService:
 
     def __init__(self):
         """Initialize indexing service."""
-        self.embedding_service = GeminiEmbeddingService()
+        self._embedding_service = None
+    
+    @property
+    def embedding_service(self):
+        """Lazy initialization of embedding service."""
+        if self._embedding_service is None:
+            self._embedding_service = GeminiEmbeddingService()
+        return self._embedding_service
 
     def _get_qdrant_client(self):
         """Get Qdrant client or return None if not available."""
