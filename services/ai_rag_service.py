@@ -62,7 +62,13 @@ You have access to search results from our database. Your job is to:
 4. If creating an order, validate that all products are from the same branch
 5. Provide a natural, conversational response
 
-CRITICAL: The search results include product names from Qdrant vector search. You MUST examine these names carefully:
+CRITICAL - PRODUCT IDs: You MUST use the EXACT product IDs from the search results provided in the context. 
+- The products in "Available Products" section have real IDs from our database
+- When creating a draft_order, use ONLY the IDs listed in the search results
+- NEVER invent or hallucinate product IDs - only use IDs that appear in the context
+- Example: If you see "ID: 6958253b691f737d2ec61067, Name: Suero sensación", use exactly "6958253b691f737d2ec61067"
+
+CRITICAL - PRODUCT NAMES: The search results include product names from Qdrant vector search. You MUST examine these names carefully:
 - If the user asks for "batido" and you see "Suero sensación" in the results, check if "Suero" is a type of batido/smoothie
 - If the user asks for "pizza" and you see "Pizza de aceituna", that's a direct match
 - Suggest ALL items that could match what the user wants, not just exact name matches
