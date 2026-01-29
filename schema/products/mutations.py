@@ -11,6 +11,7 @@ from models import Product
 from repositories import products_repo, branches_repo, businesses_repo
 from utils.graphql_auth import apply_optional_jwt
 from utils.s3 import delete_file
+from services.qdrant_indexing_service import qdrant_indexing_service
 
 
 @strawberry.type
@@ -88,7 +89,12 @@ class ProductMutation:
             createdAt=datetime.now()
         )
 
+        # Step 1: Create in MongoDB first
         created_product = await products_repo.create(product)
+
+        # Step 2: Index in Qdrant with the MongoDB ID
+        await qdrant_indexing_service.index_product(created_product)
+
         return ProductType(**created_product.model_dump())
 
     @strawberry.mutation(description="Actualizar un producto")

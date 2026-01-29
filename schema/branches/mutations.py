@@ -12,6 +12,7 @@ from models import Branch, Coordinates
 from repositories import branches_repo, businesses_repo, store_locations_repo, products_repo
 from utils.graphql_auth import apply_optional_jwt
 from utils.s3 import delete_file
+from services.qdrant_indexing_service import qdrant_indexing_service
 
 
 @strawberry.type
@@ -80,7 +81,11 @@ class BranchMutation:
             createdAt=datetime.now()
         )
 
+        # Step 1: Create in MongoDB first
         created_branch = await branches_repo.create(branch)
+
+        # Step 2: Index in Qdrant with the MongoDB ID
+        await qdrant_indexing_service.index_branch(created_branch)
 
         # Save location to MongoDB stores_location collection
         await store_locations_repo.upsert(

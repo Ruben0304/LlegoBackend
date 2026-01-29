@@ -10,6 +10,7 @@ from .inputs import CreateBusinessInput, RegisterBranchInput, UpdateBusinessInpu
 from .types import BusinessType
 from utils.graphql_auth import apply_optional_jwt
 from utils.s3 import delete_file
+from services.qdrant_indexing_service import qdrant_indexing_service
 
 
 @strawberry.type
@@ -52,7 +53,11 @@ class BusinessMutation:
             createdAt=datetime.now()
         )
 
+        # Step 1: Create business in MongoDB first
         created_business = await businesses_repo.create(business)
+
+        # Step 2: Index in Qdrant with the MongoDB ID
+        await qdrant_indexing_service.index_business(created_business)
 
         # 2.1. Agregar businessId a la lista de businessIds del usuario
         await users_repo.add_business_id(user_id, business_id)
@@ -97,7 +102,11 @@ class BusinessMutation:
                 createdAt=datetime.now()
             )
 
-            await branches_repo.create(branch)
+            # Create branch in MongoDB first
+            created_branch = await branches_repo.create(branch)
+
+            # Index in Qdrant with the MongoDB ID
+            await qdrant_indexing_service.index_branch(created_branch)
 
         # 4. Retornar negocio creado
         return BusinessType(
@@ -230,9 +239,13 @@ class BusinessMutation:
                     createdAt=datetime.now()
                 )
 
+                # Create business in MongoDB first
                 created_business = await businesses_repo.create(business)
                 created_businesses.append(created_business)
                 created_business_ids.append(business_id)
+
+                # Index business in Qdrant with the MongoDB ID
+                await qdrant_indexing_service.index_business(created_business)
 
                 # 2.2. Agregar businessId a la lista de businessIds del usuario
                 await users_repo.add_business_id(user_id, business_id)
@@ -277,8 +290,12 @@ class BusinessMutation:
                         createdAt=datetime.now()
                     )
 
-                    await branches_repo.create(branch)
+                    # Create branch in MongoDB first
+                    created_branch = await branches_repo.create(branch)
                     created_branch_ids.append(branch_id)
+
+                    # Index branch in Qdrant with the MongoDB ID
+                    await qdrant_indexing_service.index_branch(created_branch)
 
             # 3. Retornar negocios creados
             return [

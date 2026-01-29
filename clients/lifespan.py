@@ -72,6 +72,14 @@ async def lifespan(app):
     except Exception as e:
         print(f"⚠ Warning: Could not migrate payment system: {e}")
 
+    # Sync Qdrant-MongoDB IDs
+    try:
+        from scripts.sync_qdrant_mongo_ids import sync_all_collections_from_db
+        db = get_database()
+        await sync_all_collections_from_db(db)
+    except Exception as e:
+        print(f"⚠ Warning: Could not sync Qdrant-MongoDB IDs: {e}")
+
     print("✓ All clients initialized successfully\n")
 
     yield
