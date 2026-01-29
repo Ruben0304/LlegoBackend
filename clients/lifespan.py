@@ -22,68 +22,6 @@ async def lifespan(app):
     await connect_to_qdrant()
     connect_to_gemini()
 
-    # Migrate Qdrant data to MongoDB (if collections are empty)
-    try:
-        from scripts.migrate_qdrant_to_mongo import migrate_qdrant_to_mongo_from_db
-        db = get_database()
-        await migrate_qdrant_to_mongo_from_db(db)
-    except Exception as e:
-        print(f"⚠ Warning: Could not migrate Qdrant to MongoDB: {e}")
-
-    # Create order indexes
-    try:
-        from orders.repository import create_order_indexes
-        await create_order_indexes()
-    except Exception as e:
-        print(f"⚠ Warning: Could not create order indexes: {e}")
-
-    # Seed product categories if they don't exist
-    try:
-        from seed_product_categories import seed_product_categories_from_db
-        db = get_database()
-        await seed_product_categories_from_db(db)
-    except Exception as e:
-        print(f"⚠ Warning: Could not seed product categories: {e}")
-
-    # Seed business types if they don't exist
-    try:
-        from seed_business_types import seed_business_types_from_db
-        db = get_database()
-        await seed_business_types_from_db(db)
-    except Exception as e:
-        print(f"⚠ Warning: Could not seed business types: {e}")
-
-    # Migrate wallet to users and branches
-    try:
-        from scripts.migrate_add_wallet_to_users_branches import migrate_add_wallet_from_db
-        db = get_database()
-        await migrate_add_wallet_from_db(db)
-    except Exception as e:
-        print(f"⚠ Warning: Could not migrate wallets: {e}")
-
-    # Migrate username to users
-    try:
-        from scripts.migrate_add_username_to_users import migrate_add_username_from_db
-        db = get_database()
-        await migrate_add_username_from_db(db)
-    except Exception as e:
-        print(f"⚠ Warning: Could not migrate usernames: {e}")
-
-    # Auto-migrate payment system
-    try:
-        from scripts.auto_migrate_payments import auto_migrate_payments
-        await auto_migrate_payments()
-    except Exception as e:
-        print(f"⚠ Warning: Could not migrate payment system: {e}")
-
-    # Sync Qdrant-MongoDB IDs
-    try:
-        from scripts.sync_qdrant_mongo_ids import sync_all_collections_from_db
-        db = get_database()
-        await sync_all_collections_from_db(db)
-    except Exception as e:
-        print(f"⚠ Warning: Could not sync Qdrant-MongoDB IDs: {e}")
-
     # Start access expiration worker
     try:
         from services.access_expiration_worker import expire_old_accesses
