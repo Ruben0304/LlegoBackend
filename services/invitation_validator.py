@@ -86,7 +86,14 @@ class InvitationValidator:
                 invitation.businessId
             )
             if existing_access:
-                raise InvitationValidationError("Ya tienes acceso a este negocio")
+                # Check if the access is actually expired
+                from datetime import datetime
+                if existing_access.expiresAt and existing_access.expiresAt <= datetime.utcnow():
+                    # Access is expired, mark it as inactive and allow new redemption
+                    await business_access_repo.mark_as_expired(existing_access.id)
+                else:
+                    # Access is still active
+                    raise InvitationValidationError("Ya tienes acceso a este negocio")
         else:
             raise InvitationValidationError("Tipo de invitacion invalido")
 

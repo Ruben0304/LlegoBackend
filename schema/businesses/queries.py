@@ -179,3 +179,56 @@ class BusinessQuery:
             ))
         
         return result
+
+    @strawberry.field(description="Obtener todos mis negocios (propios + con acceso compartido)")
+    async def get_my_businesses(
+        self,
+        info: Info,
+        jwt: str
+    ) -> List[BusinessType]:
+        """
+        Get all businesses accessible by the authenticated user.
+        Includes:
+        - Businesses owned by the user (ownerId = user_id)
+        - Businesses with active shared access (via invitations)
+        
+        This is the recommended query for listing businesses in the UI.
+        """
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+        
+        from repositories import business_access_repo
+        from datetime import datetime
+        
+        # 1. Get businesses owned by the user
+        owned_businesses = await businesses_repo.get_by_owner(user_id)
+        
+        # 2. Get businesses with active shared access
+        accesses = await business_access_repo.get_active_by_user(user_id)
+        
+        # Filter out expired accesses (in case worker hasn't run)
+        now = datetime.utcnow()
+        active_accesses = [
+            a for a in accesses 
+            if a.isActive and (a.expiresAt is None or a.expiresAt > now)
+        ]
+        
+        # Get business IDs from active accesses
+        shared_business_ids = [a.businessId for a in active_accesses]
+        
+        # Fetch shared businesses in batch
+        shared_businesses = []
+        if shared_business_ids:
+            shared_businesses = await businesses_repo.get_by_ids(shared_business_ids)
+        
+        # 3. Combine and deduplicate
+        all_businesses_dict = {b.id: b for b in owned_businesses}
+        for b in shared_businesses:
+            if b.id not in all_businesses_dict:
+                all_businesses_dict[b.id] = b
+        
+        # Convert to BusinessType
+        return [BusinessType(**b.model_dump()) for b in all_businesses_dict.values()]
