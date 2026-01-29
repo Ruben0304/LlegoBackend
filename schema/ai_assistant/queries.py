@@ -127,11 +127,11 @@ class AiAssistantQuery:
                         business_id=latest_draft.businessId,
                         items=[
                             DraftOrderItemType(
-                                product_id=item["productId"],
-                                name=item["name"],
-                                price=item["price"],
-                                quantity=item["quantity"],
-                                image_url=item["imageUrl"]
+                                product_id=item.productId,
+                                name=item.name,
+                                price=item.price,
+                                quantity=item.quantity,
+                                image_url=item.imageUrl
                             )
                             for item in latest_draft.items
                         ],
