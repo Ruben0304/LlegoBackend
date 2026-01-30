@@ -4,6 +4,7 @@ from typing import List, Union, Optional
 from datetime import datetime
 from schema.products.types import ProductType
 from schema.branches.types import BranchType
+from utils.s3 import generate_presigned_url
 
 
 @strawberry.type
@@ -17,6 +18,12 @@ class ProductSuggestionType:
     branch_avatar: Optional[str] = strawberry.field(description="Branch avatar S3 key", default=None)
     branch_address: Optional[str] = strawberry.field(description="Branch address", default=None)
     branch_phone: Optional[str] = strawberry.field(description="Branch phone number", default=None)
+    
+    @strawberry.field(description="Presigned URL for the branch avatar")
+    def branch_avatar_url(self) -> Optional[str]:
+        if self.branch_avatar:
+            return generate_presigned_url(self.branch_avatar)
+        return None
 
 
 @strawberry.type
