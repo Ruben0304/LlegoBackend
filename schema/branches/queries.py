@@ -224,11 +224,11 @@ class BranchQuery:
         if use_vector_search:
             from services.vector_search_service import VectorSearchService
             vector_service = VectorSearchService()
-            branch_ids = await vector_service.search_branches(query, limit=200)
-            
+            branch_results = await vector_service.search_branches(query, limit=200)
+
             all_branches = []
-            for branch_id in branch_ids:
-                branch = await branches_repo.get_by_id(branch_id)
+            for result in branch_results:
+                branch = await branches_repo.get_by_id(result.mongo_id)
                 if branch:
                     all_branches.append(branch)
         else:
