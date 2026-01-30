@@ -10,6 +10,7 @@ from schema.pagination import (
     BranchConnection, BranchEdge, NearbyBranchConnection, NearbyBranchEdge, PageInfo,
     encode_scored_cursor, decode_scored_cursor, encode_cursor, decode_cursor
 )
+from schema.wallet.types import WalletBalanceType
 from utils.graphql_auth import apply_optional_jwt
 from utils.rate_limit import rate_limit_graphql
 from services.scoring_service import scoring_service
@@ -87,7 +88,10 @@ class BranchQuery:
                         branch_data['coordinates'] = CoordinatesType(**branch.coordinates.model_dump())
                         branch_data['tipos'] = [BranchTipo(t) for t in (branch.tipos or [])]
                         branch_data['paymentMethodIds'] = branch.paymentMethodIds or []
-                        branch_data['wallet'] = branch.wallet
+                        branch_data['wallet'] = WalletBalanceType(
+                            local=branch.wallet.get('local', 0.0),
+                            usd=branch.wallet.get('usd', 0.0)
+                        )
                         branch_data['walletStatus'] = branch.walletStatus
                         scored_branches.append(ScoredBranchType(
                             **branch_data,
@@ -103,7 +107,10 @@ class BranchQuery:
                         'coordinates': CoordinatesType(**b.coordinates.model_dump()),
                         'tipos': [BranchTipo(t) for t in (b.tipos or [])],
                         'paymentMethodIds': b.paymentMethodIds or [],
-                        'wallet': b.wallet,
+                        'wallet': WalletBalanceType(
+                            local=b.wallet.get('local', 0.0),
+                            usd=b.wallet.get('usd', 0.0)
+                        ),
                         'walletStatus': b.walletStatus
                     },
                     score=0.0,
@@ -176,7 +183,10 @@ class BranchQuery:
                     'coordinates': CoordinatesType(**branch.coordinates.model_dump()),
                     'tipos': [BranchTipo(t) for t in (branch.tipos or [])],
                     'paymentMethodIds': branch.paymentMethodIds or [],
-                    'wallet': branch.wallet,
+                    'wallet': WalletBalanceType(
+                        local=branch.wallet.get('local', 0.0),
+                        usd=branch.wallet.get('usd', 0.0)
+                    ),
                     'walletStatus': branch.walletStatus
                 }
             )
@@ -245,7 +255,10 @@ class BranchQuery:
                         branch_data['coordinates'] = CoordinatesType(**branch.coordinates.model_dump())
                         branch_data['tipos'] = [BranchTipo(t) for t in (branch.tipos or [])]
                         branch_data['paymentMethodIds'] = branch.paymentMethodIds or []
-                        branch_data['wallet'] = branch.wallet
+                        branch_data['wallet'] = WalletBalanceType(
+                            local=branch.wallet.get('local', 0.0),
+                            usd=branch.wallet.get('usd', 0.0)
+                        )
                         branch_data['walletStatus'] = branch.walletStatus
                         scored_branches.append(ScoredBranchType(
                             **branch_data,
@@ -261,7 +274,10 @@ class BranchQuery:
                         'coordinates': CoordinatesType(**b.coordinates.model_dump()),
                         'tipos': [BranchTipo(t) for t in (b.tipos or [])],
                         'paymentMethodIds': b.paymentMethodIds or [],
-                        'wallet': b.wallet,
+                        'wallet': WalletBalanceType(
+                            local=b.wallet.get('local', 0.0),
+                            usd=b.wallet.get('usd', 0.0)
+                        ),
                         'walletStatus': b.walletStatus
                     },
                     score=0.0,
@@ -401,7 +417,10 @@ class BranchQuery:
                     paymentMethodIds=branch.paymentMethodIds or [],
                     createdAt=branch.createdAt,
                     distance_m=store.get("distance_m", 0.0),
-                    wallet=branch.wallet,
+                    wallet=WalletBalanceType(
+                        local=branch.wallet.get('local', 0.0),
+                        usd=branch.wallet.get('usd', 0.0)
+                    ),
                     walletStatus=branch.walletStatus
                 ))
         
@@ -539,7 +558,10 @@ class BranchQuery:
                     'coordinates': CoordinatesType(**branch.coordinates.model_dump()),
                     'tipos': [BranchTipo(t) for t in (branch.tipos or [])],
                     'paymentMethodIds': branch.paymentMethodIds or [],
-                    'wallet': branch.wallet,
+                    'wallet': WalletBalanceType(
+                        local=branch.wallet.get('local', 0.0),
+                        usd=branch.wallet.get('usd', 0.0)
+                    ),
                     'walletStatus': branch.walletStatus
                 }
             )
