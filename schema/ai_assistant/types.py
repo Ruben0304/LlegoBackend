@@ -8,9 +8,15 @@ from schema.branches.types import BranchType
 
 @strawberry.type
 class ProductSuggestionType:
-    """Product suggestion from AI."""
+    """Product suggestion from AI with branch info for cards."""
     product: ProductType = strawberry.field(description="The suggested product")
     reason: str = strawberry.field(description="Why this product was suggested")
+    
+    # Branch info for product cards (denormalized for easy access)
+    branch_name: Optional[str] = strawberry.field(description="Branch name where product is sold", default=None)
+    branch_avatar: Optional[str] = strawberry.field(description="Branch avatar S3 key", default=None)
+    branch_address: Optional[str] = strawberry.field(description="Branch address", default=None)
+    branch_phone: Optional[str] = strawberry.field(description="Branch phone number", default=None)
 
 
 @strawberry.type
