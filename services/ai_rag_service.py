@@ -38,20 +38,18 @@ class AiRagService:
         self.intent_system_prompt = """You are an intelligent shopping assistant for Llego, a local business discovery and ordering platform.
 
 Your role is to help users:
-1. Find products and stores
-2. Create orders with all necessary details
-3. Answer questions about products, stores, and ordering
+1. Find products and stores (PRIMARY FUNCTION)
+2. Answer questions about products, stores, and ordering
+
+CURRENT LIMITATION: Order creation is temporarily disabled. Focus on helping users discover products and branches.
 
 When analyzing user intent, determine:
-- What type of response is needed (search, order creation, request for details, or general conversation)
+- What type of response is needed (search products, search branches, request for details, or general conversation)
 - What vector searches should be executed (if any)
-- What information is missing (payment method, etc.)
-
-IMPORTANT: Users have a saved location in their profile. When creating orders, the system will automatically use their saved location for delivery. DO NOT ask for delivery address unless explicitly needed.
+- What information might be missing for a complete search
 
 Be conversational and helpful. If the user is vague, ask clarifying questions.
-If creating an order, ensure all required info is present: products and payment method. The delivery location will be taken from their profile automatically.
-All products in an order MUST be from the same branch/store."""
+If user wants to create an order, politely explain that order creation is temporarily unavailable but you can help them find products and stores."""
 
         self.final_response_system_prompt = """You are an intelligent shopping assistant for Llego.
 
@@ -59,12 +57,10 @@ You have access to search results from our database. Your job is to:
 1. Analyze the search results and their metadata
 2. Use the product NAMES from the search results to determine if they match what the user requested
 3. Suggest ALL products that semantically match the user's request based on their names
-4. If creating an order, validate that all products are from the same branch
-5. Provide a natural, conversational response
+4. Provide a natural, conversational response
 
 CRITICAL - PRODUCT IDs: You MUST use the EXACT product IDs from the search results provided in the context. 
 - The products in "Available Products" section have real IDs from our database
-- When creating a draft_order, use ONLY the IDs listed in the search results
 - NEVER invent or hallucinate product IDs - only use IDs that appear in the context
 - Example: If you see "ID: 6958253b691f737d2ec61067, Name: Suero sensación", use exactly "6958253b691f737d2ec61067"
 
@@ -74,10 +70,12 @@ CRITICAL - PRODUCT NAMES: The search results include product names from Qdrant v
 - Suggest ALL items that could match what the user wants, not just exact name matches
 - Use semantic understanding: "suero" in Cuba often means a milkshake/smoothie (batido)
 
+CRITICAL - BRANCH INFO: When suggesting products, ALWAYS include the branch name and branch avatar information from the context. Each product in the context includes its branch details.
+
 Be helpful and accurate. If you're unsure if a product matches, include it and explain what it is.
 When suggesting products or stores, explain WHY they match the user's request.
 
-IMPORTANT: For draft orders, ALL products must be from the same branch. If user selects products from different branches, you must create separate orders or ask them to choose one branch."""
+IMPORTANT: Order creation is temporarily disabled. DO NOT suggest creating draft orders. Focus on search and discovery only."""
 
     async def send_message(
         self,
@@ -122,11 +120,12 @@ IMPORTANT: For draft orders, ALL products must be from the same branch. If user 
         )
 
         # Step 6: Handle draft order creation if needed
-        if final_response.response_type == "create_draft_order" and final_response.draft_order:
-            await self._create_draft_order(
-                session_id=session_id,
-                draft_data=final_response.draft_order
-            )
+        # NOTE: Draft order creation is temporarily disabled - focusing on search only
+        # if final_response.response_type == "create_draft_order" and final_response.draft_order:
+        #     await self._create_draft_order(
+        #         session_id=session_id,
+        #         draft_data=final_response.draft_order
+        #     )
 
         # Step 7: Save assistant response to memory
         await chat_memory_repo.add_message(
@@ -198,7 +197,27 @@ IMPORTANT: For draft orders, ALL products must be from the same branch. If user 
                 product_ids = [r.mongo_id for r in product_results]
                 # Fetch full product data
                 products = await products_repo.get_by_ids(product_ids)
-                context.products.extend([p.model_dump() for p in products])
+                
+                # Fetch branch info for each product to include name and avatar
+                branch_ids = list(set([p.branchId for p in products]))
+                branches_map = {}
+                if branch_ids:
+                    branches_data = await branches_repo.get_by_ids(branch_ids)
+                    branches_map = {b.id: b for b in branches_data}
+                
+                # Enrich products with branch info
+                enriched_products = []
+                for product in products:
+                    product_dict = product.model_dump()
+                    branch = branches_map.get(product.branchId)
+                    if branch:
+                        product_dict["branch_name"] = branch.name
+                        product_dict["branch_avatar"] = branch.avatar
+                        product_dict["branch_address"] = branch.address
+                        product_dict["branch_phone"] = branch.phone
+                    enriched_products.append(product_dict)
+                
+                context.products.extend(enriched_products)
 
             elif query.collection == "branches":
                 branch_results = await self.vector_search.search_branches(
@@ -312,6 +331,11 @@ IMPORTANT: For draft orders, ALL products must be from the same branch. If user 
         products = await products_repo.get_by_ids(draft_data.product_ids)
         print(f"[AI RAG] Products fetched: {len(products)} items")
 
+        # Fetch branch to get avatar (denormalized for quick access)
+        branch = await branches_repo.get_by_id(draft_data.branch_id)
+        branch_avatar = branch.avatar if branch else None
+        print(f"[AI RAG] Branch fetched: {branch.name if branch else 'NOT FOUND'} - Avatar: {branch_avatar}")
+
         # Calculate totals
         items = []
         subtotal = 0.0
@@ -379,7 +403,8 @@ IMPORTANT: For draft orders, ALL products must be from the same branch. If user 
             total=total,
             currency="USD",
             delivery_address=delivery_address,
-            payment_method_id=draft_data.payment_method_id
+            payment_method_id=draft_data.payment_method_id,
+            branch_avatar=branch_avatar
         )
 
         print(f"[AI RAG] Draft order created successfully: ID={draft.id}")
@@ -396,12 +421,15 @@ IMPORTANT: For draft orders, ALL products must be from the same branch. If user 
 
     @staticmethod
     def _format_products(products: List[Dict]) -> str:
-        """Format products for context."""
+        """Format products for context with branch info."""
         lines = []
         for p in products:
+            branch_info = f"Branch: {p.get('branch_name', 'N/A')}"
+            if p.get('branch_avatar'):
+                branch_info += f" (Avatar: {p['branch_avatar']})"
             lines.append(
                 f"- ID: {p['id']}, Name: {p['name']}, Price: ${p['price']} {p.get('currency', 'USD')}, "
-                f"Branch: {p['branchId']}, Available: {p.get('availability', True)}"
+                f"{branch_info}, BranchID: {p['branchId']}, Available: {p.get('availability', True)}"
             )
         return "\n".join(lines)
 

@@ -57,15 +57,33 @@ class AiAssistantQuery:
             # Convert suggested products to GraphQL types
             suggested_products = []
             print(f"[AI CHAT] Converting {len(response.suggested_products)} product suggestions...")
+            
+            # Pre-fetch all branches needed for products
+            product_ids = [s.product_id for s in response.suggested_products]
+            products_data = await products_repo.get_by_ids(product_ids)
+            products_map = {p.id: p for p in products_data}
+            
+            # Get unique branch IDs from products
+            branch_ids = list(set([p.branchId for p in products_data]))
+            branches_map = {}
+            if branch_ids:
+                branches_data = await branches_repo.get_by_ids(branch_ids)
+                branches_map = {b.id: b for b in branches_data}
+            
             for i, suggestion in enumerate(response.suggested_products):
                 print(f"[AI CHAT]   Product {i+1}: ID={suggestion.product_id}, reason={suggestion.reason}")
-                product = await products_repo.get_by_id(suggestion.product_id)
+                product = products_map.get(suggestion.product_id)
                 if product:
                     print(f"[AI CHAT]   Product found: {product.name} (${product.price})")
+                    branch = branches_map.get(product.branchId)
                     suggested_products.append(
                         ProductSuggestionType(
                             product=ProductType(**product.model_dump()),
-                            reason=suggestion.reason
+                            reason=suggestion.reason,
+                            branch_name=branch.name if branch else None,
+                            branch_avatar=branch.avatar if branch else None,
+                            branch_address=branch.address if branch else None,
+                            branch_phone=branch.phone if branch else None
                         )
                     )
                 else:
@@ -125,6 +143,7 @@ class AiAssistantQuery:
                         customer_id=latest_draft.customerId,
                         branch_id=latest_draft.branchId,
                         business_id=latest_draft.businessId,
+                        branch_avatar=latest_draft.branchAvatar,
                         items=[
                             DraftOrderItemType(
                                 product_id=item.productId,

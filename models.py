@@ -508,6 +508,7 @@ class DraftOrder(BaseModel):
     customerId: str  # Same as sessionId
     branchId: str
     businessId: str
+    branchAvatar: Optional[str] = None  # Denormalized branch avatar URL
     items: List[DraftOrderItem]
     subtotal: float
     deliveryFee: float

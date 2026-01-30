@@ -22,7 +22,8 @@ class DraftOrderRepository:
         total: float,
         currency: str = "USD",
         delivery_address: Optional[Dict[str, Any]] = None,
-        payment_method_id: Optional[str] = None
+        payment_method_id: Optional[str] = None,
+        branch_avatar: Optional[str] = None
     ) -> DraftOrder:
         """
         Create a draft order.
@@ -39,6 +40,7 @@ class DraftOrderRepository:
             currency: Currency code (default: USD)
             delivery_address: Delivery address dict
             payment_method_id: Payment method ID
+            branch_avatar: Branch avatar URL (denormalized for quick access)
 
         Returns:
             DraftOrder object
@@ -53,6 +55,7 @@ class DraftOrderRepository:
             "customerId": customer_id,
             "branchId": branch_id,
             "businessId": business_id,
+            "branchAvatar": branch_avatar,
             "items": items,
             "subtotal": subtotal,
             "deliveryFee": delivery_fee,

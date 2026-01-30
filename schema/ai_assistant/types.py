@@ -4,13 +4,26 @@ from typing import List, Union, Optional
 from datetime import datetime
 from schema.products.types import ProductType
 from schema.branches.types import BranchType
+from utils.s3 import generate_presigned_url
 
 
 @strawberry.type
 class ProductSuggestionType:
-    """Product suggestion from AI."""
+    """Product suggestion from AI with branch info for cards."""
     product: ProductType = strawberry.field(description="The suggested product")
     reason: str = strawberry.field(description="Why this product was suggested")
+    
+    # Branch info for product cards (denormalized for easy access)
+    branch_name: Optional[str] = strawberry.field(description="Branch name where product is sold", default=None)
+    branch_avatar: Optional[str] = strawberry.field(description="Branch avatar S3 key", default=None)
+    branch_address: Optional[str] = strawberry.field(description="Branch address", default=None)
+    branch_phone: Optional[str] = strawberry.field(description="Branch phone number", default=None)
+    
+    @strawberry.field(description="Presigned URL for the branch avatar")
+    def branch_avatar_url(self) -> Optional[str]:
+        if self.branch_avatar:
+            return generate_presigned_url(self.branch_avatar)
+        return None
 
 
 @strawberry.type
@@ -38,6 +51,7 @@ class DraftOrderType:
     customer_id: str = strawberry.field(description="Customer ID")
     branch_id: str = strawberry.field(description="Branch ID")
     business_id: str = strawberry.field(description="Business ID")
+    branch_avatar: Optional[str] = strawberry.field(description="Branch avatar URL", default=None)
     items: List[DraftOrderItemType] = strawberry.field(description="Order items")
     subtotal: float = strawberry.field(description="Subtotal amount")
     delivery_fee: float = strawberry.field(description="Delivery fee")
