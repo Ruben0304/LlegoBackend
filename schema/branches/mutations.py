@@ -13,6 +13,7 @@ from repositories import branches_repo, businesses_repo, store_locations_repo, p
 from utils.graphql_auth import apply_optional_jwt
 from utils.s3 import delete_file
 from services.qdrant_indexing_service import qdrant_indexing_service
+from services.access_checker import access_checker
 
 
 @strawberry.type
@@ -33,13 +34,8 @@ class BranchMutation:
         if not user_id:
             raise Exception("Usuario no autenticado")
 
-        # Verify business exists and user is owner
-        business = await businesses_repo.get_by_id(input.businessId)
-        if not business:
-            raise Exception("Negocio no encontrado")
-
-        if business.ownerId != user_id:
-            raise Exception("No autorizado para crear sucursales en este negocio")
+        # Verify business exists and user is owner (only owners can create branches)
+        await access_checker.require_business_access(user_id, input.businessId, require_owner=True)
 
         # Validate tipos is not empty
         if not input.tipos:
@@ -118,18 +114,13 @@ class BranchMutation:
         if not user_id:
             raise Exception("Usuario no autenticado")
 
-        # Verify branch exists
+        # Verify branch exists and user has access
+        await access_checker.require_branch_access(user_id, branch_id)
+
+        # Get branch for further operations
         branch = await branches_repo.get_by_id(branch_id)
         if not branch:
             raise Exception("Sucursal no encontrada")
-
-        # Verify user has permission
-        business = await businesses_repo.get_by_id(branch.businessId)
-        if not business:
-            raise Exception("Negocio no encontrado")
-
-        if business.ownerId != user_id and user_id not in branch.managerIds:
-            raise Exception("No autorizado para modificar esta sucursal")
 
         # Build updates dict from input
         updates = {}
@@ -148,9 +139,12 @@ class BranchMutation:
         if input.facilities is not None:
             updates["facilities"] = input.facilities
         if input.managerIds is not None:
-            # Only owner can change managers
-            if business.ownerId != user_id:
-                raise Exception("Solo el propietario puede modificar los managers")
+            # Only owner can change managers - verify owner access
+            business = await businesses_repo.get_by_id(branch.businessId)
+            if not business:
+                raise Exception("Negocio no encontrado")
+
+            await access_checker.require_business_access(user_id, branch.businessId, require_owner=True)
             updates["managerIds"] = input.managerIds
         if input.avatar is not None:
             # Delete old avatar if exists
@@ -232,12 +226,7 @@ class BranchMutation:
             raise Exception("Sucursal no encontrada")
 
         # Verify user is the business owner (only owner can delete, not managers)
-        business = await businesses_repo.get_by_id(branch.businessId)
-        if not business:
-            raise Exception("Negocio no encontrado")
-
-        if business.ownerId != user_id:
-            raise Exception("Solo el propietario del negocio puede eliminar sucursales")
+        await access_checker.require_branch_access(user_id, branch_id, require_owner=True)
 
         # Delete branch images from S3
         if branch.avatar:

@@ -12,6 +12,7 @@ from repositories import products_repo, branches_repo, businesses_repo
 from utils.graphql_auth import apply_optional_jwt
 from utils.s3 import delete_file
 from services.qdrant_indexing_service import qdrant_indexing_service
+from services.access_checker import access_checker
 
 
 @strawberry.type
@@ -41,28 +42,21 @@ class ProductMutation:
         business = None
 
         if input.branchId:
-            # Verify branch exists
+            # Verify branch exists and user has access
+            await access_checker.require_branch_access(user_id, input.branchId)
+
             branch = await branches_repo.get_by_id(input.branchId)
             if not branch:
                 raise Exception("Sucursal no encontrada")
 
-            # Verify user has permission
-            business = await businesses_repo.get_by_id(branch.businessId)
-            if not business:
-                raise Exception("Negocio no encontrado")
-
-            if business.ownerId != user_id and user_id not in branch.managerIds:
-                raise Exception("No autorizado para crear productos en esta sucursal")
-
             target_branch_id = input.branchId
         else:
             # businessId provided, find the first branch
+            await access_checker.require_business_access(user_id, input.businessId)
+
             business = await businesses_repo.get_by_id(input.businessId)
             if not business:
                 raise Exception("Negocio no encontrado")
-
-            if business.ownerId != user_id:
-                raise Exception("No autorizado para crear productos en este negocio")
 
             # Get branches for this business
             branches = await branches_repo.get_by_business(input.businessId)
@@ -118,17 +112,8 @@ class ProductMutation:
         if not product:
             raise Exception("Producto no encontrado")
 
-        # Verify user has permission
-        branch = await branches_repo.get_by_id(product.branchId)
-        if not branch:
-            raise Exception("Sucursal no encontrada")
-
-        business = await businesses_repo.get_by_id(branch.businessId)
-        if not business:
-            raise Exception("Negocio no encontrado")
-
-        if business.ownerId != user_id and user_id not in branch.managerIds:
-            raise Exception("No autorizado para modificar este producto")
+        # Verify user has access to the branch
+        await access_checker.require_branch_access(user_id, product.branchId)
 
         # Build updates dict from input
         updates = {}
@@ -180,17 +165,8 @@ class ProductMutation:
         if not product:
             raise Exception("Producto no encontrado")
 
-        # Verify user has permission
-        branch = await branches_repo.get_by_id(product.branchId)
-        if not branch:
-            raise Exception("Sucursal no encontrada")
-
-        business = await businesses_repo.get_by_id(branch.businessId)
-        if not business:
-            raise Exception("Negocio no encontrado")
-
-        if business.ownerId != user_id and user_id not in branch.managerIds:
-            raise Exception("No autorizado para eliminar este producto")
+        # Verify user has access to the branch
+        await access_checker.require_branch_access(user_id, product.branchId)
 
         # Delete image from S3
         if product.image:
