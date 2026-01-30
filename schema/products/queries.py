@@ -224,11 +224,11 @@ class ProductQuery:
             vector_service = VectorSearchService()
             # Request more results for filtering and pagination
             search_limit = 200
-            product_ids = await vector_service.search_products(query, limit=search_limit)
+            product_results = await vector_service.search_products(query, limit=search_limit)
 
             all_products = []
-            for product_id in product_ids:
-                product = await products_repo.get_by_id(product_id)
+            for result in product_results:
+                product = await products_repo.get_by_id(result.mongo_id)
                 if product:
                     if allowed_branch_ids is None or product.branchId in allowed_branch_ids:
                         all_products.append(product)
