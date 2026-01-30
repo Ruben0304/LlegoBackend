@@ -38,6 +38,7 @@ class DraftOrderType:
     customer_id: str = strawberry.field(description="Customer ID")
     branch_id: str = strawberry.field(description="Branch ID")
     business_id: str = strawberry.field(description="Business ID")
+    branch_avatar: Optional[str] = strawberry.field(description="Branch avatar URL", default=None)
     items: List[DraftOrderItemType] = strawberry.field(description="Order items")
     subtotal: float = strawberry.field(description="Subtotal amount")
     delivery_fee: float = strawberry.field(description="Delivery fee")

@@ -312,6 +312,11 @@ IMPORTANT: For draft orders, ALL products must be from the same branch. If user 
         products = await products_repo.get_by_ids(draft_data.product_ids)
         print(f"[AI RAG] Products fetched: {len(products)} items")
 
+        # Fetch branch to get avatar (denormalized for quick access)
+        branch = await branches_repo.get_by_id(draft_data.branch_id)
+        branch_avatar = branch.avatar if branch else None
+        print(f"[AI RAG] Branch fetched: {branch.name if branch else 'NOT FOUND'} - Avatar: {branch_avatar}")
+
         # Calculate totals
         items = []
         subtotal = 0.0
@@ -379,7 +384,8 @@ IMPORTANT: For draft orders, ALL products must be from the same branch. If user 
             total=total,
             currency="USD",
             delivery_address=delivery_address,
-            payment_method_id=draft_data.payment_method_id
+            payment_method_id=draft_data.payment_method_id,
+            branch_avatar=branch_avatar
         )
 
         print(f"[AI RAG] Draft order created successfully: ID={draft.id}")

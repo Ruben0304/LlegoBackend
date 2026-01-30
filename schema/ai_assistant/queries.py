@@ -125,6 +125,7 @@ class AiAssistantQuery:
                         customer_id=latest_draft.customerId,
                         branch_id=latest_draft.branchId,
                         business_id=latest_draft.businessId,
+                        branch_avatar=latest_draft.branchAvatar,
                         items=[
                             DraftOrderItemType(
                                 product_id=item.productId,
