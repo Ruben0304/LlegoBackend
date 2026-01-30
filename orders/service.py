@@ -12,6 +12,7 @@ from .models import (
 from .repository import OrderRepository, DeliveryPersonRepository, OrderLocationRepository
 from .utils import generate_order_number, calculate_delivery_fee, haversine_distance
 from repositories import products_repo, branches_repo, businesses_repo, users_repo
+from services.access_checker import access_checker
 
 
 class OrderService:
@@ -246,12 +247,10 @@ class OrderService:
         if not order:
             raise ValueError("Pedido no encontrado")
         
-        # Verify user is branch manager or business owner
-        branch = await branches_repo.get_by_id(order.branchId)
-        business = await businesses_repo.get_by_id(order.businessId)
-        
-        if business.ownerId != user_id and user_id not in branch.managerIds:
-            raise ValueError("No autorizado para aceptar este pedido")
+        # Verify user has access to the branch
+        has_access, error_msg = await access_checker.check_branch_access(user_id, order.branchId)
+        if not has_access:
+            raise ValueError(error_msg or "No autorizado para aceptar este pedido")
         
         return await self.update_status(
             order_id,
@@ -271,11 +270,10 @@ class OrderService:
         if not order:
             raise ValueError("Pedido no encontrado")
         
-        branch = await branches_repo.get_by_id(order.branchId)
-        business = await businesses_repo.get_by_id(order.businessId)
-        
-        if business.ownerId != user_id and user_id not in branch.managerIds:
-            raise ValueError("No autorizado para rechazar este pedido")
+        # Verify user has access to the branch
+        has_access, error_msg = await access_checker.check_branch_access(user_id, order.branchId)
+        if not has_access:
+            raise ValueError(error_msg or "No autorizado para rechazar este pedido")
         
         # TODO: Process refund if payment was made
         
@@ -301,11 +299,10 @@ class OrderService:
         if order.status not in [OrderStatus.PENDING_ACCEPTANCE, OrderStatus.ACCEPTED]:
             raise ValueError("No se puede modificar el pedido en este estado")
         
-        branch = await branches_repo.get_by_id(order.branchId)
-        business = await businesses_repo.get_by_id(order.businessId)
-        
-        if business.ownerId != user_id and user_id not in branch.managerIds:
-            raise ValueError("No autorizado para modificar este pedido")
+        # Verify user has access to the branch
+        has_access, error_msg = await access_checker.check_branch_access(user_id, order.branchId)
+        if not has_access:
+            raise ValueError(error_msg or "No autorizado para modificar este pedido")
         
         # Build new items list with snapshots
         modified_items: List[OrderItem] = []

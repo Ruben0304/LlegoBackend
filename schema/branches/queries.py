@@ -5,7 +5,7 @@ from strawberry.types import Info
 
 from .types import BranchType, CoordinatesType, NearbyBranchType, ScoredBranchType, BranchTipo
 from models import branches_repo
-from repositories import store_locations_repo
+from repositories import store_locations_repo, users_repo, businesses_repo, business_access_repo
 from schema.pagination import (
     BranchConnection, BranchEdge, NearbyBranchConnection, NearbyBranchEdge, PageInfo,
     encode_scored_cursor, decode_scored_cursor, encode_cursor, decode_cursor
@@ -13,6 +13,7 @@ from schema.pagination import (
 from utils.graphql_auth import apply_optional_jwt
 from utils.rate_limit import rate_limit_graphql
 from services.scoring_service import scoring_service
+from datetime import datetime
 
 
 @strawberry.type
@@ -483,3 +484,64 @@ class BranchQuery:
                 coordinates=location.get("coordinates", [0.0, 0.0])
             )
         return None
+
+    @strawberry.field(description="Obtener todas las sucursales a las que tengo acceso (propias + compartidas)")
+    async def get_my_branches(
+        self,
+        info: Info,
+        jwt: str
+    ) -> List[BranchType]:
+        """
+        Get all branches accessible by the authenticated user.
+        Includes:
+        - Branches from businesses owned by the user
+        - Branches with active shared access (via invitations)
+
+        This is the recommended query for listing branches in admin/management UI.
+        """
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+
+        # 1. Get businesses owned by the user
+        owned_businesses = await businesses_repo.get_by_owner(user_id)
+
+        # 2. Get businesses with active shared access
+        accesses = await business_access_repo.get_active_by_user(user_id)
+
+        # Filter out expired accesses (in case worker hasn't run)
+        now = datetime.utcnow()
+        active_accesses = [
+            a for a in accesses
+            if a.isActive and (a.expiresAt is None or a.expiresAt > now)
+        ]
+
+        # Get business IDs from active accesses
+        shared_business_ids = [a.businessId for a in active_accesses]
+
+        # 3. Combine all business IDs
+        all_business_ids = list(set(
+            [b.id for b in owned_businesses] + shared_business_ids
+        ))
+
+        # 4. Get all branches for these businesses
+        all_branches = []
+        if all_business_ids:
+            all_branches = await branches_repo.get_by_business_ids(all_business_ids)
+
+        # 5. Convert to BranchType
+        return [
+            BranchType(
+                **{
+                    **branch.model_dump(),
+                    'coordinates': CoordinatesType(**branch.coordinates.model_dump()),
+                    'tipos': [BranchTipo(t) for t in (branch.tipos or [])],
+                    'paymentMethodIds': branch.paymentMethodIds or [],
+                    'wallet': branch.wallet,
+                    'walletStatus': branch.walletStatus
+                }
+            )
+            for branch in all_branches
+        ]
