@@ -525,6 +525,21 @@ class DraftOrder(BaseModel):
         json_encoders = {datetime: lambda v: v.isoformat()}
 
 
+class BranchLike(BaseModel):
+    """
+    User likes for branches.
+    Stores branch likes for users (similar to FavoriteCart but for branches).
+    """
+    id: str = Field(alias="_id")
+    userId: str  # Reference to User
+    branchId: str  # Reference to Branch
+    createdAt: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat()}
+
+
 # Export repository instances for backward compatibility
 from repositories import (
     users_repo,
@@ -543,6 +558,7 @@ from repositories import (
     searches_repo,
     chat_memory_repo,
     draft_orders_repo,
+    branch_likes_repo,
 )
 
 __all__ = [
@@ -577,6 +593,7 @@ __all__ = [
     "ChatMessage",
     "DraftOrder",
     "DraftOrderItem",
+    "BranchLike",
     "users_repo",
     "businesses_repo",
     "branches_repo",
@@ -593,4 +610,5 @@ __all__ = [
     "searches_repo",
     "chat_memory_repo",
     "draft_orders_repo",
+    "branch_likes_repo",
 ]

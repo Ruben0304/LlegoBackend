@@ -34,6 +34,8 @@ from .surveys.queries import SurveyQuery
 from .surveys.mutations import SurveyMutation
 from .favorites_cart.mutations import FavoritesCartMutation
 from .searches.mutations import SearchesMutation
+from .feed.queries import FeedQuery
+from .branch_likes.mutations import BranchLikesMutation
 from .extensions import UserIdExtension, ErrorLoggingExtension
 from utils.graphql_auth import apply_optional_jwt
 
@@ -54,7 +56,8 @@ class Query(
     InvitationQuery,
     AppConfigQueries,
     FeedbackQuery,
-    SurveyQuery
+    SurveyQuery,
+    FeedQuery
 ):
     @strawberry.field(description="Saludo de ejemplo")
     def hello(self, info: Info, jwt: Optional[str] = None) -> str:
@@ -83,7 +86,8 @@ class Mutation(
     FeedbackMutation,
     SurveyMutation,
     FavoritesCartMutation,
-    SearchesMutation
+    SearchesMutation,
+    BranchLikesMutation
 ):
     pass
 
