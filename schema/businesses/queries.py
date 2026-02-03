@@ -14,7 +14,7 @@ from utils.s3 import generate_presigned_url
 
 @strawberry.type
 class BusinessWithBranchesType:
-    """Business type with nested branches for optimized queries."""
+    """Business type with nested branches and access metadata."""
     id: str
     name: str
     ownerId: str
@@ -26,6 +26,8 @@ class BusinessWithBranchesType:
     isActive: bool
     createdAt: datetime
     branches: List[BranchType]
+    isOwner: bool  # True if user is the owner, False if invited
+    role: str  # "owner", "manager", or "employee"
 
     @strawberry.field(description="Presigned URL for the business avatar")
     def avatar_url(self) -> Optional[str]:
@@ -36,28 +38,22 @@ class BusinessWithBranchesType:
 
 @strawberry.type
 class BusinessQuery:
-    @strawberry.field(description="Lista de negocios")
+    @strawberry.field(description="Lista de negocios (query pública/admin)")
     async def businesses(
         self,
         info: Info,
         ownerId: Optional[str] = None,
         jwt: Optional[str] = None
     ) -> List[BusinessType]:
+        """
+        Public/admin query for businesses.
+        For user-specific queries, use getMyBusinessesWithBranches instead.
+        """
         apply_optional_jwt(jwt, info)
 
-        # Priority-based filtering:
-        # 1. If explicit ownerId provided -> use it
-        # 2. If no ownerId but authenticated (user_id in context) -> filter by authenticated user
-        # 3. If no ownerId and not authenticated -> return all (public query)
         if ownerId:
-            # Explicit ownerId takes priority (for admin or specific queries)
             businesses = await businesses_repo.get_by_owner(ownerId)
-        elif info.context.get("user_id"):
-            # Authenticated user without explicit ownerId -> filter by their user_id
-            user_id = info.context["user_id"]
-            businesses = await businesses_repo.get_by_owner(user_id)
         else:
-            # No ownerId and not authenticated -> return all (public query)
             businesses = await businesses_repo.get_all()
 
         return [BusinessType(**b.model_dump()) for b in businesses]
@@ -104,95 +100,25 @@ class BusinessQuery:
             businesses = await businesses_repo.search(query)
             return [BusinessType(**b.model_dump()) for b in businesses]
 
-    @strawberry.field(description="Obtener negocios con sus sucursales anidadas (optimizado)")
-    async def get_businesses_with_branches(
-        self,
-        info: Info,
-        jwt: Optional[str] = None
-    ) -> List[BusinessWithBranchesType]:
-        """
-        Get businesses with their branches nested in a single query.
-        This is optimized to reduce round-trips to the server.
-        Only returns businesses owned by the authenticated user.
-        """
-        apply_optional_jwt(jwt, info)
-        user_id = info.context.get("user_id")
-        
-        if not user_id:
-            raise Exception("Usuario no autenticado")
-        
-        # 1. Get businesses owned by the user
-        businesses = await businesses_repo.get_by_owner(user_id)
-        
-        if not businesses:
-            return []
-        
-        # 2. Get all branches for those businesses in a single query
-        business_ids = [b.id for b in businesses]
-        all_branches = await branches_repo.get_by_business_ids(business_ids)
-        
-        # 3. Group branches by businessId
-        branches_by_business = {}
-        for branch in all_branches:
-            if branch.businessId not in branches_by_business:
-                branches_by_business[branch.businessId] = []
-            
-            # Convert branch to BranchType
-            branch_type = BranchType(
-                id=branch.id,
-                businessId=branch.businessId,
-                name=branch.name,
-                address=branch.address,
-                coordinates=CoordinatesType(**branch.coordinates.model_dump()),
-                phone=branch.phone,
-                schedule=branch.schedule,
-                managerIds=branch.managerIds,
-                status=branch.status,
-                avatar=branch.avatar,
-                coverImage=branch.coverImage,
-                deliveryRadius=branch.deliveryRadius,
-                facilities=branch.facilities,
-                tipos=[BranchTipo(t) for t in (branch.tipos or [])],
-                paymentMethodIds=branch.paymentMethodIds or [],
-                createdAt=branch.createdAt,
-                wallet=branch.wallet,
-                walletStatus=branch.walletStatus
-            )
-            branches_by_business[branch.businessId].append(branch_type)
-        
-        # 4. Build response with nested branches
-        result = []
-        for business in businesses:
-            branches = branches_by_business.get(business.id, [])
-            result.append(BusinessWithBranchesType(
-                id=business.id,
-                name=business.name,
-                ownerId=business.ownerId,
-                globalRating=business.globalRating,
-                avatar=business.avatar,
-                description=business.description,
-                socialMedia=business.socialMedia,
-                tags=business.tags,
-                isActive=business.isActive,
-                createdAt=business.createdAt,
-                branches=branches
-            ))
-        
-        return result
-
-    @strawberry.field(description="Obtener todos mis negocios (propios + con acceso compartido)")
-    async def get_my_businesses(
+    @strawberry.field(description="Obtener todos mis negocios con sucursales (propios + compartidos)")
+    async def get_my_businesses_with_branches(
         self,
         info: Info,
         jwt: str
-    ) -> List[BusinessType]:
+    ) -> List[BusinessWithBranchesType]:
         """
-        Get all businesses accessible by the authenticated user.
+        Get all businesses accessible by the authenticated user with their branches.
+        
         Includes:
         - Businesses owned by the user (ownerId = user_id)
         - Businesses with active shared access (via invitations)
         
-        This is the recommended query for listing businesses in the UI.
+        Returns branches filtered by access level:
+        - Owners: All branches
+        - Business access: All branches
+        - Branch managers: Only their assigned branches
+        
+        This is the main query for the frontend to display businesses and branches.
         """
         apply_optional_jwt(jwt, info)
         user_id = info.context.get("user_id")
@@ -205,11 +131,12 @@ class BusinessQuery:
         
         # 1. Get businesses owned by the user
         owned_businesses = await businesses_repo.get_by_owner(user_id)
+        owned_business_ids = {b.id for b in owned_businesses}
         
         # 2. Get businesses with active shared access
         accesses = await business_access_repo.get_active_by_user(user_id)
         
-        # Filter out expired accesses (in case worker hasn't run)
+        # Filter out expired accesses
         now = datetime.utcnow()
         active_accesses = [
             a for a in accesses 
@@ -219,16 +146,98 @@ class BusinessQuery:
         # Get business IDs from active accesses
         shared_business_ids = [a.businessId for a in active_accesses]
         
-        # Fetch shared businesses in batch
+        # Fetch shared businesses
         shared_businesses = []
         if shared_business_ids:
             shared_businesses = await businesses_repo.get_by_ids(shared_business_ids)
         
-        # 3. Combine and deduplicate
-        all_businesses_dict = {b.id: b for b in owned_businesses}
+        # 3. Combine all businesses
+        all_businesses = list(owned_businesses)
         for b in shared_businesses:
-            if b.id not in all_businesses_dict:
-                all_businesses_dict[b.id] = b
+            if b.id not in owned_business_ids:
+                all_businesses.append(b)
         
-        # Convert to BusinessType
-        return [BusinessType(**b.model_dump()) for b in all_businesses_dict.values()]
+        if not all_businesses:
+            return []
+        
+        # 4. Get all branches for these businesses
+        business_ids = [b.id for b in all_businesses]
+        all_branches = await branches_repo.get_by_business_ids(business_ids)
+        
+        # 5. Filter branches by access level and group by businessId
+        branches_by_business = {}
+        for branch in all_branches:
+            business_id = branch.businessId
+            
+            # Determine if user has access to this branch
+            has_access = False
+            
+            # Owner has access to all branches
+            if business_id in owned_business_ids:
+                has_access = True
+            # Business access grants access to all branches
+            elif business_id in shared_business_ids:
+                has_access = True
+            # Branch manager has access only to their branches
+            elif user_id in branch.managerIds:
+                has_access = True
+            
+            if has_access:
+                if business_id not in branches_by_business:
+                    branches_by_business[business_id] = []
+                
+                # Convert branch to BranchType
+                branch_type = BranchType(
+                    id=branch.id,
+                    businessId=branch.businessId,
+                    name=branch.name,
+                    address=branch.address,
+                    coordinates=CoordinatesType(**branch.coordinates.model_dump()),
+                    phone=branch.phone,
+                    schedule=branch.schedule,
+                    managerIds=branch.managerIds,
+                    status=branch.status,
+                    avatar=branch.avatar,
+                    coverImage=branch.coverImage,
+                    deliveryRadius=branch.deliveryRadius,
+                    facilities=branch.facilities,
+                    tipos=[BranchTipo(t) for t in (branch.tipos or [])],
+                    paymentMethodIds=branch.paymentMethodIds or [],
+                    createdAt=branch.createdAt,
+                    wallet=branch.wallet,
+                    walletStatus=branch.walletStatus
+                )
+                branches_by_business[business_id].append(branch_type)
+        
+        # 6. Build response with metadata
+        result = []
+        for business in all_businesses:
+            is_owner = business.id in owned_business_ids
+            
+            # Determine role
+            if is_owner:
+                role = "owner"
+            elif business.id in shared_business_ids:
+                role = "manager"  # Business-level access
+            else:
+                role = "employee"  # Branch-level access only
+            
+            branches = branches_by_business.get(business.id, [])
+            
+            result.append(BusinessWithBranchesType(
+                id=business.id,
+                name=business.name,
+                ownerId=business.ownerId,
+                globalRating=business.globalRating,
+                avatar=business.avatar,
+                description=business.description,
+                socialMedia=business.socialMedia,
+                tags=business.tags,
+                isActive=business.isActive,
+                createdAt=business.createdAt,
+                branches=branches,
+                isOwner=is_owner,
+                role=role
+            ))
+        
+        return result
