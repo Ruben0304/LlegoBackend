@@ -221,42 +221,51 @@ class ProductQuery:
 
         if use_vector_search:
             from services.vector_search_service import VectorSearchService
+            from services.reranking_service import reranking_service
+
             vector_service = VectorSearchService()
             # Request more results for filtering and pagination
             search_limit = 200
             product_results = await vector_service.search_products(query, limit=search_limit)
 
+            # Build vector scores map and product list
+            vector_scores = {r.mongo_id: r.score for r in product_results}
             all_products = []
+
             for result in product_results:
                 product = await products_repo.get_by_id(result.mongo_id)
                 if product:
                     if allowed_branch_ids is None or product.branchId in allowed_branch_ids:
                         all_products.append(product)
+
+            # RE-RANK: Combine vector search with popularity, proximity, and personalization
+            user_location = None
+            if user_id:
+                user_location = await scoring_service.get_user_location(user_id)
+
+            ranked_products = await reranking_service.rerank_products(
+                products=all_products,
+                query=query,
+                user_id=user_id,
+                user_location=user_location,
+                vector_scores=vector_scores
+            )
+
+            # Convert to ScoredProductType
+            scored_products = [
+                ScoredProductType(
+                    **rp.product.model_dump(),
+                    score=rp.final_score,
+                    distance_m=None  # Could extract from proximity_score if needed
+                )
+                for rp in ranked_products
+            ]
         else:
             all_products = await products_repo.search(query)
             if allowed_branch_ids is not None:
                 all_products = [p for p in all_products if p.branchId in allowed_branch_ids]
-        
-        # Apply scoring if user is authenticated
-        scored_products: List[ScoredProductType] = []
-        if user_id:
-            user_location = await scoring_service.get_user_location(user_id)
-            if user_location:
-                scored_items = await scoring_service.score_products_by_branch(
-                    products=all_products,
-                    user_location=user_location,
-                    radius_km=radiusKm
-                )
-                scored_products = [
-                    ScoredProductType(
-                        **item.item.model_dump(),
-                        score=item.score,
-                        distance_m=item.distance_m
-                    )
-                    for item in scored_items
-                ]
-        
-        if not scored_products:
+
+            # Fallback: simple scoring without re-ranking
             scored_products = [
                 ScoredProductType(**p.model_dump(), score=0.0, distance_m=None)
                 for p in all_products

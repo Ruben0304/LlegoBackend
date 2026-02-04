@@ -22,6 +22,7 @@ async def connect_to_mongo():
         await _create_error_logs_indexes()
         await _create_invitation_indexes()
         await _create_business_access_indexes()
+        await _create_feed_indexes()
     except Exception as e:
         print(f"✗ Error connecting to MongoDB: {e}")
         raise
@@ -123,6 +124,81 @@ async def _create_business_access_indexes():
         print("✓ Business access indexes created/verified")
     except Exception as e:
         print(f"⚠ Warning: Could not create business access indexes: {e}")
+
+
+async def _create_feed_indexes():
+    """Create indexes for feed system and branch likes."""
+    try:
+        # products: freshness y filtro por branch + disponibilidad
+        products_collection = database["products"]
+
+        await products_collection.create_index(
+            [("createdAt", -1)],
+            name="idx_products_created_at",
+            background=True
+        )
+
+        await products_collection.create_index(
+            [("branchId", 1), ("availability", 1)],
+            name="idx_products_branch_availability",
+            background=True
+        )
+
+        # favorites_cart: actividad reciente por tipo
+        favorites_cart_collection = database["favorites_cart"]
+
+        await favorites_cart_collection.create_index(
+            [("type", 1), ("createdAt", -1)],
+            name="idx_fav_type_created",
+            background=True
+        )
+
+        await favorites_cart_collection.create_index(
+            [("userId", 1), ("type", 1)],
+            name="idx_fav_user_type",
+            background=True
+        )
+
+        # searches: actividad reciente global y por usuario
+        searches_collection = database["searches"]
+
+        await searches_collection.create_index(
+            [("createdAt", -1)],
+            name="idx_searches_created",
+            background=True
+        )
+
+        await searches_collection.create_index(
+            [("userId", 1), ("createdAt", -1)],
+            name="idx_searches_user_created",
+            background=True
+        )
+
+        # branch_likes: unique por usuario+branch, popularidad, actividad
+        branch_likes_collection = database["branch_likes"]
+
+        await branch_likes_collection.create_index(
+            [("userId", 1), ("branchId", 1)],
+            name="idx_branch_likes_unique",
+            unique=True,
+            background=True
+        )
+
+        await branch_likes_collection.create_index(
+            [("branchId", 1)],
+            name="idx_branch_likes_branch",
+            background=True
+        )
+
+        await branch_likes_collection.create_index(
+            [("createdAt", -1)],
+            name="idx_branch_likes_created",
+            background=True
+        )
+
+        print("✓ Feed indexes created/verified")
+    except Exception as e:
+        print(f"⚠ Warning: Could not create feed indexes: {e}")
 
 
 async def close_mongo_connection():

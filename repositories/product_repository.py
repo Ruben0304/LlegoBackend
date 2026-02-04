@@ -7,6 +7,7 @@ Hybrid repository pattern:
 """
 from typing import List, Optional, Dict, Any
 import uuid
+from datetime import datetime
 
 from clients import get_database, get_qdrant_client
 from models import Product
@@ -465,3 +466,71 @@ class ProductRepository:
                 filtered_products.append(product)
 
         return filtered_products
+
+    # --- Freshness Methods for Feed ---
+
+    async def get_recent_products(self, days: int = 30, limit: int = 100) -> List[Product]:
+        """
+        Get products created recently, ordered by createdAt DESC.
+
+        Args:
+            days: Number of days to look back (default 30)
+            limit: Maximum number of products to return (default 100)
+
+        Returns:
+            List of recently created products
+        """
+        from datetime import timedelta
+
+        try:
+            db = get_database()
+            cutoff_date = datetime.utcnow() - timedelta(days=days)
+
+            cursor = db[self.mongo_collection_name].find(
+                {"createdAt": {"$gte": cutoff_date}}
+            ).sort("createdAt", -1).limit(limit)
+
+            documents = await cursor.to_list(length=limit)
+            return [Product(**doc) for doc in documents]
+
+        except Exception as e:
+            print(f"Error fetching recent products: {e}")
+            return []
+
+    def calculate_freshness_scores(self, products: List[Product]) -> Dict[str, float]:
+        """
+        Calculate freshness scores (0-1) based on createdAt.
+        More recent products = higher score.
+
+        Args:
+            products: List of products to score
+
+        Returns:
+            Dict[product_id: freshness_score]
+        """
+        if not products:
+            return {}
+
+        # Find oldest and newest products
+        now = datetime.utcnow()
+        timestamps = [(p.id, (now - p.createdAt).total_seconds()) for p in products]
+
+        if not timestamps:
+            return {}
+
+        # Get min and max age in seconds
+        max_age = max(age for _, age in timestamps)
+        min_age = min(age for _, age in timestamps)
+
+        # Avoid division by zero
+        if max_age == min_age:
+            return {pid: 1.0 for pid, _ in timestamps}
+
+        # Normalize: newer products get higher scores
+        # score = 1 - (age - min_age) / (max_age - min_age)
+        scores = {}
+        for pid, age in timestamps:
+            normalized_age = (age - min_age) / (max_age - min_age)
+            scores[pid] = 1.0 - normalized_age
+
+        return scores

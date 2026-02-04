@@ -163,6 +163,118 @@ class SearchesRepository:
         searches = await cursor.to_list(length=limit)
         return [Search(**self._convert_id(search)) for search in searches]
 
+    async def get_popular_products_for_query(
+        self,
+        query: str,
+        limit: int = 100
+    ) -> Dict[str, float]:
+        """
+        Get popularity scores for products based on clicks for a query.
+        Returns dict mapping product_id to normalized popularity score (0-1).
+        """
+        db = get_database()
+
+        # Aggregate clicks per product for this query
+        pipeline = [
+            {"$match": {"query": {"$regex": query, "$options": "i"}}},
+            {"$unwind": "$clickedItems"},
+            {"$match": {"clickedItems.itemType": "product"}},
+            {"$group": {
+                "_id": "$clickedItems.itemId",
+                "totalClicks": {"$sum": {"$size": "$clickedItems.clicks"}},
+                "uniqueUsers": {"$addToSet": "$userId"}
+            }},
+            {"$project": {
+                "productId": "$_id",
+                "totalClicks": 1,
+                "uniqueUsers": {"$size": "$uniqueUsers"}
+            }},
+            {"$limit": limit}
+        ]
+
+        results = await db[self.collection_name].aggregate(pipeline).to_list(length=limit)
+
+        # Normalize scores 0-1
+        if not results:
+            return {}
+
+        max_clicks = max(r["totalClicks"] for r in results)
+        if max_clicks == 0:
+            return {}
+
+        return {
+            r["productId"]: r["totalClicks"] / max_clicks
+            for r in results
+        }
+
+    async def get_user_click_preferences(self, user_id: str) -> Dict[str, float]:
+        """
+        Get user's click preferences based on search history.
+        Returns dict mapping product_id to normalized preference score (0-1).
+        """
+        searches = await self.get_user_searches(user_id, limit=100)
+
+        product_clicks = {}
+        for search in searches:
+            for item in search.clickedItems:
+                if item.itemType == "product":
+                    product_clicks[item.itemId] = product_clicks.get(item.itemId, 0) + len(item.clicks)
+
+        # Normalize scores 0-1
+        if not product_clicks:
+            return {}
+
+        max_clicks = max(product_clicks.values())
+        if max_clicks == 0:
+            return {}
+
+        return {k: v / max_clicks for k, v in product_clicks.items()}
+
+    async def get_recent_activity(self, days: int = 7) -> Dict[str, Dict[str, Any]]:
+        """
+        Get recent activity on products in the last N days.
+        Returns dict mapping product_id to activity metrics.
+
+        Args:
+            days: Number of days to look back (default 7)
+
+        Returns:
+            Dict[product_id: {"clicks": int, "unique_users": int}]
+        """
+        from datetime import timedelta
+
+        db = get_database()
+        cutoff_date = datetime.utcnow() - timedelta(days=days)
+
+        # Aggregate recent clicks per product
+        pipeline = [
+            {"$match": {"createdAt": {"$gte": cutoff_date}}},
+            {"$unwind": "$clickedItems"},
+            {"$match": {"clickedItems.itemType": "product"}},
+            {"$unwind": "$clickedItems.clicks"},
+            {"$match": {"clickedItems.clicks": {"$gte": cutoff_date}}},
+            {"$group": {
+                "_id": "$clickedItems.itemId",
+                "totalClicks": {"$sum": 1},
+                "uniqueUsers": {"$addToSet": "$userId"}
+            }},
+            {"$project": {
+                "productId": "$_id",
+                "totalClicks": 1,
+                "uniqueUsers": {"$size": "$uniqueUsers"}
+            }}
+        ]
+
+        results = await db[self.collection_name].aggregate(pipeline).to_list(length=None)
+
+        return {
+            r["productId"]: {
+                "clicks": r["totalClicks"],
+                "unique_users": r["uniqueUsers"]
+            }
+            for r in results
+        }
+
     @staticmethod
     def _convert_id(doc: Dict[str, Any]) -> Dict[str, Any]:
         if doc and "_id" in doc:
