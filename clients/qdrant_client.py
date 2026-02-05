@@ -26,9 +26,20 @@ async def connect_to_qdrant():
     logger.info(f"   QDRANT_HTTPS env: {os.getenv('QDRANT_HTTPS', 'NOT SET')}")
 
     try:
+        # Sanitize host: remove http:// or https:// if present
+        host = settings.qdrant_host
+        if host.startswith("https://"):
+            host = host[8:]
+        elif host.startswith("http://"):
+            host = host[7:]
+        
+        # Remove trailing slash if present
+        if host.endswith("/"):
+            host = host[:-1]
+
         # Preparar parámetros de conexión
         connection_params = {
-            "host": settings.qdrant_host,
+            "host": host,
             "port": settings.qdrant_port,
             "grpc_port": settings.qdrant_grpc_port,
             "prefer_grpc": settings.qdrant_prefer_grpc,
@@ -43,11 +54,11 @@ async def connect_to_qdrant():
 
         # Log de configuración de conexión
         protocol = "https" if settings.qdrant_https else "http"
-        connection_url = f"{protocol}://{settings.qdrant_host}:{settings.qdrant_port}"
+        connection_url = f"{protocol}://{host}:{settings.qdrant_port}"
 
         logger.info("=" * 60)
         logger.info("🔌 Connecting to Qdrant...")
-        logger.info(f"   Host: {settings.qdrant_host}")
+        logger.info(f"   Host: {host}")
         logger.info(f"   HTTP Port: {settings.qdrant_port}")
         logger.info(f"   gRPC Port: {settings.qdrant_grpc_port}")
         logger.info(f"   HTTPS: {settings.qdrant_https}")
@@ -60,12 +71,12 @@ async def connect_to_qdrant():
         # Test DNS resolution primero
         import socket
         try:
-            logger.info(f"🔍 Resolving DNS for {settings.qdrant_host}...")
-            ip_addresses = socket.getaddrinfo(settings.qdrant_host, settings.qdrant_port, socket.AF_UNSPEC, socket.SOCK_STREAM)
+            logger.info(f"🔍 Resolving DNS for {host}...")
+            ip_addresses = socket.getaddrinfo(host, settings.qdrant_port, socket.AF_UNSPEC, socket.SOCK_STREAM)
             logger.info(f"✓ DNS resolved to: {[addr[4][0] for addr in ip_addresses]}")
         except socket.gaierror as dns_error:
             logger.error(f"❌ DNS resolution failed: {dns_error}")
-            logger.error(f"   Cannot resolve host: {settings.qdrant_host}")
+            logger.error(f"   Cannot resolve host: {host}")
             return False
         except Exception as dns_error:
             logger.warning(f"⚠️ DNS check error (continuing anyway): {dns_error}")
