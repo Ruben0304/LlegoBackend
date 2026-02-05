@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     qdrant_api_key: str = ""  # Optional para Qdrant Cloud
     qdrant_https: bool = False  # True para producción/Railway
     qdrant_prefer_grpc: bool = False  # False para conexiones públicas, True para red privada Railway
-    qdrant_timeout: int = 10  # Timeout en segundos
+    qdrant_timeout: int = 60  # Timeout en segundos - Aumentado para Railway cold starts
 
     # Gemini API Configuration
     gemini_api_key: str
