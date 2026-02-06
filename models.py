@@ -542,6 +542,29 @@ class BranchLike(BaseModel):
         json_encoders = {datetime: lambda v: v.isoformat()}
 
 
+class Tutorial(BaseModel):
+    """
+    Tutorial model for app usage guides.
+    Stores video tutorials with metadata for customer and merchant apps.
+    """
+    id: str = Field(alias="_id")
+    title: str  # Tutorial title
+    description: str  # Tutorial description
+    videoUrl: str  # S3 path to video (without signature)
+    duration: int  # Video duration in seconds
+    appTarget: str  # Target app: "customer", "merchant", "both"
+    thumbnailUrl: Optional[str] = None  # S3 path to thumbnail image
+    order: int = 0  # Display order (lower = first)
+    isActive: bool = True  # Whether tutorial is active/published
+    tags: List[str] = []  # Tags for categorization
+    createdAt: datetime = Field(default_factory=datetime.utcnow)
+    updatedAt: Optional[datetime] = None
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat()}
+
+
 # Export repository instances for backward compatibility
 from repositories import (
     users_repo,
@@ -561,6 +584,7 @@ from repositories import (
     chat_memory_repo,
     draft_orders_repo,
     branch_likes_repo,
+    tutorials_repo,
 )
 
 __all__ = [
@@ -596,6 +620,7 @@ __all__ = [
     "DraftOrder",
     "DraftOrderItem",
     "BranchLike",
+    "Tutorial",
     "users_repo",
     "businesses_repo",
     "branches_repo",
@@ -613,4 +638,5 @@ __all__ = [
     "chat_memory_repo",
     "draft_orders_repo",
     "branch_likes_repo",
+    "tutorials_repo",
 ]

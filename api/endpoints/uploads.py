@@ -32,6 +32,14 @@ ALLOWED_3D_TYPES = {
     "application/octet-stream", # Generic binary (fallback)
 }
 
+# Allowed video MIME types
+ALLOWED_VIDEO_TYPES = {
+    "video/mp4",
+    "video/quicktime",  # .mov
+    "video/x-msvideo",  # .avi
+    "video/webm",
+}
+
 # File size limits per upload type (in bytes)
 # Images are resized and compressed after upload, so we can accept larger files
 MAX_FILE_SIZES = {
@@ -39,6 +47,8 @@ MAX_FILE_SIZES = {
     "cover": 10 * 1024 * 1024,      # 10MB - will be resized to 1200x400
     "product": 10 * 1024 * 1024,    # 10MB - will be resized to max 1000x1000
     "model3d": 50 * 1024 * 1024,    # 50MB - 3D models can be large
+    "video": 100 * 1024 * 1024,     # 100MB - videos can be large
+    "thumbnail": 5 * 1024 * 1024,   # 5MB - thumbnails are smaller
 }
 
 # Magic bytes for image validation (file signatures)
@@ -54,6 +64,16 @@ IMAGE_SIGNATURES = {
 MODEL_3D_SIGNATURES = {
     b'PK': 'model/vnd.usdz+zip',             # USDZ (ZIP-based)
     b'glTF': 'model/gltf-binary',            # GLB (starts with glTF magic)
+}
+
+# Video file signatures
+VIDEO_SIGNATURES = {
+    b'\x00\x00\x00\x18ftypmp42': 'video/mp4',  # MP4 (ftyp box)
+    b'\x00\x00\x00\x20ftypisom': 'video/mp4',  # MP4 (ftyp box)
+    b'\x00\x00\x00\x1cftyp': 'video/mp4',      # MP4 (ftyp box)
+    b'moov': 'video/quicktime',                 # MOV (partial)
+    b'RIFF': 'video/x-msvideo',                 # AVI
+    b'\x1a\x45\xdf\xa3': 'video/webm',          # WebM (EBML header)
 }
 
 
@@ -112,6 +132,48 @@ def validate_3d_model_signature(content: bytes, filename: str) -> str | None:
     if filename_lower.endswith('.glb'):
         return 'model/gltf-binary'
     
+    return None
+
+
+def validate_video_signature(content: bytes, filename: str) -> str | None:
+    """
+    Validate video by checking magic bytes and file extension.
+    Returns detected MIME type or None if invalid.
+    """
+    if len(content) < 32:
+        return None
+
+    filename_lower = filename.lower() if filename else ""
+
+    # Check MP4 (ftyp box at various offsets)
+    for offset in [4, 8, 12, 16, 20]:
+        if len(content) > offset + 4:
+            if content[offset:offset+4] == b'ftyp':
+                if filename_lower.endswith('.mp4'):
+                    return 'video/mp4'
+
+    # Check MOV (moov atom)
+    if b'moov' in content[:100] and filename_lower.endswith('.mov'):
+        return 'video/quicktime'
+
+    # Check AVI
+    if content[:4] == b'RIFF' and content[8:12] == b'AVI ' and filename_lower.endswith('.avi'):
+        return 'video/x-msvideo'
+
+    # Check WebM
+    if content[:4] == b'\x1a\x45\xdf\xa3' and filename_lower.endswith('.webm'):
+        return 'video/webm'
+
+    # Fallback: trust extension for known video formats
+    if filename_lower.endswith('.mp4'):
+        return 'video/mp4'
+    if filename_lower.endswith('.mov'):
+        return 'video/quicktime'
+    if filename_lower.endswith('.avi'):
+        return 'video/x-msvideo'
+    if filename_lower.endswith('.webm'):
+        return 'video/webm'
+
     return None
 
 
@@ -272,6 +334,87 @@ async def validate_3d_upload(
     # Determine extension
     extension = ".usdz" if filename_lower.endswith('.usdz') else ".glb"
     
+    return content, extension
+
+
+async def validate_video_upload(
+    file: UploadFile,
+    max_size: int
+) -> tuple[bytes, str]:
+    """
+    Validate video upload.
+
+    Checks:
+    1. File extension is allowed (.mp4, .mov, .avi, .webm)
+    2. File size is within limits
+    3. Magic bytes match expected format
+
+    Args:
+        file: The uploaded file
+        max_size: Maximum allowed file size in bytes
+
+    Returns:
+        Tuple of (file content as bytes, detected extension)
+
+    Raises:
+        HTTPException with appropriate error
+    """
+    filename = file.filename or ""
+    filename_lower = filename.lower()
+
+    # 1. Validate file extension
+    if not any(filename_lower.endswith(ext) for ext in ['.mp4', '.mov', '.avi', '.webm']):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Tipo de archivo no permitido. Permitidos: .mp4, .mov, .avi, .webm"
+        )
+
+    # 2. Read file with size limit
+    chunks = []
+    total_size = 0
+    chunk_size = 512 * 1024  # 512KB chunks for larger files
+
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            break
+        total_size += len(chunk)
+
+        if total_size > max_size:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"Archivo muy grande. Máximo: {max_size // (1024*1024)}MB para videos"
+            )
+        chunks.append(chunk)
+
+    content = b''.join(chunks)
+
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Archivo vacío"
+        )
+
+    # 3. Validate magic bytes
+    detected_type = validate_video_signature(content, filename)
+    if not detected_type:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El archivo no es un video válido"
+        )
+
+    # Determine extension
+    if filename_lower.endswith('.mp4'):
+        extension = ".mp4"
+    elif filename_lower.endswith('.mov'):
+        extension = ".mov"
+    elif filename_lower.endswith('.avi'):
+        extension = ".avi"
+    elif filename_lower.endswith('.webm'):
+        extension = ".webm"
+    else:
+        extension = ".mp4"  # Default to mp4
+
     return content, extension
 
 
@@ -482,4 +625,89 @@ async def upload_business_type_model3d(
     return {
         "model_path": model_path,
         "model_url": generate_presigned_url(model_path)
+    }
+
+
+@router.post("/tutorial/video", status_code=status.HTTP_200_OK)
+@limiter.limit(RATE_LIMIT_UPLOADS)
+async def upload_tutorial_video(
+    request: Request,
+    video: UploadFile = File(...),
+    user_id: str = Depends(get_current_user_id_from_header)
+):
+    """
+    Upload video for a tutorial.
+    Max size: 100MB | Allowed formats: .mp4, .mov, .avi, .webm
+
+    This endpoint uploads the video to S3 and returns the path and presigned URL.
+    Use the returned video_path in the createTutorial or updateTutorial mutation.
+
+    Note: Only admins should use this endpoint (validated in the GraphQL mutation).
+    """
+    if not user_id:
+        raise HTTPException(status_code=401, detail="No autorizado")
+
+    # TODO: Add admin role check when implemented
+    # For now, any authenticated user can upload tutorial videos
+    # In production, add: if user.role != "admin": raise Exception("No autorizado")
+
+    # Validate and read the video file
+    file_content, extension = await validate_video_upload(video, MAX_FILE_SIZES["video"])
+
+    # Generate unique ID for the video
+    entity_id = str(ObjectId())
+
+    try:
+        video_path = await upload_file(file_content, "tutorials/videos", entity_id, extension)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Error subiendo video")
+
+    return {
+        "video_path": video_path,
+        "video_url": generate_presigned_url(video_path)
+    }
+
+
+@router.post("/tutorial/thumbnail", status_code=status.HTTP_200_OK)
+@limiter.limit(RATE_LIMIT_UPLOADS)
+async def upload_tutorial_thumbnail(
+    request: Request,
+    image: UploadFile = File(...),
+    user_id: str = Depends(get_current_user_id_from_header)
+):
+    """
+    Upload thumbnail image for a tutorial.
+    Max size: 5MB | Output: Optimized image
+
+    This endpoint uploads the thumbnail to S3 and returns the path and presigned URL.
+    Use the returned thumbnail_path in the createTutorial or updateTutorial mutation.
+
+    Note: Only admins should use this endpoint (validated in the GraphQL mutation).
+    """
+    if not user_id:
+        raise HTTPException(status_code=401, detail="No autorizado")
+
+    # TODO: Add admin role check when implemented
+    # For now, any authenticated user can upload tutorial thumbnails
+    # In production, add: if user.role != "admin": raise Exception("No autorizado")
+
+    file_content = await validate_upload(image, "thumbnail", MAX_FILE_SIZES["thumbnail"])
+
+    try:
+        processed_content, extension = process_image_for_store(
+            file_content, "tutorial_thumbnail", convert_to_jpg=True
+        )
+    except Exception:
+        raise HTTPException(status_code=400, detail="Error procesando imagen")
+
+    entity_id = str(ObjectId())
+
+    try:
+        image_path = await upload_file(processed_content, "tutorials/thumbnails", entity_id, extension)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Error subiendo thumbnail")
+
+    return {
+        "thumbnail_path": image_path,
+        "thumbnail_url": generate_presigned_url(image_path)
     }

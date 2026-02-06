@@ -24,6 +24,7 @@ from .searches_repository import SearchesRepository
 from .chat_memory_repository import ChatMemoryRepository
 from .draft_order_repository import DraftOrderRepository
 from .branch_likes_repository import BranchLikesRepository
+from .tutorial_repository import TutorialRepository
 
 # Repository instances
 users_repo = UserRepository()
@@ -46,6 +47,7 @@ searches_repo = SearchesRepository()
 chat_memory_repo = ChatMemoryRepository()
 draft_orders_repo = DraftOrderRepository()
 branch_likes_repo = BranchLikesRepository()
+tutorials_repo = TutorialRepository()
 
 __all__ = [
     "UserRepository",
@@ -92,6 +94,7 @@ __all__ = [
     "ChatMemoryRepository",
     "DraftOrderRepository",
     "BranchLikesRepository",
+    "TutorialRepository",
     "feedbacks_repo",
     "surveys_repo",
     "survey_responses_repo",
@@ -100,4 +103,5 @@ __all__ = [
     "chat_memory_repo",
     "draft_orders_repo",
     "branch_likes_repo",
+    "tutorials_repo",
 ]
