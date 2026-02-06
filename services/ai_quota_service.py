@@ -113,56 +113,53 @@ class AiQuotaService:
         period_start = self._period_start(now, range_name)
         period_key = period_start.isoformat() if period_start else "lifetime"
 
-        query = {
+        key_query = {
             "scope": source,
             "userId": user_id,
             "range": range_name,
             "periodKey": period_key,
-            "used": {"$lt": limit},
         }
-        update = {
-            "$inc": {"used": 1},
-            "$set": {"updatedAt": now},
-            "$setOnInsert": {
-                "createdAt": now,
-                "scope": source,
-                "userId": user_id,
-                "range": range_name,
-                "periodKey": period_key,
-            },
-        }
+        usage_docs = await db[settings.ai_usage_collection].find(key_query).to_list(length=None)
+        total_used = sum(int(doc.get("used", 0)) for doc in usage_docs)
+        if total_used >= limit:
+            return QuotaDecision(
+                allowed=False,
+                limit=limit,
+                used=total_used,
+                remaining=0,
+                source=source,
+                reason="Límite de consultas AI alcanzado",
+                error_code="AI_QUOTA_EXCEEDED",
+            )
 
-        result = await db[settings.ai_usage_collection].find_one_and_update(
-            query,
-            update,
-            upsert=True,
-            return_document=ReturnDocument.AFTER,
-        )
-        if result:
-            used = int(result.get("used", 0))
+        if not usage_docs:
+            await db[settings.ai_usage_collection].insert_one({
+                **key_query,
+                "used": 1,
+                "createdAt": now,
+                "updatedAt": now,
+            })
             return QuotaDecision(
                 allowed=True,
                 limit=limit,
-                used=used,
-                remaining=max(0, limit - used),
+                used=1,
+                remaining=max(0, limit - 1),
                 source=source,
             )
 
-        existing = await db[settings.ai_usage_collection].find_one({
-            "scope": source,
-            "userId": user_id,
-            "range": range_name,
-            "periodKey": period_key,
-        })
-        used = int(existing.get("used", 0)) if existing else limit
+        target_doc = usage_docs[0]
+        await db[settings.ai_usage_collection].find_one_and_update(
+            {"_id": target_doc["_id"]},
+            {"$inc": {"used": 1}, "$set": {"updatedAt": now}},
+            return_document=ReturnDocument.AFTER,
+        )
+        new_total = total_used + 1
         return QuotaDecision(
-            allowed=False,
+            allowed=True,
             limit=limit,
-            used=used,
-            remaining=0,
+            used=new_total,
+            remaining=max(0, limit - new_total),
             source=source,
-            reason="Límite de consultas AI alcanzado",
-            error_code="AI_QUOTA_EXCEEDED",
         )
 
     async def _consume_free_lifetime_limit(self, user_id: str, device_id: str, limit: int) -> QuotaDecision:
@@ -179,53 +176,52 @@ class AiQuotaService:
 
         db = get_database()
         now = datetime.utcnow()
-        query = {
+        key_query = {
             "scope": "global_free_device_lifetime",
             "userId": user_id,
             "deviceId": device_id,
-            "used": {"$lt": limit},
         }
-        update = {
-            "$inc": {"used": 1},
-            "$set": {"updatedAt": now},
-            "$setOnInsert": {
-                "createdAt": now,
-                "scope": "global_free_device_lifetime",
-                "userId": user_id,
-                "deviceId": device_id,
-            },
-        }
+        usage_docs = await db[settings.ai_usage_collection].find(key_query).to_list(length=None)
+        total_used = sum(int(doc.get("used", 0)) for doc in usage_docs)
+        if total_used >= limit:
+            return QuotaDecision(
+                allowed=False,
+                limit=limit,
+                used=total_used,
+                remaining=0,
+                source="global_free_device_lifetime",
+                reason="Límite free por dispositivo alcanzado",
+                error_code="AI_FREE_QUOTA_EXCEEDED",
+            )
 
-        result = await db[settings.ai_usage_collection].find_one_and_update(
-            query,
-            update,
-            upsert=True,
-            return_document=ReturnDocument.AFTER,
-        )
-        if result:
-            used = int(result.get("used", 0))
+        if not usage_docs:
+            await db[settings.ai_usage_collection].insert_one({
+                **key_query,
+                "used": 1,
+                "createdAt": now,
+                "updatedAt": now,
+            })
             return QuotaDecision(
                 allowed=True,
                 limit=limit,
-                used=used,
-                remaining=max(0, limit - used),
+                used=1,
+                remaining=max(0, limit - 1),
                 source="global_free_device_lifetime",
             )
 
-        existing = await db[settings.ai_usage_collection].find_one({
-            "scope": "global_free_device_lifetime",
-            "userId": user_id,
-            "deviceId": device_id,
-        })
-        used = int(existing.get("used", 0)) if existing else limit
+        target_doc = usage_docs[0]
+        await db[settings.ai_usage_collection].find_one_and_update(
+            {"_id": target_doc["_id"]},
+            {"$inc": {"used": 1}, "$set": {"updatedAt": now}},
+            return_document=ReturnDocument.AFTER,
+        )
+        new_total = total_used + 1
         return QuotaDecision(
-            allowed=False,
+            allowed=True,
             limit=limit,
-            used=used,
-            remaining=0,
+            used=new_total,
+            remaining=max(0, limit - new_total),
             source="global_free_device_lifetime",
-            reason="Límite free por dispositivo alcanzado",
-            error_code="AI_FREE_QUOTA_EXCEEDED",
         )
 
     def _normalize_range(self, value: Optional[str]) -> Optional[str]:

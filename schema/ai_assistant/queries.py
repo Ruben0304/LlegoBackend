@@ -215,6 +215,8 @@ class AiAssistantQuery:
 
             return graphql_response
 
+        except GraphQLError:
+            raise
         except Exception as e:
             print(f"[AI CHAT] ERROR in AI chat: {e}")
             import traceback
