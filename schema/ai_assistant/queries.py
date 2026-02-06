@@ -2,6 +2,7 @@
 import strawberry
 from typing import Optional
 from strawberry.types import Info
+from graphql import GraphQLError
 from schema.products.types import ProductType
 from schema.branches.types import BranchType, CoordinatesType, BranchTipo
 from .types import (
@@ -13,6 +14,7 @@ from .types import (
     DraftOrderItemType,
 )
 from services.ai_rag_service import AiRagService
+from services.ai_quota_service import ai_quota_service
 from models import products_repo, branches_repo, draft_orders_repo
 from utils.graphql_auth import require_auth
 from utils.rate_limit import rate_limit_graphql
@@ -36,6 +38,27 @@ class AiAssistantQuery:
         print(f"[AI CHAT] Message: {input.message}")
 
         try:
+            request = info.context.get("request") if isinstance(info.context, dict) else None
+            header_device_id = request.headers.get("x-device-id") if request else None
+            device_id = input.device_id or header_device_id
+
+            quota = await ai_quota_service.check_and_consume(user_id=user_id, device_id=device_id)
+            if not quota.allowed:
+                raise GraphQLError(
+                    quota.reason or "Límite de consultas AI alcanzado",
+                    extensions={
+                        "code": quota.error_code or "AI_QUOTA_EXCEEDED",
+                        "quota": {
+                            "source": quota.source,
+                            "limit": quota.limit,
+                            "used": quota.used,
+                            "remaining": quota.remaining,
+                        },
+                    }
+                )
+
+            print(f"[AI CHAT] Quota consumed: source={quota.source}, used={quota.used}/{quota.limit}")
+
             # Initialize AI RAG service
             ai_service = AiRagService()
 

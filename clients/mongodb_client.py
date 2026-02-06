@@ -23,6 +23,7 @@ async def connect_to_mongo():
         await _create_invitation_indexes()
         await _create_business_access_indexes()
         await _create_feed_indexes()
+        await _create_ai_quota_indexes()
     except Exception as e:
         print(f"✗ Error connecting to MongoDB: {e}")
         raise
@@ -199,6 +200,28 @@ async def _create_feed_indexes():
         print("✓ Feed indexes created/verified")
     except Exception as e:
         print(f"⚠ Warning: Could not create feed indexes: {e}")
+
+
+async def _create_ai_quota_indexes():
+    """Create indexes for AI quota usage collection."""
+    try:
+        usage_collection = database[settings.ai_usage_collection]
+
+        await usage_collection.create_index(
+            [("scope", 1), ("userId", 1), ("range", 1), ("periodKey", 1)],
+            name="idx_ai_quota_user_period",
+            background=True
+        )
+
+        await usage_collection.create_index(
+            [("scope", 1), ("userId", 1), ("deviceId", 1)],
+            name="idx_ai_quota_user_device",
+            background=True
+        )
+
+        print("✓ AI quota indexes created/verified")
+    except Exception as e:
+        print(f"⚠ Warning: Could not create AI quota indexes: {e}")
 
 
 async def close_mongo_connection():

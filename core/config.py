@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     gemini_embedding_model: str = "gemini-embedding-001"
     embedding_dimension: int = 768
 
+    # AI Assistant quota configuration
+    ai_free_lifetime_limit: int = 2
+    ai_pro_monthly_limit: int = 60
+    ai_usage_collection: str = "ai_quota_usage"
+
     # Embedding Configuration
     # Embedding Configuration
     embedding_task_type: str = "RETRIEVAL_DOCUMENT"

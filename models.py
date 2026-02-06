@@ -23,6 +23,8 @@ class User(BaseModel):
     providerUserId: Optional[str] = None
     applePrivateEmail: Optional[str] = None
     location: Optional[Dict[str, Any]] = None  # GeoJSON: {"type": "Point", "coordinates": [lon, lat]}
+    isPro: bool = False
+    aiConsultasLimit: Optional[Dict[str, Any]] = None
 
     class Config:
         populate_by_name = True

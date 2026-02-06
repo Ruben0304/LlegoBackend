@@ -18,7 +18,7 @@ class UserQuery:
         users = await users_repo.get_all()
         return [
             UserType(
-                **{**u.model_dump(exclude={'password', 'location', 'wallet', 'walletStatus'}),
+                **{**u.model_dump(exclude={'password', 'location', 'wallet', 'walletStatus', 'isPro', 'aiConsultasLimit'}),
                    'wallet': WalletBalanceType(local=u.wallet.get('local', 0.0), usd=u.wallet.get('usd', 0.0)),
                    'walletStatus': u.walletStatus}
             ) for u in users
@@ -32,7 +32,7 @@ class UserQuery:
         if not user:
             return None
         return UserType(
-            **{**user.model_dump(exclude={'password', 'location', 'wallet', 'walletStatus'}),
+            **{**user.model_dump(exclude={'password', 'location', 'wallet', 'walletStatus', 'isPro', 'aiConsultasLimit'}),
                'wallet': WalletBalanceType(local=user.wallet.get('local', 0.0), usd=user.wallet.get('usd', 0.0)),
                'walletStatus': user.walletStatus}
         )
@@ -49,7 +49,7 @@ class UserQuery:
         users = await users_repo.search(query)
         return [
             UserType(
-                **{**u.model_dump(exclude={'password', 'location', 'wallet', 'walletStatus'}),
+                **{**u.model_dump(exclude={'password', 'location', 'wallet', 'walletStatus', 'isPro', 'aiConsultasLimit'}),
                    'wallet': WalletBalanceType(local=u.wallet.get('local', 0.0), usd=u.wallet.get('usd', 0.0)),
                    'walletStatus': u.walletStatus}
             ) for u in users
@@ -63,7 +63,7 @@ class UserQuery:
         if not user:
             return None
         return UserType(
-            **{**user.model_dump(exclude={'password', 'location', 'wallet', 'walletStatus'}),
+            **{**user.model_dump(exclude={'password', 'location', 'wallet', 'walletStatus', 'isPro', 'aiConsultasLimit'}),
                'wallet': WalletBalanceType(local=user.wallet.get('local', 0.0), usd=user.wallet.get('usd', 0.0)),
                'walletStatus': user.walletStatus}
         )

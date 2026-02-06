@@ -94,3 +94,7 @@ class AiAssistantResponseType:
 class AiAssistantChatInput:
     """Input for sending a message to the AI assistant."""
     message: str = strawberry.field(description="The user message/query to send")
+    device_id: Optional[str] = strawberry.field(
+        description="Unique device identifier from mobile app (required for free quota)",
+        default=None
+    )
