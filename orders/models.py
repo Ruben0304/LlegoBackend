@@ -167,7 +167,7 @@ class DeliveryPerson(BaseModel):
     id: str = Field(alias="_id")
     userId: str
     name: str
-    phone: str
+    phone: Optional[str] = None
     rating: float = 5.0
     totalDeliveries: int = 0
     vehicleType: VehicleType

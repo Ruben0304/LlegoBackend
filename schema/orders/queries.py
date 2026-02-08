@@ -34,6 +34,29 @@ class DeliveryPersonStatsType:
     avgRating: float
 
 
+async def _get_or_create_delivery_person(user_id: str) -> DeliveryPerson:
+    """Get existing delivery person or create one from user profile."""
+    delivery_person = await delivery_persons_repo.get_by_user_id(user_id)
+    if delivery_person:
+        return delivery_person
+
+    user = await users_repo.get_by_id(user_id)
+    if not user:
+        raise Exception("Usuario no encontrado")
+
+    now = datetime.utcnow()
+    new_dp = DeliveryPerson(
+        _id=str(ObjectId()),
+        userId=user_id,
+        name=user.name or "",
+        phone=user.phone,
+        vehicleType=VehicleType.A_PIE,
+        createdAt=now,
+        updatedAt=now,
+    )
+    return await delivery_persons_repo.create(new_dp)
+
+
 @strawberry.type
 class OrderQuery:
     @strawberry.field(description="Obtener mis pedidos con paginación")
@@ -186,7 +209,7 @@ class OrderQuery:
     ) -> List[OrderType]:
         user_id = require_auth(jwt, info)
 
-        delivery_person = await self._get_or_create_delivery_person(user_id)
+        delivery_person = await _get_or_create_delivery_person(user_id)
 
         orders = await orders_repo.get_ready_for_pickup_nearby(
             longitude, latitude, radiusKm
@@ -197,7 +220,7 @@ class OrderQuery:
     async def my_current_delivery(self, info: Info, jwt: str) -> Optional[OrderType]:
         user_id = require_auth(jwt, info)
 
-        delivery_person = await self._get_or_create_delivery_person(user_id)
+        delivery_person = await _get_or_create_delivery_person(user_id)
 
         order = await orders_repo.get_current_delivery(delivery_person.id)
         return order_to_type(order) if order else None
@@ -213,7 +236,7 @@ class OrderQuery:
     ) -> List[OrderType]:
         user_id = require_auth(jwt, info)
 
-        delivery_person = await self._get_or_create_delivery_person(user_id)
+        delivery_person = await _get_or_create_delivery_person(user_id)
 
         status_filter = status.value if status else None
         orders = await orders_repo.get_by_delivery_person(
@@ -225,7 +248,7 @@ class OrderQuery:
     async def my_delivery_stats(self, info: Info, jwt: str) -> DeliveryPersonStatsType:
         user_id = require_auth(jwt, info)
 
-        delivery_person = await self._get_or_create_delivery_person(user_id)
+        delivery_person = await _get_or_create_delivery_person(user_id)
 
         stats = await orders_repo.get_delivery_person_stats(delivery_person.id)
         return DeliveryPersonStatsType(
@@ -235,28 +258,6 @@ class OrderQuery:
             avgDurationMin=stats["avgDurationMin"],
             avgRating=stats["avgRating"],
         )
-
-    async def _get_or_create_delivery_person(self, user_id: str) -> DeliveryPerson:
-        """Get existing delivery person or create one from user profile."""
-        delivery_person = await delivery_persons_repo.get_by_user_id(user_id)
-        if delivery_person:
-            return delivery_person
-
-        user = await users_repo.get_by_id(user_id)
-        if not user:
-            raise Exception("Usuario no encontrado")
-
-        now = datetime.utcnow()
-        new_dp = DeliveryPerson(
-            _id=str(ObjectId()),
-            userId=user_id,
-            name=user.name,
-            phone=user.phone or "",
-            vehicleType=VehicleType.A_PIE,
-            createdAt=now,
-            updatedAt=now,
-        )
-        return await delivery_persons_repo.create(new_dp)
 
     @strawberry.field(description="Estadísticas de pedidos")
     async def order_stats(
