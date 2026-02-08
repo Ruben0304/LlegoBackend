@@ -80,4 +80,16 @@ class FeedSection:
 class FeedResponse:
     """Complete feed response with multiple sections."""
     sections: List[FeedSection]
+    section_diagnostics: List["FeedSectionDiagnostic"]
     timestamp: datetime
+
+
+@strawberry.type
+class FeedSectionDiagnostic:
+    """Diagnostic information for each feed section request."""
+    section_id: str
+    title: str
+    status: str
+    reason: Optional[str] = None
+    total_before_dedup: Optional[int] = None
+    total_after_dedup: Optional[int] = None
