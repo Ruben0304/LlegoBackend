@@ -1,16 +1,18 @@
 """GraphQL query resolvers for AI Assistant."""
 
-from typing import Optional
+from typing import List, Optional
 
 import strawberry
 from graphql import GraphQLError
 from strawberry.types import Info
 
-from models import branches_repo, draft_orders_repo, products_repo
+from models import branches_repo, businesses_repo, draft_orders_repo, products_repo
 from schema.branches.types import BranchTipo, BranchType, BranchVehicle, CoordinatesType
+from schema.businesses.types import BusinessType
 from schema.products.types import ProductType
 from services.ai_quota_service import ai_quota_service
 from services.ai_rag_service import AiRagService
+from services.vector_search_service import VectorSearchService
 from utils.graphql_auth import require_auth
 from utils.rate_limit import rate_limit_graphql
 
@@ -21,11 +23,158 @@ from .types import (
     DraftOrderItemType,
     DraftOrderType,
     ProductSuggestionType,
+    SemanticSearchBranchResult,
+    SemanticSearchBusinessResult,
+    SemanticSearchCollection,
+    SemanticSearchProductResult,
+    SemanticSearchResultType,
 )
 
 
 @strawberry.type
 class AiAssistantQuery:
+    @strawberry.field(
+        description="Semantic vector search across products, branches, or businesses. Returns enriched results from Qdrant + MongoDB."
+    )
+    async def semantic_search(
+        self,
+        info: Info,
+        query: str,
+        collection: SemanticSearchCollection,
+        limit: int = 10,
+        jwt: Optional[str] = None,
+    ) -> SemanticSearchResultType:
+        """Perform semantic vector search and return full entity data."""
+        require_auth(jwt, info)
+        rate_limit_graphql(info, "search")
+
+        collection_name = collection.value
+        vector_search = VectorSearchService()
+
+        print(f"\n{'=' * 80}")
+        print(
+            f"[SEMANTIC SEARCH] query='{query}', collection={collection_name}, limit={limit}"
+        )
+
+        try:
+            if collection_name == "products":
+                results = await vector_search.search_products(query=query, limit=limit)
+                product_ids = [r.mongo_id for r in results]
+                scores_map = {r.mongo_id: r.score for r in results}
+
+                products_data = await products_repo.get_by_ids(product_ids)
+                # Preserve Qdrant ordering
+                products_by_id = {p.id: p for p in products_data}
+                products_ordered = [
+                    products_by_id[pid] for pid in product_ids if pid in products_by_id
+                ]
+
+                # Fetch branch info for enrichment
+                branch_ids = list(set(p.branchId for p in products_ordered))
+                branches_data = (
+                    await branches_repo.get_by_ids(branch_ids) if branch_ids else []
+                )
+                branches_map = {b.id: b for b in branches_data}
+
+                product_results = []
+                for product in products_ordered:
+                    branch = branches_map.get(product.branchId)
+                    product_results.append(
+                        SemanticSearchProductResult(
+                            score=scores_map.get(product.id, 0.0),
+                            product=ProductType(**product.model_dump()),
+                            branch_name=branch.name if branch else None,
+                            branch_avatar=branch.avatar if branch else None,
+                            branch_address=branch.address if branch else None,
+                            branch_phone=branch.phone if branch else None,
+                        )
+                    )
+
+                print(f"[SEMANTIC SEARCH] Returning {len(product_results)} products")
+                print(f"{'=' * 80}\n")
+                return SemanticSearchResultType(
+                    collection=collection_name,
+                    total_results=len(product_results),
+                    products=product_results,
+                )
+
+            elif collection_name == "branches":
+                results = await vector_search.search_branches(query=query, limit=limit)
+                branch_ids = [r.mongo_id for r in results]
+                scores_map = {r.mongo_id: r.score for r in results}
+
+                branches_data = await branches_repo.get_by_ids(branch_ids)
+                branches_by_id = {b.id: b for b in branches_data}
+                branches_ordered = [
+                    branches_by_id[bid] for bid in branch_ids if bid in branches_by_id
+                ]
+
+                from schema.branches.utils import branch_to_dict
+
+                branch_results = []
+                for branch in branches_ordered:
+                    branch_results.append(
+                        SemanticSearchBranchResult(
+                            score=scores_map.get(branch.id, 0.0),
+                            branch=BranchType(**branch_to_dict(branch)),
+                        )
+                    )
+
+                print(f"[SEMANTIC SEARCH] Returning {len(branch_results)} branches")
+                print(f"{'=' * 80}\n")
+                return SemanticSearchResultType(
+                    collection=collection_name,
+                    total_results=len(branch_results),
+                    branches=branch_results,
+                )
+
+            elif collection_name == "businesses":
+                results = await vector_search.search_businesses(
+                    query=query, limit=limit
+                )
+                business_ids = [r.mongo_id for r in results]
+                scores_map = {r.mongo_id: r.score for r in results}
+
+                businesses_data = await businesses_repo.get_by_ids(business_ids)
+                businesses_by_id = {b.id: b for b in businesses_data}
+                businesses_ordered = [
+                    businesses_by_id[bid]
+                    for bid in business_ids
+                    if bid in businesses_by_id
+                ]
+
+                business_results = []
+                for biz in businesses_ordered:
+                    business_results.append(
+                        SemanticSearchBusinessResult(
+                            score=scores_map.get(biz.id, 0.0),
+                            business=BusinessType(**biz.model_dump()),
+                        )
+                    )
+
+                print(f"[SEMANTIC SEARCH] Returning {len(business_results)} businesses")
+                print(f"{'=' * 80}\n")
+                return SemanticSearchResultType(
+                    collection=collection_name,
+                    total_results=len(business_results),
+                    businesses=business_results,
+                )
+
+            else:
+                raise GraphQLError(
+                    f"Collection '{collection_name}' not supported. Use: products, branches, businesses"
+                )
+
+        except GraphQLError:
+            raise
+        except Exception as e:
+            print(f"[SEMANTIC SEARCH] ERROR: {e}")
+            import traceback
+
+            traceback.print_exc()
+            print(f"{'=' * 80}\n")
+            raise GraphQLError(f"Error en búsqueda semántica: {str(e)}")
+
     @strawberry.field(
         description="Send a message to the AI assistant and get a response with RAG"
     )
