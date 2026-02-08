@@ -25,6 +25,7 @@ class UserType:
     applePrivateEmail: Optional[str]
     wallet: WalletBalanceType
     walletStatus: str = "active"
+    isPro: bool = False
 
     @strawberry.field(description="URL firmada del avatar del usuario")
     def avatar_url(self) -> Optional[str]:
