@@ -1,7 +1,8 @@
 """GraphQL type definitions for User entity."""
 import strawberry
 from datetime import datetime
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
+from strawberry.scalars import JSON
 
 from utils.s3 import generate_presigned_url
 from schema.wallet.types import WalletBalanceType
@@ -26,6 +27,8 @@ class UserType:
     wallet: WalletBalanceType
     walletStatus: str = "active"
     isPro: bool = False
+    location: Optional[JSON] = None  # GeoJSON: {"type": "Point", "coordinates": [lon, lat]}
+    aiConsultasLimit: Optional[JSON] = None
 
     @strawberry.field(description="URL firmada del avatar del usuario")
     def avatar_url(self) -> Optional[str]:
