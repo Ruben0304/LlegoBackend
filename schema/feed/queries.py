@@ -193,13 +193,16 @@ class FeedQuery:
         # Deduplicate products across sections (operates on ScoredFeedProduct)
         deduplicated_sections = feed_service._deduplicate_sections(raw_sections)
 
-        # Convert deduplicated ScoredFeedProduct lists to FeedSection GraphQL types
+        # Convert ScoredFeedProduct lists to FeedSection GraphQL types
+        # Business rule: only apply cross-section deduplication when a section has > 10 items.
         final_sections = []
         for i, scored_products in enumerate(deduplicated_sections):
             section_id = valid_keys[i]
             title, description = requested_sections[section_id]
             total_before_dedup = len(raw_sections[i])
-            total_after_dedup = len(scored_products)
+            should_apply_dedup = total_before_dedup > 10
+            effective_scored_products = scored_products if should_apply_dedup else raw_sections[i]
+            total_after_dedup = len(effective_scored_products)
 
             if total_before_dedup == 0:
                 section_diagnostics.append(FeedSectionDiagnostic(
@@ -212,7 +215,7 @@ class FeedQuery:
                 ))
                 continue
 
-            if total_after_dedup == 0:
+            if should_apply_dedup and total_after_dedup == 0:
                 section_diagnostics.append(FeedSectionDiagnostic(
                     section_id=section_id,
                     title=title,
@@ -224,7 +227,7 @@ class FeedQuery:
                 continue
 
             products = []
-            for sp in scored_products:
+            for sp in effective_scored_products:
                 product_data = sp.product.model_dump()
                 products.append(FeedProductType(
                     **product_data,
@@ -240,7 +243,7 @@ class FeedQuery:
                 total_count=len(products)
             ))
 
-            if total_after_dedup < total_before_dedup:
+            if should_apply_dedup and total_after_dedup < total_before_dedup:
                 section_diagnostics.append(FeedSectionDiagnostic(
                     section_id=section_id,
                     title=title,
