@@ -114,20 +114,22 @@ class OrderRepository:
     async def get_ready_for_pickup_nearby(
         self, longitude: float, latitude: float, radius_km: float = 5.0
     ) -> List[Order]:
-        """Get orders ready for pickup near a location."""
+        """Get orders ready for pickup near a location using H3 index."""
+        import h3
+
+        from orders.utils import H3_RESOLUTION, coords_to_h3
+
+        center_h3 = coords_to_h3(latitude, longitude, H3_RESOLUTION)
+        # k_ring(k=1) covers ~1 ring of neighbors (~3-4 km at res 7)
+        # k_ring(k=2) covers ~2 rings (~6-8 km at res 7)
+        k = 1 if radius_km <= 5.0 else 2
+        nearby_cells = list(h3.grid_disk(center_h3, k))
+
         collection = self._get_collection()
         query = {
             "status": OrderStatus.READY_FOR_PICKUP.value,
             "deliveryPersonId": None,
-            "deliveryAddress.coordinates": {
-                "$nearSphere": {
-                    "$geometry": {
-                        "type": "Point",
-                        "coordinates": [longitude, latitude],
-                    },
-                    "$maxDistance": radius_km * 1000,
-                }
-            },
+            "branchH3": {"$in": nearby_cells},
         }
         cursor = collection.find(query).limit(50)
         return [self._doc_to_order(doc) async for doc in cursor]
@@ -603,8 +605,9 @@ async def create_order_indexes():
     await orders.create_index([("branchId", 1), ("status", 1), ("createdAt", -1)])
     await orders.create_index("orderNumber", unique=True)
     await orders.create_index("status")
-    await orders.create_index([("deliveryAddress.coordinates", "2dsphere")])
     await orders.create_index([("paymentStatus", 1), ("status", 1)])
+    # Compound index for delivery person pickup queries (H3-based geo)
+    await orders.create_index([("status", 1), ("deliveryPersonId", 1), ("branchH3", 1)])
     await orders.create_index([("deliveryPersonId", 1), ("completedAt", -1)])
 
     # Delivery persons indexes

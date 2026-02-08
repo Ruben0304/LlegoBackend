@@ -140,6 +140,8 @@ class Order(BaseModel):
     paidAt: Optional[datetime] = None  # When payment was completed
     deliveryFeePaid: float = 0.0  # Delivery fee actually paid (for tracking)
 
+    branchH3: Optional[str] = None  # H3 index of branch location for geo queries
+
     # Delivery tracking timestamps & metrics
     assignedAt: Optional[datetime] = None  # When delivery person was assigned
     pickedUpAt: Optional[datetime] = None  # When delivery person picked up the order

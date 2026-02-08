@@ -29,6 +29,7 @@ from .repository import (
 )
 from .utils import (
     calculate_delivery_fee_h3,
+    coords_to_h3,
     generate_order_number,
     haversine_distance,
 )
@@ -103,6 +104,9 @@ class OrderService:
         )
         delivery_mode = "app"
 
+        # H3 index of branch for efficient geo queries by delivery persons
+        branch_h3 = coords_to_h3(branch_coords[1], branch_coords[0])
+
         # 5. Apply discounts
         discounts: List[OrderDiscount] = []
         customer = await users_repo.get_by_id(customer_id)
@@ -175,6 +179,7 @@ class OrderService:
             deliveryFee=delivery_fee,
             deliveryMode=delivery_mode,
             deliveryZoneId=delivery_zone_id,
+            branchH3=branch_h3,
             discounts=discounts,
             total=total,
             currency="USD",

@@ -26,6 +26,15 @@ from .types import (
 
 
 @strawberry.type
+class DeliveryPersonStatsType:
+    totalDeliveries: int
+    totalEarnings: float
+    totalDistanceKm: float
+    avgDurationMin: float
+    avgRating: float
+
+
+@strawberry.type
 class OrderQuery:
     @strawberry.field(description="Obtener mis pedidos con paginación")
     async def my_orders(
@@ -192,6 +201,40 @@ class OrderQuery:
 
         order = await orders_repo.get_current_delivery(delivery_person.id)
         return order_to_type(order) if order else None
+
+    @strawberry.field(description="Historial de pedidos del repartidor autenticado")
+    async def my_deliveries(
+        self,
+        info: Info,
+        jwt: str,
+        status: Optional[OrderStatusEnum] = None,
+        page: int = 1,
+        pageSize: int = 20,
+    ) -> List[OrderType]:
+        user_id = require_auth(jwt, info)
+
+        delivery_person = await self._get_or_create_delivery_person(user_id)
+
+        status_filter = status.value if status else None
+        orders = await orders_repo.get_by_delivery_person(
+            delivery_person.id, page, pageSize, status_filter
+        )
+        return [order_to_type(o) for o in orders]
+
+    @strawberry.field(description="Estadísticas del repartidor autenticado")
+    async def my_delivery_stats(self, info: Info, jwt: str) -> DeliveryPersonStatsType:
+        user_id = require_auth(jwt, info)
+
+        delivery_person = await self._get_or_create_delivery_person(user_id)
+
+        stats = await orders_repo.get_delivery_person_stats(delivery_person.id)
+        return DeliveryPersonStatsType(
+            totalDeliveries=stats["totalDeliveries"],
+            totalEarnings=stats["totalEarnings"],
+            totalDistanceKm=stats["totalDistanceKm"],
+            avgDurationMin=stats["avgDurationMin"],
+            avgRating=stats["avgRating"],
+        )
 
     async def _get_or_create_delivery_person(self, user_id: str) -> DeliveryPerson:
         """Get existing delivery person or create one from user profile."""

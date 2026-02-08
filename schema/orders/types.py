@@ -195,6 +195,15 @@ class OrderType:
     paymentId: Optional[str] = None
     currentPaymentAttemptId: Optional[str] = None
     paidAt: Optional[datetime] = None
+
+    # Delivery tracking timestamps & metrics
+    assignedAt: Optional[datetime] = None
+    pickedUpAt: Optional[datetime] = None
+    completedAt: Optional[datetime] = None
+    deliveryDistanceKm: Optional[float] = None
+    deliveryDurationMin: Optional[int] = None
+    deliveryEarnings: Optional[float] = None
+
     rating: Optional[int] = None
     ratingComment: Optional[str] = None
 
@@ -365,6 +374,12 @@ def order_to_type(order) -> OrderType:
         paymentId=order.paymentId,
         currentPaymentAttemptId=order.currentPaymentAttemptId,
         paidAt=order.paidAt,
+        assignedAt=order.assignedAt,
+        pickedUpAt=order.pickedUpAt,
+        completedAt=order.completedAt,
+        deliveryDistanceKm=order.deliveryDistanceKm,
+        deliveryDurationMin=order.deliveryDurationMin,
+        deliveryEarnings=order.deliveryEarnings,
         rating=order.rating,
         ratingComment=order.ratingComment,
         _items=[item.model_dump() for item in order.items],

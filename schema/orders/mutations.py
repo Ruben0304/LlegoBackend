@@ -249,10 +249,7 @@ class OrderMutation:
     # Delivery person mutations
     @strawberry.mutation(description="Aceptar pedido para entrega")
     async def accept_delivery(self, info: Info, orderId: str, jwt: str) -> OrderType:
-        apply_optional_jwt(jwt, info)
-        user_id = info.context.get("user_id")
-        if not user_id:
-            raise Exception("Usuario no autenticado")
+        user_id = require_auth(jwt, info)
 
         try:
             order = await order_service.accept_delivery(orderId, user_id)
@@ -262,10 +259,7 @@ class OrderMutation:
 
     @strawberry.mutation(description="Confirmar recogida del pedido")
     async def confirm_pickup(self, info: Info, orderId: str, jwt: str) -> OrderType:
-        apply_optional_jwt(jwt, info)
-        user_id = info.context.get("user_id")
-        if not user_id:
-            raise Exception("Usuario no autenticado")
+        user_id = require_auth(jwt, info)
 
         try:
             order = await order_service.confirm_pickup(orderId, user_id)
@@ -277,10 +271,7 @@ class OrderMutation:
     async def update_delivery_location(
         self, info: Info, input: UpdateDeliveryLocationInput, jwt: str
     ) -> bool:
-        apply_optional_jwt(jwt, info)
-        user_id = info.context.get("user_id")
-        if not user_id:
-            raise Exception("Usuario no autenticado")
+        user_id = require_auth(jwt, info)
 
         delivery_person = await delivery_persons_repo.get_by_user_id(user_id)
         if not delivery_person:
@@ -311,10 +302,7 @@ class OrderMutation:
 
     @strawberry.mutation(description="Confirmar entrega completada")
     async def confirm_delivery(self, info: Info, orderId: str, jwt: str) -> OrderType:
-        apply_optional_jwt(jwt, info)
-        user_id = info.context.get("user_id")
-        if not user_id:
-            raise Exception("Usuario no autenticado")
+        user_id = require_auth(jwt, info)
 
         try:
             order = await order_service.confirm_delivery(orderId, user_id)
