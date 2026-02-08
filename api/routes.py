@@ -1,20 +1,24 @@
 """REST API routes - Only essential endpoints that can't be done via GraphQL."""
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Request
+
 from typing import Optional
+
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
-from .endpoints.uploads import router as uploads_router
-from .endpoints.apple_auth import router as apple_auth_router
-from .endpoints.error_logs import router as error_logs_router
-from .endpoints.device_tokens import router as device_tokens_router
-from .endpoints.push_notifications import router as push_notifications_router
-from .endpoints.users import router as users_router
-from .endpoints.stripe_payments import router as stripe_router
-from repositories import auth_repo
-from utils.auth import create_access_token
-from utils.rate_limit import limiter, RATE_LIMIT_AUTH
-from services.payments import validate_payment_image_with_transfer_id
 from core.config import settings
+from repositories import auth_repo
+from services.payments import validate_payment_image_with_transfer_id
+from utils.auth import create_access_token
+from utils.rate_limit import RATE_LIMIT_AUTH, limiter
+
+from .endpoints.apple_auth import router as apple_auth_router
+from .endpoints.device_tokens import router as device_tokens_router
+from .endpoints.error_logs import router as error_logs_router
+from .endpoints.product_detection import router as product_detection_router
+from .endpoints.push_notifications import router as push_notifications_router
+from .endpoints.stripe_payments import router as stripe_router
+from .endpoints.uploads import router as uploads_router
+from .endpoints.users import router as users_router
 
 router = APIRouter()
 router.include_router(uploads_router)
@@ -24,11 +28,13 @@ router.include_router(device_tokens_router)
 router.include_router(push_notifications_router)
 router.include_router(users_router)
 router.include_router(stripe_router)
+router.include_router(product_detection_router)
 
 
 # =============================================================================
 # Authentication Models (for development endpoints)
 # =============================================================================
+
 
 class RegisterRequest(BaseModel):
     name: str
@@ -61,7 +67,10 @@ class PaymentValidationResponse(BaseModel):
 # Production uses GraphQL: loginWithGoogle, loginWithApple
 # =============================================================================
 
-@router.post("/auth/register", response_model=AuthResponse, tags=["Authentication (Dev)"])
+
+@router.post(
+    "/auth/register", response_model=AuthResponse, tags=["Authentication (Dev)"]
+)
 @limiter.limit(RATE_LIMIT_AUTH)
 async def register(request: Request, data: RegisterRequest):
     """
@@ -70,7 +79,7 @@ async def register(request: Request, data: RegisterRequest):
     """
     if settings.environment != "development":
         raise HTTPException(status_code=404, detail="Not found")
-    
+
     existing_user = await auth_repo.get_user_by_email(data.email)
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -80,14 +89,12 @@ async def register(request: Request, data: RegisterRequest):
         email=data.email,
         password=data.password,
         phone=data.phone,
-        role="customer"
+        role="customer",
     )
 
-    access_token = create_access_token(data={
-        "sub": user.email,
-        "user_id": user.id,
-        "role": user.role
-    })
+    access_token = create_access_token(
+        data={"sub": user.email, "user_id": user.id, "role": user.role}
+    )
 
     return AuthResponse(
         access_token=access_token,
@@ -97,8 +104,8 @@ async def register(request: Request, data: RegisterRequest):
             "email": user.email,
             "phone": user.phone,
             "role": user.role,
-            "createdAt": user.createdAt.isoformat()
-        }
+            "createdAt": user.createdAt.isoformat(),
+        },
     )
 
 
@@ -111,16 +118,14 @@ async def login(request: Request, data: LoginRequest):
     """
     if settings.environment != "development":
         raise HTTPException(status_code=404, detail="Not found")
-    
+
     user = await auth_repo.authenticate_user(data.email, data.password)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    access_token = create_access_token(data={
-        "sub": user.email,
-        "user_id": user.id,
-        "role": user.role
-    })
+    access_token = create_access_token(
+        data={"sub": user.email, "user_id": user.id, "role": user.role}
+    )
 
     return AuthResponse(
         access_token=access_token,
@@ -130,8 +135,8 @@ async def login(request: Request, data: LoginRequest):
             "email": user.email,
             "phone": user.phone,
             "role": user.role,
-            "createdAt": user.createdAt.isoformat()
-        }
+            "createdAt": user.createdAt.isoformat(),
+        },
     )
 
 
@@ -139,13 +144,16 @@ async def login(request: Request, data: LoginRequest):
 # Payment Validation Endpoint
 # =============================================================================
 
+
 @router.post(
     "/payments/validate",
     response_model=PaymentValidationResponse,
     tags=["Payments"],
 )
 async def validate_payment_image(
-    transfer_id: str = Form(..., description="ID de transferencia proporcionado por el cliente"),
+    transfer_id: str = Form(
+        ..., description="ID de transferencia proporcionado por el cliente"
+    ),
     file: UploadFile = File(..., description="Captura del SMS bancario"),
 ):
     """Validate a payment image using Gemini OCR."""
@@ -162,7 +170,9 @@ async def validate_payment_image(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail="Error al procesar la imagen") from exc
+        raise HTTPException(
+            status_code=500, detail="Error al procesar la imagen"
+        ) from exc
 
     return PaymentValidationResponse(
         matched=result.matched,
