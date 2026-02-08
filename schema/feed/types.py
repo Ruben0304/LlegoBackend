@@ -1,7 +1,9 @@
 """GraphQL type definitions for Feed."""
-import strawberry
+
 from datetime import datetime
-from typing import Optional, List, Annotated
+from typing import Annotated, List, Optional
+
+import strawberry
 from strawberry.types import Info
 
 from utils.s3 import generate_presigned_url
@@ -10,6 +12,7 @@ from utils.s3 import generate_presigned_url
 @strawberry.type
 class FeedProductType:
     """Product with scoring information for feed sections."""
+
     id: str
     branchId: str
     name: str
@@ -46,21 +49,29 @@ class FeedProductType:
         self, info: Info
     ) -> Optional[Annotated["BranchType", strawberry.lazy("schema.branches.types")]]:
         """Resolve the branch relationship using DataLoader."""
-        from schema.branches.types import BranchType, CoordinatesType, BranchTipo
+        from schema.branches.types import BranchTipo, BranchType, CoordinatesType
 
         loader = info.context.get("branch_loader")
         if loader:
             branch_data = await loader.load(self.branchId)
         else:
             from models import branches_repo
+
             branch_data = await branches_repo.get_by_id(self.branchId)
 
         if branch_data:
+            from schema.branches.types import BranchVehicle
+
             return BranchType(
                 **{
                     **branch_data.model_dump(),
-                    'coordinates': CoordinatesType(**branch_data.coordinates.model_dump()),
-                    'tipos': [BranchTipo(t) for t in (branch_data.tipos or [])]
+                    "coordinates": CoordinatesType(
+                        **branch_data.coordinates.model_dump()
+                    ),
+                    "tipos": [BranchTipo(t) for t in (branch_data.tipos or [])],
+                    "vehicles": [
+                        BranchVehicle(v) for v in (branch_data.vehicles or [])
+                    ],
                 }
             )
         return None
@@ -69,6 +80,7 @@ class FeedProductType:
 @strawberry.type
 class FeedSection:
     """A section of the feed with products."""
+
     title: str
     section_id: str
     description: Optional[str]
@@ -79,6 +91,7 @@ class FeedSection:
 @strawberry.type
 class FeedResponse:
     """Complete feed response with multiple sections."""
+
     sections: List[FeedSection]
     section_diagnostics: List["FeedSectionDiagnostic"]
     timestamp: datetime
@@ -87,6 +100,7 @@ class FeedResponse:
 @strawberry.type
 class FeedSectionDiagnostic:
     """Diagnostic information for each feed section request."""
+
     section_id: str
     title: str
     status: str

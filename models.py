@@ -1,7 +1,9 @@
 """Pydantic models for data validation and serialization."""
-from pydantic import BaseModel, Field
-from typing import List, Dict, Optional, Any
+
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field
 
 
 class User(BaseModel):
@@ -15,14 +17,20 @@ class User(BaseModel):
     avatar: Optional[str] = None
     businessIds: List[str] = []
     branchIds: List[str] = []
-    businessAccessIds: List[str] = []  # IDs de BusinessAccess activos (acceso a negocios completos)
-    wallet: Dict[str, float] = Field(default_factory=lambda: {"local": 0.00, "usd": 0.00})
+    businessAccessIds: List[
+        str
+    ] = []  # IDs de BusinessAccess activos (acceso a negocios completos)
+    wallet: Dict[str, float] = Field(
+        default_factory=lambda: {"local": 0.00, "usd": 0.00}
+    )
     walletStatus: str = "active"  # "active", "frozen", "closed"
     createdAt: datetime
     authProvider: str = "local"
     providerUserId: Optional[str] = None
     applePrivateEmail: Optional[str] = None
-    location: Optional[Dict[str, Any]] = None  # GeoJSON: {"type": "Point", "coordinates": [lon, lat]}
+    location: Optional[Dict[str, Any]] = (
+        None  # GeoJSON: {"type": "Point", "coordinates": [lon, lat]}
+    )
     isPro: bool = False
     aiConsultasLimit: Optional[Dict[str, Any]] = None
 
@@ -69,8 +77,14 @@ class Branch(BaseModel):
     facilities: List[str] = []
     tipos: List[str] = []  # ["restaurante", "dulceria", "tienda"]
     paymentMethodIds: List[str] = []  # IDs de métodos de pago aceptados
-    wallet: Dict[str, float] = Field(default_factory=lambda: {"local": 0.00, "usd": 0.00})
+    wallet: Dict[str, float] = Field(
+        default_factory=lambda: {"local": 0.00, "usd": 0.00}
+    )
     walletStatus: str = "active"  # "active", "frozen", "closed"
+    useAppMessaging: bool = (
+        True  # True = mensajería por la app, False = mensajería por cuenta propia
+    )
+    vehicles: List[str] = []  # ["moto", "bicicleta", "carro", "camion", "a_pie"]
     createdAt: datetime
 
     class Config:
@@ -97,6 +111,7 @@ class Category(BaseModel):
 
 class ProductCategory(BaseModel):
     """Product category model for organizing products by branch type."""
+
     id: str = Field(alias="_id")
     branchType: str  # "restaurante", "dulceria", "tienda"
     name: str
@@ -130,6 +145,7 @@ class Product(BaseModel):
 
 class SmsOcr(BaseModel):
     """Modelo para datos extraídos de capturas de SMS bancarios mediante OCR."""
+
     id: str = Field(alias="_id")
     quien_envio: str  # Remitente del mensaje
     banco: str  # Nombre del banco
@@ -153,6 +169,7 @@ class PaymentMethod(BaseModel):
     Defines available payment methods with their commission rates,
     refund policies, and configuration.
     """
+
     id: str = Field(alias="_id")
 
     # Basic info
@@ -169,7 +186,9 @@ class PaymentMethod(BaseModel):
     isRefundable: bool = True
     requiresProof: bool = False  # True for bank transfers
     requiresBusinessConfirmation: bool = False  # True for manual methods
-    expirationMinutes: Optional[int] = None  # Time limit to complete payment (null = no limit)
+    expirationMinutes: Optional[int] = (
+        None  # Time limit to complete payment (null = no limit)
+    )
 
     # Display configuration
     isActive: bool = True
@@ -188,6 +207,7 @@ class PaymentMethod(BaseModel):
 
 class WalletTransaction(BaseModel):
     """Transaction record for wallet operations."""
+
     id: str = Field(alias="_id")
     fromOwnerId: Optional[str] = None  # None for external deposits
     fromOwnerType: Optional[str] = None  # "user" or "branch"
@@ -198,7 +218,9 @@ class WalletTransaction(BaseModel):
     type: str  # "transfer", "deposit", "withdrawal"
     status: str = "completed"  # "pending", "completed", "failed", "reversed"
     description: Optional[str] = None
-    metadata: Optional[dict] = None  # Additional info (order_id, payment_gateway_id, etc)
+    metadata: Optional[dict] = (
+        None  # Additional info (order_id, payment_gateway_id, etc)
+    )
     createdAt: datetime
     completedAt: Optional[datetime] = None
 
@@ -209,12 +231,14 @@ class WalletTransaction(BaseModel):
 
 class WalletBalance(BaseModel):
     """Wallet balance response model."""
+
     local: float = 0.00
     usd: float = 0.00
 
 
 class StripePaymentLink(BaseModel):
     """Stripe Payment Link model for tracking recharge links."""
+
     id: str = Field(alias="_id")
     userId: str
     url: str
@@ -237,11 +261,14 @@ class BranchInvitation(BaseModel):
     Código de invitación para administrar sucursales o negocios completos.
     Permite a dueños de negocios invitar usuarios con acceso temporal o indefinido.
     """
+
     id: str = Field(alias="_id")
     code: str  # Código único, ej. "INV-A7B3C2-D9E4F1"
 
     # Tipo de invitación
-    invitationType: str  # "branch" (sucursal específica) o "business" (negocio completo)
+    invitationType: (
+        str  # "branch" (sucursal específica) o "business" (negocio completo)
+    )
     branchId: Optional[str] = None  # Específico para tipo "branch"
     businessId: str  # Siempre presente
 
@@ -270,6 +297,7 @@ class BusinessAccess(BaseModel):
     Registro de acceso de usuario a nivel de negocio completo.
     Permite acceso automático a todas las sucursales (presentes y futuras).
     """
+
     id: str = Field(alias="_id")
     userId: str
     businessId: str
@@ -291,6 +319,7 @@ class BusinessAccess(BaseModel):
 
 class AndroidConfig(BaseModel):
     """Android app version configuration."""
+
     minVersion: str  # Minimum version allowed
     currentVersion: str  # Latest available version
     updateUrl: str  # URL to download the update
@@ -300,6 +329,7 @@ class AndroidConfig(BaseModel):
 
 class IosConfig(BaseModel):
     """iOS app version configuration."""
+
     minVersion: str  # Minimum version allowed
     currentVersion: str  # Latest available version
     storeUrl: str  # App Store URL
@@ -307,6 +337,7 @@ class IosConfig(BaseModel):
 
 class MaintenanceConfig(BaseModel):
     """Maintenance mode configuration."""
+
     enabled: bool  # Whether maintenance mode is active
     message: Optional[str] = None  # Message to display during maintenance
 
@@ -316,6 +347,7 @@ class AppConfig(BaseModel):
     App version and configuration management for customer app.
     Controls minimum versions, update URLs, maintenance mode, etc.
     """
+
     id: str = Field(alias="_id")
     android: AndroidConfig
     ios: IosConfig
@@ -334,6 +366,7 @@ class BusinessAppConfig(BaseModel):
     App version and configuration management for business/merchant app.
     Controls minimum versions, update URLs, maintenance mode, etc.
     """
+
     id: str = Field(alias="_id")
     android: AndroidConfig
     ios: IosConfig
@@ -349,6 +382,7 @@ class BusinessAppConfig(BaseModel):
 
 class FeedbackType(str):
     """Enum for feedback types."""
+
     BUG = "BUG"
     FEATURE_REQUEST = "FEATURE_REQUEST"
     IMPROVEMENT = "IMPROVEMENT"
@@ -356,6 +390,7 @@ class FeedbackType(str):
 
 class FeedbackStatus(str):
     """Enum for feedback status."""
+
     PENDING = "PENDING"
     IN_REVIEW = "IN_REVIEW"
     RESOLVED = "RESOLVED"
@@ -367,6 +402,7 @@ class Feedback(BaseModel):
     User feedback model for bug reports, feature requests, and improvements.
     Allows users to provide feedback and ratings about the app.
     """
+
     id: str = Field(alias="_id")
     userId: str  # Reference to User
     type: str  # FeedbackType enum value
@@ -383,12 +419,14 @@ class Feedback(BaseModel):
 
 class QuestionType(str):
     """Enum for survey question types."""
+
     MULTIPLE_CHOICE = "MULTIPLE_CHOICE"
     TEXT = "TEXT"
 
 
 class SurveyQuestion(BaseModel):
     """Embedded survey question model."""
+
     questionId: str  # Unique ID for this question
     text: str  # Question text
     type: str  # QuestionType enum value
@@ -401,6 +439,7 @@ class Survey(BaseModel):
     Survey model with embedded questions.
     Allows admins to create surveys for user feedback.
     """
+
     id: str = Field(alias="_id")
     title: str
     description: Optional[str] = None
@@ -416,6 +455,7 @@ class Survey(BaseModel):
 
 class QuestionResponse(BaseModel):
     """Embedded question response model."""
+
     questionId: str
     answer: str  # Selected option or free text
 
@@ -425,6 +465,7 @@ class SurveyResponse(BaseModel):
     User response to a survey.
     Stores answers to all questions in a survey.
     """
+
     id: str = Field(alias="_id")
     surveyId: str  # Reference to Survey
     userId: str  # Reference to User
@@ -441,6 +482,7 @@ class FavoriteCart(BaseModel):
     User favorites and cart items.
     Stores product favorites and cart items for users.
     """
+
     id: str = Field(alias="_id")
     userId: str  # Reference to User
     productId: str  # Reference to Product
@@ -454,6 +496,7 @@ class FavoriteCart(BaseModel):
 
 class ClickedItem(BaseModel):
     """Embedded clicked item in search."""
+
     itemId: str  # Product or Business ID
     itemType: str  # "product" or "business"
     clicks: List[datetime]  # Array of click timestamps
@@ -464,6 +507,7 @@ class Search(BaseModel):
     User search history with clicked items tracking.
     Stores search queries and tracks which items were clicked.
     """
+
     id: str = Field(alias="_id")
     userId: str  # Reference to User
     query: str  # Search query text
@@ -480,6 +524,7 @@ class ChatMessage(BaseModel):
     Chat message for AI assistant conversation memory.
     Stores user and AI messages for context in conversations.
     """
+
     id: str = Field(alias="_id")
     sessionId: str  # user_id from JWT
     role: str  # "user" or "assistant"
@@ -493,6 +538,7 @@ class ChatMessage(BaseModel):
 
 class DraftOrderItem(BaseModel):
     """Item in a draft order."""
+
     productId: str
     name: str
     price: float
@@ -505,6 +551,7 @@ class DraftOrder(BaseModel):
     Draft order created by AI assistant.
     Pending user confirmation before creating real order.
     """
+
     id: str = Field(alias="_id")
     sessionId: str  # user_id from JWT
     customerId: str  # Same as sessionId
@@ -516,9 +563,13 @@ class DraftOrder(BaseModel):
     deliveryFee: float
     total: float
     currency: str = "USD"
-    deliveryAddress: Optional[Dict[str, Any]] = None  # Will be structured as DeliveryAddress
+    deliveryAddress: Optional[Dict[str, Any]] = (
+        None  # Will be structured as DeliveryAddress
+    )
     paymentMethodId: Optional[str] = None
-    status: str = "pending_confirmation"  # "pending_confirmation", "confirmed", "cancelled"
+    status: str = (
+        "pending_confirmation"  # "pending_confirmation", "confirmed", "cancelled"
+    )
     createdAt: datetime = Field(default_factory=datetime.utcnow)
     expiresAt: datetime  # Auto-expire after 1 hour
 
@@ -532,6 +583,7 @@ class BranchLike(BaseModel):
     User likes for branches.
     Stores branch likes for users (similar to FavoriteCart but for branches).
     """
+
     id: str = Field(alias="_id")
     userId: str  # Reference to User
     branchId: str  # Reference to Branch
@@ -547,6 +599,7 @@ class Tutorial(BaseModel):
     Tutorial model for app usage guides.
     Stores video tutorials with metadata for customer and merchant apps.
     """
+
     id: str = Field(alias="_id")
     title: str  # Tutorial title
     description: str  # Tutorial description
@@ -567,24 +620,24 @@ class Tutorial(BaseModel):
 
 # Export repository instances for backward compatibility
 from repositories import (
-    users_repo,
-    businesses_repo,
-    branches_repo,
-    products_repo,
-    product_categories_repo,
-    payments_repo,
-    payment_methods_repo,
     app_config_repo,
+    branch_likes_repo,
+    branches_repo,
     business_app_config_repo,
-    feedbacks_repo,
-    surveys_repo,
-    survey_responses_repo,
-    favorites_cart_repo,
-    searches_repo,
+    businesses_repo,
     chat_memory_repo,
     draft_orders_repo,
-    branch_likes_repo,
+    favorites_cart_repo,
+    feedbacks_repo,
+    payment_methods_repo,
+    payments_repo,
+    product_categories_repo,
+    products_repo,
+    searches_repo,
+    survey_responses_repo,
+    surveys_repo,
     tutorials_repo,
+    users_repo,
 )
 
 __all__ = [

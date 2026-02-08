@@ -1,7 +1,9 @@
 """GraphQL type definitions for Product entity."""
-import strawberry
+
 from datetime import datetime
-from typing import Optional, Annotated
+from typing import Annotated, Optional
+
+import strawberry
 from strawberry.types import Info
 
 from utils.s3 import generate_presigned_url
@@ -41,13 +43,17 @@ class ProductType:
     @strawberry.field(description="Product category")
     async def category(
         self, info: Info
-    ) -> Optional[Annotated["ProductCategoryType", strawberry.lazy("schema.product_categories.types")]]:
+    ) -> Optional[
+        Annotated[
+            "ProductCategoryType", strawberry.lazy("schema.product_categories.types")
+        ]
+    ]:
         """Resolve the product category relationship."""
         if not self.categoryId:
             return None
 
-        from schema.product_categories.types import ProductCategoryType
         from models import product_categories_repo
+        from schema.product_categories.types import ProductCategoryType
 
         category_data = await product_categories_repo.get_by_id(self.categoryId)
         if category_data:
@@ -59,49 +65,63 @@ class ProductType:
         self, info: Info
     ) -> Optional[Annotated["BranchType", strawberry.lazy("schema.branches.types")]]:
         """Resolve the branch relationship using DataLoader."""
-        from schema.branches.types import BranchType, CoordinatesType, BranchTipo
-        
+        from schema.branches.types import BranchTipo, BranchType, CoordinatesType
+
         loader = info.context.get("branch_loader")
         if loader:
             branch_data = await loader.load(self.branchId)
         else:
             from models import branches_repo
+
             branch_data = await branches_repo.get_by_id(self.branchId)
-        
+
         if branch_data:
+            from schema.branches.types import BranchVehicle
+
             return BranchType(
                 **{
                     **branch_data.model_dump(),
-                    'coordinates': CoordinatesType(**branch_data.coordinates.model_dump()),
-                    'tipos': [BranchTipo(t) for t in (branch_data.tipos or [])]
+                    "coordinates": CoordinatesType(
+                        **branch_data.coordinates.model_dump()
+                    ),
+                    "tipos": [BranchTipo(t) for t in (branch_data.tipos or [])],
+                    "vehicles": [
+                        BranchVehicle(v) for v in (branch_data.vehicles or [])
+                    ],
                 }
             )
         return None
 
-    @strawberry.field(description="Business associated with this product (through branch)")
+    @strawberry.field(
+        description="Business associated with this product (through branch)"
+    )
     async def business(
         self, info: Info
-    ) -> Optional[Annotated["BusinessType", strawberry.lazy("schema.businesses.types")]]:
+    ) -> Optional[
+        Annotated["BusinessType", strawberry.lazy("schema.businesses.types")]
+    ]:
         """Resolve the business relationship using DataLoaders."""
         from schema.businesses.types import BusinessType
-        
+
         branch_loader = info.context.get("branch_loader")
         if branch_loader:
             branch_data = await branch_loader.load(self.branchId)
         else:
             from models import branches_repo
+
             branch_data = await branches_repo.get_by_id(self.branchId)
-        
+
         if not branch_data:
             return None
-        
+
         business_loader = info.context.get("business_loader")
         if business_loader:
             business_data = await business_loader.load(branch_data.businessId)
         else:
             from models import businesses_repo
+
             business_data = await businesses_repo.get_by_id(branch_data.businessId)
-        
+
         if business_data:
             return BusinessType(**business_data.model_dump())
         return None
@@ -110,6 +130,7 @@ class ProductType:
 @strawberry.type
 class ScoredProductType:
     """Product with scoring information for ranked results."""
+
     id: str
     branchId: str
     name: str
@@ -150,13 +171,17 @@ class ScoredProductType:
     @strawberry.field(description="Product category")
     async def category(
         self, info: Info
-    ) -> Optional[Annotated["ProductCategoryType", strawberry.lazy("schema.product_categories.types")]]:
+    ) -> Optional[
+        Annotated[
+            "ProductCategoryType", strawberry.lazy("schema.product_categories.types")
+        ]
+    ]:
         """Resolve the product category relationship."""
         if not self.categoryId:
             return None
 
-        from schema.product_categories.types import ProductCategoryType
         from models import product_categories_repo
+        from schema.product_categories.types import ProductCategoryType
 
         category_data = await product_categories_repo.get_by_id(self.categoryId)
         if category_data:
@@ -168,49 +193,63 @@ class ScoredProductType:
         self, info: Info
     ) -> Optional[Annotated["BranchType", strawberry.lazy("schema.branches.types")]]:
         """Resolve the branch relationship using DataLoader."""
-        from schema.branches.types import BranchType, CoordinatesType, BranchTipo
-        
+        from schema.branches.types import BranchTipo, BranchType, CoordinatesType
+
         loader = info.context.get("branch_loader")
         if loader:
             branch_data = await loader.load(self.branchId)
         else:
             from models import branches_repo
+
             branch_data = await branches_repo.get_by_id(self.branchId)
-        
+
         if branch_data:
+            from schema.branches.types import BranchVehicle
+
             return BranchType(
                 **{
                     **branch_data.model_dump(),
-                    'coordinates': CoordinatesType(**branch_data.coordinates.model_dump()),
-                    'tipos': [BranchTipo(t) for t in (branch_data.tipos or [])]
+                    "coordinates": CoordinatesType(
+                        **branch_data.coordinates.model_dump()
+                    ),
+                    "tipos": [BranchTipo(t) for t in (branch_data.tipos or [])],
+                    "vehicles": [
+                        BranchVehicle(v) for v in (branch_data.vehicles or [])
+                    ],
                 }
             )
         return None
 
-    @strawberry.field(description="Business associated with this product (through branch)")
+    @strawberry.field(
+        description="Business associated with this product (through branch)"
+    )
     async def business(
         self, info: Info
-    ) -> Optional[Annotated["BusinessType", strawberry.lazy("schema.businesses.types")]]:
+    ) -> Optional[
+        Annotated["BusinessType", strawberry.lazy("schema.businesses.types")]
+    ]:
         """Resolve the business relationship using DataLoaders."""
         from schema.businesses.types import BusinessType
-        
+
         branch_loader = info.context.get("branch_loader")
         if branch_loader:
             branch_data = await branch_loader.load(self.branchId)
         else:
             from models import branches_repo
+
             branch_data = await branches_repo.get_by_id(self.branchId)
-        
+
         if not branch_data:
             return None
-        
+
         business_loader = info.context.get("business_loader")
         if business_loader:
             business_data = await business_loader.load(branch_data.businessId)
         else:
             from models import businesses_repo
+
             business_data = await businesses_repo.get_by_id(branch_data.businessId)
-        
+
         if business_data:
             return BusinessType(**business_data.model_dump())
         return None

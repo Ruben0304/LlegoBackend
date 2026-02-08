@@ -1,12 +1,19 @@
 """GraphQL type definitions for invitations and business access."""
-import strawberry
+
 from datetime import datetime
 from enum import Enum
-from typing import Optional, Annotated
+from typing import Annotated, Optional
+
+import strawberry
 from strawberry.types import Info
 
+from repositories import (
+    branch_invitations_repo,
+    branches_repo,
+    businesses_repo,
+    users_repo,
+)
 from schema.wallet.types import WalletBalanceType
-from repositories import branches_repo, businesses_repo, users_repo, branch_invitations_repo
 
 
 @strawberry.enum
@@ -27,27 +34,34 @@ def _user_to_type(user):
 
     return UserType(
         **{
-            **user.model_dump(exclude={"password", "location", "wallet", "walletStatus"}),
-            "wallet": WalletBalanceType(
-                local=user.wallet.get("local", 0.0),
-                usd=user.wallet.get("usd", 0.0)
+            **user.model_dump(
+                exclude={"password", "location", "wallet", "walletStatus"}
             ),
-            "walletStatus": user.walletStatus
+            "wallet": WalletBalanceType(
+                local=user.wallet.get("local", 0.0), usd=user.wallet.get("usd", 0.0)
+            ),
+            "walletStatus": user.walletStatus,
         }
     )
 
 
 def _branch_to_type(branch):
-    from schema.branches.types import BranchType, CoordinatesType, BranchTipo
+    from schema.branches.types import (
+        BranchTipo,
+        BranchType,
+        BranchVehicle,
+        CoordinatesType,
+    )
 
     return BranchType(
         **{
             **branch.model_dump(),
             "coordinates": CoordinatesType(**branch.coordinates.model_dump()),
             "tipos": [BranchTipo(t) for t in (branch.tipos or [])],
+            "vehicles": [BranchVehicle(v) for v in (branch.vehicles or [])],
             "paymentMethodIds": branch.paymentMethodIds or [],
             "wallet": branch.wallet,
-            "walletStatus": branch.walletStatus
+            "walletStatus": branch.walletStatus,
         }
     )
 
@@ -69,8 +83,7 @@ class BranchInvitationType:
 
     @strawberry.field(description="Sucursal asociada a la invitacion")
     async def branch(
-        self,
-        info: Info
+        self, info: Info
     ) -> Optional[Annotated["BranchType", strawberry.lazy("schema.branches.types")]]:
         if not self.branchId:
             return None
@@ -80,9 +93,10 @@ class BranchInvitationType:
 
     @strawberry.field(description="Negocio asociado a la invitacion")
     async def business(
-        self,
-        info: Info
-    ) -> Optional[Annotated["BusinessType", strawberry.lazy("schema.businesses.types")]]:
+        self, info: Info
+    ) -> Optional[
+        Annotated["BusinessType", strawberry.lazy("schema.businesses.types")]
+    ]:
         from schema.businesses.types import BusinessType
 
         business = await businesses_repo.get_by_id(self.businessId)
@@ -90,8 +104,7 @@ class BranchInvitationType:
 
     @strawberry.field(description="Creador de la invitacion")
     async def creator(
-        self,
-        info: Info
+        self, info: Info
     ) -> Optional[Annotated["UserType", strawberry.lazy("schema.users.types")]]:
         user_id = info.context.get("user_id")
         if not user_id:
@@ -109,8 +122,7 @@ class BranchInvitationType:
 
     @strawberry.field(description="Usuario que canjeo la invitacion")
     async def redeemer(
-        self,
-        info: Info
+        self, info: Info
     ) -> Optional[Annotated["UserType", strawberry.lazy("schema.users.types")]]:
         if not self.usedBy:
             return None
@@ -158,8 +170,7 @@ class BusinessAccessType:
 
     @strawberry.field(description="Usuario con acceso al negocio")
     async def user(
-        self,
-        info: Info
+        self, info: Info
     ) -> Optional[Annotated["UserType", strawberry.lazy("schema.users.types")]]:
         user_id = info.context.get("user_id")
         if not user_id:
@@ -177,19 +188,17 @@ class BusinessAccessType:
 
     @strawberry.field(description="Negocio asociado")
     async def business(
-        self,
-        info: Info
-    ) -> Optional[Annotated["BusinessType", strawberry.lazy("schema.businesses.types")]]:
+        self, info: Info
+    ) -> Optional[
+        Annotated["BusinessType", strawberry.lazy("schema.businesses.types")]
+    ]:
         from schema.businesses.types import BusinessType
 
         business = await businesses_repo.get_by_id(self.businessId)
         return BusinessType(**business.model_dump()) if business else None
 
     @strawberry.field(description="Invitacion que otorgo el acceso")
-    async def invitation(
-        self,
-        info: Info
-    ) -> Optional["BranchInvitationType"]:
+    async def invitation(self, info: Info) -> Optional["BranchInvitationType"]:
         invitation = await branch_invitations_repo.get_by_id(self.invitationId)
         return invitation_to_type(invitation) if invitation else None
 
@@ -218,7 +227,7 @@ def invitation_to_type(invitation) -> BranchInvitationType:
         status=InvitationStatus(invitation.status),
         usedBy=invitation.usedBy,
         usedAt=invitation.usedAt,
-        accessExpiresAt=invitation.accessExpiresAt
+        accessExpiresAt=invitation.accessExpiresAt,
     )
 
 
@@ -232,5 +241,5 @@ def business_access_to_type(access) -> BusinessAccessType:
         expiresAt=access.expiresAt,
         isActive=access.isActive,
         revokedAt=access.revokedAt,
-        revokedBy=access.revokedBy
+        revokedBy=access.revokedBy,
     )

@@ -1,20 +1,34 @@
 """GraphQL type definitions for Branch entity."""
-import strawberry
-from typing import List, Optional, Annotated
+
 from datetime import datetime
 from enum import Enum
+from typing import Annotated, List, Optional
+
+import strawberry
 from strawberry.types import Info
 
-from utils.s3 import generate_presigned_url
 from schema.wallet.types import WalletBalanceType
+from utils.s3 import generate_presigned_url
 
 
 @strawberry.enum
 class BranchTipo(Enum):
     """Tipos de establecimiento para una sucursal."""
+
     RESTAURANTE = "restaurante"
     DULCERIA = "dulceria"
     TIENDA = "tienda"
+
+
+@strawberry.enum
+class BranchVehicle(Enum):
+    """Tipos de vehículo disponibles para delivery en una sucursal."""
+
+    MOTO = "moto"
+    BICICLETA = "bicicleta"
+    CARRO = "carro"
+    CAMIONETA = "camioneta"
+    CAMINANDO = "caminando"
 
 
 @strawberry.type
@@ -40,22 +54,27 @@ class BranchType:
     facilities: List[str]
     tipos: List[BranchTipo]
     paymentMethodIds: List[str]
+    useAppMessaging: bool = True
+    vehicles: List[BranchVehicle] = strawberry.field(default_factory=list)
     createdAt: datetime
     wallet: WalletBalanceType
     walletStatus: str = "active"
 
-    @strawberry.field(description="Presigned URL for the branch avatar (inherits from business if not set)")
+    @strawberry.field(
+        description="Presigned URL for the branch avatar (inherits from business if not set)"
+    )
     async def avatar_url(self, info: Info) -> Optional[str]:
         # Si la sucursal tiene avatar propio, usarlo
         if self.avatar:
             return generate_presigned_url(self.avatar)
-        
+
         # Si no, intentar heredar del negocio padre
         from repositories import businesses_repo
+
         business = await businesses_repo.get_by_id(self.businessId)
         if business and business.avatar:
             return generate_presigned_url(business.avatar)
-        
+
         return None
 
     @strawberry.field(description="Presigned URL for the branch cover image")
@@ -66,35 +85,35 @@ class BranchType:
 
     @strawberry.field(description="Products from this branch")
     async def products(
-        self,
-        info: Info,
-        limit: int = 6,
-        available_only: bool = True
+        self, info: Info, limit: int = 6, available_only: bool = True
     ) -> List[Annotated["ProductType", strawberry.lazy("schema.products.types")]]:
         """Get products for this branch using DataLoader."""
         from schema.products.types import ProductType
-        
+
         loader = info.context.get("products_by_branch_loader")
         if loader:
             all_products = await loader.load(self.id)
         else:
             from models import products_repo
+
             all_products = await products_repo.get_by_branch(self.id)
-        
+
         if available_only:
             all_products = [p for p in all_products if p.availability]
-        
+
         return [ProductType(**p.model_dump()) for p in all_products[:limit]]
 
     @strawberry.field(description="Payment methods accepted by this branch")
-    async def payment_methods(self, info: Info) -> List[Annotated["PaymentMethodType", strawberry.lazy("schema.payments.types")]]:
+    async def payment_methods(
+        self, info: Info
+    ) -> List[Annotated["PaymentMethodType", strawberry.lazy("schema.payments.types")]]:
         """Get payment methods for this branch."""
-        from schema.payments.types import PaymentMethodType
         from models import payment_methods_repo
-        
+        from schema.payments.types import PaymentMethodType
+
         if not self.paymentMethodIds:
             return []
-        
+
         payment_methods = await payment_methods_repo.get_by_ids(self.paymentMethodIds)
         return [PaymentMethodType(**pm.model_dump()) for pm in payment_methods]
 
@@ -102,6 +121,7 @@ class BranchType:
 @strawberry.type
 class NearbyBranchType:
     """Branch type with distance information for geospatial queries."""
+
     id: str
     businessId: str
     name: str
@@ -117,23 +137,28 @@ class NearbyBranchType:
     facilities: List[str]
     tipos: List[BranchTipo]
     paymentMethodIds: List[str]
+    useAppMessaging: bool = True
+    vehicles: List[BranchVehicle] = strawberry.field(default_factory=list)
     createdAt: datetime
     distance_m: float
     wallet: WalletBalanceType
     walletStatus: str = "active"
 
-    @strawberry.field(description="Presigned URL for the branch avatar (inherits from business if not set)")
+    @strawberry.field(
+        description="Presigned URL for the branch avatar (inherits from business if not set)"
+    )
     async def avatar_url(self, info: Info) -> Optional[str]:
         # Si la sucursal tiene avatar propio, usarlo
         if self.avatar:
             return generate_presigned_url(self.avatar)
-        
+
         # Si no, intentar heredar del negocio padre
         from repositories import businesses_repo
+
         business = await businesses_repo.get_by_id(self.businessId)
         if business and business.avatar:
             return generate_presigned_url(business.avatar)
-        
+
         return None
 
     @strawberry.field(description="Presigned URL for the branch cover image")
@@ -148,35 +173,35 @@ class NearbyBranchType:
 
     @strawberry.field(description="Products from this branch")
     async def products(
-        self,
-        info: Info,
-        limit: int = 6,
-        available_only: bool = True
+        self, info: Info, limit: int = 6, available_only: bool = True
     ) -> List[Annotated["ProductType", strawberry.lazy("schema.products.types")]]:
         """Get products for this branch using DataLoader."""
         from schema.products.types import ProductType
-        
+
         loader = info.context.get("products_by_branch_loader")
         if loader:
             all_products = await loader.load(self.id)
         else:
             from models import products_repo
+
             all_products = await products_repo.get_by_branch(self.id)
-        
+
         if available_only:
             all_products = [p for p in all_products if p.availability]
-        
+
         return [ProductType(**p.model_dump()) for p in all_products[:limit]]
 
     @strawberry.field(description="Payment methods accepted by this branch")
-    async def payment_methods(self, info: Info) -> List[Annotated["PaymentMethodType", strawberry.lazy("schema.payments.types")]]:
+    async def payment_methods(
+        self, info: Info
+    ) -> List[Annotated["PaymentMethodType", strawberry.lazy("schema.payments.types")]]:
         """Get payment methods for this branch."""
-        from schema.payments.types import PaymentMethodType
         from models import payment_methods_repo
-        
+        from schema.payments.types import PaymentMethodType
+
         if not self.paymentMethodIds:
             return []
-        
+
         payment_methods = await payment_methods_repo.get_by_ids(self.paymentMethodIds)
         return [PaymentMethodType(**pm.model_dump()) for pm in payment_methods]
 
@@ -184,6 +209,7 @@ class NearbyBranchType:
 @strawberry.type
 class ScoredBranchType:
     """Branch type with scoring information for ranked results."""
+
     id: str
     businessId: str
     name: str
@@ -199,24 +225,29 @@ class ScoredBranchType:
     facilities: List[str]
     tipos: List[BranchTipo]
     paymentMethodIds: List[str]
+    useAppMessaging: bool = True
+    vehicles: List[BranchVehicle] = strawberry.field(default_factory=list)
     createdAt: datetime
     score: float
     distance_m: Optional[float] = None
     wallet: WalletBalanceType
     walletStatus: str = "active"
 
-    @strawberry.field(description="Presigned URL for the branch avatar (inherits from business if not set)")
+    @strawberry.field(
+        description="Presigned URL for the branch avatar (inherits from business if not set)"
+    )
     async def avatar_url(self, info: Info) -> Optional[str]:
         # Si la sucursal tiene avatar propio, usarlo
         if self.avatar:
             return generate_presigned_url(self.avatar)
-        
+
         # Si no, intentar heredar del negocio padre
         from repositories import businesses_repo
+
         business = await businesses_repo.get_by_id(self.businessId)
         if business and business.avatar:
             return generate_presigned_url(business.avatar)
-        
+
         return None
 
     @strawberry.field(description="Presigned URL for the branch cover image")
@@ -233,34 +264,34 @@ class ScoredBranchType:
 
     @strawberry.field(description="Products from this branch")
     async def products(
-        self,
-        info: Info,
-        limit: int = 6,
-        available_only: bool = True
+        self, info: Info, limit: int = 6, available_only: bool = True
     ) -> List[Annotated["ProductType", strawberry.lazy("schema.products.types")]]:
         """Get products for this branch using DataLoader."""
         from schema.products.types import ProductType
-        
+
         loader = info.context.get("products_by_branch_loader")
         if loader:
             all_products = await loader.load(self.id)
         else:
             from models import products_repo
+
             all_products = await products_repo.get_by_branch(self.id)
-        
+
         if available_only:
             all_products = [p for p in all_products if p.availability]
-        
+
         return [ProductType(**p.model_dump()) for p in all_products[:limit]]
 
     @strawberry.field(description="Payment methods accepted by this branch")
-    async def payment_methods(self, info: Info) -> List[Annotated["PaymentMethodType", strawberry.lazy("schema.payments.types")]]:
+    async def payment_methods(
+        self, info: Info
+    ) -> List[Annotated["PaymentMethodType", strawberry.lazy("schema.payments.types")]]:
         """Get payment methods for this branch."""
-        from schema.payments.types import PaymentMethodType
         from models import payment_methods_repo
-        
+        from schema.payments.types import PaymentMethodType
+
         if not self.paymentMethodIds:
             return []
-        
+
         payment_methods = await payment_methods_repo.get_by_ids(self.paymentMethodIds)
         return [PaymentMethodType(**pm.model_dump()) for pm in payment_methods]

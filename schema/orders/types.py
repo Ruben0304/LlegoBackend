@@ -1,15 +1,17 @@
 """GraphQL type definitions for Orders."""
-import strawberry
-from datetime import datetime
-from typing import Optional, List
-from enum import Enum
 
-from schema.users.types import UserType
-from schema.wallet.types import WalletBalanceType
+from datetime import datetime
+from enum import Enum
+from typing import List, Optional
+
+import strawberry
+
+from orders import delivery_persons_repo
+from repositories import branches_repo, businesses_repo, users_repo
 from schema.branches.types import BranchType, CoordinatesType
 from schema.businesses.types import BusinessType
-from repositories import users_repo, branches_repo, businesses_repo
-from orders import delivery_persons_repo
+from schema.users.types import UserType
+from schema.wallet.types import WalletBalanceType
 
 
 # Enums
@@ -84,19 +86,25 @@ class DeliveryAddressType:
     street: str
     city: Optional[str]
     reference: Optional[str]
-    
+
     @strawberry.field(description="Delivery coordinates")
     def coordinates(self) -> CoordinatesType:
         # This will be set from the parent resolver
         return self._coordinates
-    
-    def __init__(self, street: str, city: Optional[str], reference: Optional[str], coordinates: dict):
+
+    def __init__(
+        self,
+        street: str,
+        city: Optional[str],
+        reference: Optional[str],
+        coordinates: dict,
+    ):
         self.street = street
         self.city = city
         self.reference = reference
         self._coordinates = CoordinatesType(
             type=coordinates.get("type", "Point"),
-            coordinates=coordinates.get("coordinates", [])
+            coordinates=coordinates.get("coordinates", []),
         )
 
 
@@ -127,16 +135,16 @@ class DeliveryPersonType:
     vehiclePlate: Optional[str]
     profileImageUrl: Optional[str]
     isOnline: bool
-    
+
     @strawberry.field(description="Current location of delivery person")
     def current_location(self) -> Optional[CoordinatesType]:
         if self._current_location:
             return CoordinatesType(
                 type=self._current_location.get("type", "Point"),
-                coordinates=self._current_location.get("coordinates", [])
+                coordinates=self._current_location.get("coordinates", []),
             )
         return None
-    
+
     def __init__(
         self,
         id: str,
@@ -148,7 +156,7 @@ class DeliveryPersonType:
         vehiclePlate: Optional[str],
         profileImageUrl: Optional[str],
         isOnline: bool,
-        currentLocation: Optional[dict] = None
+        currentLocation: Optional[dict] = None,
     ):
         self.id = id
         self.name = name
@@ -186,14 +194,14 @@ class OrderType:
     paidAt: Optional[datetime] = None
     rating: Optional[int] = None
     ratingComment: Optional[str] = None
-    
+
     # Internal fields for resolvers
     _items: strawberry.Private[List[dict]]
     _discounts: strawberry.Private[List[dict]]
     _delivery_address: strawberry.Private[dict]
     _timeline: strawberry.Private[List[dict]]
     _comments: strawberry.Private[List[dict]]
-    
+
     @strawberry.field(description="Order items")
     def items(self) -> List[OrderItemType]:
         return [
@@ -203,11 +211,11 @@ class OrderType:
                 price=item["price"],
                 quantity=item["quantity"],
                 imageUrl=item["imageUrl"],
-                wasModifiedByStore=item.get("wasModifiedByStore", False)
+                wasModifiedByStore=item.get("wasModifiedByStore", False),
             )
             for item in self._items
         ]
-    
+
     @strawberry.field(description="Applied discounts")
     def discounts(self) -> List[OrderDiscountType]:
         return [
@@ -215,20 +223,20 @@ class OrderType:
                 id=d["id"],
                 title=d["title"],
                 amount=d["amount"],
-                type=DiscountTypeEnum(d["type"])
+                type=DiscountTypeEnum(d["type"]),
             )
             for d in self._discounts
         ]
-    
+
     @strawberry.field(description="Delivery address")
     def delivery_address(self) -> DeliveryAddressType:
         return DeliveryAddressType(
             street=self._delivery_address["street"],
             city=self._delivery_address.get("city"),
             reference=self._delivery_address.get("reference"),
-            coordinates=self._delivery_address.get("coordinates", {})
+            coordinates=self._delivery_address.get("coordinates", {}),
         )
-    
+
     @strawberry.field(description="Order timeline")
     def timeline(self) -> List[OrderTimelineType]:
         return [
@@ -236,11 +244,11 @@ class OrderType:
                 status=OrderStatusEnum(t["status"]),
                 timestamp=t["timestamp"],
                 message=t["message"],
-                actor=OrderActorEnum(t["actor"])
+                actor=OrderActorEnum(t["actor"]),
             )
             for t in self._timeline
         ]
-    
+
     @strawberry.field(description="Order comments")
     def comments(self) -> List[OrderCommentType]:
         return [
@@ -248,7 +256,7 @@ class OrderType:
                 id=c["id"],
                 author=OrderActorEnum(c["author"]),
                 message=c["message"],
-                timestamp=c["timestamp"]
+                timestamp=c["timestamp"],
             )
             for c in self._comments
         ]
@@ -259,32 +267,40 @@ class OrderType:
         if not user:
             raise Exception(f"Customer not found: {self.customerId}")
         return UserType(
-            **{**user.model_dump(exclude={'password', 'location', 'wallet', 'walletStatus'}),
-               'wallet': WalletBalanceType(local=user.wallet.get('local', 0.0), usd=user.wallet.get('usd', 0.0)),
-               'walletStatus': user.walletStatus}
+            **{
+                **user.model_dump(
+                    exclude={"password", "location", "wallet", "walletStatus"}
+                ),
+                "wallet": WalletBalanceType(
+                    local=user.wallet.get("local", 0.0), usd=user.wallet.get("usd", 0.0)
+                ),
+                "walletStatus": user.walletStatus,
+            }
         )
-    
+
     @strawberry.field(description="Branch preparing the order")
     async def branch(self) -> BranchType:
-        from schema.branches.types import BranchTipo
+        from schema.branches.types import BranchTipo, BranchVehicle
+
         branch = await branches_repo.get_by_id(self.branchId)
         if not branch:
             raise Exception(f"Branch not found: {self.branchId}")
         return BranchType(
             **{
                 **branch.model_dump(),
-                'coordinates': CoordinatesType(**branch.coordinates.model_dump()),
-                'tipos': [BranchTipo(t) for t in (branch.tipos or [])]
+                "coordinates": CoordinatesType(**branch.coordinates.model_dump()),
+                "tipos": [BranchTipo(t) for t in (branch.tipos or [])],
+                "vehicles": [BranchVehicle(v) for v in (branch.vehicles or [])],
             }
         )
-    
+
     @strawberry.field(description="Business owning the branch")
     async def business(self) -> BusinessType:
         business = await businesses_repo.get_by_id(self.businessId)
         if not business:
             raise Exception(f"Business not found: {self.businessId}")
         return BusinessType(**business.model_dump())
-    
+
     @strawberry.field(description="Assigned delivery person")
     async def delivery_person(self) -> Optional[DeliveryPersonType]:
         if not self.deliveryPersonId:
@@ -301,24 +317,29 @@ class OrderType:
                 vehiclePlate=dp.vehiclePlate,
                 profileImageUrl=dp.profileImageUrl,
                 isOnline=dp.isOnline,
-                currentLocation=dp.currentLocation.model_dump() if dp.currentLocation else None
+                currentLocation=dp.currentLocation.model_dump()
+                if dp.currentLocation
+                else None,
             )
         return None
-    
+
     @strawberry.field(description="Whether order can be edited by customer")
     def is_editable(self) -> bool:
         return self.status == OrderStatusEnum.MODIFIED_BY_STORE
-    
+
     @strawberry.field(description="Whether order can be cancelled")
     def can_cancel(self) -> bool:
         non_cancellable = [OrderStatusEnum.DELIVERED, OrderStatusEnum.CANCELLED]
         return self.status not in non_cancellable
-    
+
     @strawberry.field(description="Estimated minutes remaining for delivery")
     def estimated_minutes_remaining(self) -> Optional[int]:
         if self.estimatedDeliveryTime:
             from datetime import datetime
-            remaining = (self.estimatedDeliveryTime - datetime.utcnow()).total_seconds() / 60
+
+            remaining = (
+                self.estimatedDeliveryTime - datetime.utcnow()
+            ).total_seconds() / 60
             return max(0, int(remaining))
         return None
 
@@ -352,7 +373,7 @@ def order_to_type(order) -> OrderType:
         _discounts=[d.model_dump() for d in order.discounts],
         _delivery_address=order.deliveryAddress.model_dump(),
         _timeline=[t.model_dump() for t in order.timeline],
-        _comments=[c.model_dump() for c in order.comments]
+        _comments=[c.model_dump() for c in order.comments],
     )
 
 

@@ -1,29 +1,34 @@
 """GraphQL mutations for Branch entity."""
-import strawberry
-from typing import Optional
-from datetime import datetime
-from strawberry.types import Info
-from bson import ObjectId
 
-from .types import BranchType, CoordinatesType, BranchTipo
-from .inputs import CreateBranchInput, UpdateBranchInput
-from .utils import branch_to_dict
+from datetime import datetime
+from typing import Optional
+
+import strawberry
+from bson import ObjectId
+from strawberry.types import Info
+
 from models import Branch, Coordinates
-from repositories import branches_repo, businesses_repo, store_locations_repo, products_repo
+from repositories import (
+    branches_repo,
+    businesses_repo,
+    products_repo,
+    store_locations_repo,
+)
+from services.access_checker import access_checker
+from services.qdrant_indexing_service import qdrant_indexing_service
 from utils.graphql_auth import apply_optional_jwt
 from utils.s3 import delete_file
-from services.qdrant_indexing_service import qdrant_indexing_service
-from services.access_checker import access_checker
+
+from .inputs import CreateBranchInput, UpdateBranchInput
+from .types import BranchTipo, BranchType, CoordinatesType
+from .utils import branch_to_dict
 
 
 @strawberry.type
 class BranchMutation:
     @strawberry.mutation(description="Crear una nueva sucursal")
     async def create_branch(
-        self,
-        info: Info,
-        input: CreateBranchInput,
-        jwt: Optional[str] = None
+        self, info: Info, input: CreateBranchInput, jwt: Optional[str] = None
     ) -> BranchType:
         """
         Create a new branch. Upload images first via POST /upload/branch/avatar
@@ -35,7 +40,9 @@ class BranchMutation:
             raise Exception("Usuario no autenticado")
 
         # Verify business exists and user is owner (only owners can create branches)
-        await access_checker.require_business_access(user_id, input.businessId, require_owner=True)
+        await access_checker.require_business_access(
+            user_id, input.businessId, require_owner=True
+        )
 
         # Validate tipos is not empty
         if not input.tipos:
@@ -47,6 +54,7 @@ class BranchMutation:
 
         # Verify payment methods exist
         from models import payment_methods_repo
+
         payment_methods = await payment_methods_repo.get_by_ids(input.paymentMethodIds)
         if len(payment_methods) != len(input.paymentMethodIds):
             raise Exception("Uno o más métodos de pago no existen")
@@ -59,8 +67,7 @@ class BranchMutation:
             name=input.name,
             address=input.address,
             coordinates=Coordinates(
-                type="Point",
-                coordinates=[input.coordinates.lng, input.coordinates.lat]
+                type="Point", coordinates=[input.coordinates.lng, input.coordinates.lat]
             ),
             phone=input.phone,
             schedule=input.schedule,
@@ -74,7 +81,9 @@ class BranchMutation:
             paymentMethodIds=input.paymentMethodIds,
             wallet={"local": 0.0, "usd": 0.0},
             walletStatus="active",
-            createdAt=datetime.now()
+            useAppMessaging=input.useAppMessaging,
+            vehicles=[v.value for v in input.vehicles] if input.vehicles else [],
+            createdAt=datetime.now(),
         )
 
         # Step 1: Create in MongoDB first
@@ -88,11 +97,12 @@ class BranchMutation:
             store_id=branch_id,
             longitude=input.coordinates.lng,
             latitude=input.coordinates.lat,
-            active=True
+            active=True,
         )
 
         # Sync business-level access to the new branch
         from services.access_manager import access_manager
+
         await access_manager.sync_business_access_to_new_branch(created_branch.id)
 
         return BranchType(**branch_to_dict(created_branch))
@@ -103,7 +113,7 @@ class BranchMutation:
         info: Info,
         branch_id: str,
         input: UpdateBranchInput,
-        jwt: Optional[str] = None
+        jwt: Optional[str] = None,
     ) -> BranchType:
         """
         Update branch data. For new images, upload first via POST /upload/branch/avatar
@@ -144,7 +154,9 @@ class BranchMutation:
             if not business:
                 raise Exception("Negocio no encontrado")
 
-            await access_checker.require_business_access(user_id, branch.businessId, require_owner=True)
+            await access_checker.require_business_access(
+                user_id, branch.businessId, require_owner=True
+            )
             updates["managerIds"] = input.managerIds
         if input.avatar is not None:
             # Delete old avatar if exists
@@ -165,10 +177,17 @@ class BranchMutation:
                 raise Exception("Debe especificar al menos un método de pago")
             # Verify payment methods exist
             from models import payment_methods_repo
-            payment_methods = await payment_methods_repo.get_by_ids(input.paymentMethodIds)
+
+            payment_methods = await payment_methods_repo.get_by_ids(
+                input.paymentMethodIds
+            )
             if len(payment_methods) != len(input.paymentMethodIds):
                 raise Exception("Uno o más métodos de pago no existen")
             updates["paymentMethodIds"] = input.paymentMethodIds
+        if input.useAppMessaging is not None:
+            updates["useAppMessaging"] = input.useAppMessaging
+        if input.vehicles is not None:
+            updates["vehicles"] = [v.value for v in input.vehicles]
 
         # Handle coordinates update - save to MongoDB stores_location
         if input.coordinates is not None:
@@ -177,12 +196,12 @@ class BranchMutation:
                 store_id=branch_id,
                 longitude=input.coordinates.lng,
                 latitude=input.coordinates.lat,
-                active=branch.status == "active"
+                active=branch.status == "active",
             )
             # Also update in Qdrant metadata
             updates["coordinates"] = {
                 "type": "Point",
-                "coordinates": [input.coordinates.lng, input.coordinates.lat]
+                "coordinates": [input.coordinates.lng, input.coordinates.lat],
             }
 
         # Handle status change - sync active status to stores_location
@@ -202,10 +221,7 @@ class BranchMutation:
 
     @strawberry.mutation(description="Eliminar una sucursal")
     async def delete_branch(
-        self,
-        info: Info,
-        branch_id: str,
-        jwt: Optional[str] = None
+        self, info: Info, branch_id: str, jwt: Optional[str] = None
     ) -> bool:
         """
         Delete a branch and all its associated data.
@@ -226,7 +242,9 @@ class BranchMutation:
             raise Exception("Sucursal no encontrada")
 
         # Verify user is the business owner (only owner can delete, not managers)
-        await access_checker.require_branch_access(user_id, branch_id, require_owner=True)
+        await access_checker.require_branch_access(
+            user_id, branch_id, require_owner=True
+        )
 
         # Delete branch images from S3
         if branch.avatar:
