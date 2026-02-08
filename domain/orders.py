@@ -249,6 +249,7 @@ ALLOWED_TRANSITIONS: Dict[str, List[str]] = {
     ],
     OrderStatus.ACCEPTED.value: [
         OrderStatus.PREPARING.value,
+        OrderStatus.READY_FOR_PICKUP.value,
         OrderStatus.CANCELLED.value,
     ],
     OrderStatus.PREPARING.value: [
