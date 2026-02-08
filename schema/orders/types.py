@@ -110,6 +110,22 @@ class DeliveryAddressType:
 
 
 @strawberry.type
+class PickupAddressType:
+    street: Optional[str]
+
+    @strawberry.field(description="Pickup coordinates")
+    def coordinates(self) -> CoordinatesType:
+        return self._coordinates
+
+    def __init__(self, street: Optional[str], coordinates: dict):
+        self.street = street
+        self._coordinates = CoordinatesType(
+            type=coordinates.get("type", "Point"),
+            coordinates=coordinates.get("coordinates", []),
+        )
+
+
+@strawberry.type
 class OrderTimelineType:
     status: OrderStatusEnum
     timestamp: datetime
@@ -211,6 +227,7 @@ class OrderType:
     _items: strawberry.Private[List[dict]]
     _discounts: strawberry.Private[List[dict]]
     _delivery_address: strawberry.Private[dict]
+    _pickup_address: strawberry.Private[Optional[dict]]
     _timeline: strawberry.Private[List[dict]]
     _comments: strawberry.Private[List[dict]]
 
@@ -247,6 +264,15 @@ class OrderType:
             city=self._delivery_address.get("city"),
             reference=self._delivery_address.get("reference"),
             coordinates=self._delivery_address.get("coordinates", {}),
+        )
+
+    @strawberry.field(description="Pickup address (branch location)")
+    def pickup_address(self) -> Optional[PickupAddressType]:
+        if not self._pickup_address:
+            return None
+        return PickupAddressType(
+            street=self._pickup_address.get("street"),
+            coordinates=self._pickup_address.get("coordinates", {}),
         )
 
     @strawberry.field(description="Order timeline")
@@ -385,6 +411,9 @@ def order_to_type(order) -> OrderType:
         _items=[item.model_dump() for item in order.items],
         _discounts=[d.model_dump() for d in order.discounts],
         _delivery_address=order.deliveryAddress.model_dump(),
+        _pickup_address=order.pickupAddress.model_dump()
+        if order.pickupAddress
+        else None,
         _timeline=[t.model_dump() for t in order.timeline],
         _comments=[c.model_dump() for c in order.comments],
     )

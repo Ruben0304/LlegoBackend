@@ -93,6 +93,13 @@ class DeliveryAddress(BaseModel):
     coordinates: GeoPoint
 
 
+class PickupAddress(BaseModel):
+    """Pickup address (branch location) for an order."""
+
+    street: Optional[str] = None
+    coordinates: GeoPoint
+
+
 class OrderTimeline(BaseModel):
     """Timeline event for order history."""
 
@@ -140,6 +147,7 @@ class Order(BaseModel):
     paidAt: Optional[datetime] = None  # When payment was completed
     deliveryFeePaid: float = 0.0  # Delivery fee actually paid (for tracking)
 
+    pickupAddress: Optional[PickupAddress] = None  # Branch address for pickup
     branchH3: Optional[str] = None  # H3 index of branch location for geo queries
 
     # Delivery tracking timestamps & metrics

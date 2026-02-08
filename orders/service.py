@@ -21,6 +21,7 @@ from .models import (
     OrderStatus,
     OrderTimeline,
     PaymentStatus,
+    PickupAddress,
 )
 from .repository import (
     DeliveryPersonRepository,
@@ -148,6 +149,14 @@ class OrderService:
             ),
         )
 
+        pickup_addr = PickupAddress(
+            street=branch.address,
+            coordinates=GeoPoint(
+                type="Point",
+                coordinates=list(branch.coordinates.coordinates),
+            ),
+        )
+
         timeline = [
             OrderTimeline(
                 status=OrderStatus.PENDING_ACCEPTANCE,
@@ -185,6 +194,7 @@ class OrderService:
             currency="USD",
             status=OrderStatus.PENDING_ACCEPTANCE,
             deliveryAddress=delivery_addr,
+            pickupAddress=pickup_addr,
             timeline=timeline,
             comments=comments,
             paymentMethod=payment_method,
