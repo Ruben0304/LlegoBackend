@@ -1,9 +1,11 @@
 """Platform repository for database operations."""
-from typing import Optional
-from datetime import datetime
-from clients.mongodb_client import get_database
-from .models import Platform, PlatformWallet
 
+from datetime import datetime
+from typing import Dict, List, Optional
+
+from clients.mongodb_client import get_database
+
+from .models import Platform, PlatformWallet, QrPayment, TransferAccount, TransferPhone
 
 # Platform document ID (singleton)
 PLATFORM_ID = "platform"
@@ -79,6 +81,150 @@ class PlatformRepository:
                 "$set": {"updatedAt": datetime.utcnow()},
             },
         )
+
+    # =========================================================================
+    # Transfer Accounts (CUP card accounts)
+    # =========================================================================
+
+    async def get_transfer_info(self) -> Dict:
+        """Get all transfer payment info (accounts, qrPayments, phones)."""
+        platform = await self.get()
+        return {
+            "accounts": platform.accounts,
+            "qrPayments": platform.qrPayments,
+            "phones": platform.phones,
+        }
+
+    async def add_account(self, account: TransferAccount) -> Platform:
+        """Add a transfer account to the platform."""
+        collection = self._get_collection()
+        await self.get()
+        result = await collection.find_one_and_update(
+            {"_id": PLATFORM_ID},
+            {
+                "$push": {"accounts": account.model_dump()},
+                "$set": {"updatedAt": datetime.utcnow()},
+            },
+            return_document=True,
+        )
+        return Platform(**result)
+
+    async def update_account(
+        self, card_number: str, updates: Dict
+    ) -> Optional[Platform]:
+        """Update a transfer account by card number."""
+        collection = self._get_collection()
+        set_fields = {f"accounts.$.{k}": v for k, v in updates.items()}
+        set_fields["updatedAt"] = datetime.utcnow()
+        result = await collection.find_one_and_update(
+            {"_id": PLATFORM_ID, "accounts.cardNumber": card_number},
+            {"$set": set_fields},
+            return_document=True,
+        )
+        return Platform(**result) if result else None
+
+    async def remove_account(self, card_number: str) -> Platform:
+        """Remove a transfer account by card number."""
+        collection = self._get_collection()
+        result = await collection.find_one_and_update(
+            {"_id": PLATFORM_ID},
+            {
+                "$pull": {"accounts": {"cardNumber": card_number}},
+                "$set": {"updatedAt": datetime.utcnow()},
+            },
+            return_document=True,
+        )
+        return Platform(**result)
+
+    # =========================================================================
+    # QR Payments
+    # =========================================================================
+
+    async def add_qr_payment(self, qr: QrPayment) -> Platform:
+        """Add a QR payment to the platform."""
+        collection = self._get_collection()
+        await self.get()
+        result = await collection.find_one_and_update(
+            {"_id": PLATFORM_ID},
+            {
+                "$push": {"qrPayments": qr.model_dump()},
+                "$set": {"updatedAt": datetime.utcnow()},
+            },
+            return_document=True,
+        )
+        return Platform(**result)
+
+    async def update_qr_payment(self, value: str, updates: Dict) -> Optional[Platform]:
+        """Update a QR payment by its value."""
+        collection = self._get_collection()
+        set_fields = {f"qrPayments.$.{k}": v for k, v in updates.items()}
+        set_fields["updatedAt"] = datetime.utcnow()
+        result = await collection.find_one_and_update(
+            {"_id": PLATFORM_ID, "qrPayments.value": value},
+            {"$set": set_fields},
+            return_document=True,
+        )
+        return Platform(**result) if result else None
+
+    async def remove_qr_payment(self, value: str) -> Platform:
+        """Remove a QR payment by its value."""
+        collection = self._get_collection()
+        result = await collection.find_one_and_update(
+            {"_id": PLATFORM_ID},
+            {
+                "$pull": {"qrPayments": {"value": value}},
+                "$set": {"updatedAt": datetime.utcnow()},
+            },
+            return_document=True,
+        )
+        return Platform(**result)
+
+    # =========================================================================
+    # Transfer Phones
+    # =========================================================================
+
+    async def add_phone(self, phone: TransferPhone) -> Platform:
+        """Add a transfer phone to the platform."""
+        collection = self._get_collection()
+        await self.get()
+        result = await collection.find_one_and_update(
+            {"_id": PLATFORM_ID},
+            {
+                "$push": {"phones": phone.model_dump()},
+                "$set": {"updatedAt": datetime.utcnow()},
+            },
+            return_document=True,
+        )
+        return Platform(**result)
+
+    async def update_phone(self, phone: str, updates: Dict) -> Optional[Platform]:
+        """Update a transfer phone by its number."""
+        collection = self._get_collection()
+        set_fields = {f"phones.$.{k}": v for k, v in updates.items()}
+        set_fields["updatedAt"] = datetime.utcnow()
+        result = await collection.find_one_and_update(
+            {"_id": PLATFORM_ID, "phones.phone": phone},
+            {"$set": set_fields},
+            return_document=True,
+        )
+        return Platform(**result) if result else None
+
+    async def remove_phone(self, phone: str) -> Platform:
+        """Remove a transfer phone by its number."""
+        collection = self._get_collection()
+        result = await collection.find_one_and_update(
+            {"_id": PLATFORM_ID},
+            {
+                "$pull": {"phones": {"phone": phone}},
+                "$set": {"updatedAt": datetime.utcnow()},
+            },
+            return_document=True,
+        )
+        return Platform(**result)
+
+    # =========================================================================
+    # Withdrawals
+    # =========================================================================
 
     async def withdraw_commission(
         self,

@@ -17,6 +17,32 @@ class CoordinatesInput:
 
 
 @strawberry.input
+class TransferAccountInput:
+    """Input for a bank card account for CUP transfers."""
+
+    cardNumber: str
+    cardHolderName: str
+    bankName: str
+    isActive: bool = True
+
+
+@strawberry.input
+class QrPaymentInput:
+    """Input for a QR payment value (EnZona, etc.)."""
+
+    value: str
+    isActive: bool = True
+
+
+@strawberry.input
+class TransferPhoneInput:
+    """Input for a phone number for mobile transfers (Transfermóvil, etc.)."""
+
+    phone: str
+    isActive: bool = True
+
+
+@strawberry.input
 class CreateBranchInput:
     """Input for creating a new branch."""
 
@@ -39,6 +65,10 @@ class CreateBranchInput:
     vehicles: Optional[List[BranchVehicle]] = (
         None  # ["moto", "bicicleta", "carro", "camioneta", "caminando"]
     )
+    # Transfer payment info
+    accounts: Optional[List[TransferAccountInput]] = None
+    qrPayments: Optional[List[QrPaymentInput]] = None
+    phones: Optional[List[TransferPhoneInput]] = None
 
 
 @strawberry.input
@@ -64,3 +94,7 @@ class UpdateBranchInput:
     vehicles: Optional[List[BranchVehicle]] = (
         None  # ["moto", "bicicleta", "carro", "camioneta", "caminando"]
     )
+    # Transfer payment info
+    accounts: Optional[List[TransferAccountInput]] = None
+    qrPayments: Optional[List[QrPaymentInput]] = None
+    phones: Optional[List[TransferPhoneInput]] = None

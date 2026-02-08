@@ -1,27 +1,36 @@
-import strawberry
-from typing import List, Optional
 from datetime import datetime
-from strawberry.types import Info
-from bson import ObjectId
+from typing import List, Optional
 
-from models import Business, Branch, Coordinates
-from repositories import businesses_repo, branches_repo, users_repo
-from .inputs import CreateBusinessInput, RegisterBranchInput, UpdateBusinessInput, RegisterBusinessWithBranchesInput
-from .types import BusinessType
+import strawberry
+from bson import ObjectId
+from strawberry.types import Info
+
+from models import Branch, Business, Coordinates
+from repositories import branches_repo, businesses_repo, users_repo
+from services.qdrant_indexing_service import qdrant_indexing_service
 from utils.graphql_auth import apply_optional_jwt
 from utils.s3 import delete_file
-from services.qdrant_indexing_service import qdrant_indexing_service
+
+from .inputs import (
+    CreateBusinessInput,
+    RegisterBranchInput,
+    RegisterBusinessWithBranchesInput,
+    UpdateBusinessInput,
+)
+from .types import BusinessType
 
 
 @strawberry.type
 class BusinessMutation:
-    @strawberry.mutation(description="Registrar un nuevo negocio con al menos una sucursal")
+    @strawberry.mutation(
+        description="Registrar un nuevo negocio con al menos una sucursal"
+    )
     async def register_business(
         self,
         info: Info,
         business_input: CreateBusinessInput,
         branches_input: List[RegisterBranchInput],
-        jwt: Optional[str] = None
+        jwt: Optional[str] = None,
     ) -> BusinessType:
         """
         Registra un negocio y sus sucursales iniciales.
@@ -35,7 +44,9 @@ class BusinessMutation:
             raise Exception("Usuario no autenticado")
 
         if not branches_input:
-            raise Exception("Se requiere al menos una sucursal para registrar el negocio")
+            raise Exception(
+                "Se requiere al menos una sucursal para registrar el negocio"
+            )
 
         # 2. Crear Negocio
         business_id = str(ObjectId())
@@ -50,7 +61,7 @@ class BusinessMutation:
             socialMedia=business_input.socialMedia,
             tags=business_input.tags or [],
             isActive=True,
-            createdAt=datetime.now()
+            createdAt=datetime.now(),
         )
 
         # Step 1: Create business in MongoDB first
@@ -66,18 +77,25 @@ class BusinessMutation:
         for branch_inp in branches_input:
             # Validar que tipos no esté vacío
             if not branch_inp.tipos:
-                raise Exception("Debe especificar al menos un tipo de establecimiento para cada sucursal")
-            
+                raise Exception(
+                    "Debe especificar al menos un tipo de establecimiento para cada sucursal"
+                )
+
             # Validar que paymentMethodIds no esté vacío
             if not branch_inp.paymentMethodIds:
-                raise Exception("Debe especificar al menos un método de pago para cada sucursal")
-            
+                raise Exception(
+                    "Debe especificar al menos un método de pago para cada sucursal"
+                )
+
             # Verificar que los métodos de pago existan
             from models import payment_methods_repo
-            payment_methods = await payment_methods_repo.get_by_ids(branch_inp.paymentMethodIds)
+
+            payment_methods = await payment_methods_repo.get_by_ids(
+                branch_inp.paymentMethodIds
+            )
             if len(payment_methods) != len(branch_inp.paymentMethodIds):
                 raise Exception("Uno o más métodos de pago no existen")
-            
+
             branch_id = str(ObjectId())
 
             branch = Branch(
@@ -87,7 +105,10 @@ class BusinessMutation:
                 address=branch_inp.address,
                 coordinates=Coordinates(
                     type="Point",
-                    coordinates=[branch_inp.coordinates.lng, branch_inp.coordinates.lat]
+                    coordinates=[
+                        branch_inp.coordinates.lng,
+                        branch_inp.coordinates.lat,
+                    ],
                 ),
                 phone=branch_inp.phone,
                 schedule=branch_inp.schedule,
@@ -99,7 +120,16 @@ class BusinessMutation:
                 facilities=branch_inp.facilities or [],
                 tipos=[t.value for t in branch_inp.tipos],
                 paymentMethodIds=branch_inp.paymentMethodIds,
-                createdAt=datetime.now()
+                accounts=[a.__dict__ for a in branch_inp.accounts]
+                if branch_inp.accounts
+                else [],
+                qrPayments=[q.__dict__ for q in branch_inp.qrPayments]
+                if branch_inp.qrPayments
+                else [],
+                phones=[p.__dict__ for p in branch_inp.phones]
+                if branch_inp.phones
+                else [],
+                createdAt=datetime.now(),
             )
 
             # Create branch in MongoDB first
@@ -119,7 +149,7 @@ class BusinessMutation:
             socialMedia=created_business.socialMedia,
             tags=created_business.tags,
             isActive=created_business.isActive,
-            createdAt=created_business.createdAt
+            createdAt=created_business.createdAt,
         )
 
     @strawberry.mutation(description="Actualizar un negocio")
@@ -128,7 +158,7 @@ class BusinessMutation:
         info: Info,
         business_id: str,
         input: UpdateBusinessInput,
-        jwt: Optional[str] = None
+        jwt: Optional[str] = None,
     ) -> BusinessType:
         """
         Actualiza datos de un negocio. Para imágenes, subirlas primero via
@@ -184,15 +214,17 @@ class BusinessMutation:
             socialMedia=updated_business.socialMedia,
             tags=updated_business.tags,
             isActive=updated_business.isActive,
-            createdAt=updated_business.createdAt
+            createdAt=updated_business.createdAt,
         )
 
-    @strawberry.mutation(description="Registrar múltiples negocios con sus sucursales en una sola operación")
+    @strawberry.mutation(
+        description="Registrar múltiples negocios con sus sucursales en una sola operación"
+    )
     async def register_multiple_businesses(
         self,
         info: Info,
         businesses_input: List[RegisterBusinessWithBranchesInput],
-        jwt: Optional[str] = None
+        jwt: Optional[str] = None,
     ) -> List[BusinessType]:
         """
         Registra múltiples negocios con sus sucursales en una sola operación atómica.
@@ -211,7 +243,9 @@ class BusinessMutation:
         # Validar que cada negocio tenga al menos una sucursal
         for idx, business_data in enumerate(businesses_input):
             if not business_data.branches:
-                raise Exception(f"El negocio en posición {idx} requiere al menos una sucursal")
+                raise Exception(
+                    f"El negocio en posición {idx} requiere al menos una sucursal"
+                )
 
         created_businesses = []
         created_business_ids = []
@@ -236,7 +270,7 @@ class BusinessMutation:
                     socialMedia=business_input.socialMedia,
                     tags=business_input.tags or [],
                     isActive=True,
-                    createdAt=datetime.now()
+                    createdAt=datetime.now(),
                 )
 
                 # Create business in MongoDB first
@@ -254,18 +288,27 @@ class BusinessMutation:
                 for branch_inp in branches_input:
                     # Validar que tipos no esté vacío
                     if not branch_inp.tipos:
-                        raise Exception(f"Debe especificar al menos un tipo de establecimiento para cada sucursal del negocio '{business_input.name}'")
-                    
+                        raise Exception(
+                            f"Debe especificar al menos un tipo de establecimiento para cada sucursal del negocio '{business_input.name}'"
+                        )
+
                     # Validar que paymentMethodIds no esté vacío
                     if not branch_inp.paymentMethodIds:
-                        raise Exception(f"Debe especificar al menos un método de pago para cada sucursal del negocio '{business_input.name}'")
-                    
+                        raise Exception(
+                            f"Debe especificar al menos un método de pago para cada sucursal del negocio '{business_input.name}'"
+                        )
+
                     # Verificar que los métodos de pago existan
                     from models import payment_methods_repo
-                    payment_methods = await payment_methods_repo.get_by_ids(branch_inp.paymentMethodIds)
+
+                    payment_methods = await payment_methods_repo.get_by_ids(
+                        branch_inp.paymentMethodIds
+                    )
                     if len(payment_methods) != len(branch_inp.paymentMethodIds):
-                        raise Exception(f"Uno o más métodos de pago no existen para el negocio '{business_input.name}'")
-                    
+                        raise Exception(
+                            f"Uno o más métodos de pago no existen para el negocio '{business_input.name}'"
+                        )
+
                     branch_id = str(ObjectId())
 
                     branch = Branch(
@@ -275,7 +318,10 @@ class BusinessMutation:
                         address=branch_inp.address,
                         coordinates=Coordinates(
                             type="Point",
-                            coordinates=[branch_inp.coordinates.lng, branch_inp.coordinates.lat]
+                            coordinates=[
+                                branch_inp.coordinates.lng,
+                                branch_inp.coordinates.lat,
+                            ],
                         ),
                         phone=branch_inp.phone,
                         schedule=branch_inp.schedule,
@@ -287,7 +333,16 @@ class BusinessMutation:
                         facilities=branch_inp.facilities or [],
                         tipos=[t.value for t in branch_inp.tipos],
                         paymentMethodIds=branch_inp.paymentMethodIds,
-                        createdAt=datetime.now()
+                        accounts=[a.__dict__ for a in branch_inp.accounts]
+                        if branch_inp.accounts
+                        else [],
+                        qrPayments=[q.__dict__ for q in branch_inp.qrPayments]
+                        if branch_inp.qrPayments
+                        else [],
+                        phones=[p.__dict__ for p in branch_inp.phones]
+                        if branch_inp.phones
+                        else [],
+                        createdAt=datetime.now(),
                     )
 
                     # Create branch in MongoDB first
@@ -309,7 +364,7 @@ class BusinessMutation:
                     socialMedia=b.socialMedia,
                     tags=b.tags,
                     isActive=b.isActive,
-                    createdAt=b.createdAt
+                    createdAt=b.createdAt,
                 )
                 for b in created_businesses
             ]

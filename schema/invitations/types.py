@@ -46,24 +46,10 @@ def _user_to_type(user):
 
 
 def _branch_to_type(branch):
-    from schema.branches.types import (
-        BranchTipo,
-        BranchType,
-        BranchVehicle,
-        CoordinatesType,
-    )
+    from schema.branches.types import BranchType
+    from schema.branches.utils import branch_to_dict
 
-    return BranchType(
-        **{
-            **branch.model_dump(),
-            "coordinates": CoordinatesType(**branch.coordinates.model_dump()),
-            "tipos": [BranchTipo(t) for t in (branch.tipos or [])],
-            "vehicles": [BranchVehicle(v) for v in (branch.vehicles or [])],
-            "paymentMethodIds": branch.paymentMethodIds or [],
-            "wallet": branch.wallet,
-            "walletStatus": branch.walletStatus,
-        }
-    )
+    return BranchType(**branch_to_dict(branch))
 
 
 @strawberry.type

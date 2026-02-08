@@ -192,30 +192,9 @@ class BusinessQuery:
                     branches_by_business[business_id] = []
 
                 # Convert branch to BranchType
-                from schema.branches.types import BranchVehicle
+                from schema.branches.utils import branch_to_dict
 
-                branch_type = BranchType(
-                    id=branch.id,
-                    businessId=branch.businessId,
-                    name=branch.name,
-                    address=branch.address,
-                    coordinates=CoordinatesType(**branch.coordinates.model_dump()),
-                    phone=branch.phone,
-                    schedule=branch.schedule,
-                    managerIds=branch.managerIds,
-                    status=branch.status,
-                    avatar=branch.avatar,
-                    coverImage=branch.coverImage,
-                    deliveryRadius=branch.deliveryRadius,
-                    facilities=branch.facilities,
-                    tipos=[BranchTipo(t) for t in (branch.tipos or [])],
-                    paymentMethodIds=branch.paymentMethodIds or [],
-                    useAppMessaging=branch.useAppMessaging,
-                    vehicles=[BranchVehicle(v) for v in (branch.vehicles or [])],
-                    createdAt=branch.createdAt,
-                    wallet=branch.wallet,
-                    walletStatus=branch.walletStatus,
-                )
+                branch_type = BranchType(**branch_to_dict(branch))
                 branches_by_business[business_id].append(branch_type)
 
         # 6. Build response with metadata

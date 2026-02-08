@@ -35,8 +35,12 @@ from .types import (
     BranchVehicle,
     CoordinatesType,
     NearbyBranchType,
+    QrPaymentType,
     ScoredBranchType,
+    TransferAccountType,
+    TransferPhoneType,
 )
+from .utils import branch_to_dict
 
 
 @strawberry.type
@@ -111,22 +115,7 @@ class BranchQuery:
                 for item in scored_items:
                     branch = branch_map.get(item.id)
                     if branch:
-                        branch_data = branch.model_dump()
-                        branch_data["coordinates"] = CoordinatesType(
-                            **branch.coordinates.model_dump()
-                        )
-                        branch_data["tipos"] = [
-                            BranchTipo(t) for t in (branch.tipos or [])
-                        ]
-                        branch_data["vehicles"] = [
-                            BranchVehicle(v) for v in (branch.vehicles or [])
-                        ]
-                        branch_data["paymentMethodIds"] = branch.paymentMethodIds or []
-                        branch_data["wallet"] = WalletBalanceType(
-                            local=branch.wallet.get("local", 0.0),
-                            usd=branch.wallet.get("usd", 0.0),
-                        )
-                        branch_data["walletStatus"] = branch.walletStatus
+                        branch_data = branch_to_dict(branch)
                         scored_branches.append(
                             ScoredBranchType(
                                 **branch_data,
@@ -138,18 +127,7 @@ class BranchQuery:
         if not scored_branches:
             scored_branches = [
                 ScoredBranchType(
-                    **{
-                        **b.model_dump(),
-                        "coordinates": CoordinatesType(**b.coordinates.model_dump()),
-                        "tipos": [BranchTipo(t) for t in (b.tipos or [])],
-                        "vehicles": [BranchVehicle(v) for v in (b.vehicles or [])],
-                        "paymentMethodIds": b.paymentMethodIds or [],
-                        "wallet": WalletBalanceType(
-                            local=b.wallet.get("local", 0.0),
-                            usd=b.wallet.get("usd", 0.0),
-                        ),
-                        "walletStatus": b.walletStatus,
-                    },
+                    **branch_to_dict(b),
                     score=0.0,
                     distance_m=None,
                 )
@@ -214,20 +192,7 @@ class BranchQuery:
         apply_optional_jwt(jwt, info)
         branch = await branches_repo.get_by_id(id)
         if branch:
-            return BranchType(
-                **{
-                    **branch.model_dump(),
-                    "coordinates": CoordinatesType(**branch.coordinates.model_dump()),
-                    "tipos": [BranchTipo(t) for t in (branch.tipos or [])],
-                    "vehicles": [BranchVehicle(v) for v in (branch.vehicles or [])],
-                    "paymentMethodIds": branch.paymentMethodIds or [],
-                    "wallet": WalletBalanceType(
-                        local=branch.wallet.get("local", 0.0),
-                        usd=branch.wallet.get("usd", 0.0),
-                    ),
-                    "walletStatus": branch.walletStatus,
-                }
-            )
+            return BranchType(**branch_to_dict(branch))
         return None
 
     @strawberry.field(
@@ -292,22 +257,7 @@ class BranchQuery:
                 for item in scored_items:
                     branch = branch_map.get(item.id)
                     if branch:
-                        branch_data = branch.model_dump()
-                        branch_data["coordinates"] = CoordinatesType(
-                            **branch.coordinates.model_dump()
-                        )
-                        branch_data["tipos"] = [
-                            BranchTipo(t) for t in (branch.tipos or [])
-                        ]
-                        branch_data["vehicles"] = [
-                            BranchVehicle(v) for v in (branch.vehicles or [])
-                        ]
-                        branch_data["paymentMethodIds"] = branch.paymentMethodIds or []
-                        branch_data["wallet"] = WalletBalanceType(
-                            local=branch.wallet.get("local", 0.0),
-                            usd=branch.wallet.get("usd", 0.0),
-                        )
-                        branch_data["walletStatus"] = branch.walletStatus
+                        branch_data = branch_to_dict(branch)
                         scored_branches.append(
                             ScoredBranchType(
                                 **branch_data,
@@ -319,18 +269,7 @@ class BranchQuery:
         if not scored_branches:
             scored_branches = [
                 ScoredBranchType(
-                    **{
-                        **b.model_dump(),
-                        "coordinates": CoordinatesType(**b.coordinates.model_dump()),
-                        "tipos": [BranchTipo(t) for t in (b.tipos or [])],
-                        "vehicles": [BranchVehicle(v) for v in (b.vehicles or [])],
-                        "paymentMethodIds": b.paymentMethodIds or [],
-                        "wallet": WalletBalanceType(
-                            local=b.wallet.get("local", 0.0),
-                            usd=b.wallet.get("usd", 0.0),
-                        ),
-                        "walletStatus": b.walletStatus,
-                    },
+                    **branch_to_dict(b),
                     score=0.0,
                     distance_m=None,
                 )
@@ -452,32 +391,15 @@ class BranchQuery:
                 location = store.get("location", {})
                 coords = location.get("coordinates", [0.0, 0.0])
 
+                branch_data = branch_to_dict(branch)
+                # Override coordinates with the geospatial store location
+                branch_data["coordinates"] = CoordinatesType(
+                    type="Point", coordinates=coords
+                )
                 all_branches.append(
                     NearbyBranchType(
-                        id=branch.id,
-                        businessId=branch.businessId,
-                        name=branch.name,
-                        address=branch.address,
-                        coordinates=CoordinatesType(type="Point", coordinates=coords),
-                        phone=branch.phone,
-                        schedule=branch.schedule,
-                        managerIds=branch.managerIds,
-                        status=branch.status,
-                        avatar=branch.avatar,
-                        coverImage=branch.coverImage,
-                        deliveryRadius=branch.deliveryRadius,
-                        facilities=branch.facilities,
-                        tipos=[BranchTipo(t) for t in (branch.tipos or [])],
-                        paymentMethodIds=branch.paymentMethodIds or [],
-                        useAppMessaging=branch.useAppMessaging,
-                        vehicles=[BranchVehicle(v) for v in (branch.vehicles or [])],
-                        createdAt=branch.createdAt,
+                        **branch_data,
                         distance_m=store.get("distance_m", 0.0),
-                        wallet=WalletBalanceType(
-                            local=branch.wallet.get("local", 0.0),
-                            usd=branch.wallet.get("usd", 0.0),
-                        ),
-                        walletStatus=branch.walletStatus,
                     )
                 )
 
@@ -598,20 +520,4 @@ class BranchQuery:
             all_branches = await branches_repo.get_by_business_ids(all_business_ids)
 
         # 5. Convert to BranchType
-        return [
-            BranchType(
-                **{
-                    **branch.model_dump(),
-                    "coordinates": CoordinatesType(**branch.coordinates.model_dump()),
-                    "tipos": [BranchTipo(t) for t in (branch.tipos or [])],
-                    "vehicles": [BranchVehicle(v) for v in (branch.vehicles or [])],
-                    "paymentMethodIds": branch.paymentMethodIds or [],
-                    "wallet": WalletBalanceType(
-                        local=branch.wallet.get("local", 0.0),
-                        usd=branch.wallet.get("usd", 0.0),
-                    ),
-                    "walletStatus": branch.walletStatus,
-                }
-            )
-            for branch in all_branches
-        ]
+        return [BranchType(**branch_to_dict(branch)) for branch in all_branches]

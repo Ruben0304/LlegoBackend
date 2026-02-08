@@ -11,6 +11,32 @@ from schema.wallet.types import WalletBalanceType
 from utils.s3 import generate_presigned_url
 
 
+@strawberry.type
+class TransferAccountType:
+    """A bank card account for receiving CUP transfers."""
+
+    cardNumber: str
+    cardHolderName: str
+    bankName: str
+    isActive: bool
+
+
+@strawberry.type
+class QrPaymentType:
+    """A QR code value for online payments (EnZona, etc.)."""
+
+    value: str
+    isActive: bool
+
+
+@strawberry.type
+class TransferPhoneType:
+    """A phone number for mobile transfers (Transfermóvil, etc.)."""
+
+    phone: str
+    isActive: bool
+
+
 @strawberry.enum
 class BranchTipo(Enum):
     """Tipos de establecimiento para una sucursal."""
@@ -56,6 +82,9 @@ class BranchType:
     paymentMethodIds: List[str]
     useAppMessaging: bool = True
     vehicles: List[BranchVehicle] = strawberry.field(default_factory=list)
+    accounts: List[TransferAccountType] = strawberry.field(default_factory=list)
+    qrPayments: List[QrPaymentType] = strawberry.field(default_factory=list)
+    phones: List[TransferPhoneType] = strawberry.field(default_factory=list)
     createdAt: datetime
     wallet: WalletBalanceType
     walletStatus: str = "active"
@@ -139,6 +168,9 @@ class NearbyBranchType:
     paymentMethodIds: List[str]
     useAppMessaging: bool = True
     vehicles: List[BranchVehicle] = strawberry.field(default_factory=list)
+    accounts: List[TransferAccountType] = strawberry.field(default_factory=list)
+    qrPayments: List[QrPaymentType] = strawberry.field(default_factory=list)
+    phones: List[TransferPhoneType] = strawberry.field(default_factory=list)
     createdAt: datetime
     distance_m: float
     wallet: WalletBalanceType
@@ -227,6 +259,9 @@ class ScoredBranchType:
     paymentMethodIds: List[str]
     useAppMessaging: bool = True
     vehicles: List[BranchVehicle] = strawberry.field(default_factory=list)
+    accounts: List[TransferAccountType] = strawberry.field(default_factory=list)
+    qrPayments: List[QrPaymentType] = strawberry.field(default_factory=list)
+    phones: List[TransferPhoneType] = strawberry.field(default_factory=list)
     createdAt: datetime
     score: float
     distance_m: Optional[float] = None

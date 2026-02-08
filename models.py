@@ -5,6 +5,33 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
+# =============================================================================
+# Transfer/Payment Models (shared by Platform and Branch)
+# =============================================================================
+
+
+class TransferAccount(BaseModel):
+    """A bank card account for receiving CUP transfers."""
+
+    cardNumber: str
+    cardHolderName: str
+    bankName: str  # "Bandec", "BPA", "Metropolitano", etc.
+    isActive: bool = True
+
+
+class QrPayment(BaseModel):
+    """A QR code value for online payments (EnZona, etc.)."""
+
+    value: str
+    isActive: bool = True
+
+
+class TransferPhone(BaseModel):
+    """A phone number for mobile transfers (Transfermóvil, etc.)."""
+
+    phone: str
+    isActive: bool = True
+
 
 class User(BaseModel):
     id: str = Field(alias="_id")
@@ -85,6 +112,10 @@ class Branch(BaseModel):
         True  # True = mensajería por la app, False = mensajería por cuenta propia
     )
     vehicles: List[str] = []  # ["moto", "bicicleta", "carro", "camion", "a_pie"]
+    # Transfer payment info
+    accounts: List[TransferAccount] = []
+    qrPayments: List[QrPayment] = []
+    phones: List[TransferPhone] = []
     createdAt: datetime
 
     class Config:

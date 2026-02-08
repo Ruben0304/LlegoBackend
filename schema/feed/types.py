@@ -60,20 +60,9 @@ class FeedProductType:
             branch_data = await branches_repo.get_by_id(self.branchId)
 
         if branch_data:
-            from schema.branches.types import BranchVehicle
+            from schema.branches.utils import branch_to_dict
 
-            return BranchType(
-                **{
-                    **branch_data.model_dump(),
-                    "coordinates": CoordinatesType(
-                        **branch_data.coordinates.model_dump()
-                    ),
-                    "tipos": [BranchTipo(t) for t in (branch_data.tipos or [])],
-                    "vehicles": [
-                        BranchVehicle(v) for v in (branch_data.vehicles or [])
-                    ],
-                }
-            )
+            return BranchType(**branch_to_dict(branch_data))
         return None
 
 

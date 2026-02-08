@@ -150,18 +150,9 @@ class AiAssistantQuery:
                     )
                     print(f"[AI CHAT]   Branch tipos: {branch.tipos}")
                     # Convert branch to BranchType with proper coordinate handling
-                    branch_type = BranchType(
-                        **{
-                            **branch.model_dump(),
-                            "coordinates": CoordinatesType(
-                                **branch.coordinates.model_dump()
-                            ),
-                            "tipos": [BranchTipo(t) for t in (branch.tipos or [])],
-                            "vehicles": [
-                                BranchVehicle(v) for v in (branch.vehicles or [])
-                            ],
-                        }
-                    )
+                    from schema.branches.utils import branch_to_dict
+
+                    branch_type = BranchType(**branch_to_dict(branch))
                     suggested_branches.append(
                         BranchSuggestionType(
                             branch=branch_type, reason=suggestion.reason

@@ -83,6 +83,11 @@ class BranchMutation:
             walletStatus="active",
             useAppMessaging=input.useAppMessaging,
             vehicles=[v.value for v in input.vehicles] if input.vehicles else [],
+            accounts=[a.__dict__ for a in input.accounts] if input.accounts else [],
+            qrPayments=[q.__dict__ for q in input.qrPayments]
+            if input.qrPayments
+            else [],
+            phones=[p.__dict__ for p in input.phones] if input.phones else [],
             createdAt=datetime.now(),
         )
 
@@ -188,6 +193,12 @@ class BranchMutation:
             updates["useAppMessaging"] = input.useAppMessaging
         if input.vehicles is not None:
             updates["vehicles"] = [v.value for v in input.vehicles]
+        if input.accounts is not None:
+            updates["accounts"] = [a.__dict__ for a in input.accounts]
+        if input.qrPayments is not None:
+            updates["qrPayments"] = [q.__dict__ for q in input.qrPayments]
+        if input.phones is not None:
+            updates["phones"] = [p.__dict__ for p in input.phones]
 
         # Handle coordinates update - save to MongoDB stores_location
         if input.coordinates is not None:

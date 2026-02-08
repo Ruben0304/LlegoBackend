@@ -280,19 +280,12 @@ class OrderType:
 
     @strawberry.field(description="Branch preparing the order")
     async def branch(self) -> BranchType:
-        from schema.branches.types import BranchTipo, BranchVehicle
+        from schema.branches.utils import branch_to_dict
 
         branch = await branches_repo.get_by_id(self.branchId)
         if not branch:
             raise Exception(f"Branch not found: {self.branchId}")
-        return BranchType(
-            **{
-                **branch.model_dump(),
-                "coordinates": CoordinatesType(**branch.coordinates.model_dump()),
-                "tipos": [BranchTipo(t) for t in (branch.tipos or [])],
-                "vehicles": [BranchVehicle(v) for v in (branch.vehicles or [])],
-            }
-        )
+        return BranchType(**branch_to_dict(branch))
 
     @strawberry.field(description="Business owning the branch")
     async def business(self) -> BusinessType:
