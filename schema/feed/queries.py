@@ -25,6 +25,7 @@ class FeedQuery:
         first: int = 10,
         radius_km: Optional[float] = None,
         sections: Optional[List[str]] = None,
+        product_category_id: Optional[str] = None,
         jwt: Optional[str] = None,
     ) -> FeedResponse:
         """
@@ -50,6 +51,14 @@ class FeedQuery:
 
         # Fetch branch IDs for the requested tipo once — all sections share this filter
         branch_ids = await feed_service.get_branch_ids_by_tipo(branch_tipo)
+
+        # Narrow branch_ids by product category if specified
+        if product_category_id:
+            from repositories import products_repo
+
+            category_products = await products_repo.get_by_category(product_category_id)
+            branch_ids_with_category = set(p.branchId for p in category_products)
+            branch_ids = branch_ids & branch_ids_with_category
 
         # Get user context
         user_id = info.context.get("user_id")
