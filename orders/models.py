@@ -1,12 +1,15 @@
 """Pydantic models for Orders, Delivery Persons, and Location Updates."""
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+
 from datetime import datetime
 from enum import Enum
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field
 
 
 class OrderStatus(str, Enum):
     """Order status enum."""
+
     PENDING_PAYMENT = "pending_payment"  # Waiting for payment
     PAYMENT_IN_PROGRESS = "payment_in_progress"  # Payment being processed
     PENDING_ACCEPTANCE = "pending_acceptance"  # Waiting for business to accept
@@ -21,6 +24,7 @@ class OrderStatus(str, Enum):
 
 class PaymentStatus(str, Enum):
     """Payment status enum."""
+
     PENDING = "pending"
     VALIDATED = "validated"
     COMPLETED = "completed"
@@ -29,6 +33,7 @@ class PaymentStatus(str, Enum):
 
 class DiscountType(str, Enum):
     """Discount type enum."""
+
     PREMIUM = "premium"
     LEVEL = "level"
     PROMO = "promo"
@@ -36,6 +41,7 @@ class DiscountType(str, Enum):
 
 class OrderActor(str, Enum):
     """Actor who performed an action on the order."""
+
     CUSTOMER = "customer"
     BUSINESS = "business"
     SYSTEM = "system"
@@ -44,6 +50,7 @@ class OrderActor(str, Enum):
 
 class VehicleType(str, Enum):
     """Delivery vehicle type."""
+
     MOTO = "moto"
     BICICLETA = "bicicleta"
     AUTO = "auto"
@@ -52,12 +59,14 @@ class VehicleType(str, Enum):
 
 class GeoPoint(BaseModel):
     """GeoJSON Point for coordinates."""
+
     type: str = "Point"
     coordinates: List[float]  # [longitude, latitude]
 
 
 class OrderItem(BaseModel):
     """Item in an order (snapshot at order creation time)."""
+
     productId: str
     name: str
     price: float
@@ -68,6 +77,7 @@ class OrderItem(BaseModel):
 
 class OrderDiscount(BaseModel):
     """Discount applied to an order."""
+
     id: str
     title: str
     amount: float
@@ -76,6 +86,7 @@ class OrderDiscount(BaseModel):
 
 class DeliveryAddress(BaseModel):
     """Delivery address for an order."""
+
     street: str
     city: Optional[str] = None
     reference: Optional[str] = None
@@ -84,6 +95,7 @@ class DeliveryAddress(BaseModel):
 
 class OrderTimeline(BaseModel):
     """Timeline event for order history."""
+
     status: OrderStatus
     timestamp: datetime
     message: str
@@ -92,6 +104,7 @@ class OrderTimeline(BaseModel):
 
 class OrderComment(BaseModel):
     """Comment on an order."""
+
     id: str
     author: OrderActor
     message: str
@@ -100,6 +113,7 @@ class OrderComment(BaseModel):
 
 class Order(BaseModel):
     """Order model."""
+
     id: str = Field(alias="_id")
     orderNumber: str
     customerId: str
@@ -108,6 +122,8 @@ class Order(BaseModel):
     items: List[OrderItem]
     subtotal: float
     deliveryFee: float
+    deliveryMode: str = "app"  # "app" | "branch" | "pickup_only"
+    deliveryZoneId: Optional[str] = None  # H3 index de la zona (si fue por app)
     discounts: List[OrderDiscount] = []
     total: float
     currency: str = "USD"
@@ -136,6 +152,7 @@ class Order(BaseModel):
 
 class DeliveryPerson(BaseModel):
     """Delivery person model."""
+
     id: str = Field(alias="_id")
     userId: str
     name: str
@@ -159,6 +176,7 @@ class DeliveryPerson(BaseModel):
 
 class OrderLocationUpdate(BaseModel):
     """Location update for order tracking."""
+
     id: str = Field(alias="_id")
     orderId: str
     deliveryPersonId: str

@@ -1,30 +1,35 @@
 """Repository instances for database operations."""
-from .user_repository import UserRepository
-from .business_repository import BusinessRepository
-from .branch_repository import BranchRepository
-from .product_repository import ProductRepository
-from .category_repository import CategoryRepository
-from .product_category_repository import ProductCategoryRepository
-from .auth_repository import AuthRepository
-from .payment_repository import PaymentRepository
-from .payment_method_repository import PaymentMethodRepository
-from .store_location_repository import StoreLocationRepository, store_locations_repo
-from .business_type_repository import BusinessTypeRepository, business_type_repo
-from .device_token_repository import DeviceTokenRepository, device_token_repo
-from .error_log_repository import ErrorLogRepository, error_log_repo
-from .wallet_repository import WalletTransactionRepository
-from .branch_invitation_repository import BranchInvitationRepository, branch_invitations_repo
-from .business_access_repository import BusinessAccessRepository, business_access_repo
+
 from .app_config_repository import AppConfigRepository, BusinessAppConfigRepository
+from .auth_repository import AuthRepository
+from .branch_invitation_repository import (
+    BranchInvitationRepository,
+    branch_invitations_repo,
+)
+from .branch_likes_repository import BranchLikesRepository
+from .branch_repository import BranchRepository
+from .business_access_repository import BusinessAccessRepository, business_access_repo
+from .business_repository import BusinessRepository
+from .business_type_repository import BusinessTypeRepository, business_type_repo
+from .category_repository import CategoryRepository
+from .chat_memory_repository import ChatMemoryRepository
+from .delivery_zone_repository import DeliveryZoneRepository
+from .device_token_repository import DeviceTokenRepository, device_token_repo
+from .draft_order_repository import DraftOrderRepository
+from .error_log_repository import ErrorLogRepository, error_log_repo
+from .favorites_cart_repository import FavoritesCartRepository
 from .feedback_repository import FeedbackRepository
+from .payment_method_repository import PaymentMethodRepository
+from .payment_repository import PaymentRepository
+from .product_category_repository import ProductCategoryRepository
+from .product_repository import ProductRepository
+from .searches_repository import SearchesRepository
+from .store_location_repository import StoreLocationRepository, store_locations_repo
 from .survey_repository import SurveyRepository
 from .survey_response_repository import SurveyResponseRepository
-from .favorites_cart_repository import FavoritesCartRepository
-from .searches_repository import SearchesRepository
-from .chat_memory_repository import ChatMemoryRepository
-from .draft_order_repository import DraftOrderRepository
-from .branch_likes_repository import BranchLikesRepository
 from .tutorial_repository import TutorialRepository
+from .user_repository import UserRepository
+from .wallet_repository import WalletTransactionRepository
 
 # Repository instances
 users_repo = UserRepository()
@@ -48,6 +53,7 @@ chat_memory_repo = ChatMemoryRepository()
 draft_orders_repo = DraftOrderRepository()
 branch_likes_repo = BranchLikesRepository()
 tutorials_repo = TutorialRepository()
+delivery_zones_repo = DeliveryZoneRepository()
 
 __all__ = [
     "UserRepository",
@@ -104,4 +110,6 @@ __all__ = [
     "draft_orders_repo",
     "branch_likes_repo",
     "tutorials_repo",
+    "DeliveryZoneRepository",
+    "delivery_zones_repo",
 ]

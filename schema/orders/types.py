@@ -7,6 +7,7 @@ from typing import List, Optional
 import strawberry
 
 from orders import delivery_persons_repo
+from orders.utils import calculate_delivery_fee_h3, haversine_distance
 from repositories import branches_repo, businesses_repo, users_repo
 from schema.branches.types import BranchType, CoordinatesType
 from schema.businesses.types import BusinessType
@@ -179,6 +180,7 @@ class OrderType:
     businessId: str
     subtotal: float
     deliveryFee: float
+    deliveryMode: str
     total: float
     currency: str
     status: OrderStatusEnum
@@ -188,6 +190,7 @@ class OrderType:
     updatedAt: datetime
     lastStatusAt: datetime
     deliveryPersonId: Optional[str] = None
+    deliveryZoneId: Optional[str] = None
     estimatedDeliveryTime: Optional[datetime] = None
     paymentId: Optional[str] = None
     currentPaymentAttemptId: Optional[str] = None
@@ -347,6 +350,7 @@ def order_to_type(order) -> OrderType:
         businessId=order.businessId,
         subtotal=order.subtotal,
         deliveryFee=order.deliveryFee,
+        deliveryMode=order.deliveryMode,
         total=order.total,
         currency=order.currency,
         status=OrderStatusEnum(order.status.value),
@@ -356,6 +360,7 @@ def order_to_type(order) -> OrderType:
         updatedAt=order.updatedAt,
         lastStatusAt=order.lastStatusAt,
         deliveryPersonId=order.deliveryPersonId,
+        deliveryZoneId=order.deliveryZoneId,
         estimatedDeliveryTime=order.estimatedDeliveryTime,
         paymentId=order.paymentId,
         currentPaymentAttemptId=order.currentPaymentAttemptId,
@@ -405,3 +410,60 @@ class DeliveryLocationUpdateType:
     timestamp: datetime
     estimatedMinutesRemaining: Optional[int] = None
     distanceRemainingKm: Optional[float] = None
+
+
+@strawberry.type
+class DeliveryFeeEstimateType:
+    """Estimación del precio de envío antes de crear el pedido."""
+
+    deliveryFee: float
+    currency: str
+    distanceKm: float
+    zoneName: Optional[str]
+    h3Index: Optional[str]
+    branchId: str
+    branchName: str
+
+
+async def estimate_delivery_fee(
+    branch_id: str,
+    latitude: float,
+    longitude: float,
+    subtotal: float = 0.0,
+) -> DeliveryFeeEstimateType:
+    """Calculate delivery fee estimate for a branch and delivery address."""
+    branch = await branches_repo.get_by_id(branch_id)
+    if not branch:
+        raise ValueError("Sucursal no encontrada")
+
+    branch_coords = (
+        branch.coordinates.coordinates[0],
+        branch.coordinates.coordinates[1],
+    )
+    delivery_coords = (longitude, latitude)
+
+    fee, h3_index = await calculate_delivery_fee_h3(
+        branch_coords, delivery_coords, subtotal
+    )
+
+    distance_km = haversine_distance(branch_coords, delivery_coords)
+
+    # Get zone name if matched
+    zone_name: Optional[str] = None
+    if h3_index:
+        from clients.mongodb_client import get_database
+
+        db = get_database()
+        zone = await db.delivery_zones.find_one({"h3Index": h3_index})
+        if zone:
+            zone_name = zone.get("name")
+
+    return DeliveryFeeEstimateType(
+        deliveryFee=fee,
+        currency="CUP",
+        distanceKm=round(distance_km, 2),
+        zoneName=zone_name,
+        h3Index=h3_index,
+        branchId=branch.id,
+        branchName=branch.name,
+    )

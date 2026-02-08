@@ -625,6 +625,36 @@ class BranchLike(BaseModel):
         json_encoders = {datetime: lambda v: v.isoformat()}
 
 
+class DeliveryZone(BaseModel):
+    """Zona hexagonal H3 con configuración de precios de envío para delivery por la app."""
+
+    id: str = Field(alias="_id")
+    h3Index: str  # H3 index at resolution 7, e.g. "872a1008fffffff"
+    resolution: int = 7  # H3 resolution level
+    name: Optional[str] = None  # "La Habana Centro", "Vedado", etc.
+
+    # Pricing
+    baseFee: float  # Tarifa base para entregar EN esta zona
+    perKmFee: float = 50.0  # Costo adicional por km
+    currency: str = "CUP"  # Moneda de los precios de envío
+    surchargePercent: float = 0.0  # Recargo % (zona de alta demanda, etc.)
+
+    # Rules
+    isActive: bool = True
+    minOrderAmount: Optional[float] = None  # Monto mínimo para pedir en esta zona
+    maxDeliveryFee: Optional[float] = None  # Tope máximo del envío
+
+    # Metadata
+    city: Optional[str] = None
+    province: Optional[str] = None
+    createdAt: datetime = Field(default_factory=datetime.utcnow)
+    updatedAt: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat()}
+
+
 class Tutorial(BaseModel):
     """
     Tutorial model for app usage guides.

@@ -18,3 +18,4 @@ Pillow>=10.0.0
 slowapi>=0.1.9
 redis>=5.0.0
 stripe>=8.0.0
+h3>=4.1.0
