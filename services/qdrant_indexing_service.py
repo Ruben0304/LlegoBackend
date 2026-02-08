@@ -6,7 +6,7 @@ import uuid
 
 from clients import get_qdrant_client
 from services.embeddings.gemini_service import GeminiEmbeddingService
-from models import Product, Branch, Business
+from domain.models import Product, Branch, Business
 
 logger = logging.getLogger(__name__)
 

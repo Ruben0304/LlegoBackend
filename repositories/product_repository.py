@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime
 
 from clients import get_database, get_qdrant_client
-from models import Product
+from domain.models import Product
 from qdrant_client.http import models as qdrant_models
 from qdrant_client.models import PointStruct
 from services.embeddings.gemini_service import GeminiEmbeddingService

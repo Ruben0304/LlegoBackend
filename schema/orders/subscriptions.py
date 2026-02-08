@@ -4,7 +4,7 @@ from typing import AsyncGenerator
 import asyncio
 
 from .types import OrderType, DeliveryLocationUpdateType, CoordinatesType, order_to_type
-from orders import orders_repo
+from repositories.orders_repository import orders_repo
 
 
 # In-memory pub/sub for demo (replace with Redis in production)

@@ -318,7 +318,7 @@ async def handle_payment_success(payment_intent: dict):
         # Handle based on payment type
         if payment_type == "order_payment":
             # This is an order payment - use PaymentService
-            from payments import payment_service
+            from services.payments_service import payment_service
             await payment_service.handle_stripe_webhook(
                 payment_intent_id,
                 "payment_intent.succeeded"
@@ -349,7 +349,7 @@ async def handle_payment_failure(payment_intent: dict):
         # Handle based on payment type
         if payment_type == "order_payment":
             # This is an order payment - use PaymentService
-            from payments import payment_service
+            from services.payments_service import payment_service
             await payment_service.handle_stripe_webhook(
                 payment_intent_id,
                 "payment_intent.payment_failed"

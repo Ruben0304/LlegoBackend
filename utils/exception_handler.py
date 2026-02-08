@@ -6,7 +6,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from services.error_analysis_service import sanitize_sensitive_data
-from models_error_logs import ErrorSource
+from domain.error_logs import ErrorSource
 
 
 def get_client_ip(request: Request) -> str:

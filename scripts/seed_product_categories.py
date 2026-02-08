@@ -1,9 +1,16 @@
 """Seed script to insert product categories into MongoDB."""
+
 import asyncio
 import json
+import sys
 from datetime import datetime
 from pathlib import Path
+
 from motor.motor_asyncio import AsyncIOMotorClient
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 
 async def seed_product_categories_from_db(db):
@@ -21,11 +28,13 @@ async def seed_product_categories_from_db(db):
     # Check if categories already exist
     existing_count = await collection.count_documents({})
     if existing_count > 0:
-        print(f"ℹ Product categories already exist ({existing_count} found). Skipping seed.")
+        print(
+            f"ℹ Product categories already exist ({existing_count} found). Skipping seed."
+        )
         return False
 
     # Load categories from JSON file
-    json_path = Path(__file__).parent / "data" / "product_categories.json"
+    json_path = ROOT_DIR / "data" / "product_categories.json"
 
     with open(json_path, "r", encoding="utf-8") as f:
         categories_data = json.load(f)
@@ -62,7 +71,7 @@ async def seed_product_categories():
         print(f"Deleted {delete_result.deleted_count} existing product categories")
 
         # Load and insert categories
-        json_path = Path(__file__).parent / "data" / "product_categories.json"
+        json_path = ROOT_DIR / "data" / "product_categories.json"
         with open(json_path, "r", encoding="utf-8") as f:
             categories_data = json.load(f)
 

@@ -6,7 +6,7 @@ from typing import List, Optional
 import strawberry
 from strawberry.types import Info
 
-from models import businesses_repo
+from domain.models import businesses_repo
 from repositories import branches_repo, searches_repo
 from schema.branches.types import BranchTipo, BranchType, CoordinatesType
 from utils.graphql_auth import apply_optional_jwt

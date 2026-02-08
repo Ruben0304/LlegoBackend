@@ -9,7 +9,7 @@ from typing import List, Optional, Dict, Any
 import uuid
 
 from clients import get_database, get_qdrant_client
-from models import Branch, Coordinates
+from domain.models import Branch, Coordinates
 from qdrant_client.http import models as qdrant_models
 from qdrant_client.models import PointStruct
 from services.embeddings.gemini_service import GeminiEmbeddingService

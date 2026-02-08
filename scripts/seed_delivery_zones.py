@@ -6,18 +6,24 @@ covering the metropolitan area of Havana and inserts them into
 the delivery_zones MongoDB collection.
 
 Usage:
-    python seed_delivery_zones.py
+    python scripts/seed_delivery_zones.py
 
 Zones are created with default pricing in CUP that can be adjusted
 later per-zone from an admin panel or directly in MongoDB.
 """
 
 import asyncio
+import sys
 from datetime import datetime
+from pathlib import Path
 
 import h3
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorClient
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 from core.config import settings
 

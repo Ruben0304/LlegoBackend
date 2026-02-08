@@ -3,7 +3,7 @@ from typing import Optional, Dict, Any, List
 from bson import ObjectId
 from datetime import datetime
 from clients import get_database
-from models import Search, ClickedItem
+from domain.models import Search, ClickedItem
 
 
 class SearchesRepository:

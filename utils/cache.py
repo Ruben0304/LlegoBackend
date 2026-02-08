@@ -306,7 +306,7 @@ async def warm_up_cache():
         return
 
     try:
-        from models import products_repo, branches_repo, businesses_repo
+        from domain.models import products_repo, branches_repo, businesses_repo
 
         print("🔥 Starting cache warm-up (CACHE_ALL_ON_STARTUP=true)...")
         print("   Mode: Permanent cache (no TTL)")

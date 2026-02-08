@@ -4,7 +4,7 @@ import traceback
 from strawberry.extensions import SchemaExtension
 
 from services.error_analysis_service import error_analysis_service, sanitize_sensitive_data
-from models_error_logs import ErrorSource
+from domain.error_logs import ErrorSource
 
 
 class UserIdExtension(SchemaExtension):

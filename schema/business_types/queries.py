@@ -6,7 +6,7 @@ from strawberry.types import Info
 
 from .types import BusinessTypeConfigType
 from repositories.business_type_repository import business_type_repo
-from models_business_types import BusinessTypeConfig
+from domain.business_types import BusinessTypeConfig
 
 
 def convert_to_graphql_type(config: BusinessTypeConfig) -> BusinessTypeConfigType:

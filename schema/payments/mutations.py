@@ -11,7 +11,7 @@ from google.genai import types as genai_types
 
 from .types import PaymentType, PaymentAttemptType, InitiatePaymentResult, payment_attempt_to_type
 from repositories import payments_repo, payment_methods_repo
-from payments import payment_service
+from services.payments_service import payment_service
 from utils.graphql_auth import apply_optional_jwt
 
 

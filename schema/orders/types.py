@@ -6,8 +6,8 @@ from typing import List, Optional
 
 import strawberry
 
-from orders import delivery_persons_repo
-from orders.utils import calculate_delivery_fee_h3, haversine_distance
+from repositories.orders_repository import delivery_persons_repo
+from services.orders_utils import calculate_delivery_fee_h3, haversine_distance
 from repositories import branches_repo, businesses_repo, users_repo
 from schema.branches.types import BranchType, CoordinatesType
 from schema.businesses.types import BusinessType

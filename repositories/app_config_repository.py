@@ -2,7 +2,7 @@
 from typing import Optional, Dict, Any
 from bson import ObjectId
 from clients import get_database
-from models import AppConfig, BusinessAppConfig
+from domain.models import AppConfig, BusinessAppConfig
 from utils.cache import get_cached, set_cached, invalidate_cache
 
 

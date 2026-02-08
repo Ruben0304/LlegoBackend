@@ -3,7 +3,7 @@ from typing import List, Optional, Dict, Any
 from bson import ObjectId
 from datetime import datetime
 from clients import get_database
-from models import FavoriteCart
+from domain.models import FavoriteCart
 
 
 class FavoritesCartRepository:

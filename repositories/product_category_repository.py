@@ -2,7 +2,7 @@
 from typing import List, Optional, Dict, Any
 from bson import ObjectId
 from clients import get_database
-from models import ProductCategory
+from domain.models import ProductCategory
 
 
 class ProductCategoryRepository:

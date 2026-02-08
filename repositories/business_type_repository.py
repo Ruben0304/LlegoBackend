@@ -3,7 +3,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from bson import ObjectId
 from clients import get_database
-from models_business_types import BusinessTypeConfig
+from domain.business_types import BusinessTypeConfig
 
 
 class BusinessTypeRepository:

@@ -9,8 +9,8 @@ import logging
 
 from core.config import settings
 from clients.mongodb_client import get_database
-from .models import PaymentAttempt, PaymentAttemptStatus
-from .repository import PaymentAttemptRepository
+from domain.payments import PaymentAttempt, PaymentAttemptStatus
+from repositories.payments_attempt_repository import PaymentAttemptRepository
 from repositories import branches_repo, users_repo, businesses_repo
 
 logger = logging.getLogger(__name__)
@@ -1044,3 +1044,5 @@ class PaymentService:
             logger.info(f"Expired payment attempt: {attempt.id}")
 
         return count
+payment_service = PaymentService()
+

@@ -7,14 +7,14 @@ import strawberry
 from bson import ObjectId
 from strawberry.types import Info
 
-from orders import (
+from repositories.orders_repository import (
     branch_delivery_requests_repo,
     delivery_persons_repo,
     order_locations_repo,
-    order_service,
     orders_repo,
 )
-from orders.models import (
+from services.orders_service import order_service
+from domain.orders import (
     BranchDeliveryRequest,
     DeliveryRequestStatus,
     GeoPoint,
@@ -42,7 +42,6 @@ from .types import (
     branch_delivery_request_to_type,
     order_to_type,
 )
-
 
 @strawberry.type
 class OrderMutation:

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from strawberry.types import Info
 from bson import ObjectId
 
-from models import BranchInvitation
+from domain.models import BranchInvitation
 from repositories import branch_invitations_repo, business_access_repo, businesses_repo
 from services.invitation_validator import invitation_validator, InvitationValidationError
 from services.access_manager import access_manager

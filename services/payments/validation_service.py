@@ -9,7 +9,7 @@ from google import genai
 from google.genai import types as genai_types
 from pydantic import BaseModel, ValidationError
 
-from models import SmsOcr
+from domain.models import SmsOcr
 from repositories import payments_repo
 
 

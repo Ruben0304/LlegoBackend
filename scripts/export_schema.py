@@ -4,17 +4,24 @@ Exporta el esquema GraphQL definido en main.py a archivos locales:
 - schema.json (introspección JSON)
 
 Uso:
-  python export_schema.py
+  python scripts/export_schema.py
 """
-from pathlib import Path
+
+import sys
 from datetime import datetime
+from pathlib import Path
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 # Importa el schema desde la app
 from main import schema
 
-OUTPUT_DIR = Path(__file__).parent
+OUTPUT_DIR = Path(__file__).resolve().parent
 SDL_PATH = OUTPUT_DIR / "schema.graphql"
 JSON_PATH = OUTPUT_DIR / "schema.json"
+
 
 def main() -> None:
     # Exporta SDL

@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 
 from clients.mongodb_client import get_database
 
-from .models import Platform, PlatformWallet, QrPayment, TransferAccount, TransferPhone
+from domain.platform import Platform, PlatformWallet, QrPayment, TransferAccount, TransferPhone
 
 # Platform document ID (singleton)
 PLATFORM_ID = "platform"
@@ -256,3 +256,5 @@ class PlatformRepository:
         )
 
         return Platform(**result) if result else None
+
+platform_repo = PlatformRepository()

@@ -7,7 +7,7 @@ from bson import ObjectId
 
 from clients.mongodb_client import get_database
 
-from .models import (
+from domain.orders import (
     BranchDeliveryRequest,
     DeliveryPerson,
     DeliveryRequestStatus,
@@ -119,7 +119,7 @@ class OrderRepository:
         """Get orders ready for pickup near a location using H3 index."""
         import h3
 
-        from orders.utils import H3_RESOLUTION, coords_to_h3
+        from services.orders_utils import H3_RESOLUTION, coords_to_h3
 
         center_h3 = coords_to_h3(latitude, longitude, H3_RESOLUTION)
         # Cap radius to prevent excessive H3 cell generation
@@ -751,3 +751,10 @@ async def create_order_indexes():
     await order_locations.create_index("timestamp", expireAfterSeconds=86400)
 
     print("✓ Order indexes created")
+
+# Repository instances
+orders_repo = OrderRepository()
+delivery_persons_repo = DeliveryPersonRepository()
+order_locations_repo = OrderLocationRepository()
+branch_delivery_requests_repo = BranchDeliveryRequestRepository()
+

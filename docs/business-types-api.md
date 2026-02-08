@@ -446,7 +446,7 @@ mutation DeactivateDulceria {
 Para poblar la base de datos con los tipos iniciales:
 
 ```bash
-python seed_business_types.py
+python scripts/seed_business_types.py
 ```
 
 Esto creará:

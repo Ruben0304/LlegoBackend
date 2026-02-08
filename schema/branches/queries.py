@@ -6,7 +6,7 @@ from typing import List, Optional
 import strawberry
 from strawberry.types import Info
 
-from models import branches_repo
+from domain.models import branches_repo
 from repositories import (
     business_access_repo,
     businesses_repo,
@@ -87,7 +87,7 @@ class BranchQuery:
 
         # Filter by product category if specified
         if productCategoryId:
-            from models import products_repo
+            from domain.models import products_repo
 
             # Get products with the specified category
             products_with_category = await products_repo.get_by_category(

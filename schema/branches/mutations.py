@@ -7,7 +7,7 @@ import strawberry
 from bson import ObjectId
 from strawberry.types import Info
 
-from models import Branch, Coordinates
+from domain.models import Branch, Coordinates
 from repositories import (
     branches_repo,
     businesses_repo,
@@ -53,7 +53,7 @@ class BranchMutation:
             raise Exception("Debe especificar al menos un método de pago")
 
         # Verify payment methods exist
-        from models import payment_methods_repo
+        from domain.models import payment_methods_repo
 
         payment_methods = await payment_methods_repo.get_by_ids(input.paymentMethodIds)
         if len(payment_methods) != len(input.paymentMethodIds):
@@ -181,7 +181,7 @@ class BranchMutation:
             if not input.paymentMethodIds:
                 raise Exception("Debe especificar al menos un método de pago")
             # Verify payment methods exist
-            from models import payment_methods_repo
+            from domain.models import payment_methods_repo
 
             payment_methods = await payment_methods_repo.get_by_ids(
                 input.paymentMethodIds

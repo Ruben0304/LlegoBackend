@@ -3,7 +3,7 @@ import strawberry
 from typing import Optional
 
 from .types import AppConfigType, BusinessAppConfigType, AndroidConfigType, IosConfigType, MaintenanceConfigType
-from models import app_config_repo, business_app_config_repo
+from domain.models import app_config_repo, business_app_config_repo
 
 
 @strawberry.type

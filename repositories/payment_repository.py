@@ -1,7 +1,7 @@
 """Payment repository for database operations."""
 from typing import List, Optional, Dict, Any
 from clients import get_database
-from models import SmsOcr
+from domain.models import SmsOcr
 from datetime import datetime
 
 

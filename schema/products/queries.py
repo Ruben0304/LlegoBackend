@@ -4,7 +4,7 @@ from typing import List, Optional
 from strawberry.types import Info
 
 from .types import ProductType, ScoredProductType
-from models import products_repo, branches_repo
+from domain.models import products_repo, branches_repo
 from repositories import searches_repo
 from schema.branches.types import BranchTipo
 from schema.pagination import (

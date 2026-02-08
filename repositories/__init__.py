@@ -31,6 +31,19 @@ from .tutorial_repository import TutorialRepository
 from .user_repository import UserRepository
 from .wallet_repository import WalletTransactionRepository
 
+from .orders_repository import (
+    BranchDeliveryRequestRepository,
+    DeliveryPersonRepository,
+    OrderLocationRepository,
+    OrderRepository,
+    branch_delivery_requests_repo,
+    delivery_persons_repo,
+    order_locations_repo,
+    orders_repo,
+)
+from .payments_attempt_repository import PaymentAttemptRepository, payment_attempts_repo
+from .platform_repository import PlatformRepository, platform_repo
+
 # Repository instances
 users_repo = UserRepository()
 businesses_repo = BusinessRepository()
@@ -112,4 +125,17 @@ __all__ = [
     "tutorials_repo",
     "DeliveryZoneRepository",
     "delivery_zones_repo",
+
+    "OrderRepository",
+    "DeliveryPersonRepository",
+    "OrderLocationRepository",
+    "BranchDeliveryRequestRepository",
+    "PaymentAttemptRepository",
+    "orders_repo",
+    "delivery_persons_repo",
+    "order_locations_repo",
+    "branch_delivery_requests_repo",
+    "payment_attempts_repo",
+    "PlatformRepository",
+    "platform_repo",
 ]

@@ -7,13 +7,13 @@ import strawberry
 from bson import ObjectId
 from strawberry.types import Info
 
-from orders import (
+from repositories.orders_repository import (
     branch_delivery_requests_repo,
     delivery_persons_repo,
-    order_service,
     orders_repo,
 )
-from orders.models import (
+from services.orders_service import order_service
+from domain.orders import (
     DeliveryPerson,
     DeliveryRequestStatus,
     OrderStatus,
@@ -37,7 +37,6 @@ from .types import (
     order_to_type,
 )
 
-
 @strawberry.type
 class DeliveryPersonStatsType:
     totalDeliveries: int
@@ -45,7 +44,6 @@ class DeliveryPersonStatsType:
     totalDistanceKm: float
     avgDurationMin: float
     avgRating: float
-
 
 async def _get_or_create_delivery_person(user_id: str) -> DeliveryPerson:
     """Get existing delivery person or create one from user profile."""
@@ -68,7 +66,6 @@ async def _get_or_create_delivery_person(user_id: str) -> DeliveryPerson:
         updatedAt=now,
     )
     return await delivery_persons_repo.create(new_dp)
-
 
 @strawberry.type
 class OrderQuery:

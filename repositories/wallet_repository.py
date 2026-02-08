@@ -2,7 +2,7 @@
 from typing import List, Optional
 from datetime import datetime
 from clients import get_database
-from models import WalletTransaction
+from domain.models import WalletTransaction
 
 
 class WalletTransactionRepository:

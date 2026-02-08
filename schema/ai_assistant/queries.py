@@ -6,7 +6,7 @@ import strawberry
 from graphql import GraphQLError
 from strawberry.types import Info
 
-from models import branches_repo, businesses_repo, draft_orders_repo, products_repo
+from domain.models import branches_repo, businesses_repo, draft_orders_repo, products_repo
 from schema.branches.types import BranchTipo, BranchType, BranchVehicle, CoordinatesType
 from schema.businesses.types import BusinessType
 from schema.products.types import ProductType

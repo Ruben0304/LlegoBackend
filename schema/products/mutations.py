@@ -7,7 +7,7 @@ from bson import ObjectId
 
 from .types import ProductType
 from .inputs import CreateProductInput, UpdateProductInput
-from models import Product
+from domain.models import Product
 from repositories import products_repo, branches_repo, businesses_repo
 from utils.graphql_auth import apply_optional_jwt
 from utils.s3 import delete_file

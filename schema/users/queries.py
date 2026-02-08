@@ -5,7 +5,7 @@ from strawberry.types import Info
 
 from .types import UserType
 from schema.wallet.types import WalletBalanceType
-from models import users_repo
+from domain.models import users_repo
 from utils.graphql_auth import apply_optional_jwt, require_auth, require_role
 
 

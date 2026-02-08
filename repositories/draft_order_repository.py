@@ -2,7 +2,7 @@
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 from clients import get_database
-from models import DraftOrder, DraftOrderItem
+from domain.models import DraftOrder, DraftOrderItem
 
 
 class DraftOrderRepository:

@@ -4,7 +4,7 @@ from typing import Optional
 from math import ceil
 import logging
 
-from models_error_logs import (
+from domain.error_logs import (
     MobileErrorReport,
     ErrorLogResponse,
     PaginatedErrorLogs,

@@ -37,7 +37,7 @@ class FeedProductType:
         if not self.categoryId:
             return None
 
-        from models import product_categories_repo
+        from domain.models import product_categories_repo
 
         category_data = await product_categories_repo.get_by_id(self.categoryId)
         if category_data:
@@ -55,7 +55,7 @@ class FeedProductType:
         if loader:
             branch_data = await loader.load(self.branchId)
         else:
-            from models import branches_repo
+            from domain.models import branches_repo
 
             branch_data = await branches_repo.get_by_id(self.branchId)
 

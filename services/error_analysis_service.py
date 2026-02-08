@@ -6,7 +6,7 @@ from typing import Optional, Dict, Any
 
 from clients import get_gemini_client
 from core.config import settings
-from models_error_logs import GeminiAnalysis
+from domain.error_logs import GeminiAnalysis
 
 
 # Patterns for sanitizing sensitive data

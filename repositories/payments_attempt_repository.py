@@ -4,7 +4,7 @@ from datetime import datetime
 from bson import ObjectId
 
 from clients.mongodb_client import get_database
-from .models import PaymentAttempt, PaymentAttemptStatus
+from domain.payments import PaymentAttempt, PaymentAttemptStatus
 
 
 class PaymentAttemptRepository:
@@ -272,3 +272,7 @@ async def create_payment_indexes():
     await collection.create_index("createdAt")
 
     print("✓ Payment attempt indexes created")
+
+# Repository instance
+payment_attempts_repo = PaymentAttemptRepository()
+

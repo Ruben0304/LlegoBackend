@@ -9,7 +9,7 @@ from bson import ObjectId
 from repositories import branches_repo, businesses_repo, products_repo, users_repo
 from services.access_checker import access_checker
 
-from .models import (
+from domain.orders import (
     ALLOWED_TRANSITIONS,
     DeliveryAddress,
     GeoPoint,
@@ -23,12 +23,12 @@ from .models import (
     PaymentStatus,
     PickupAddress,
 )
-from .repository import (
+from repositories.orders_repository import (
     DeliveryPersonRepository,
     OrderLocationRepository,
     OrderRepository,
 )
-from .utils import (
+from services.orders_utils import (
     calculate_delivery_fee_h3,
     coords_to_h3,
     generate_order_number,
@@ -689,3 +689,5 @@ class OrderService:
             "distanceKm": round(distance_km, 2) if distance_km else None,
             "estimatedMinutes": estimated_minutes,
         }
+order_service = OrderService()
+

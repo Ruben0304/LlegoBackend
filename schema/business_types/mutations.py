@@ -17,7 +17,7 @@ from .types import (
 from repositories.business_type_repository import business_type_repo
 from repositories.device_token_repository import device_token_repo
 from services.push_notification_service import push_service
-from models_business_types import BusinessTypeConfig, DeviceToken
+from domain.business_types import BusinessTypeConfig, DeviceToken
 from utils.graphql_auth import apply_optional_jwt, require_role
 from utils.s3 import delete_file
 

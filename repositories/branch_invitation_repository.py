@@ -3,7 +3,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from bson import ObjectId
 from clients import get_database
-from models import BranchInvitation
+from domain.models import BranchInvitation
 
 
 class BranchInvitationRepository:

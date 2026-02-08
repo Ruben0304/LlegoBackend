@@ -28,8 +28,8 @@ Note: MongoDB collection `bussisnes` is misspelled in the database (not `busines
 LlegoBackend/
 ├── main.py                        # FastAPI app initialization, middleware, and main endpoints
 ├── database.py                    # MongoDB connection management with lifespan
-├── models.py                      # Pydantic models for data validation
-├── export_schema.py               # Utility to export GraphQL schema
+├── domain/models.py               # Pydantic models for data validation
+├── scripts/export_schema.py       # Utility to export GraphQL schema
 ├── repositories/                  # Repository pattern implementations
 │   ├── __init__.py                # Repository instances export
 │   ├── user_repository.py         # User database operations
@@ -75,7 +75,7 @@ LlegoBackend/
 
 - **api/**: REST API endpoints organized by router
 
-- **models.py**: Pydantic models for data validation (no business logic)
+- **domain/models.py**: Pydantic models for data validation (no business logic)
 
 - **database.py**: Database connection and lifecycle management
 
@@ -117,7 +117,7 @@ pip install -r requirements.txt
 
 ```bash
 # Export GraphQL schema to schema.graphql and schema.json
-python export_schema.py
+python scripts/export_schema.py
 ```
 
 ## MongoDB Configuration

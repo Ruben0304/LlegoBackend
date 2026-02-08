@@ -5,7 +5,7 @@ import strawberry
 from bson import ObjectId
 from strawberry.types import Info
 
-from models import Branch, Business, Coordinates
+from domain.models import Branch, Business, Coordinates
 from repositories import branches_repo, businesses_repo, users_repo
 from services.qdrant_indexing_service import qdrant_indexing_service
 from utils.graphql_auth import apply_optional_jwt
@@ -88,7 +88,7 @@ class BusinessMutation:
                 )
 
             # Verificar que los métodos de pago existan
-            from models import payment_methods_repo
+            from domain.models import payment_methods_repo
 
             payment_methods = await payment_methods_repo.get_by_ids(
                 branch_inp.paymentMethodIds
@@ -299,7 +299,7 @@ class BusinessMutation:
                         )
 
                     # Verificar que los métodos de pago existan
-                    from models import payment_methods_repo
+                    from domain.models import payment_methods_repo
 
                     payment_methods = await payment_methods_repo.get_by_ids(
                         branch_inp.paymentMethodIds

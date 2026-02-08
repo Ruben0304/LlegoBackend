@@ -5,7 +5,7 @@ from bson import ObjectId
 import logging
 
 from clients import get_database
-from models_error_logs import ErrorLog, ErrorSource, ErrorSeverity
+from domain.error_logs import ErrorLog, ErrorSource, ErrorSeverity
 
 logger = logging.getLogger(__name__)
 

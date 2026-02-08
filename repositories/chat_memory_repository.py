@@ -2,7 +2,7 @@
 from typing import List, Dict, Any
 from datetime import datetime
 from clients import get_database
-from models import ChatMessage
+from domain.models import ChatMessage
 
 
 class ChatMemoryRepository:

@@ -5,7 +5,7 @@ from typing import Optional, List
 from bson import ObjectId
 
 from clients.mongodb_client import get_database
-from models import BusinessAccess
+from domain.models import BusinessAccess
 from repositories import branches_repo, users_repo, business_access_repo
 from utils.cache import invalidate_branch_cache
 

@@ -1,6 +1,6 @@
 """Authentication repository for user login and registration."""
 from clients import get_database
-from models import User
+from domain.models import User
 from utils.auth import hash_password, verify_password
 from datetime import datetime
 from typing import Optional

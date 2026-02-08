@@ -1,5 +1,13 @@
 """Quick test script for re-ranking service."""
+
 import asyncio
+import sys
+from pathlib import Path
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 from services.reranking_service import reranking_service
 
 
@@ -36,17 +44,19 @@ async def test_reranking():
         query="pizza",
         user_id=None,  # No user for this test
         user_location=None,  # No location for this test
-        vector_scores=vector_scores
+        vector_scores=vector_scores,
     )
 
     print("Re-ranked results:")
     print("-" * 80)
     for i, rp in enumerate(ranked, 1):
         print(f"{i}. {rp.product.name}")
-        print(f"   Vector: {rp.vector_score:.3f} | "
-              f"Popular: {rp.popularity_score:.3f} | "
-              f"Proximity: {rp.proximity_score:.3f} | "
-              f"Personal: {rp.personalization_score:.3f}")
+        print(
+            f"   Vector: {rp.vector_score:.3f} | "
+            f"Popular: {rp.popularity_score:.3f} | "
+            f"Proximity: {rp.proximity_score:.3f} | "
+            f"Personal: {rp.personalization_score:.3f}"
+        )
         print(f"   → FINAL: {rp.final_score:.3f}\n")
 
     print("✓ Re-ranking service working!")

@@ -6,7 +6,7 @@ from typing import List, Optional
 from bson import ObjectId
 
 from clients.mongodb_client import get_database
-from models import DeliveryZone
+from domain.models import DeliveryZone
 
 
 class DeliveryZoneRepository:

@@ -1,6 +1,6 @@
 """Utility functions for Branch GraphQL types."""
 
-from models import Branch
+from domain.models import Branch
 from schema.branches.types import (
     BranchTipo,
     BranchVehicle,
