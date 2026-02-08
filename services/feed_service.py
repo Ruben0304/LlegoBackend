@@ -81,7 +81,7 @@ class FeedService:
 
     async def get_branch_ids_by_tipo(self, branch_tipo: str) -> Set[str]:
         """Fetch branch IDs filtered by tipo. Used once per feed request."""
-        ids = await branches_repo.get_ids_by_tipo(branch_tipo)
+        ids = await branches_repo.get_ids_by_tipo(branch_tipo.lower())
         return set(ids)
 
     async def get_para_ti_section(
