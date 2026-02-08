@@ -154,10 +154,27 @@ class OrderRepository:
         """Update order status and add timeline entry."""
         collection = self._get_collection()
         now = datetime.utcnow()
+        set_fields: Dict[str, Any] = {
+            "status": status.value,
+            "updatedAt": now,
+            "lastStatusAt": now,
+        }
+
+        # Set delivery tracking timestamps based on status
+        if status == OrderStatus.ON_THE_WAY:
+            set_fields["pickedUpAt"] = now
+        elif status == OrderStatus.DELIVERED:
+            set_fields["completedAt"] = now
+            # Calculate duration from assignment
+            order = await self.get_by_id(order_id)
+            if order and order.assignedAt:
+                delta = now - order.assignedAt
+                set_fields["deliveryDurationMin"] = int(delta.total_seconds() / 60)
+
         result = await collection.find_one_and_update(
             {"_id": ObjectId(order_id)},
             {
-                "$set": {"status": status.value, "updatedAt": now, "lastStatusAt": now},
+                "$set": set_fields,
                 "$push": {"timeline": timeline_entry.model_dump()},
             },
             return_document=True,
@@ -204,6 +221,7 @@ class OrderRepository:
                 "$set": {
                     "deliveryPersonId": delivery_person_id,
                     "estimatedDeliveryTime": estimated_delivery_time,
+                    "assignedAt": now,
                     "updatedAt": now,
                 }
             },
@@ -336,6 +354,64 @@ class OrderRepository:
             "totalRevenue": 0,
             "averageOrderValue": 0,
             "averageDeliveryTime": 0,
+        }
+
+    async def get_by_delivery_person(
+        self,
+        delivery_person_id: str,
+        page: int = 1,
+        page_size: int = 20,
+        status: Optional[str] = None,
+    ) -> List[Order]:
+        """Get orders assigned to a delivery person, sorted by most recent."""
+        collection = self._get_collection()
+        query: Dict[str, Any] = {"deliveryPersonId": delivery_person_id}
+        if status:
+            query["status"] = status
+        skip = (page - 1) * page_size
+        cursor = (
+            collection.find(query).sort("completedAt", -1).skip(skip).limit(page_size)
+        )
+        return [self._doc_to_order(doc) async for doc in cursor]
+
+    async def get_delivery_person_stats(
+        self, delivery_person_id: str
+    ) -> Dict[str, Any]:
+        """Get aggregated delivery stats for a delivery person."""
+        collection = self._get_collection()
+        pipeline = [
+            {"$match": {"deliveryPersonId": delivery_person_id, "status": "delivered"}},
+            {
+                "$group": {
+                    "_id": None,
+                    "totalDeliveries": {"$sum": 1},
+                    "totalEarnings": {"$sum": {"$ifNull": ["$deliveryEarnings", 0]}},
+                    "totalDistanceKm": {
+                        "$sum": {"$ifNull": ["$deliveryDistanceKm", 0]}
+                    },
+                    "avgDurationMin": {
+                        "$avg": {"$ifNull": ["$deliveryDurationMin", 0]}
+                    },
+                    "avgRating": {"$avg": "$rating"},
+                }
+            },
+        ]
+        result = await collection.aggregate(pipeline).to_list(1)
+        if result:
+            stats = result[0]
+            stats.pop("_id", None)
+            stats["avgDurationMin"] = round(stats.get("avgDurationMin") or 0, 1)
+            stats["avgRating"] = round(stats.get("avgRating") or 0, 2)
+            stats["totalEarnings"] = round(stats.get("totalEarnings") or 0, 2)
+            stats["totalDistanceKm"] = round(stats.get("totalDistanceKm") or 0, 2)
+            return stats
+
+        return {
+            "totalDeliveries": 0,
+            "totalEarnings": 0.0,
+            "totalDistanceKm": 0.0,
+            "avgDurationMin": 0,
+            "avgRating": 0,
         }
 
 
@@ -529,6 +605,7 @@ async def create_order_indexes():
     await orders.create_index("status")
     await orders.create_index([("deliveryAddress.coordinates", "2dsphere")])
     await orders.create_index([("paymentStatus", 1), ("status", 1)])
+    await orders.create_index([("deliveryPersonId", 1), ("completedAt", -1)])
 
     # Delivery persons indexes
     delivery_persons = db.delivery_persons

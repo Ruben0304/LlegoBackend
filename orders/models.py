@@ -139,6 +139,15 @@ class Order(BaseModel):
     currentPaymentAttemptId: Optional[str] = None  # Current active payment attempt
     paidAt: Optional[datetime] = None  # When payment was completed
     deliveryFeePaid: float = 0.0  # Delivery fee actually paid (for tracking)
+
+    # Delivery tracking timestamps & metrics
+    assignedAt: Optional[datetime] = None  # When delivery person was assigned
+    pickedUpAt: Optional[datetime] = None  # When delivery person picked up the order
+    completedAt: Optional[datetime] = None  # When order was delivered
+    deliveryDistanceKm: Optional[float] = None  # Distance traveled in km
+    deliveryDurationMin: Optional[int] = None  # Minutes from assignment to delivery
+    deliveryEarnings: Optional[float] = None  # Amount earned by delivery person
+
     rating: Optional[int] = None
     ratingComment: Optional[str] = None
     createdAt: datetime

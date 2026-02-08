@@ -4,12 +4,13 @@ from datetime import datetime
 from typing import List, Optional
 
 import strawberry
+from bson import ObjectId
 from strawberry.types import Info
 
 from orders import delivery_persons_repo, order_service, orders_repo
-from orders.models import OrderStatus
+from orders.models import DeliveryPerson, OrderStatus, VehicleType
 from repositories import users_repo
-from utils.graphql_auth import apply_optional_jwt
+from utils.graphql_auth import apply_optional_jwt, require_auth
 
 from .types import (
     CoordinatesType,
@@ -174,15 +175,9 @@ class OrderQuery:
         jwt: str,
         radiusKm: float = 5.0,
     ) -> List[OrderType]:
-        apply_optional_jwt(jwt, info)
-        user_id = info.context.get("user_id")
-        if not user_id:
-            raise Exception("Usuario no autenticado")
+        user_id = require_auth(jwt, info)
 
-        # Verify user is a delivery person
-        delivery_person = await delivery_persons_repo.get_by_user_id(user_id)
-        if not delivery_person:
-            raise Exception("No eres un repartidor registrado")
+        delivery_person = await self._get_or_create_delivery_person(user_id)
 
         orders = await orders_repo.get_ready_for_pickup_nearby(
             longitude, latitude, radiusKm
@@ -191,17 +186,34 @@ class OrderQuery:
 
     @strawberry.field(description="Pedido actual del repartidor")
     async def my_current_delivery(self, info: Info, jwt: str) -> Optional[OrderType]:
-        apply_optional_jwt(jwt, info)
-        user_id = info.context.get("user_id")
-        if not user_id:
-            raise Exception("Usuario no autenticado")
+        user_id = require_auth(jwt, info)
 
-        delivery_person = await delivery_persons_repo.get_by_user_id(user_id)
-        if not delivery_person:
-            raise Exception("No eres un repartidor registrado")
+        delivery_person = await self._get_or_create_delivery_person(user_id)
 
         order = await orders_repo.get_current_delivery(delivery_person.id)
         return order_to_type(order) if order else None
+
+    async def _get_or_create_delivery_person(self, user_id: str) -> DeliveryPerson:
+        """Get existing delivery person or create one from user profile."""
+        delivery_person = await delivery_persons_repo.get_by_user_id(user_id)
+        if delivery_person:
+            return delivery_person
+
+        user = await users_repo.get_by_id(user_id)
+        if not user:
+            raise Exception("Usuario no encontrado")
+
+        now = datetime.utcnow()
+        new_dp = DeliveryPerson(
+            _id=str(ObjectId()),
+            userId=user_id,
+            name=user.name,
+            phone=user.phone or "",
+            vehicleType=VehicleType.A_PIE,
+            createdAt=now,
+            updatedAt=now,
+        )
+        return await delivery_persons_repo.create(new_dp)
 
     @strawberry.field(description="Estadísticas de pedidos")
     async def order_stats(
