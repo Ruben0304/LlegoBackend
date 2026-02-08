@@ -122,9 +122,11 @@ class OrderRepository:
         from orders.utils import H3_RESOLUTION, coords_to_h3
 
         center_h3 = coords_to_h3(latitude, longitude, H3_RESOLUTION)
-        # k_ring(k=1) covers ~1 ring of neighbors (~3-4 km at res 7)
-        # k_ring(k=2) covers ~2 rings (~6-8 km at res 7)
-        k = 1 if radius_km <= 5.0 else 2
+        # H3 resolution 7: average hex edge length ~1.22 km
+        # k rings needed to cover the requested radius
+        import math
+
+        k = max(1, math.ceil(radius_km / 1.22))
         nearby_cells = list(h3.grid_disk(center_h3, k))
 
         collection = self._get_collection()
