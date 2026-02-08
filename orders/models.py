@@ -161,6 +161,14 @@ class Order(BaseModel):
         json_encoders = {datetime: lambda v: v.isoformat()}
 
 
+class DeliveryRequestStatus(str, Enum):
+    """Status of a delivery person's request to link to a branch."""
+
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+
 class DeliveryPerson(BaseModel):
     """Delivery person model."""
 
@@ -177,6 +185,25 @@ class DeliveryPerson(BaseModel):
     isOnline: bool = False
     currentLocation: Optional[GeoPoint] = None
     currentOrderId: Optional[str] = None
+    linkedBranchIds: List[str] = []
+    createdAt: datetime
+    updatedAt: datetime
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat()}
+
+
+class BranchDeliveryRequest(BaseModel):
+    """Request by a delivery person to be linked to a branch."""
+
+    id: str = Field(alias="_id")
+    deliveryPersonId: str
+    branchId: str
+    status: DeliveryRequestStatus = DeliveryRequestStatus.PENDING
+    message: Optional[str] = None
+    respondedBy: Optional[str] = None
+    respondedAt: Optional[datetime] = None
     createdAt: datetime
     updatedAt: datetime
 

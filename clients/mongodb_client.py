@@ -28,6 +28,7 @@ async def connect_to_mongo():
         await _create_feed_indexes()
         await _create_ai_quota_indexes()
         await _create_delivery_zone_indexes()
+        await _create_branch_delivery_request_indexes()
     except Exception as e:
         print(f"✗ Error connecting to MongoDB: {e}")
         raise
@@ -243,6 +244,35 @@ async def _create_delivery_zone_indexes():
         print("✓ Delivery zone indexes created/verified")
     except Exception as e:
         print(f"⚠ Warning: Could not create delivery zone indexes: {e}")
+
+
+async def _create_branch_delivery_request_indexes():
+    """Create indexes for branch_delivery_requests collection."""
+    try:
+        collection = database["branch_delivery_requests"]
+
+        await collection.create_index(
+            [("deliveryPersonId", 1), ("branchId", 1)],
+            unique=True,
+            name="idx_delivery_person_branch_unique",
+            background=True,
+        )
+
+        await collection.create_index(
+            [("branchId", 1), ("status", 1)],
+            name="idx_branch_status",
+            background=True,
+        )
+
+        await collection.create_index(
+            [("deliveryPersonId", 1), ("status", 1)],
+            name="idx_delivery_person_status",
+            background=True,
+        )
+
+        print("✓ Branch delivery request indexes created/verified")
+    except Exception as e:
+        print(f"⚠ Warning: Could not create branch delivery request indexes: {e}")
 
 
 async def close_mongo_connection():

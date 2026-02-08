@@ -8,23 +8,40 @@ from bson import ObjectId
 from strawberry.types import Info
 
 from orders import (
+    branch_delivery_requests_repo,
     delivery_persons_repo,
     order_locations_repo,
     order_service,
     orders_repo,
 )
-from orders.models import GeoPoint, OrderActor, OrderLocationUpdate, OrderStatus
-from utils.graphql_auth import apply_optional_jwt
+from orders.models import (
+    BranchDeliveryRequest,
+    DeliveryRequestStatus,
+    GeoPoint,
+    OrderActor,
+    OrderLocationUpdate,
+    OrderStatus,
+)
+from repositories import branches_repo
+from utils.graphql_auth import apply_optional_jwt, require_auth
 
 from .inputs import (
     AddOrderCommentInput,
     AssignDeliveryPersonInput,
     CreateOrderInput,
     ModifyOrderItemsInput,
+    RequestBranchLinkInput,
+    RespondBranchLinkInput,
     UpdateDeliveryLocationInput,
     UpdateOrderStatusInput,
 )
-from .types import OrderStatusEnum, OrderType, order_to_type
+from .types import (
+    BranchDeliveryRequestType,
+    OrderStatusEnum,
+    OrderType,
+    branch_delivery_request_to_type,
+    order_to_type,
+)
 
 
 @strawberry.type
@@ -335,6 +352,107 @@ class OrderMutation:
         await delivery_persons_repo.assign_order(input.deliveryPersonId, input.orderId)
 
         return order_to_type(order)
+
+    # Branch-delivery person link mutations
+    @strawberry.mutation(
+        description="Solicitar vinculación a una sucursal como repartidor"
+    )
+    async def request_branch_link(
+        self, info: Info, input: RequestBranchLinkInput, jwt: str
+    ) -> BranchDeliveryRequestType:
+        from schema.orders.queries import _get_or_create_delivery_person
+
+        user_id = require_auth(jwt, info)
+        delivery_person = await _get_or_create_delivery_person(user_id)
+
+        # Verify branch exists
+        branch = await branches_repo.get_by_id(input.branchId)
+        if not branch:
+            raise Exception("Sucursal no encontrada")
+
+        # Prevent duplicate requests
+        existing = await branch_delivery_requests_repo.get_existing(
+            delivery_person.id, input.branchId
+        )
+        if existing:
+            if existing.status == DeliveryRequestStatus.PENDING:
+                raise Exception("Ya tienes una solicitud pendiente para esta sucursal")
+            if existing.status == DeliveryRequestStatus.ACCEPTED:
+                raise Exception("Ya estás vinculado a esta sucursal")
+
+        now = datetime.utcnow()
+        request = BranchDeliveryRequest(
+            _id=str(ObjectId()),
+            deliveryPersonId=delivery_person.id,
+            branchId=input.branchId,
+            status=DeliveryRequestStatus.PENDING,
+            message=input.message,
+            createdAt=now,
+            updatedAt=now,
+        )
+        created = await branch_delivery_requests_repo.create(request)
+        return branch_delivery_request_to_type(created)
+
+    @strawberry.mutation(
+        description="Responder a una solicitud de vinculación (manager)"
+    )
+    async def respond_branch_link_request(
+        self, info: Info, input: RespondBranchLinkInput, jwt: str
+    ) -> BranchDeliveryRequestType:
+        user_id = require_auth(jwt, info)
+
+        req = await branch_delivery_requests_repo.get_by_id(input.requestId)
+        if not req:
+            raise Exception("Solicitud no encontrada")
+
+        if req.status != DeliveryRequestStatus.PENDING:
+            raise Exception("Esta solicitud ya fue respondida")
+
+        # Verify user is a manager of the branch
+        branch = await branches_repo.get_by_id(req.branchId)
+        if not branch:
+            raise Exception("Sucursal no encontrada")
+        if user_id not in branch.managerIds:
+            raise Exception("No tienes permiso para responder esta solicitud")
+
+        new_status = (
+            DeliveryRequestStatus.ACCEPTED
+            if input.accept
+            else DeliveryRequestStatus.REJECTED
+        )
+
+        updated_req = await branch_delivery_requests_repo.update_status(
+            input.requestId, new_status, user_id
+        )
+
+        if input.accept and branch.useAppMessaging:
+            await delivery_persons_repo.add_linked_branch(
+                req.deliveryPersonId, req.branchId
+            )
+
+        return branch_delivery_request_to_type(updated_req)
+
+    @strawberry.mutation(description="Cancelar solicitud de vinculación propia")
+    async def cancel_branch_link_request(
+        self, info: Info, requestId: str, jwt: str
+    ) -> bool:
+        from schema.orders.queries import _get_or_create_delivery_person
+
+        user_id = require_auth(jwt, info)
+        delivery_person = await _get_or_create_delivery_person(user_id)
+
+        req = await branch_delivery_requests_repo.get_by_id(requestId)
+        if not req:
+            raise Exception("Solicitud no encontrada")
+        if req.deliveryPersonId != delivery_person.id:
+            raise Exception("No tienes permiso para cancelar esta solicitud")
+        if req.status != DeliveryRequestStatus.PENDING:
+            raise Exception("Solo se pueden cancelar solicitudes pendientes")
+
+        await branch_delivery_requests_repo.update_status(
+            requestId, DeliveryRequestStatus.REJECTED, user_id
+        )
+        return True
 
     @strawberry.mutation(description="Forzar cambio de estado (admin)")
     async def force_order_status(

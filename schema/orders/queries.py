@@ -7,19 +7,32 @@ import strawberry
 from bson import ObjectId
 from strawberry.types import Info
 
-from orders import delivery_persons_repo, order_service, orders_repo
-from orders.models import DeliveryPerson, OrderStatus, VehicleType
-from repositories import users_repo
+from orders import (
+    branch_delivery_requests_repo,
+    delivery_persons_repo,
+    order_service,
+    orders_repo,
+)
+from orders.models import (
+    DeliveryPerson,
+    DeliveryRequestStatus,
+    OrderStatus,
+    VehicleType,
+)
+from repositories import branches_repo, users_repo
 from utils.graphql_auth import apply_optional_jwt, require_auth
 
 from .types import (
+    BranchDeliveryRequestType,
     CoordinatesType,
     DeliveryFeeEstimateType,
+    DeliveryRequestStatusEnum,
     OrdersConnectionType,
     OrderStatsType,
     OrderStatusEnum,
     OrderTrackingType,
     OrderType,
+    branch_delivery_request_to_type,
     estimate_delivery_fee,
     order_to_type,
 )
@@ -211,9 +224,15 @@ class OrderQuery:
 
         delivery_person = await _get_or_create_delivery_person(user_id)
 
-        orders = await orders_repo.get_ready_for_pickup_nearby(
-            longitude, latitude, radiusKm
-        )
+        if delivery_person.linkedBranchIds:
+            orders = await orders_repo.get_ready_for_pickup_by_branches(
+                delivery_person.linkedBranchIds
+            )
+        else:
+            orders = await orders_repo.get_ready_for_pickup_nearby(
+                longitude, latitude, radiusKm
+            )
+
         return [order_to_type(o) for o in orders]
 
     @strawberry.field(description="Pedido actual del repartidor")
@@ -258,6 +277,46 @@ class OrderQuery:
             avgDurationMin=stats["avgDurationMin"],
             avgRating=stats["avgRating"],
         )
+
+    @strawberry.field(description="Mis solicitudes de vinculación a sucursales")
+    async def my_branch_link_requests(
+        self,
+        info: Info,
+        jwt: str,
+        status: Optional[DeliveryRequestStatusEnum] = None,
+    ) -> List[BranchDeliveryRequestType]:
+        user_id = require_auth(jwt, info)
+        delivery_person = await _get_or_create_delivery_person(user_id)
+
+        status_filter = DeliveryRequestStatus(status.value) if status else None
+        requests = await branch_delivery_requests_repo.get_by_delivery_person(
+            delivery_person.id, status_filter
+        )
+        return [branch_delivery_request_to_type(r) for r in requests]
+
+    @strawberry.field(
+        description="Solicitudes de vinculación a una sucursal (para managers)"
+    )
+    async def branch_link_requests(
+        self,
+        info: Info,
+        branchId: str,
+        jwt: str,
+        status: Optional[DeliveryRequestStatusEnum] = None,
+    ) -> List[BranchDeliveryRequestType]:
+        user_id = require_auth(jwt, info)
+
+        branch = await branches_repo.get_by_id(branchId)
+        if not branch:
+            raise Exception("Sucursal no encontrada")
+        if user_id not in branch.managerIds:
+            raise Exception("No tienes permiso para ver estas solicitudes")
+
+        status_filter = DeliveryRequestStatus(status.value) if status else None
+        requests = await branch_delivery_requests_repo.get_by_branch(
+            branchId, status_filter
+        )
+        return [branch_delivery_request_to_type(r) for r in requests]
 
     @strawberry.field(description="Estadísticas de pedidos")
     async def order_stats(

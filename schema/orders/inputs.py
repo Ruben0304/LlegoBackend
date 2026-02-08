@@ -1,6 +1,8 @@
 """GraphQL input types for Orders."""
+
+from typing import List, Optional
+
 import strawberry
-from typing import Optional, List
 
 from .types import OrderStatusEnum
 
@@ -65,3 +67,15 @@ class AssignDeliveryPersonInput:
     orderId: str
     deliveryPersonId: str
     estimatedMinutes: Optional[int] = None
+
+
+@strawberry.input
+class RequestBranchLinkInput:
+    branchId: str
+    message: Optional[str] = None
+
+
+@strawberry.input
+class RespondBranchLinkInput:
+    requestId: str
+    accept: bool

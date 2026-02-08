@@ -440,6 +440,67 @@ class DeliveryFeeEstimateType:
     branchName: str
 
 
+@strawberry.enum
+class DeliveryRequestStatusEnum(Enum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+
+@strawberry.type
+class BranchDeliveryRequestType:
+    id: str
+    deliveryPersonId: str
+    branchId: str
+    status: DeliveryRequestStatusEnum
+    message: Optional[str]
+    respondedBy: Optional[str]
+    respondedAt: Optional[datetime]
+    createdAt: datetime
+    updatedAt: datetime
+
+    @strawberry.field(description="Detalles de la sucursal")
+    async def branch(self) -> Optional[BranchType]:
+        from schema.branches.utils import branch_to_dict
+
+        branch = await branches_repo.get_by_id(self.branchId)
+        return BranchType(**branch_to_dict(branch)) if branch else None
+
+    @strawberry.field(description="Detalles del repartidor")
+    async def delivery_person(self) -> Optional[DeliveryPersonType]:
+        dp = await delivery_persons_repo.get_by_id(self.deliveryPersonId)
+        if dp:
+            return DeliveryPersonType(
+                id=dp.id,
+                name=dp.name,
+                phone=dp.phone or "",
+                rating=dp.rating,
+                totalDeliveries=dp.totalDeliveries,
+                vehicleType=dp.vehicleType.value,
+                vehiclePlate=dp.vehiclePlate,
+                profileImageUrl=dp.profileImageUrl,
+                isOnline=dp.isOnline,
+                currentLocation=dp.currentLocation.model_dump()
+                if dp.currentLocation
+                else None,
+            )
+        return None
+
+
+def branch_delivery_request_to_type(req) -> BranchDeliveryRequestType:
+    return BranchDeliveryRequestType(
+        id=req.id,
+        deliveryPersonId=req.deliveryPersonId,
+        branchId=req.branchId,
+        status=DeliveryRequestStatusEnum(req.status.value),
+        message=req.message,
+        respondedBy=req.respondedBy,
+        respondedAt=req.respondedAt,
+        createdAt=req.createdAt,
+        updatedAt=req.updatedAt,
+    )
+
+
 async def estimate_delivery_fee(
     branch_id: str,
     latitude: float,

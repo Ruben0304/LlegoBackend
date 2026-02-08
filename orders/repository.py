@@ -8,7 +8,9 @@ from bson import ObjectId
 from clients.mongodb_client import get_database
 
 from .models import (
+    BranchDeliveryRequest,
     DeliveryPerson,
+    DeliveryRequestStatus,
     Order,
     OrderComment,
     OrderItem,
@@ -132,6 +134,19 @@ class OrderRepository:
             "branchH3": {"$in": nearby_cells},
         }
         cursor = collection.find(query).limit(50)
+        return [self._doc_to_order(doc) async for doc in cursor]
+
+    async def get_ready_for_pickup_by_branches(
+        self, branch_ids: List[str]
+    ) -> List[Order]:
+        """Get orders ready for pickup for specific linked branches."""
+        collection = self._get_collection()
+        query = {
+            "status": OrderStatus.READY_FOR_PICKUP.value,
+            "deliveryPersonId": None,
+            "branchId": {"$in": branch_ids},
+        }
+        cursor = collection.find(query).sort("createdAt", 1).limit(50)
         return [self._doc_to_order(doc) async for doc in cursor]
 
     async def get_current_delivery(self, delivery_person_id: str) -> Optional[Order]:
@@ -532,6 +547,36 @@ class DeliveryPersonRepository:
         )
         return self._doc_to_delivery_person(result) if result else None
 
+    async def add_linked_branch(
+        self, delivery_person_id: str, branch_id: str
+    ) -> Optional[DeliveryPerson]:
+        """Add a branch to the delivery person's linked branches list."""
+        collection = self._get_collection()
+        result = await collection.find_one_and_update(
+            {"_id": ObjectId(delivery_person_id)},
+            {
+                "$addToSet": {"linkedBranchIds": branch_id},
+                "$set": {"updatedAt": datetime.utcnow()},
+            },
+            return_document=True,
+        )
+        return self._doc_to_delivery_person(result) if result else None
+
+    async def remove_linked_branch(
+        self, delivery_person_id: str, branch_id: str
+    ) -> Optional[DeliveryPerson]:
+        """Remove a branch from the delivery person's linked branches list."""
+        collection = self._get_collection()
+        result = await collection.find_one_and_update(
+            {"_id": ObjectId(delivery_person_id)},
+            {
+                "$pull": {"linkedBranchIds": branch_id},
+                "$set": {"updatedAt": datetime.utcnow()},
+            },
+            return_document=True,
+        )
+        return self._doc_to_delivery_person(result) if result else None
+
     async def update_rating(
         self, delivery_person_id: str, new_rating: float
     ) -> Optional[DeliveryPerson]:
@@ -593,6 +638,87 @@ class OrderLocationRepository:
             collection.find({"orderId": order_id}).sort("timestamp", -1).limit(limit)
         )
         return [self._doc_to_location_update(doc) async for doc in cursor]
+
+
+class BranchDeliveryRequestRepository:
+    """Repository for branch delivery request operations."""
+
+    collection_name = "branch_delivery_requests"
+
+    def _get_collection(self):
+        return get_database()[self.collection_name]
+
+    @staticmethod
+    def _doc_to_request(doc: dict) -> BranchDeliveryRequest:
+        doc["_id"] = str(doc["_id"])
+        return BranchDeliveryRequest(**doc)
+
+    async def create(self, request: BranchDeliveryRequest) -> BranchDeliveryRequest:
+        collection = self._get_collection()
+        doc = request.model_dump(by_alias=True)
+        doc["_id"] = ObjectId(doc["_id"])
+        await collection.insert_one(doc)
+        return request
+
+    async def get_by_id(self, request_id: str) -> Optional[BranchDeliveryRequest]:
+        collection = self._get_collection()
+        doc = await collection.find_one({"_id": ObjectId(request_id)})
+        return self._doc_to_request(doc) if doc else None
+
+    async def get_by_delivery_person(
+        self,
+        delivery_person_id: str,
+        status: Optional[DeliveryRequestStatus] = None,
+    ) -> List[BranchDeliveryRequest]:
+        collection = self._get_collection()
+        query: Dict[str, Any] = {"deliveryPersonId": delivery_person_id}
+        if status:
+            query["status"] = status.value
+        cursor = collection.find(query).sort("createdAt", -1)
+        return [self._doc_to_request(doc) async for doc in cursor]
+
+    async def get_by_branch(
+        self,
+        branch_id: str,
+        status: Optional[DeliveryRequestStatus] = None,
+    ) -> List[BranchDeliveryRequest]:
+        collection = self._get_collection()
+        query: Dict[str, Any] = {"branchId": branch_id}
+        if status:
+            query["status"] = status.value
+        cursor = collection.find(query).sort("createdAt", -1)
+        return [self._doc_to_request(doc) async for doc in cursor]
+
+    async def get_existing(
+        self, delivery_person_id: str, branch_id: str
+    ) -> Optional[BranchDeliveryRequest]:
+        collection = self._get_collection()
+        doc = await collection.find_one(
+            {"deliveryPersonId": delivery_person_id, "branchId": branch_id}
+        )
+        return self._doc_to_request(doc) if doc else None
+
+    async def update_status(
+        self,
+        request_id: str,
+        status: DeliveryRequestStatus,
+        responded_by: str,
+    ) -> Optional[BranchDeliveryRequest]:
+        collection = self._get_collection()
+        now = datetime.utcnow()
+        result = await collection.find_one_and_update(
+            {"_id": ObjectId(request_id)},
+            {
+                "$set": {
+                    "status": status.value,
+                    "respondedBy": responded_by,
+                    "respondedAt": now,
+                    "updatedAt": now,
+                }
+            },
+            return_document=True,
+        )
+        return self._doc_to_request(result) if result else None
 
 
 async def create_order_indexes():
