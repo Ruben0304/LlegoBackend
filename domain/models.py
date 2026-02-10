@@ -73,7 +73,7 @@ class Business(BaseModel):
     globalRating: float
     avatar: str
     description: Optional[str] = None
-    tags: List[str] = []
+    tags: Optional[List[str]] = None
     isActive: bool = True
     createdAt: datetime
 

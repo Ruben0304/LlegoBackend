@@ -14,7 +14,7 @@ class BusinessType:
     globalRating: float
     avatar: Optional[str]
     description: Optional[str]
-    tags: List[str]
+    tags: Optional[List[str]]
     isActive: bool
     createdAt: datetime
 
