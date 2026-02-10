@@ -205,6 +205,7 @@ class BranchQuery:
         first: Optional[int] = None,
         after: Optional[str] = None,
         use_vector_search: bool = True,
+        productCategoryId: Optional[str] = None,
         radiusKm: Optional[float] = None,
         jwt: Optional[str] = None,
     ) -> BranchConnection:
@@ -216,6 +217,7 @@ class BranchQuery:
             first: Number of items to fetch. If not provided, returns all items (no pagination)
             after: Cursor to fetch items after (for pagination)
             use_vector_search: Use vector search (default: True)
+            productCategoryId: Filter by product category (only branches with products in this category)
             radiusKm: Filter by radius in km from user location
         """
         apply_optional_jwt(jwt, info)
@@ -239,6 +241,16 @@ class BranchQuery:
                     all_branches.append(branch)
         else:
             all_branches = await branches_repo.search(query)
+
+        # Filter by product category if specified
+        if productCategoryId:
+            from domain.models import products_repo
+
+            products_with_category = await products_repo.get_by_category(
+                productCategoryId
+            )
+            branch_ids_with_category = set(p.branchId for p in products_with_category)
+            all_branches = [b for b in all_branches if b.id in branch_ids_with_category]
 
         # Apply scoring if user is authenticated
         scored_branches: List[ScoredBranchType] = []
@@ -340,6 +352,7 @@ class BranchQuery:
         radius_km: float = 5.0,
         only_active: bool = True,
         tipo: Optional[BranchTipo] = None,
+        productCategoryId: Optional[str] = None,
         jwt: Optional[str] = None,
     ) -> NearbyBranchConnection:
         """
@@ -353,6 +366,7 @@ class BranchQuery:
             radius_km: Search radius in kilometers (default: 5km)
             only_active: Only return active branches (default: True)
             tipo: Optional filter by branch tipo
+            productCategoryId: Filter by product category (only branches with products in this category)
 
         Returns:
             Connection with branches and pagination info, ordered by proximity
@@ -402,6 +416,16 @@ class BranchQuery:
                         distance_m=store.get("distance_m", 0.0),
                     )
                 )
+
+        # Filter by product category if specified
+        if productCategoryId:
+            from domain.models import products_repo
+
+            products_with_category = await products_repo.get_by_category(
+                productCategoryId
+            )
+            branch_ids_with_category = set(p.branchId for p in products_with_category)
+            all_branches = [b for b in all_branches if b.id in branch_ids_with_category]
 
         total_count = len(all_branches)
 
