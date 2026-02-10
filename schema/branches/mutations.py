@@ -72,11 +72,10 @@ class BranchMutation:
             phone=input.phone,
             schedule=input.schedule,
             managerIds=input.managerIds or [user_id],
-            status="active",
+            isActive=True,
             avatar=input.avatar,
             coverImage=input.coverImage,
-            deliveryRadius=input.deliveryRadius,
-            facilities=input.facilities or [],
+            socialMedia=input.socialMedia,
             tipos=[t.value for t in input.tipos],
             paymentMethodIds=input.paymentMethodIds,
             wallet={"local": 0.0, "usd": 0.0},
@@ -147,12 +146,10 @@ class BranchMutation:
             updates["phone"] = input.phone
         if input.schedule is not None:
             updates["schedule"] = input.schedule
-        if input.status is not None:
-            updates["status"] = input.status
-        if input.deliveryRadius is not None:
-            updates["deliveryRadius"] = input.deliveryRadius
-        if input.facilities is not None:
-            updates["facilities"] = input.facilities
+        if input.isActive is not None:
+            updates["isActive"] = input.isActive
+        if input.socialMedia is not None:
+            updates["socialMedia"] = input.socialMedia
         if input.managerIds is not None:
             # Only owner can change managers - verify owner access
             business = await businesses_repo.get_by_id(branch.businessId)
@@ -207,7 +204,7 @@ class BranchMutation:
                 store_id=branch_id,
                 longitude=input.coordinates.lng,
                 latitude=input.coordinates.lat,
-                active=branch.status == "active",
+                active=branch.isActive,
             )
             # Also update in Qdrant metadata
             updates["coordinates"] = {
@@ -215,10 +212,9 @@ class BranchMutation:
                 "coordinates": [input.coordinates.lng, input.coordinates.lat],
             }
 
-        # Handle status change - sync active status to stores_location
-        if input.status is not None:
-            is_active = input.status == "active"
-            await store_locations_repo.set_active(store_id=branch_id, active=is_active)
+        # Handle isActive change - sync active status to stores_location
+        if input.isActive is not None:
+            await store_locations_repo.set_active(store_id=branch_id, active=input.isActive)
 
         if not updates:
             raise Exception("No hay campos para actualizar")

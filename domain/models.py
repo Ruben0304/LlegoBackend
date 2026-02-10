@@ -73,7 +73,6 @@ class Business(BaseModel):
     globalRating: float
     avatar: str
     description: Optional[str] = None
-    socialMedia: Optional[Dict[str, str]] = None
     tags: List[str] = []
     isActive: bool = True
     createdAt: datetime
@@ -97,11 +96,10 @@ class Branch(BaseModel):
     phone: str
     schedule: Dict[str, List[str]]  # {"mon": ["08:00-20:00"], ...}
     managerIds: List[str]
-    status: str  # "active", etc.
+    isActive: bool = True
     avatar: Optional[str] = None
     coverImage: Optional[str] = None
-    deliveryRadius: Optional[float] = None
-    facilities: List[str] = []
+    socialMedia: Optional[Dict[str, str]] = None
     tipos: List[str] = []  # ["restaurante", "dulceria", "tienda"]
     paymentMethodIds: List[str] = []  # IDs de métodos de pago aceptados
     wallet: Dict[str, float] = Field(

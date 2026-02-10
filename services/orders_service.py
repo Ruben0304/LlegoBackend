@@ -60,7 +60,7 @@ class OrderService:
         branch = await branches_repo.get_by_id(branch_id)
         if not branch:
             raise ValueError("Sucursal no encontrada")
-        if branch.status != "active":
+        if not branch.isActive:
             raise ValueError("La sucursal no está activa")
 
         # 2. Get business
@@ -690,4 +690,3 @@ class OrderService:
             "estimatedMinutes": estimated_minutes,
         }
 order_service = OrderService()
-

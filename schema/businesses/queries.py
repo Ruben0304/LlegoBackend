@@ -25,7 +25,6 @@ class BusinessWithBranchesType:
     globalRating: float
     avatar: Optional[str]
     description: Optional[str]
-    socialMedia: Optional[strawberry.scalars.JSON]
     tags: List[str]
     isActive: bool
     createdAt: datetime
@@ -220,7 +219,6 @@ class BusinessQuery:
                     globalRating=business.globalRating,
                     avatar=business.avatar,
                     description=business.description,
-                    socialMedia=business.socialMedia,
                     tags=business.tags,
                     isActive=business.isActive,
                     createdAt=business.createdAt,

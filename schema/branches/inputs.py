@@ -57,8 +57,7 @@ class CreateBranchInput:
     managerIds: Optional[List[str]] = None
     avatar: Optional[str] = None  # Path from /upload/branch/avatar
     coverImage: Optional[str] = None  # Path from /upload/branch/cover
-    deliveryRadius: Optional[float] = None
-    facilities: Optional[List[str]] = None
+    socialMedia: Optional[JSON] = None
     useAppMessaging: bool = (
         True  # True = mensajería por la app, False = por cuenta propia
     )
@@ -80,9 +79,8 @@ class UpdateBranchInput:
     coordinates: Optional[CoordinatesInput] = None  # For updating location
     phone: Optional[str] = None
     schedule: Optional[JSON] = None
-    status: Optional[str] = None
-    deliveryRadius: Optional[float] = None
-    facilities: Optional[List[str]] = None
+    isActive: Optional[bool] = None
+    socialMedia: Optional[JSON] = None
     managerIds: Optional[List[str]] = None
     avatar: Optional[str] = None  # Path from /upload/branch/avatar
     coverImage: Optional[str] = None  # Path from /upload/branch/cover

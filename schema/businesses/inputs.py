@@ -19,7 +19,6 @@ class CreateBusinessInput:
     name: str
     avatar: Optional[str] = None  # Optional, upload via REST endpoint
     description: Optional[str] = None
-    socialMedia: Optional[JSON] = None
     tags: Optional[List[str]] = None
 
 
@@ -29,7 +28,6 @@ class UpdateBusinessInput:
 
     name: Optional[str] = None
     description: Optional[str] = None
-    socialMedia: Optional[JSON] = None
     tags: Optional[List[str]] = None
     isActive: Optional[bool] = None
     avatar: Optional[str] = None  # Path from /upload/business/avatar
@@ -49,8 +47,7 @@ class RegisterBranchInput:
     managerIds: Optional[List[str]] = None
     avatar: Optional[str] = None  # Optional, upload via REST endpoint
     coverImage: Optional[str] = None  # Optional, upload via REST endpoint
-    deliveryRadius: Optional[float] = None
-    facilities: Optional[List[str]] = None
+    socialMedia: Optional[JSON] = None
     # Transfer payment info
     accounts: Optional[List[TransferAccountInput]] = None
     qrPayments: Optional[List[QrPaymentInput]] = None

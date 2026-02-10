@@ -73,11 +73,10 @@ class BranchType:
     phone: str
     schedule: strawberry.scalars.JSON
     managerIds: List[str]
-    status: str
+    isActive: bool
     avatar: Optional[str]
     coverImage: Optional[str]
-    deliveryRadius: Optional[float]
-    facilities: List[str]
+    socialMedia: Optional[strawberry.scalars.JSON]
     tipos: List[BranchTipo]
     paymentMethodIds: List[str]
     useAppMessaging: bool = True
@@ -159,11 +158,10 @@ class NearbyBranchType:
     phone: str
     schedule: strawberry.scalars.JSON
     managerIds: List[str]
-    status: str
+    isActive: bool
     avatar: Optional[str]
     coverImage: Optional[str]
-    deliveryRadius: Optional[float]
-    facilities: List[str]
+    socialMedia: Optional[strawberry.scalars.JSON]
     tipos: List[BranchTipo]
     paymentMethodIds: List[str]
     useAppMessaging: bool = True
@@ -250,11 +248,10 @@ class ScoredBranchType:
     phone: str
     schedule: strawberry.scalars.JSON
     managerIds: List[str]
-    status: str
+    isActive: bool
     avatar: Optional[str]
     coverImage: Optional[str]
-    deliveryRadius: Optional[float]
-    facilities: List[str]
+    socialMedia: Optional[strawberry.scalars.JSON]
     tipos: List[BranchTipo]
     paymentMethodIds: List[str]
     useAppMessaging: bool = True

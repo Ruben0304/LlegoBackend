@@ -14,7 +14,6 @@ class BusinessType:
     globalRating: float
     avatar: Optional[str]
     description: Optional[str]
-    socialMedia: Optional[strawberry.scalars.JSON]
     tags: List[str]
     isActive: bool
     createdAt: datetime

@@ -58,7 +58,6 @@ class BusinessMutation:
             globalRating=0.0,
             avatar=business_input.avatar or "",
             description=business_input.description,
-            socialMedia=business_input.socialMedia,
             tags=business_input.tags or [],
             isActive=True,
             createdAt=datetime.now(),
@@ -113,11 +112,10 @@ class BusinessMutation:
                 phone=branch_inp.phone,
                 schedule=branch_inp.schedule,
                 managerIds=branch_inp.managerIds or [user_id],
-                status="active",
+                isActive=True,
                 avatar=branch_inp.avatar,
                 coverImage=branch_inp.coverImage,
-                deliveryRadius=branch_inp.deliveryRadius,
-                facilities=branch_inp.facilities or [],
+                socialMedia=branch_inp.socialMedia,
                 tipos=[t.value for t in branch_inp.tipos],
                 paymentMethodIds=branch_inp.paymentMethodIds,
                 accounts=[a.__dict__ for a in branch_inp.accounts]
@@ -146,7 +144,6 @@ class BusinessMutation:
             globalRating=created_business.globalRating,
             avatar=created_business.avatar,
             description=created_business.description,
-            socialMedia=created_business.socialMedia,
             tags=created_business.tags,
             isActive=created_business.isActive,
             createdAt=created_business.createdAt,
@@ -184,8 +181,6 @@ class BusinessMutation:
             updates["name"] = input.name
         if input.description is not None:
             updates["description"] = input.description
-        if input.socialMedia is not None:
-            updates["socialMedia"] = input.socialMedia
         if input.tags is not None:
             updates["tags"] = input.tags
         if input.isActive is not None:
@@ -211,7 +206,6 @@ class BusinessMutation:
             globalRating=updated_business.globalRating,
             avatar=updated_business.avatar,
             description=updated_business.description,
-            socialMedia=updated_business.socialMedia,
             tags=updated_business.tags,
             isActive=updated_business.isActive,
             createdAt=updated_business.createdAt,
@@ -267,7 +261,6 @@ class BusinessMutation:
                     globalRating=0.0,
                     avatar=business_input.avatar or "",
                     description=business_input.description,
-                    socialMedia=business_input.socialMedia,
                     tags=business_input.tags or [],
                     isActive=True,
                     createdAt=datetime.now(),
@@ -326,11 +319,10 @@ class BusinessMutation:
                         phone=branch_inp.phone,
                         schedule=branch_inp.schedule,
                         managerIds=branch_inp.managerIds or [user_id],
-                        status="active",
+                        isActive=True,
                         avatar=branch_inp.avatar,
                         coverImage=branch_inp.coverImage,
-                        deliveryRadius=branch_inp.deliveryRadius,
-                        facilities=branch_inp.facilities or [],
+                        socialMedia=branch_inp.socialMedia,
                         tipos=[t.value for t in branch_inp.tipos],
                         paymentMethodIds=branch_inp.paymentMethodIds,
                         accounts=[a.__dict__ for a in branch_inp.accounts]
@@ -361,7 +353,6 @@ class BusinessMutation:
                     globalRating=b.globalRating,
                     avatar=b.avatar,
                     description=b.description,
-                    socialMedia=b.socialMedia,
                     tags=b.tags,
                     isActive=b.isActive,
                     createdAt=b.createdAt,
