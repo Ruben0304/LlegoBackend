@@ -1,37 +1,46 @@
-"""AI RAG service with Gemini structured outputs and vector search."""
-from typing import List, Dict, Any, Optional
-from datetime import datetime, timedelta
-from google import genai
-from google.genai import types
+"""AI RAG service with DeepSeek structured outputs and vector search."""
 
-from clients import get_gemini_client
+import json
+from typing import Any, Dict, List, Type, TypeVar
+
+from openai import OpenAI
+from pydantic import BaseModel
+
 from core.config import settings
 from repositories import (
+    branches_repo,
+    businesses_repo,
     chat_memory_repo,
     draft_orders_repo,
     products_repo,
-    branches_repo,
-    businesses_repo,
-    payment_methods_repo,
-    users_repo
+    users_repo,
 )
-from services.vector_search_service import VectorSearchService, VectorSearchResult
 from services.ai_models import (
-    AiIntentAnalysis,
     AiFinalResponse,
-    SearchQuery,
+    AiIntentAnalysis,
+    DraftOrderData,
     SearchContext,
-    DraftOrderData
+    SearchQuery,
 )
+from services.vector_search_service import VectorSearchService
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class AiRagService:
-    """AI RAG service using Gemini with structured outputs and Qdrant vector search."""
+    """AI RAG service using DeepSeek with structured outputs and vector search."""
 
     def __init__(self):
         """Initialize AI RAG service."""
-        self.client = get_gemini_client()
-        self.model_name = settings.gemini_model
+        if not settings.deepseek_api_key:
+            raise RuntimeError(
+                "DeepSeek API key not configured. Set DEEPSEEK_API_KEY in environment variables."
+            )
+
+        self.client = OpenAI(
+            api_key=settings.deepseek_api_key, base_url=settings.deepseek_base_url
+        )
+        self.model_name = settings.deepseek_model
         self.vector_search = VectorSearchService()
 
         # System prompts
@@ -59,7 +68,7 @@ You have access to search results from our database. Your job is to:
 3. Suggest ALL products that semantically match the user's request based on their names
 4. Provide a natural, conversational response
 
-CRITICAL - PRODUCT IDs: You MUST use the EXACT product IDs from the search results provided in the context. 
+CRITICAL - PRODUCT IDs: You MUST use the EXACT product IDs from the search results provided in the context.
 - The products in "Available Products" section have real IDs from our database
 - NEVER invent or hallucinate product IDs - only use IDs that appear in the context
 - Example: If you see "ID: 6958253b691f737d2ec61067, Name: Suero sensación", use exactly "6958253b691f737d2ec61067"
@@ -77,11 +86,7 @@ When suggesting products or stores, explain WHY they match the user's request.
 
 IMPORTANT: Order creation is temporarily disabled. DO NOT suggest creating draft orders. Focus on search and discovery only."""
 
-    async def send_message(
-        self,
-        message: str,
-        session_id: str
-    ) -> AiFinalResponse:
+    async def send_message(self, message: str, session_id: str) -> AiFinalResponse:
         """
         Process user message with RAG pipeline.
 
@@ -94,18 +99,16 @@ IMPORTANT: Order creation is temporarily disabled. DO NOT suggest creating draft
         """
         # Step 1: Save user message to memory
         await chat_memory_repo.add_message(
-            session_id=session_id,
-            role="user",
-            content=message
+            session_id=session_id, role="user", content=message
         )
 
         # Step 2: Get conversation history
         history = await chat_memory_repo.get_conversation_history(
             session_id=session_id,
-            limit=10  # Last 10 messages for context
+            limit=10,  # Last 10 messages for context
         )
 
-        # Step 3: Analyze intent with Gemini structured output
+        # Step 3: Analyze intent with structured output
         intent = await self._analyze_intent(message, history)
 
         # Step 4: Execute vector searches if needed
@@ -113,10 +116,7 @@ IMPORTANT: Order creation is temporarily disabled. DO NOT suggest creating draft
 
         # Step 5: Generate final response with context
         final_response = await self._generate_final_response(
-            message=message,
-            history=history,
-            intent=intent,
-            context=search_context
+            message=message, history=history, intent=intent, context=search_context
         )
 
         # Step 6: Handle draft order creation if needed
@@ -129,20 +129,16 @@ IMPORTANT: Order creation is temporarily disabled. DO NOT suggest creating draft
 
         # Step 7: Save assistant response to memory
         await chat_memory_repo.add_message(
-            session_id=session_id,
-            role="assistant",
-            content=final_response.ai_text
+            session_id=session_id, role="assistant", content=final_response.ai_text
         )
 
         return final_response
 
     async def _analyze_intent(
-        self,
-        message: str,
-        history: List[Any]
+        self, message: str, history: List[Any]
     ) -> AiIntentAnalysis:
         """
-        Analyze user intent using Gemini structured output.
+        Analyze user intent using DeepSeek structured output.
 
         Args:
             message: Current user message
@@ -155,27 +151,16 @@ IMPORTANT: Order creation is temporarily disabled. DO NOT suggest creating draft
         conversation = self._format_history(history)
         prompt = f"{chr(10).join(conversation)}\n\nUser: {message}\n\nAnalyze the user's intent and determine the appropriate action."
 
-        # Generate with structured output (following Gemini SDK guidelines)
-        response = self.client.models.generate_content(
-            model=self.model_name,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=self.intent_system_prompt,
-                response_mime_type="application/json",
-                response_schema=AiIntentAnalysis
-            )
+        return self._generate_json_output(
+            system_prompt=self.intent_system_prompt,
+            user_prompt=(
+                f"{prompt}\n\nReturn your answer as a valid json object only."
+            ),
+            output_model=AiIntentAnalysis,
+            max_tokens=1500,
         )
 
-        # Parse response (response.text is already JSON string)
-        import json
-        if not response.text:
-            raise ValueError("Empty response from AI model")
-        return AiIntentAnalysis(**json.loads(response.text))
-
-    async def _execute_searches(
-        self,
-        queries: List[SearchQuery]
-    ) -> SearchContext:
+    async def _execute_searches(self, queries: List[SearchQuery]) -> SearchContext:
         """
         Execute vector searches in Qdrant.
 
@@ -190,21 +175,20 @@ IMPORTANT: Order creation is temporarily disabled. DO NOT suggest creating draft
         for query in queries:
             if query.collection == "products":
                 product_results = await self.vector_search.search_products(
-                    query=query.query,
-                    limit=query.limit
+                    query=query.query, limit=query.limit
                 )
                 # Extract IDs from VectorSearchResult objects
                 product_ids = [r.mongo_id for r in product_results]
                 # Fetch full product data
                 products = await products_repo.get_by_ids(product_ids)
-                
+
                 # Fetch branch info for each product to include name and avatar
                 branch_ids = list(set([p.branchId for p in products]))
                 branches_map = {}
                 if branch_ids:
                     branches_data = await branches_repo.get_by_ids(branch_ids)
                     branches_map = {b.id: b for b in branches_data}
-                
+
                 # Enrich products with branch info
                 enriched_products = []
                 for product in products:
@@ -216,13 +200,12 @@ IMPORTANT: Order creation is temporarily disabled. DO NOT suggest creating draft
                         product_dict["branch_address"] = branch.address
                         product_dict["branch_phone"] = branch.phone
                     enriched_products.append(product_dict)
-                
+
                 context.products.extend(enriched_products)
 
             elif query.collection == "branches":
                 branch_results = await self.vector_search.search_branches(
-                    query=query.query,
-                    limit=query.limit
+                    query=query.query, limit=query.limit
                 )
                 # Extract IDs from VectorSearchResult objects
                 branch_ids = [r.mongo_id for r in branch_results]
@@ -232,8 +215,7 @@ IMPORTANT: Order creation is temporarily disabled. DO NOT suggest creating draft
 
             elif query.collection == "businesses":
                 business_results = await self.vector_search.search_businesses(
-                    query=query.query,
-                    limit=query.limit
+                    query=query.query, limit=query.limit
                 )
                 # Extract IDs from VectorSearchResult objects
                 business_ids = [r.mongo_id for r in business_results]
@@ -248,7 +230,7 @@ IMPORTANT: Order creation is temporarily disabled. DO NOT suggest creating draft
         message: str,
         history: List[Any],
         intent: AiIntentAnalysis,
-        context: SearchContext
+        context: SearchContext,
     ) -> AiFinalResponse:
         """
         Generate final response with search context.
@@ -282,30 +264,77 @@ IMPORTANT: Order creation is temporarily disabled. DO NOT suggest creating draft
 
         # Add intent analysis
         conversation_text = "\n".join(conversation)
-        missing_info_text = ', '.join(intent.missing_info) if intent.missing_info else 'None'
+        missing_info_text = (
+            ", ".join(intent.missing_info) if intent.missing_info else "None"
+        )
         prompt = f"{conversation_text}\n\nIntent Analysis:\n- Type: {intent.response_type}\n- Reasoning: {intent.reasoning}\n- Missing Info: {missing_info_text}{context_text}"
 
-        # Generate with structured output
-        response = self.client.models.generate_content(
-            model=self.model_name,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=self.final_response_system_prompt,
-                response_mime_type="application/json",
-                response_schema=AiFinalResponse
-            )
+        return self._generate_json_output(
+            system_prompt=self.final_response_system_prompt,
+            user_prompt=(
+                f"{prompt}\n\nReturn your answer as a valid json object only."
+            ),
+            output_model=AiFinalResponse,
+            max_tokens=4000,
         )
 
-        # Parse response
-        import json
-        if not response.text:
-            raise ValueError("Empty response from AI model")
-        return AiFinalResponse(**json.loads(response.text))
+    def _generate_json_output(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        output_model: Type[T],
+        max_tokens: int,
+    ) -> T:
+        """Request structured JSON from DeepSeek and validate it with Pydantic."""
+        schema_json = json.dumps(output_model.model_json_schema(), ensure_ascii=False)
+        response = self.client.chat.completions.create(
+            model=self.model_name,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        f"{system_prompt}\n\n"
+                        "IMPORTANT: Respond in json format only.\n"
+                        "Do not include markdown, code fences, or extra text.\n"
+                        f"Use this JSON schema exactly: {schema_json}"
+                    ),
+                },
+                {"role": "user", "content": user_prompt},
+            ],
+            response_format={"type": "json_object"},
+            temperature=1.0,
+            max_tokens=max_tokens,
+        )
+
+        content = (
+            response.choices[0].message.content
+            if response.choices and response.choices[0].message
+            else None
+        )
+        if not content:
+            raise ValueError("Empty response from DeepSeek model")
+
+        json_payload = self._strip_markdown_code_fence(content)
+        try:
+            return output_model.model_validate_json(json_payload)
+        except Exception:
+            return output_model.model_validate(json.loads(json_payload))
+
+    @staticmethod
+    def _strip_markdown_code_fence(content: str) -> str:
+        """Normalize accidental fenced JSON output before parsing."""
+        cleaned = content.strip()
+        if cleaned.startswith("```"):
+            lines = cleaned.splitlines()
+            if lines:
+                lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            cleaned = "\n".join(lines).strip()
+        return cleaned
 
     async def _create_draft_order(
-        self,
-        session_id: str,
-        draft_data: DraftOrderData
+        self, session_id: str, draft_data: DraftOrderData
     ) -> None:
         """
         Create a draft order in database.
@@ -314,7 +343,7 @@ IMPORTANT: Order creation is temporarily disabled. DO NOT suggest creating draft
             session_id: User session ID
             draft_data: Draft order data from AI
         """
-        print(f"\n{'='*80}")
+        print(f"\n{'=' * 80}")
         print(f"[AI RAG] Creating draft order for session: {session_id}")
         print(f"[AI RAG] Draft data received: {draft_data.model_dump()}")
 
@@ -334,7 +363,9 @@ IMPORTANT: Order creation is temporarily disabled. DO NOT suggest creating draft
         # Fetch branch to get avatar (denormalized for quick access)
         branch = await branches_repo.get_by_id(draft_data.branch_id)
         branch_avatar = branch.avatar if branch else None
-        print(f"[AI RAG] Branch fetched: {branch.name if branch else 'NOT FOUND'} - Avatar: {branch_avatar}")
+        print(
+            f"[AI RAG] Branch fetched: {branch.name if branch else 'NOT FOUND'} - Avatar: {branch_avatar}"
+        )
 
         # Calculate totals
         items = []
@@ -344,13 +375,15 @@ IMPORTANT: Order creation is temporarily disabled. DO NOT suggest creating draft
             item_total = product.price * quantity
             subtotal += item_total
 
-            items.append({
-                "productId": product.id,
-                "name": product.name,
-                "price": product.price,
-                "quantity": quantity,
-                "imageUrl": product.image
-            })
+            items.append(
+                {
+                    "productId": product.id,
+                    "name": product.name,
+                    "price": product.price,
+                    "quantity": quantity,
+                    "imageUrl": product.image,
+                }
+            )
 
         print(f"[AI RAG] Order items: {items}")
         print(f"[AI RAG] Subtotal: ${subtotal}")
@@ -371,8 +404,8 @@ IMPORTANT: Order creation is temporarily disabled. DO NOT suggest creating draft
                 "reference": draft_data.delivery_reference,
                 "coordinates": {
                     "type": "Point",
-                    "coordinates": coords  # [longitude, latitude]
-                }
+                    "coordinates": coords,  # [longitude, latitude]
+                },
             }
             print(f"[AI RAG] Using user's saved location: {coords}")
         # Priority 2: Use delivery address from draft data if provided
@@ -382,8 +415,8 @@ IMPORTANT: Order creation is temporarily disabled. DO NOT suggest creating draft
                 "reference": draft_data.delivery_reference,
                 "coordinates": {
                     "type": "Point",
-                    "coordinates": draft_data.delivery_coordinates or [0, 0]
-                }
+                    "coordinates": draft_data.delivery_coordinates or [0, 0],
+                },
             }
             print(f"[AI RAG] Using provided address: {draft_data.delivery_address}")
         else:
@@ -404,11 +437,11 @@ IMPORTANT: Order creation is temporarily disabled. DO NOT suggest creating draft
             currency="USD",
             delivery_address=delivery_address,
             payment_method_id=draft_data.payment_method_id,
-            branch_avatar=branch_avatar
+            branch_avatar=branch_avatar,
         )
 
         print(f"[AI RAG] Draft order created successfully: ID={draft.id}")
-        print(f"{'='*80}\n")
+        print(f"{'=' * 80}\n")
 
     @staticmethod
     def _format_history(history: List[Any]) -> List[str]:
@@ -425,7 +458,7 @@ IMPORTANT: Order creation is temporarily disabled. DO NOT suggest creating draft
         lines = []
         for p in products:
             branch_info = f"Branch: {p.get('branch_name', 'N/A')}"
-            if p.get('branch_avatar'):
+            if p.get("branch_avatar"):
                 branch_info += f" (Avatar: {p['branch_avatar']})"
             lines.append(
                 f"- ID: {p['id']}, Name: {p['name']}, Price: ${p['price']} {p.get('currency', 'USD')}, "

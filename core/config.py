@@ -1,6 +1,8 @@
 """Application configuration using pydantic-settings."""
-from pydantic_settings import BaseSettings
+
 from functools import lru_cache
+
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -16,7 +18,9 @@ class Settings(BaseSettings):
     qdrant_grpc_port: int = 6334
     qdrant_api_key: str = ""  # Optional para Qdrant Cloud
     qdrant_https: bool = False  # True para producción/Railway
-    qdrant_prefer_grpc: bool = False  # False para conexiones públicas, True para red privada Railway
+    qdrant_prefer_grpc: bool = (
+        False  # False para conexiones públicas, True para red privada Railway
+    )
     qdrant_timeout: int = 60  # Timeout en segundos - Aumentado para Railway cold starts
 
     # Gemini API Configuration
@@ -24,6 +28,11 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.5-flash"
     gemini_embedding_model: str = "gemini-embedding-001"
     embedding_dimension: int = 768
+
+    # DeepSeek API Configuration (used by AI chat RAG pipeline)
+    deepseek_api_key: str = ""
+    deepseek_model: str = "deepseek-chat"
+    deepseek_base_url: str = "https://api.deepseek.com"
 
     # AI Assistant quota configuration
     ai_free_lifetime_limit: int = 2
@@ -34,18 +43,20 @@ class Settings(BaseSettings):
     # Embedding Configuration
     embedding_task_type: str = "RETRIEVAL_DOCUMENT"
     query_task_type: str = "RETRIEVAL_QUERY"
-    
+
     # Auth Configuration
     google_client_id: str = "your-google-client-id"
     apple_client_id: str = "your-apple-client-id"
     jwt_secret: str = ""
-    
+
     # Push Notifications - Bundle ID for APNs (can be different from auth bundle)
     apns_bundle_id: str = ""  # If empty, uses first apple_client_id
     apns_key_id: str = ""  # Key ID for push notifications (if different from auth)
     apns_private_key: str = ""  # Private key for push (.p8 content)
-    apns_use_sandbox: bool = True  # True for development/TestFlight, False for App Store
-    
+    apns_use_sandbox: bool = (
+        True  # True for development/TestFlight, False for App Store
+    )
+
     # Apple Web Auth (for Android/Kotlin)
     apple_team_id: str = ""
     apple_key_id: str = ""
@@ -56,11 +67,15 @@ class Settings(BaseSettings):
     # CORS Configuration
     # Comma-separated list of allowed origins for web
     cors_origins_str: str = "http://localhost:3000"
-    
+
     @property
     def cors_origins(self) -> list[str]:
         """Parse CORS origins from comma-separated string."""
-        return [origin.strip() for origin in self.cors_origins_str.split(",") if origin.strip()]
+        return [
+            origin.strip()
+            for origin in self.cors_origins_str.split(",")
+            if origin.strip()
+        ]
 
     # Environment
     environment: str = "development"  # "development" or "production"

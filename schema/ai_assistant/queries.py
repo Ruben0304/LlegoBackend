@@ -6,7 +6,12 @@ import strawberry
 from graphql import GraphQLError
 from strawberry.types import Info
 
-from domain.models import branches_repo, businesses_repo, draft_orders_repo, products_repo
+from domain.models import (
+    branches_repo,
+    businesses_repo,
+    draft_orders_repo,
+    products_repo,
+)
 from schema.branches.types import BranchTipo, BranchType, BranchVehicle, CoordinatesType
 from schema.businesses.types import BusinessType
 from schema.products.types import ProductType
@@ -183,7 +188,7 @@ class AiAssistantQuery:
     ) -> Optional[AiAssistantResponseType]:
         """Send a message to the AI assistant with RAG support."""
         user_id = require_auth(jwt, info)  # JWT is required, get user_id as session_id
-        rate_limit_graphql(info, "ai")  # 2/min - very expensive (Gemini API)
+        rate_limit_graphql(info, "ai")  # 2/min - expensive LLM API call
 
         print(f"\n{'=' * 80}")
         print(f"[AI CHAT] Received message from user: {user_id}")
