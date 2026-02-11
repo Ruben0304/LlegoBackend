@@ -1,5 +1,6 @@
 """GraphQL query resolvers for AI Assistant."""
 
+import re
 from typing import List, Optional
 
 import strawberry
@@ -187,14 +188,28 @@ class AiAssistantQuery:
         self, info: Info, input: AiAssistantChatInput, jwt: Optional[str] = None
     ) -> Optional[AiAssistantResponseType]:
         """Send a message to the AI assistant with RAG support."""
+        max_words = 30
         user_id = require_auth(jwt, info)  # JWT is required, get user_id as session_id
-        rate_limit_graphql(info, "ai")  # 2/min - expensive LLM API call
+        rate_limit_graphql(
+            info, "graphql"
+        )  # Keep generic anti-spam; daily cap handled by ai_quota_service
 
         print(f"\n{'=' * 80}")
         print(f"[AI CHAT] Received message from user: {user_id}")
         print(f"[AI CHAT] Message: {input.message}")
 
         try:
+            words_count = len(re.findall(r"\S+", input.message or ""))
+            if words_count > max_words:
+                raise GraphQLError(
+                    f"El mensaje supera el máximo permitido de {max_words} palabras",
+                    extensions={
+                        "code": "AI_MESSAGE_TOO_LONG",
+                        "max_words": max_words,
+                        "words_count": words_count,
+                    },
+                )
+
             request = (
                 info.context.get("request") if isinstance(info.context, dict) else None
             )

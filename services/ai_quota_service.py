@@ -1,4 +1,5 @@
 """AI Assistant quota service."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -26,6 +27,10 @@ class QuotaDecision:
 class AiQuotaService:
     """Resolves and consumes AI chat quota with atomic Mongo updates."""
 
+    # Temporary cap requested for AI chat: 5 queries/day per user + device.
+    TEMP_DAILY_DEVICE_LIMIT = 5
+    TEMP_DAILY_DEVICE_SCOPE = "temp_user_device_daily_limit"
+
     RANGE_ALIASES = {
         "diario": "diario",
         "daily": "diario",
@@ -38,43 +43,119 @@ class AiQuotaService:
         "lifetime": "por_vida",
     }
 
-    async def check_and_consume(self, user_id: str, device_id: Optional[str]) -> QuotaDecision:
+    async def check_and_consume(
+        self, user_id: str, device_id: Optional[str]
+    ) -> QuotaDecision:
         """Apply quota priority and consume one AI query if allowed."""
         db = get_database()
         user_doc = await db["users"].find_one({"_id": self._to_object_id(user_id)})
         if not user_doc:
             raise Exception("Usuario no encontrado")
 
-        custom_limit = user_doc.get("aiConsultasLimit")
-        if custom_limit:
-            return await self._consume_custom_limit(user_id=user_id, custom_limit=custom_limit)
-
-        if bool(user_doc.get("isPro", False)):
-            return await self._consume_period_limit(
-                user_id=user_id,
-                limit=settings.ai_pro_monthly_limit,
-                range_name="mensual",
-                source="global_pro_monthly"
-            )
-
         if not device_id:
             return QuotaDecision(
                 allowed=False,
-                limit=settings.ai_free_lifetime_limit,
+                limit=self.TEMP_DAILY_DEVICE_LIMIT,
                 used=0,
                 remaining=0,
-                source="global_free_device_lifetime",
-                reason="device_id requerido para usuarios free",
+                source=self.TEMP_DAILY_DEVICE_SCOPE,
+                reason="device_id requerido para usar AI chat",
                 error_code="AI_DEVICE_ID_REQUIRED",
             )
 
-        return await self._consume_free_lifetime_limit(
+        return await self._consume_device_period_limit(
             user_id=user_id,
             device_id=device_id,
-            limit=settings.ai_free_lifetime_limit,
+            limit=self.TEMP_DAILY_DEVICE_LIMIT,
+            range_name="diario",
+            source=self.TEMP_DAILY_DEVICE_SCOPE,
+            exceeded_reason="Límite diario AI por usuario/dispositivo alcanzado",
+            exceeded_error_code="AI_DAILY_DEVICE_QUOTA_EXCEEDED",
         )
 
-    async def _consume_custom_limit(self, user_id: str, custom_limit: dict) -> QuotaDecision:
+    async def _consume_device_period_limit(
+        self,
+        user_id: str,
+        device_id: str,
+        limit: int,
+        range_name: str,
+        source: str,
+        exceeded_reason: str,
+        exceeded_error_code: str,
+    ) -> QuotaDecision:
+        if limit <= 0:
+            return QuotaDecision(
+                allowed=False,
+                limit=limit,
+                used=0,
+                remaining=0,
+                source=source,
+                reason=exceeded_reason,
+                error_code=exceeded_error_code,
+            )
+
+        db = get_database()
+        now = datetime.utcnow()
+        period_start = self._period_start(now, range_name)
+        period_key = period_start.isoformat() if period_start else "lifetime"
+
+        key_query = {
+            "scope": source,
+            "userId": user_id,
+            "deviceId": device_id,
+            "range": range_name,
+            "periodKey": period_key,
+        }
+        usage_docs = (
+            await db[settings.ai_usage_collection].find(key_query).to_list(length=None)
+        )
+        total_used = sum(int(doc.get("used", 0)) for doc in usage_docs)
+        if total_used >= limit:
+            return QuotaDecision(
+                allowed=False,
+                limit=limit,
+                used=total_used,
+                remaining=0,
+                source=source,
+                reason=exceeded_reason,
+                error_code=exceeded_error_code,
+            )
+
+        if not usage_docs:
+            await db[settings.ai_usage_collection].insert_one(
+                {
+                    **key_query,
+                    "used": 1,
+                    "createdAt": now,
+                    "updatedAt": now,
+                }
+            )
+            return QuotaDecision(
+                allowed=True,
+                limit=limit,
+                used=1,
+                remaining=max(0, limit - 1),
+                source=source,
+            )
+
+        target_doc = usage_docs[0]
+        await db[settings.ai_usage_collection].find_one_and_update(
+            {"_id": target_doc["_id"]},
+            {"$inc": {"used": 1}, "$set": {"updatedAt": now}},
+            return_document=ReturnDocument.AFTER,
+        )
+        new_total = total_used + 1
+        return QuotaDecision(
+            allowed=True,
+            limit=limit,
+            used=new_total,
+            remaining=max(0, limit - new_total),
+            source=source,
+        )
+
+    async def _consume_custom_limit(
+        self, user_id: str, custom_limit: dict
+    ) -> QuotaDecision:
         cantidad = custom_limit.get("cantidad")
         rango = self._normalize_range(custom_limit.get("rango"))
 
@@ -119,7 +200,9 @@ class AiQuotaService:
             "range": range_name,
             "periodKey": period_key,
         }
-        usage_docs = await db[settings.ai_usage_collection].find(key_query).to_list(length=None)
+        usage_docs = (
+            await db[settings.ai_usage_collection].find(key_query).to_list(length=None)
+        )
         total_used = sum(int(doc.get("used", 0)) for doc in usage_docs)
         if total_used >= limit:
             return QuotaDecision(
@@ -133,12 +216,14 @@ class AiQuotaService:
             )
 
         if not usage_docs:
-            await db[settings.ai_usage_collection].insert_one({
-                **key_query,
-                "used": 1,
-                "createdAt": now,
-                "updatedAt": now,
-            })
+            await db[settings.ai_usage_collection].insert_one(
+                {
+                    **key_query,
+                    "used": 1,
+                    "createdAt": now,
+                    "updatedAt": now,
+                }
+            )
             return QuotaDecision(
                 allowed=True,
                 limit=limit,
@@ -162,7 +247,9 @@ class AiQuotaService:
             source=source,
         )
 
-    async def _consume_free_lifetime_limit(self, user_id: str, device_id: str, limit: int) -> QuotaDecision:
+    async def _consume_free_lifetime_limit(
+        self, user_id: str, device_id: str, limit: int
+    ) -> QuotaDecision:
         if limit <= 0:
             return QuotaDecision(
                 allowed=False,
@@ -181,7 +268,9 @@ class AiQuotaService:
             "userId": user_id,
             "deviceId": device_id,
         }
-        usage_docs = await db[settings.ai_usage_collection].find(key_query).to_list(length=None)
+        usage_docs = (
+            await db[settings.ai_usage_collection].find(key_query).to_list(length=None)
+        )
         total_used = sum(int(doc.get("used", 0)) for doc in usage_docs)
         if total_used >= limit:
             return QuotaDecision(
@@ -195,12 +284,14 @@ class AiQuotaService:
             )
 
         if not usage_docs:
-            await db[settings.ai_usage_collection].insert_one({
-                **key_query,
-                "used": 1,
-                "createdAt": now,
-                "updatedAt": now,
-            })
+            await db[settings.ai_usage_collection].insert_one(
+                {
+                    **key_query,
+                    "used": 1,
+                    "createdAt": now,
+                    "updatedAt": now,
+                }
+            )
             return QuotaDecision(
                 allowed=True,
                 limit=limit,
