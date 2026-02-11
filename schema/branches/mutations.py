@@ -188,6 +188,10 @@ class BranchMutation:
             updates["paymentMethodIds"] = input.paymentMethodIds
         if input.useAppMessaging is not None:
             updates["useAppMessaging"] = input.useAppMessaging
+            # If disabling app delivery, unlink all delivery persons from this branch
+            if not input.useAppMessaging and branch.useAppMessaging:
+                from repositories.orders_repository import delivery_persons_repo
+                await delivery_persons_repo.unlink_all_from_branch(branch_id)
         if input.vehicles is not None:
             updates["vehicles"] = [v.value for v in input.vehicles]
         if input.accounts is not None:

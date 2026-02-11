@@ -652,6 +652,18 @@ class DeliveryPersonRepository:
         )
         return self._doc_to_delivery_person(result) if result else None
 
+    async def unlink_all_from_branch(self, branch_id: str) -> int:
+        """Remove a branch from all delivery persons' linkedBranchIds."""
+        collection = self._get_collection()
+        result = await collection.update_many(
+            {"linkedBranchIds": branch_id},
+            {
+                "$pull": {"linkedBranchIds": branch_id},
+                "$set": {"updatedAt": datetime.utcnow()},
+            },
+        )
+        return result.modified_count
+
     async def update_rating(
         self, delivery_person_id: str, new_rating: float
     ) -> Optional[DeliveryPerson]:
