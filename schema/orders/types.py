@@ -437,6 +437,23 @@ class OrderStatsType:
 
 
 @strawberry.type
+class TopProductType:
+    productId: str
+    name: str
+    imageUrl: str
+    totalQuantity: int
+    totalRevenue: float
+
+
+@strawberry.type
+class DashboardStatsType:
+    totalRevenue: float
+    completedOrders: int
+    cancelledOrders: int
+    topProducts: List[TopProductType]
+
+
+@strawberry.type
 class OrderTrackingType:
     order: OrderType
     storeLocation: CoordinatesType

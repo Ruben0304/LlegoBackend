@@ -376,6 +376,78 @@ class OrderRepository:
             "averageDeliveryTime": 0,
         }
 
+    async def get_dashboard_stats(
+        self, business_id: str, from_date: datetime, to_date: datetime
+    ) -> Dict[str, Any]:
+        """Get dashboard statistics: revenue, completed, cancelled, top products."""
+        collection = self._get_collection()
+        match_stage: Dict[str, Any] = {
+            "businessId": business_id,
+            "createdAt": {"$gte": from_date, "$lte": to_date},
+        }
+
+        # Stats aggregation
+        stats_pipeline = [
+            {"$match": match_stage},
+            {
+                "$group": {
+                    "_id": None,
+                    "totalRevenue": {
+                        "$sum": {
+                            "$cond": [{"$eq": ["$status", "delivered"]}, "$total", 0]
+                        }
+                    },
+                    "completedOrders": {
+                        "$sum": {"$cond": [{"$eq": ["$status", "delivered"]}, 1, 0]}
+                    },
+                    "cancelledOrders": {
+                        "$sum": {"$cond": [{"$eq": ["$status", "cancelled"]}, 1, 0]}
+                    },
+                }
+            },
+        ]
+
+        # Top products aggregation
+        top_products_pipeline = [
+            {"$match": {**match_stage, "status": "delivered"}},
+            {"$unwind": "$items"},
+            {
+                "$group": {
+                    "_id": "$items.productId",
+                    "name": {"$first": "$items.name"},
+                    "imageUrl": {"$first": "$items.imageUrl"},
+                    "totalQuantity": {"$sum": "$items.quantity"},
+                    "totalRevenue": {
+                        "$sum": {"$multiply": ["$items.price", "$items.quantity"]}
+                    },
+                }
+            },
+            {"$sort": {"totalQuantity": -1}},
+            {"$limit": 10},
+        ]
+
+        stats_result = await collection.aggregate(stats_pipeline).to_list(1)
+        top_products = await collection.aggregate(top_products_pipeline).to_list(10)
+
+        stats = stats_result[0] if stats_result else {}
+        stats.pop("_id", None)
+
+        return {
+            "totalRevenue": round(stats.get("totalRevenue", 0), 2),
+            "completedOrders": stats.get("completedOrders", 0),
+            "cancelledOrders": stats.get("cancelledOrders", 0),
+            "topProducts": [
+                {
+                    "productId": p["_id"],
+                    "name": p["name"],
+                    "imageUrl": p["imageUrl"],
+                    "totalQuantity": p["totalQuantity"],
+                    "totalRevenue": round(p["totalRevenue"], 2),
+                }
+                for p in top_products
+            ],
+        }
+
     async def get_by_delivery_person(
         self,
         delivery_person_id: str,
@@ -757,4 +829,3 @@ orders_repo = OrderRepository()
 delivery_persons_repo = DeliveryPersonRepository()
 order_locations_repo = OrderLocationRepository()
 branch_delivery_requests_repo = BranchDeliveryRequestRepository()
-

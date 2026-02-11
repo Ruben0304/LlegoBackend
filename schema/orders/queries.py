@@ -1,6 +1,7 @@
 """GraphQL query resolvers for Orders."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
+from enum import Enum
 from typing import List, Optional
 
 import strawberry
@@ -25,6 +26,7 @@ from utils.graphql_auth import apply_optional_jwt, require_auth
 from .types import (
     BranchDeliveryRequestType,
     CoordinatesType,
+    DashboardStatsType,
     DeliveryFeeEstimateType,
     DeliveryRequestStatusEnum,
     OrdersConnectionType,
@@ -32,6 +34,7 @@ from .types import (
     OrderStatusEnum,
     OrderTrackingType,
     OrderType,
+    TopProductType,
     branch_delivery_request_to_type,
     estimate_delivery_fee,
     order_to_type,
@@ -44,6 +47,13 @@ class DeliveryPersonStatsType:
     totalDistanceKm: float
     avgDurationMin: float
     avgRating: float
+
+@strawberry.enum
+class DashboardPeriod(Enum):
+    TODAY = "today"
+    WEEK = "week"
+    MONTH = "month"
+
 
 async def _get_or_create_delivery_person(user_id: str) -> DeliveryPerson:
     """Get existing delivery person or create one from user profile."""
@@ -379,3 +389,48 @@ class OrderQuery:
             )
         except ValueError as e:
             raise Exception(str(e))
+
+    @strawberry.field(
+        description="Estadísticas del dashboard: ingresos, pedidos completados/rechazados y productos más vendidos por período (today, week, month)"
+    )
+    async def dashboard_stats(
+        self,
+        info: Info,
+        businessId: str,
+        period: DashboardPeriod,
+        jwt: str,
+    ) -> DashboardStatsType:
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+
+        now = datetime.utcnow()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        if period == DashboardPeriod.TODAY:
+            from_date = today_start
+        elif period == DashboardPeriod.WEEK:
+            from_date = today_start - timedelta(days=today_start.weekday())
+        else:  # MONTH
+            from_date = today_start.replace(day=1)
+
+        to_date = now
+
+        stats = await orders_repo.get_dashboard_stats(businessId, from_date, to_date)
+
+        return DashboardStatsType(
+            totalRevenue=stats["totalRevenue"],
+            completedOrders=stats["completedOrders"],
+            cancelledOrders=stats["cancelledOrders"],
+            topProducts=[
+                TopProductType(
+                    productId=p["productId"],
+                    name=p["name"],
+                    imageUrl=p["imageUrl"],
+                    totalQuantity=p["totalQuantity"],
+                    totalRevenue=p["totalRevenue"],
+                )
+                for p in stats["topProducts"]
+            ],
+        )
