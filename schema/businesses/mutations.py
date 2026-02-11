@@ -377,3 +377,37 @@ class BusinessMutation:
 
             # Re-lanzar la excepción original
             raise Exception(f"Error al registrar múltiples negocios: {str(e)}")
+
+    @strawberry.mutation(description="Eliminar un negocio y todas sus sucursales")
+    async def delete_business(
+        self,
+        info: Info,
+        business_id: str,
+        jwt: Optional[str] = None,
+    ) -> bool:
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+
+        business = await businesses_repo.get_by_id(business_id)
+        if not business:
+            raise Exception("Negocio no encontrado")
+
+        if business.ownerId != user_id:
+            raise Exception("No autorizado para eliminar este negocio")
+
+        # Delete all branches of this business
+        branches = await branches_repo.get_by_business(business_id)
+        for branch in branches:
+            await branches_repo.delete(branch.id)
+
+        # Delete business
+        deleted = await businesses_repo.delete(business_id)
+        if not deleted:
+            raise Exception("Error al eliminar el negocio")
+
+        # Remove businessId from user
+        await users_repo.remove_business_id(user_id, business_id)
+
+        return True
