@@ -57,10 +57,11 @@ class ProductQuery:
         rate_limit_graphql(info, "graphql")
         user_id = info.context.get("user_id")
 
-        # Determine if pagination is enabled
-        use_pagination = first is not None
-        if use_pagination:
-            first = min(first, 50)
+        # Always enforce a limit — default to 100 if not specified
+        DEFAULT_PRODUCT_LIMIT = 100
+        if first is None:
+            first = DEFAULT_PRODUCT_LIMIT
+        first = min(first, DEFAULT_PRODUCT_LIMIT)
 
         # Get products based on filters
         # branchId takes priority over branchTipo
@@ -122,25 +123,6 @@ class ProductQuery:
             ]
 
         total_count = len(scored_products)
-
-        # If no pagination, return all results
-        if not use_pagination:
-            edges = [
-                ProductEdge(
-                    node=product, cursor=encode_scored_cursor(product.score, product.id)
-                )
-                for product in scored_products
-            ]
-
-            page_info = PageInfo(
-                has_next_page=False,
-                has_previous_page=False,
-                start_cursor=edges[0].cursor if edges else None,
-                end_cursor=edges[-1].cursor if edges else None,
-                total_count=total_count,
-            )
-
-            return ProductConnection(edges=edges, page_info=page_info)
 
         # Apply cursor-based pagination
         start_index = 0
@@ -218,9 +200,10 @@ class ProductQuery:
         if user_id:
             await searches_repo.create_search(user_id, query)
 
-        use_pagination = first is not None
-        if use_pagination:
-            first = min(first, 50)
+        DEFAULT_SEARCH_LIMIT = 50
+        if first is None:
+            first = DEFAULT_SEARCH_LIMIT
+        first = min(first, DEFAULT_SEARCH_LIMIT)
 
         # Get branch IDs with the specified tipo for filtering
         allowed_branch_ids = None
@@ -317,25 +300,6 @@ class ProductQuery:
             ]
 
         total_count = len(scored_products)
-
-        # If no pagination, return all results
-        if not use_pagination:
-            edges = [
-                ProductEdge(
-                    node=product, cursor=encode_scored_cursor(product.score, product.id)
-                )
-                for product in scored_products
-            ]
-
-            page_info = PageInfo(
-                has_next_page=False,
-                has_previous_page=False,
-                start_cursor=edges[0].cursor if edges else None,
-                end_cursor=edges[-1].cursor if edges else None,
-                total_count=total_count,
-            )
-
-            return ProductConnection(edges=edges, page_info=page_info)
 
         # Apply cursor-based pagination
         start_index = 0

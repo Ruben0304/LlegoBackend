@@ -26,6 +26,7 @@ async def connect_to_mongo():
         await _create_invitation_indexes()
         await _create_business_access_indexes()
         await _create_feed_indexes()
+        await _create_user_indexes()
         await _create_ai_quota_indexes()
         await _create_delivery_zone_indexes()
         await _create_branch_delivery_request_indexes()
@@ -136,6 +137,12 @@ async def _create_feed_indexes():
             background=True,
         )
 
+        await products_collection.create_index(
+            [("categoryId", 1), ("branchId", 1)],
+            name="idx_products_category_branch",
+            background=True,
+        )
+
         # favorites_cart: actividad reciente por tipo
         favorites_cart_collection = database["favorites_cart"]
 
@@ -183,6 +190,23 @@ async def _create_feed_indexes():
         print("✓ Feed indexes created/verified")
     except Exception as e:
         print(f"⚠ Warning: Could not create feed indexes: {e}")
+
+
+async def _create_user_indexes():
+    """Create text index on users collection for efficient search."""
+    try:
+        users_collection = database["users"]
+
+        await users_collection.create_index(
+            [("name", "text"), ("email", "text")],
+            name="idx_users_text_search",
+            default_language="spanish",
+            background=True,
+        )
+
+        print("✓ User indexes created/verified")
+    except Exception as e:
+        print(f"⚠ Warning: Could not create user indexes: {e}")
 
 
 async def _create_ai_quota_indexes():

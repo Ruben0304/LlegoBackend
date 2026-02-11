@@ -1,6 +1,9 @@
 """User repository for database operations."""
-from typing import List, Optional, Dict, Any
+
+from typing import Any, Dict, List, Optional
+
 from bson import ObjectId
+
 from clients import get_database
 from domain.models import User
 
@@ -29,7 +32,9 @@ class UserRepository:
         user = await db[self.collection_name].find_one({"username": username})
         return User(**self._convert_id(user)) if user else None
 
-    async def username_exists(self, username: str, exclude_user_id: Optional[str] = None) -> bool:
+    async def username_exists(
+        self, username: str, exclude_user_id: Optional[str] = None
+    ) -> bool:
         """Check if username already exists (excluding a specific user ID)."""
         db = get_database()
         query = {"username": username}
@@ -39,20 +44,55 @@ class UserRepository:
             except Exception:
                 object_id = exclude_user_id
             query["_id"] = {"$ne": object_id}
-        
+
         user = await db[self.collection_name].find_one(query)
         return user is not None
 
-    async def search(self, query: str) -> List[User]:
+    async def search(self, query: str, limit: int = 50) -> List[User]:
         db = get_database()
-        cursor = db[self.collection_name].find({
-            "$or": [
-                {"name": {"$regex": query, "$options": "i"}},
-                {"email": {"$regex": query, "$options": "i"}}
-            ]
-        })
-        users = await cursor.to_list(length=None)
+        collection = db[self.collection_name]
+
+        # Try text index search first (requires a text index on name+email).
+        # Falls back to regex if the text index doesn't exist yet.
+        try:
+            cursor = (
+                collection.find(
+                    {"$text": {"$search": query}},
+                    {"score": {"$meta": "textScore"}},
+                )
+                .sort([("score", {"$meta": "textScore"})])
+                .limit(limit)
+            )
+            users = await cursor.to_list(length=limit)
+            if users:
+                return [User(**self._convert_id(user)) for user in users]
+        except Exception:
+            pass
+
+        # Fallback: anchored regex (prefix match) which can use a regular index
+        import re
+
+        escaped = re.escape(query)
+        cursor = collection.find(
+            {
+                "$or": [
+                    {"name": {"$regex": escaped, "$options": "i"}},
+                    {"email": {"$regex": escaped, "$options": "i"}},
+                ]
+            }
+        ).limit(limit)
+        users = await cursor.to_list(length=limit)
         return [User(**self._convert_id(user)) for user in users]
+
+    async def ensure_indexes(self):
+        """Create text index on name and email for efficient search."""
+        db = get_database()
+        collection = db[self.collection_name]
+        await collection.create_index(
+            [("name", "text"), ("email", "text")],
+            name="users_text_search",
+            default_language="spanish",
+        )
 
     async def update(self, user_id: str, updates: Dict[str, Any]) -> Optional[User]:
         """Update a user in MongoDB."""
@@ -63,9 +103,7 @@ class UserRepository:
             object_id = user_id
 
         result = await db[self.collection_name].find_one_and_update(
-            {"_id": object_id},
-            {"$set": updates},
-            return_document=True
+            {"_id": object_id}, {"$set": updates}, return_document=True
         )
         return User(**self._convert_id(result)) if result else None
 
@@ -80,11 +118,13 @@ class UserRepository:
         result = await db[self.collection_name].find_one_and_update(
             {"_id": object_id},
             {"$addToSet": {"businessIds": business_id}},
-            return_document=True
+            return_document=True,
         )
         return User(**self._convert_id(result)) if result else None
 
-    async def remove_business_id(self, user_id: str, business_id: str) -> Optional[User]:
+    async def remove_business_id(
+        self, user_id: str, business_id: str
+    ) -> Optional[User]:
         """Remove a business ID from the user's businessIds list."""
         db = get_database()
         try:
@@ -95,7 +135,7 @@ class UserRepository:
         result = await db[self.collection_name].find_one_and_update(
             {"_id": object_id},
             {"$pull": {"businessIds": business_id}},
-            return_document=True
+            return_document=True,
         )
         return User(**self._convert_id(result)) if result else None
 
@@ -110,7 +150,7 @@ class UserRepository:
         result = await db[self.collection_name].find_one_and_update(
             {"_id": object_id},
             {"$addToSet": {"branchIds": branch_id}},
-            return_document=True
+            return_document=True,
         )
         return User(**self._convert_id(result)) if result else None
 
@@ -125,11 +165,13 @@ class UserRepository:
         result = await db[self.collection_name].find_one_and_update(
             {"_id": object_id},
             {"$pull": {"branchIds": branch_id}},
-            return_document=True
+            return_document=True,
         )
         return User(**self._convert_id(result)) if result else None
 
-    async def add_business_access_id(self, user_id: str, access_id: str) -> Optional[User]:
+    async def add_business_access_id(
+        self, user_id: str, access_id: str
+    ) -> Optional[User]:
         """Add a business access ID to the user's businessAccessIds list."""
         db = get_database()
         try:
@@ -140,11 +182,13 @@ class UserRepository:
         result = await db[self.collection_name].find_one_and_update(
             {"_id": object_id},
             {"$addToSet": {"businessAccessIds": access_id}},
-            return_document=True
+            return_document=True,
         )
         return User(**self._convert_id(result)) if result else None
 
-    async def remove_business_access_id(self, user_id: str, access_id: str) -> Optional[User]:
+    async def remove_business_access_id(
+        self, user_id: str, access_id: str
+    ) -> Optional[User]:
         """Remove a business access ID from the user's businessAccessIds list."""
         db = get_database()
         try:
@@ -155,19 +199,21 @@ class UserRepository:
         result = await db[self.collection_name].find_one_and_update(
             {"_id": object_id},
             {"$pull": {"businessAccessIds": access_id}},
-            return_document=True
+            return_document=True,
         )
         return User(**self._convert_id(result)) if result else None
 
-    async def update_location(self, user_id: str, longitude: float, latitude: float) -> Optional[User]:
+    async def update_location(
+        self, user_id: str, longitude: float, latitude: float
+    ) -> Optional[User]:
         """
         Update user location.
-        
+
         Args:
             user_id: The user ID
             longitude: Longitude coordinate (X)
             latitude: Latitude coordinate (Y)
-            
+
         Returns:
             Updated user or None
         """
@@ -183,18 +229,18 @@ class UserRepository:
                 "$set": {
                     "location": {
                         "type": "Point",
-                        "coordinates": [longitude, latitude]  # [lon, lat]
+                        "coordinates": [longitude, latitude],  # [lon, lat]
                     }
                 }
             },
-            return_document=True
+            return_document=True,
         )
         return User(**self._convert_id(result)) if result else None
 
     async def get_location(self, user_id: str) -> Optional[tuple]:
         """
         Get user coordinates as (longitude, latitude) tuple.
-        
+
         Returns:
             Tuple of (longitude, latitude) or None if not found
         """
@@ -221,7 +267,9 @@ class UserRepository:
         user = await self.get_by_id(user_id)
         return user.wallet if user else None
 
-    async def update_wallet(self, user_id: str, currency: str, amount: float) -> Optional[User]:
+    async def update_wallet(
+        self, user_id: str, currency: str, amount: float
+    ) -> Optional[User]:
         """
         Update user wallet balance for a specific currency.
 
@@ -235,7 +283,9 @@ class UserRepository:
         """
         return await self.update(user_id, {f"wallet.{currency}": amount})
 
-    async def increment_wallet(self, user_id: str, currency: str, amount: float) -> Optional[User]:
+    async def increment_wallet(
+        self, user_id: str, currency: str, amount: float
+    ) -> Optional[User]:
         """
         Increment user wallet balance for a specific currency.
 
@@ -256,7 +306,7 @@ class UserRepository:
         result = await db[self.collection_name].find_one_and_update(
             {"_id": object_id},
             {"$inc": {f"wallet.{currency}": amount}},
-            return_document=True
+            return_document=True,
         )
         return User(**self._convert_id(result)) if result else None
 

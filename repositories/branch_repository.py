@@ -5,17 +5,24 @@ Hybrid repository pattern:
 - Search: Qdrant vector similarity (semantic search)
 - Create/Update/Delete: Sync both databases
 """
-from typing import List, Optional, Dict, Any
+
 import uuid
+from typing import Any, Dict, List, Optional
+
+from qdrant_client.http import models as qdrant_models
+from qdrant_client.models import PointStruct
 
 from clients import get_database, get_qdrant_client
 from domain.models import Branch, Coordinates
-from qdrant_client.http import models as qdrant_models
-from qdrant_client.models import PointStruct
 from services.embeddings.gemini_service import GeminiEmbeddingService
 from utils.cache import (
-    get_cached, set_cached, invalidate_branch_cache, invalidate_product_cache,
-    get_branch_cache_key, TTL_DEFAULT, should_cache_result
+    TTL_DEFAULT,
+    get_branch_cache_key,
+    get_cached,
+    invalidate_branch_cache,
+    invalidate_product_cache,
+    set_cached,
+    should_cache_result,
 )
 
 
@@ -131,7 +138,9 @@ class BranchRepository:
 
         try:
             db = get_database()
-            cursor = db[self.mongo_collection_name].find({"businessId": {"$in": business_ids}})
+            cursor = db[self.mongo_collection_name].find(
+                {"businessId": {"$in": business_ids}}
+            )
             documents = await cursor.to_list(length=None)
 
             return [self._dict_to_branch(doc) for doc in documents]
@@ -159,7 +168,7 @@ class BranchRepository:
             db = get_database()
             cursor = db[self.mongo_collection_name].find(
                 {"tipos": tipo},
-                {"_id": 1}  # Only return _id field
+                {"_id": 1},  # Only return _id field
             )
             documents = await cursor.to_list(length=None)
 
@@ -247,13 +256,14 @@ class BranchRepository:
                 return None
 
             # Convert coordinates if present
-            if "coordinates" in updates and hasattr(updates["coordinates"], "model_dump"):
+            if "coordinates" in updates and hasattr(
+                updates["coordinates"], "model_dump"
+            ):
                 updates["coordinates"] = updates["coordinates"].model_dump()
 
             # 1. Update MongoDB
             await db[self.mongo_collection_name].update_one(
-                {"_id": branch_id},
-                {"$set": updates}
+                {"_id": branch_id}, {"$set": updates}
             )
 
             # 2. If RAG fields changed, update Qdrant
@@ -278,7 +288,9 @@ class BranchRepository:
             print(f"Error updating branch {branch_id}: {e}")
             raise e
 
-    async def update_field(self, branch_id: str, field: str, value: Any) -> Optional[Branch]:
+    async def update_field(
+        self, branch_id: str, field: str, value: Any
+    ) -> Optional[Branch]:
         """Update a single field of a branch."""
         return await self.update(branch_id, {field: value})
 
@@ -322,9 +334,11 @@ class BranchRepository:
         branch = await self.get_by_id(branch_id)
         return branch.wallet if branch else None
 
-    async def update_wallet(self, branch_id: str, currency: str, amount: float) -> Optional[Branch]:
+    async def update_wallet(
+        self, branch_id: str, currency: str, amount: float
+    ) -> Optional[Branch]:
         """
-        Update branch wallet balance for a specific currency.
+        Update branch wallet balance for a specific currency using atomic $set.
 
         Args:
             branch_id: The branch ID
@@ -334,17 +348,27 @@ class BranchRepository:
         Returns:
             Updated branch or None
         """
-        branch = await self.get_by_id(branch_id)
-        if not branch:
+        try:
+            db = get_database()
+            result = await db[self.mongo_collection_name].find_one_and_update(
+                {"_id": branch_id},
+                {"$set": {f"wallet.{currency}": amount}},
+                return_document=True,
+            )
+            if result:
+                invalidate_branch_cache(branch_id=branch_id)
+                invalidate_branch_cache()
+                return self._dict_to_branch(result)
+            return None
+        except Exception as e:
+            print(f"Error updating wallet for branch {branch_id}: {e}")
             return None
 
-        wallet = branch.wallet.copy()
-        wallet[currency] = amount
-        return await self.update(branch_id, {"wallet": wallet})
-
-    async def increment_wallet(self, branch_id: str, currency: str, amount: float) -> Optional[Branch]:
+    async def increment_wallet(
+        self, branch_id: str, currency: str, amount: float
+    ) -> Optional[Branch]:
         """
-        Increment branch wallet balance for a specific currency.
+        Increment branch wallet balance for a specific currency using atomic $inc.
 
         Args:
             branch_id: The branch ID
@@ -354,15 +378,25 @@ class BranchRepository:
         Returns:
             Updated branch or None
         """
-        branch = await self.get_by_id(branch_id)
-        if not branch:
+        try:
+            db = get_database()
+            result = await db[self.mongo_collection_name].find_one_and_update(
+                {"_id": branch_id},
+                {"$inc": {f"wallet.{currency}": amount}},
+                return_document=True,
+            )
+            if result:
+                invalidate_branch_cache(branch_id=branch_id)
+                invalidate_branch_cache()
+                return self._dict_to_branch(result)
+            return None
+        except Exception as e:
+            print(f"Error incrementing wallet for branch {branch_id}: {e}")
             return None
 
-        wallet = branch.wallet.copy()
-        wallet[currency] = wallet.get(currency, 0.0) + amount
-        return await self.update(branch_id, {"wallet": wallet})
-
-    async def update_wallet_status(self, branch_id: str, status: str) -> Optional[Branch]:
+    async def update_wallet_status(
+        self, branch_id: str, status: str
+    ) -> Optional[Branch]:
         """
         Update branch wallet status.
 
@@ -423,9 +457,7 @@ class BranchRepository:
             if existing:
                 await qdrant_client.delete(
                     collection_name=self.qdrant_collection_name,
-                    points_selector=qdrant_models.PointIdsList(
-                        points=[existing.id]
-                    ),
+                    points_selector=qdrant_models.PointIdsList(points=[existing.id]),
                 )
 
         except Exception as e:
@@ -443,7 +475,7 @@ class BranchRepository:
                     must=[
                         qdrant_models.FieldCondition(
                             key="mongo_id",
-                            match=qdrant_models.MatchValue(value=mongo_id)
+                            match=qdrant_models.MatchValue(value=mongo_id),
                         )
                     ]
                 ),
@@ -469,7 +501,7 @@ class BranchRepository:
         if isinstance(coords_data, dict):
             coordinates = Coordinates(
                 type=coords_data.get("type", "Point"),
-                coordinates=coords_data.get("coordinates", [0.0, 0.0])
+                coordinates=coords_data.get("coordinates", [0.0, 0.0]),
             )
         else:
             coordinates = coords_data  # Already a Coordinates object

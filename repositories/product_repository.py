@@ -5,18 +5,24 @@ Hybrid repository pattern:
 - Search: Qdrant vector similarity (semantic search)
 - Create/Update/Delete: Sync both databases
 """
-from typing import List, Optional, Dict, Any
+
 import uuid
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from qdrant_client.http import models as qdrant_models
+from qdrant_client.models import PointStruct
 
 from clients import get_database, get_qdrant_client
 from domain.models import Product
-from qdrant_client.http import models as qdrant_models
-from qdrant_client.models import PointStruct
 from services.embeddings.gemini_service import GeminiEmbeddingService
 from utils.cache import (
-    get_cached, set_cached, invalidate_product_cache,
-    get_product_cache_key, TTL_DEFAULT, should_cache_result
+    TTL_DEFAULT,
+    get_cached,
+    get_product_cache_key,
+    invalidate_product_cache,
+    set_cached,
+    should_cache_result,
 )
 
 
@@ -29,19 +35,26 @@ class ProductRepository:
 
     # --- GET Methods (MongoDB) ---
 
-    async def get_all(self) -> List[Product]:
-        """Get all products from MongoDB with caching."""
-        cache_key = get_product_cache_key("all")
+    DEFAULT_LIMIT = 5000
+
+    async def get_all(self, limit: Optional[int] = None) -> List[Product]:
+        """Get all products from MongoDB with caching.
+
+        Args:
+            limit: Maximum number of products to return. Defaults to DEFAULT_LIMIT.
+        """
+        effective_limit = limit if limit is not None else self.DEFAULT_LIMIT
+        cache_key = get_product_cache_key(f"all:limit:{effective_limit}")
         cached = get_cached(cache_key)
 
         if cached is not None:
             return [Product(**p) for p in cached]
 
         try:
-            print("→ Fetching all products from MongoDB")
+            print(f"→ Fetching products from MongoDB (limit={effective_limit})")
             db = get_database()
-            cursor = db[self.mongo_collection_name].find()
-            documents = await cursor.to_list(length=None)
+            cursor = db[self.mongo_collection_name].find().limit(effective_limit)
+            documents = await cursor.to_list(length=effective_limit)
 
             products = [Product(**doc) for doc in documents]
 
@@ -142,7 +155,9 @@ class ProductRepository:
         try:
             print(f"→ Fetching products for {len(branch_ids)} branches from MongoDB")
             db = get_database()
-            cursor = db[self.mongo_collection_name].find({"branchId": {"$in": branch_ids}})
+            cursor = db[self.mongo_collection_name].find(
+                {"branchId": {"$in": branch_ids}}
+            )
             documents = await cursor.to_list(length=None)
 
             products = [Product(**doc) for doc in documents]
@@ -182,6 +197,21 @@ class ProductRepository:
         except Exception as e:
             print(f"Error fetching products by category from MongoDB: {e}")
             return []
+
+    async def get_distinct_branch_ids_by_category(self, category_id: str) -> set:
+        """Get distinct branch IDs that have products in the given category.
+
+        Uses MongoDB distinct() to avoid downloading full documents.
+        """
+        try:
+            db = get_database()
+            branch_ids = await db[self.mongo_collection_name].distinct(
+                "branchId", {"categoryId": category_id}
+            )
+            return set(branch_ids)
+        except Exception as e:
+            print(f"Error fetching distinct branch IDs by category: {e}")
+            return set()
 
     # --- Search Method (Qdrant Vector Similarity) ---
 
@@ -247,7 +277,9 @@ class ProductRepository:
 
     # --- Update Method (MongoDB + Qdrant if RAG fields changed) ---
 
-    async def update(self, product_id: str, updates: Dict[str, Any]) -> Optional[Product]:
+    async def update(
+        self, product_id: str, updates: Dict[str, Any]
+    ) -> Optional[Product]:
         """Update a product in MongoDB and Qdrant (if RAG fields changed)."""
         try:
             db = get_database()
@@ -259,8 +291,7 @@ class ProductRepository:
 
             # 1. Update MongoDB
             await db[self.mongo_collection_name].update_one(
-                {"_id": product_id},
-                {"$set": updates}
+                {"_id": product_id}, {"$set": updates}
             )
 
             # 2. If RAG fields changed, update Qdrant
@@ -282,7 +313,9 @@ class ProductRepository:
             print(f"Error updating product {product_id}: {e}")
             raise e
 
-    async def update_field(self, product_id: str, field: str, value: Any) -> Optional[Product]:
+    async def update_field(
+        self, product_id: str, field: str, value: Any
+    ) -> Optional[Product]:
         """Update a single field of a product."""
         return await self.update(product_id, {field: value})
 
@@ -298,7 +331,9 @@ class ProductRepository:
             branch_id = product.branchId if product else None
 
             # 1. Delete from MongoDB
-            result = await db[self.mongo_collection_name].delete_one({"_id": product_id})
+            result = await db[self.mongo_collection_name].delete_one(
+                {"_id": product_id}
+            )
 
             if result.deleted_count == 0:
                 return False
@@ -365,9 +400,7 @@ class ProductRepository:
             if existing:
                 await qdrant_client.delete(
                     collection_name=self.qdrant_collection_name,
-                    points_selector=qdrant_models.PointIdsList(
-                        points=[existing.id]
-                    ),
+                    points_selector=qdrant_models.PointIdsList(points=[existing.id]),
                 )
 
         except Exception as e:
@@ -385,7 +418,7 @@ class ProductRepository:
                     must=[
                         qdrant_models.FieldCondition(
                             key="mongo_id",
-                            match=qdrant_models.MatchValue(value=mongo_id)
+                            match=qdrant_models.MatchValue(value=mongo_id),
                         )
                     ]
                 ),
@@ -407,7 +440,7 @@ class ProductRepository:
         self,
         branch_ids: Optional[List[str]] = None,
         apply_category_filter: bool = True,
-        requested_branch_tipo: Optional[str] = None
+        requested_branch_tipo: Optional[str] = None,
     ) -> List[Product]:
         """
         Get products for the feed with category filtering.
@@ -469,7 +502,9 @@ class ProductRepository:
 
     # --- Freshness Methods for Feed ---
 
-    async def get_recent_products(self, days: int = 30, limit: int = 100) -> List[Product]:
+    async def get_recent_products(
+        self, days: int = 30, limit: int = 100
+    ) -> List[Product]:
         """
         Get products created recently, ordered by createdAt DESC.
 
@@ -486,9 +521,12 @@ class ProductRepository:
             db = get_database()
             cutoff_date = datetime.utcnow() - timedelta(days=days)
 
-            cursor = db[self.mongo_collection_name].find(
-                {"createdAt": {"$gte": cutoff_date}}
-            ).sort("createdAt", -1).limit(limit)
+            cursor = (
+                db[self.mongo_collection_name]
+                .find({"createdAt": {"$gte": cutoff_date}})
+                .sort("createdAt", -1)
+                .limit(limit)
+            )
 
             documents = await cursor.to_list(length=limit)
             return [Product(**doc) for doc in documents]

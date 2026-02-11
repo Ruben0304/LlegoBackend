@@ -56,9 +56,12 @@ class FeedQuery:
         if product_category_id:
             from repositories import products_repo
 
-            category_products = await products_repo.get_by_category(product_category_id)
-            branch_ids_with_category = set(p.branchId for p in category_products)
-            branch_ids = branch_ids & branch_ids_with_category
+            category_branch_ids = (
+                await products_repo.get_distinct_branch_ids_by_category(
+                    product_category_id
+                )
+            )
+            branch_ids = branch_ids & category_branch_ids
 
         # Get user context
         user_id = info.context.get("user_id")
@@ -66,6 +69,11 @@ class FeedQuery:
 
         if user_id:
             user_location = await scoring_service.get_user_location(user_id)
+
+        # Fetch ALL products ONCE — shared across all feed sections
+        from repositories import products_repo
+
+        all_products = await products_repo.get_by_branch_ids(list(branch_ids))
 
         # Default sections if not specified
         available_sections = {
@@ -121,7 +129,11 @@ class FeedQuery:
                 if user_id:
                     tasks.append(
                         feed_service.get_para_ti_section(
-                            user_id, user_location, branch_ids, first
+                            user_id,
+                            user_location,
+                            branch_ids,
+                            first,
+                            all_products=all_products,
                         )
                     )
                     section_keys.append(section_id)
@@ -140,20 +152,22 @@ class FeedQuery:
             elif section_id == "populares_cerca":
                 tasks.append(
                     feed_service.get_populares_cerca_section(
-                        user_location, branch_ids, first
+                        user_location, branch_ids, first, all_products=all_products
                     )
                 )
                 section_keys.append(section_id)
             elif section_id == "trending":
                 tasks.append(
-                    feed_service.get_trending_section(user_location, branch_ids, first)
+                    feed_service.get_trending_section(
+                        user_location, branch_ids, first, all_products=all_products
+                    )
                 )
                 section_keys.append(section_id)
             elif section_id == "basado_busquedas":
                 if user_id:
                     tasks.append(
                         feed_service.get_basado_busquedas_section(
-                            user_id, branch_ids, first
+                            user_id, branch_ids, first, all_products=all_products
                         )
                     )
                     section_keys.append(section_id)
@@ -173,7 +187,7 @@ class FeedQuery:
                 if user_id:
                     tasks.append(
                         feed_service.get_nuevos_lugares_favoritos_section(
-                            user_id, branch_ids, first
+                            user_id, branch_ids, first, all_products=all_products
                         )
                     )
                     section_keys.append(section_id)
@@ -192,7 +206,7 @@ class FeedQuery:
             elif section_id == "mas_favoriteados":
                 tasks.append(
                     feed_service.get_mas_favoriteados_section(
-                        user_location, branch_ids, first
+                        user_location, branch_ids, first, all_products=all_products
                     )
                 )
                 section_keys.append(section_id)
@@ -200,7 +214,7 @@ class FeedQuery:
                 if user_location:
                     tasks.append(
                         feed_service.get_cerca_de_ti_section(
-                            user_location, branch_ids, first
+                            user_location, branch_ids, first, all_products=all_products
                         )
                     )
                     section_keys.append(section_id)
@@ -220,7 +234,11 @@ class FeedQuery:
                 if user_id:
                     tasks.append(
                         feed_service.get_te_podria_gustar_section(
-                            user_id, user_location, branch_ids, first
+                            user_id,
+                            user_location,
+                            branch_ids,
+                            first,
+                            all_products=all_products,
                         )
                     )
                     section_keys.append(section_id)
