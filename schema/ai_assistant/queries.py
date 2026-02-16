@@ -7,7 +7,7 @@ import strawberry
 from graphql import GraphQLError
 from strawberry.types import Info
 
-from domain.models import (
+from repositories import (
     branches_repo,
     businesses_repo,
     draft_orders_repo,
