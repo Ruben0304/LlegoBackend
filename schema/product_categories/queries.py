@@ -4,7 +4,7 @@ from typing import List, Optional
 from strawberry.types import Info
 
 from .types import ProductCategoryType
-from domain.models import product_categories_repo
+from repositories import product_categories_repo
 
 
 @strawberry.type

@@ -5,7 +5,7 @@ from strawberry.types import Info
 
 from .types import TutorialType
 from .inputs import CreateTutorialInput, UpdateTutorialInput
-from domain.models import tutorials_repo
+from repositories import tutorials_repo
 from utils.graphql_auth import apply_optional_jwt
 from utils.s3 import delete_file
 

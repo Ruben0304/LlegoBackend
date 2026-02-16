@@ -33,7 +33,7 @@ class ProductType:
         if not self.categoryId:
             return None
 
-        from domain.models import product_categories_repo
+        from repositories import product_categories_repo
 
         category_data = await product_categories_repo.get_by_id(self.categoryId)
         if category_data:
@@ -52,7 +52,7 @@ class ProductType:
         if not self.categoryId:
             return None
 
-        from domain.models import product_categories_repo
+        from repositories import product_categories_repo
         from schema.product_categories.types import ProductCategoryType
 
         category_data = await product_categories_repo.get_by_id(self.categoryId)
@@ -71,7 +71,7 @@ class ProductType:
         if loader:
             branch_data = await loader.load(self.branchId)
         else:
-            from domain.models import branches_repo
+            from repositories import branches_repo
 
             branch_data = await branches_repo.get_by_id(self.branchId)
 
@@ -96,7 +96,7 @@ class ProductType:
         if branch_loader:
             branch_data = await branch_loader.load(self.branchId)
         else:
-            from domain.models import branches_repo
+            from repositories import branches_repo
 
             branch_data = await branches_repo.get_by_id(self.branchId)
 
@@ -107,7 +107,7 @@ class ProductType:
         if business_loader:
             business_data = await business_loader.load(branch_data.businessId)
         else:
-            from domain.models import businesses_repo
+            from repositories import businesses_repo
 
             business_data = await businesses_repo.get_by_id(branch_data.businessId)
 
@@ -150,7 +150,7 @@ class ScoredProductType:
         if not self.categoryId:
             return None
 
-        from domain.models import product_categories_repo
+        from repositories import product_categories_repo
 
         category_data = await product_categories_repo.get_by_id(self.categoryId)
         if category_data:
@@ -169,7 +169,7 @@ class ScoredProductType:
         if not self.categoryId:
             return None
 
-        from domain.models import product_categories_repo
+        from repositories import product_categories_repo
         from schema.product_categories.types import ProductCategoryType
 
         category_data = await product_categories_repo.get_by_id(self.categoryId)
@@ -188,7 +188,7 @@ class ScoredProductType:
         if loader:
             branch_data = await loader.load(self.branchId)
         else:
-            from domain.models import branches_repo
+            from repositories import branches_repo
 
             branch_data = await branches_repo.get_by_id(self.branchId)
 
@@ -213,7 +213,7 @@ class ScoredProductType:
         if branch_loader:
             branch_data = await branch_loader.load(self.branchId)
         else:
-            from domain.models import branches_repo
+            from repositories import branches_repo
 
             branch_data = await branches_repo.get_by_id(self.branchId)
 
@@ -224,7 +224,7 @@ class ScoredProductType:
         if business_loader:
             business_data = await business_loader.load(branch_data.businessId)
         else:
-            from domain.models import businesses_repo
+            from repositories import businesses_repo
 
             business_data = await businesses_repo.get_by_id(branch_data.businessId)
 

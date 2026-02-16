@@ -6,8 +6,8 @@ from typing import List, Optional
 import strawberry
 from strawberry.types import Info
 
-from domain.models import branches_repo
 from repositories import (
+    branches_repo,
     business_access_repo,
     businesses_repo,
     store_locations_repo,
@@ -87,7 +87,7 @@ class BranchQuery:
 
         # Filter by product category if specified
         if productCategoryId:
-            from domain.models import products_repo
+            from repositories import products_repo
 
             # Get products with the specified category
             products_with_category = await products_repo.get_by_category(
@@ -244,7 +244,7 @@ class BranchQuery:
 
         # Filter by product category if specified
         if productCategoryId:
-            from domain.models import products_repo
+            from repositories import products_repo
 
             products_with_category = await products_repo.get_by_category(
                 productCategoryId
@@ -419,7 +419,7 @@ class BranchQuery:
 
         # Filter by product category if specified
         if productCategoryId:
-            from domain.models import products_repo
+            from repositories import products_repo
 
             products_with_category = await products_repo.get_by_category(
                 productCategoryId

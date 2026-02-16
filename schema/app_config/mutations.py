@@ -5,7 +5,7 @@ from strawberry.types import Info
 
 from .types import AppConfigType, BusinessAppConfigType, AndroidConfigType, IosConfigType, MaintenanceConfigType
 from .inputs import UpdateAppConfigInput
-from domain.models import app_config_repo, business_app_config_repo
+from repositories import app_config_repo, business_app_config_repo
 from utils.graphql_auth import require_role
 
 

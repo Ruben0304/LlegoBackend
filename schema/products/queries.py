@@ -5,8 +5,7 @@ from typing import List, Optional
 import strawberry
 from strawberry.types import Info
 
-from domain.models import branches_repo, products_repo
-from repositories import searches_repo
+from repositories import branches_repo, products_repo, searches_repo
 from schema.branches.types import BranchTipo
 from schema.pagination import (
     PageInfo,

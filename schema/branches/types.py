@@ -122,7 +122,7 @@ class BranchType:
         if loader:
             all_products = await loader.load(self.id)
         else:
-            from domain.models import products_repo
+            from repositories import products_repo
 
             all_products = await products_repo.get_by_branch(self.id)
 
@@ -136,7 +136,7 @@ class BranchType:
         self, info: Info
     ) -> List[Annotated["PaymentMethodType", strawberry.lazy("schema.payments.types")]]:
         """Get payment methods for this branch."""
-        from domain.models import payment_methods_repo
+        from repositories import payment_methods_repo
         from schema.payments.types import PaymentMethodType
 
         if not self.paymentMethodIds:
@@ -212,7 +212,7 @@ class NearbyBranchType:
         if loader:
             all_products = await loader.load(self.id)
         else:
-            from domain.models import products_repo
+            from repositories import products_repo
 
             all_products = await products_repo.get_by_branch(self.id)
 
@@ -226,7 +226,7 @@ class NearbyBranchType:
         self, info: Info
     ) -> List[Annotated["PaymentMethodType", strawberry.lazy("schema.payments.types")]]:
         """Get payment methods for this branch."""
-        from domain.models import payment_methods_repo
+        from repositories import payment_methods_repo
         from schema.payments.types import PaymentMethodType
 
         if not self.paymentMethodIds:
@@ -305,7 +305,7 @@ class ScoredBranchType:
         if loader:
             all_products = await loader.load(self.id)
         else:
-            from domain.models import products_repo
+            from repositories import products_repo
 
             all_products = await products_repo.get_by_branch(self.id)
 
@@ -319,7 +319,7 @@ class ScoredBranchType:
         self, info: Info
     ) -> List[Annotated["PaymentMethodType", strawberry.lazy("schema.payments.types")]]:
         """Get payment methods for this branch."""
-        from domain.models import payment_methods_repo
+        from repositories import payment_methods_repo
         from schema.payments.types import PaymentMethodType
 
         if not self.paymentMethodIds:

@@ -3,7 +3,8 @@ from collections import defaultdict
 from typing import List, Optional
 from strawberry.dataloader import DataLoader
 
-from domain.models import products_repo, branches_repo, businesses_repo, Product, Branch, Business
+from domain.models import Product, Branch, Business
+from repositories import products_repo, branches_repo, businesses_repo
 from utils.cache import (
     get_cached, set_cached,
     get_product_cache_key, get_branch_cache_key, get_business_cache_key,

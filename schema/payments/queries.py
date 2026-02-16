@@ -4,7 +4,7 @@ from typing import List, Optional
 from strawberry.types import Info
 
 from schema.payments.types import PaymentAttemptType, PaymentMethodType, payment_attempt_to_type
-from domain.models import payment_methods_repo
+from repositories import payment_methods_repo
 from repositories.payments_attempt_repository import payment_attempts_repo
 from services.payments_service import payment_service
 from utils.graphql_auth import apply_optional_jwt

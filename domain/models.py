@@ -677,28 +677,6 @@ class Tutorial(BaseModel):
         json_encoders = {datetime: lambda v: v.isoformat()}
 
 
-# Export repository instances for backward compatibility
-from repositories import (
-    app_config_repo,
-    branch_likes_repo,
-    branches_repo,
-    business_app_config_repo,
-    businesses_repo,
-    chat_memory_repo,
-    draft_orders_repo,
-    favorites_cart_repo,
-    feedbacks_repo,
-    payment_methods_repo,
-    payments_repo,
-    product_categories_repo,
-    products_repo,
-    searches_repo,
-    survey_responses_repo,
-    surveys_repo,
-    tutorials_repo,
-    users_repo,
-)
-
 __all__ = [
     "User",
     "Business",
@@ -733,22 +711,4 @@ __all__ = [
     "DraftOrderItem",
     "BranchLike",
     "Tutorial",
-    "users_repo",
-    "businesses_repo",
-    "branches_repo",
-    "products_repo",
-    "product_categories_repo",
-    "payments_repo",
-    "payment_methods_repo",
-    "app_config_repo",
-    "business_app_config_repo",
-    "feedbacks_repo",
-    "surveys_repo",
-    "survey_responses_repo",
-    "favorites_cart_repo",
-    "searches_repo",
-    "chat_memory_repo",
-    "draft_orders_repo",
-    "branch_likes_repo",
-    "tutorials_repo",
 ]

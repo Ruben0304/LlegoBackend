@@ -4,7 +4,7 @@ from typing import List, Optional
 from strawberry.types import Info
 
 from .types import TutorialType, AppTarget
-from domain.models import tutorials_repo
+from repositories import tutorials_repo
 from utils.rate_limit import rate_limit_graphql
 
 

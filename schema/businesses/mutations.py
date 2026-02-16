@@ -87,7 +87,7 @@ class BusinessMutation:
                 )
 
             # Verificar que los métodos de pago existan
-            from domain.models import payment_methods_repo
+            from repositories import payment_methods_repo
 
             payment_methods = await payment_methods_repo.get_by_ids(
                 branch_inp.paymentMethodIds
@@ -292,7 +292,7 @@ class BusinessMutation:
                         )
 
                     # Verificar que los métodos de pago existan
-                    from domain.models import payment_methods_repo
+                    from repositories import payment_methods_repo
 
                     payment_methods = await payment_methods_repo.get_by_ids(
                         branch_inp.paymentMethodIds
