@@ -92,6 +92,9 @@ class Settings(BaseSettings):
     # CACHE_PRESIGNED_URL_TTL: TTL for S3 presigned URLs (always uses TTL since URLs expire)
     cache_presigned_url_ttl: int = 3000  # 50 minutes (URLs expire in 60)
 
+    # Shortcuts API Key (fixed, non-expiring, for iOS Shortcuts)
+    shortcuts_api_key: str = ""
+
     # Stripe Configuration
     stripe_secret_key: str = ""
     stripe_publishable_key: str = ""

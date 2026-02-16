@@ -16,6 +16,7 @@ from .endpoints.device_tokens import router as device_tokens_router
 from .endpoints.error_logs import router as error_logs_router
 from .endpoints.product_detection import router as product_detection_router
 from .endpoints.push_notifications import router as push_notifications_router
+from .endpoints.shortcuts import router as shortcuts_router
 from .endpoints.stripe_payments import router as stripe_router
 from .endpoints.uploads import router as uploads_router
 from .endpoints.users import router as users_router
@@ -29,6 +30,7 @@ router.include_router(push_notifications_router)
 router.include_router(users_router)
 router.include_router(stripe_router)
 router.include_router(product_detection_router)
+router.include_router(shortcuts_router)
 
 
 # =============================================================================

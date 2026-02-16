@@ -1,45 +1,49 @@
 """GraphQL schema configuration."""
-import strawberry
+
 from typing import Optional
+
+import strawberry
 from strawberry.types import Info
 
-from .users.queries import UserQuery
-from .users.mutations import UserMutation
-from .businesses.queries import BusinessQuery
-from .branches.queries import BranchQuery
-from .products.queries import ProductQuery
-from .categories.queries import CategoryQuery
-from .product_categories.queries import ProductCategoryQuery
-from .auth.mutations import AuthMutation
-from .businesses.mutations import BusinessMutation
-from .branches.mutations import BranchMutation
-from .products.mutations import ProductMutation
-from .ai_assistant.queries import AiAssistantQuery
-from .orders.queries import OrderQuery
-from .orders.mutations import OrderMutation
-from .orders.subscriptions import OrderSubscription
-from .business_types.queries import BusinessTypeQuery
-from .business_types.mutations import BusinessTypeMutation
-from .payments.queries import PaymentMethodQuery
-from .payments.mutations import PaymentMutation
-from .wallet.queries import WalletQuery
-from .wallet.mutations import WalletMutation
-from .invitations.queries import InvitationQuery
-from .invitations.mutations import InvitationMutation
-from .app_config.queries import AppConfigQueries
-from .app_config.mutations import AppConfigMutations
-from .feedbacks.queries import FeedbackQuery
-from .feedbacks.mutations import FeedbackMutation
-from .surveys.queries import SurveyQuery
-from .surveys.mutations import SurveyMutation
-from .favorites_cart.mutations import FavoritesCartMutation
-from .searches.mutations import SearchesMutation
-from .feed.queries import FeedQuery
-from .branch_likes.mutations import BranchLikesMutation
-from .tutorials.queries import TutorialQuery
-from .tutorials.mutations import TutorialMutation
-from .extensions import UserIdExtension, ErrorLoggingExtension
 from utils.graphql_auth import apply_optional_jwt
+
+from .ai_assistant.queries import AiAssistantQuery
+from .app_config.mutations import AppConfigMutations
+from .app_config.queries import AppConfigQueries
+from .auth.mutations import AuthMutation
+from .branch_likes.mutations import BranchLikesMutation
+from .branches.mutations import BranchMutation
+from .branches.queries import BranchQuery
+from .business_types.mutations import BusinessTypeMutation
+from .business_types.queries import BusinessTypeQuery
+from .businesses.mutations import BusinessMutation
+from .businesses.queries import BusinessQuery
+from .categories.queries import CategoryQuery
+from .extensions import ErrorLoggingExtension, UserIdExtension
+from .favorites_cart.mutations import FavoritesCartMutation
+from .feed.queries import FeedQuery
+from .feedbacks.mutations import FeedbackMutation
+from .feedbacks.queries import FeedbackQuery
+from .invitations.mutations import InvitationMutation
+from .invitations.queries import InvitationQuery
+from .orders.mutations import OrderMutation
+from .orders.queries import OrderQuery
+from .orders.subscriptions import OrderSubscription
+from .payments.mutations import PaymentMutation
+from .payments.queries import PaymentMethodQuery
+from .product_categories.queries import ProductCategoryQuery
+from .products.mutations import ProductMutation
+from .products.queries import ProductQuery
+from .searches.mutations import SearchesMutation
+from .shortcut_transfers.queries import ShortcutTransferQuery
+from .surveys.mutations import SurveyMutation
+from .surveys.queries import SurveyQuery
+from .tutorials.mutations import TutorialMutation
+from .tutorials.queries import TutorialQuery
+from .users.mutations import UserMutation
+from .users.queries import UserQuery
+from .wallet.mutations import WalletMutation
+from .wallet.queries import WalletQuery
 
 
 @strawberry.type
@@ -60,7 +64,8 @@ class Query(
     FeedbackQuery,
     SurveyQuery,
     FeedQuery,
-    TutorialQuery
+    TutorialQuery,
+    ShortcutTransferQuery,
 ):
     @strawberry.field(description="Saludo de ejemplo")
     def hello(self, info: Info, jwt: Optional[str] = None) -> str:
@@ -91,7 +96,7 @@ class Mutation(
     FavoritesCartMutation,
     SearchesMutation,
     BranchLikesMutation,
-    TutorialMutation
+    TutorialMutation,
 ):
     pass
 
@@ -106,5 +111,5 @@ schema = strawberry.Schema(
     query=Query,
     mutation=Mutation,
     subscription=Subscription,
-    extensions=[UserIdExtension, ErrorLoggingExtension]
+    extensions=[UserIdExtension, ErrorLoggingExtension],
 )

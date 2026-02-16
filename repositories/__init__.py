@@ -19,18 +19,6 @@ from .draft_order_repository import DraftOrderRepository
 from .error_log_repository import ErrorLogRepository, error_log_repo
 from .favorites_cart_repository import FavoritesCartRepository
 from .feedback_repository import FeedbackRepository
-from .payment_method_repository import PaymentMethodRepository
-from .payment_repository import PaymentRepository
-from .product_category_repository import ProductCategoryRepository
-from .product_repository import ProductRepository
-from .searches_repository import SearchesRepository
-from .store_location_repository import StoreLocationRepository, store_locations_repo
-from .survey_repository import SurveyRepository
-from .survey_response_repository import SurveyResponseRepository
-from .tutorial_repository import TutorialRepository
-from .user_repository import UserRepository
-from .wallet_repository import WalletTransactionRepository
-
 from .orders_repository import (
     BranchDeliveryRequestRepository,
     DeliveryPersonRepository,
@@ -41,8 +29,23 @@ from .orders_repository import (
     order_locations_repo,
     orders_repo,
 )
+from .payment_method_repository import PaymentMethodRepository
+from .payment_repository import PaymentRepository
 from .payments_attempt_repository import PaymentAttemptRepository, payment_attempts_repo
 from .platform_repository import PlatformRepository, platform_repo
+from .product_category_repository import ProductCategoryRepository
+from .product_repository import ProductRepository
+from .searches_repository import SearchesRepository
+from .shortcut_transfer_repository import (
+    ShortcutTransferRepository,
+    shortcut_transfers_repo,
+)
+from .store_location_repository import StoreLocationRepository, store_locations_repo
+from .survey_repository import SurveyRepository
+from .survey_response_repository import SurveyResponseRepository
+from .tutorial_repository import TutorialRepository
+from .user_repository import UserRepository
+from .wallet_repository import WalletTransactionRepository
 
 # Repository instances
 users_repo = UserRepository()
@@ -125,7 +128,6 @@ __all__ = [
     "tutorials_repo",
     "DeliveryZoneRepository",
     "delivery_zones_repo",
-
     "OrderRepository",
     "DeliveryPersonRepository",
     "OrderLocationRepository",
@@ -138,4 +140,6 @@ __all__ = [
     "payment_attempts_repo",
     "PlatformRepository",
     "platform_repo",
+    "ShortcutTransferRepository",
+    "shortcut_transfers_repo",
 ]
