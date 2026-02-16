@@ -1,23 +1,23 @@
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse, Response
-from strawberry.fastapi import GraphQLRouter
-from slowapi.errors import RateLimitExceeded
-import uvicorn
 import logging
 
-from clients import lifespan
-from schema import schema
+import uvicorn
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse, Response
+from slowapi.errors import RateLimitExceeded
+from strawberry.fastapi import GraphQLRouter
+
 from api import router
+from clients import lifespan
 from core.config import settings
-from utils.rate_limit import limiter, rate_limit_exceeded_handler, get_redis_status
+from schema import schema
 from utils.dataloaders import create_dataloaders
 from utils.exception_handler import global_exception_handler, http_exception_handler
+from utils.rate_limit import get_redis_status, limiter, rate_limit_exceeded_handler
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 
 
@@ -30,7 +30,7 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url="/docs" if is_development else None,
     redoc_url="/redoc" if is_development else None,
-    openapi_url="/openapi.json" if is_development else None
+    openapi_url="/openapi.json" if is_development else None,
 )
 
 # Add rate limiter to app state
@@ -52,6 +52,7 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
+
 async def get_graphql_context(request: Request, response: Response) -> dict:
     """Provide a mutable context for resolvers with DataLoaders."""
     return {
@@ -59,7 +60,7 @@ async def get_graphql_context(request: Request, response: Response) -> dict:
         "response": response,
         "user_id": None,
         "user_role": None,
-        **create_dataloaders()  # Add DataLoaders to context
+        **create_dataloaders(),  # Add DataLoaders to context
     }
 
 
@@ -67,8 +68,8 @@ async def get_graphql_context(request: Request, response: Response) -> dict:
 # GraphiQL is disabled in production for security
 graphql_app = GraphQLRouter(
     schema,
-    graphiql=is_development,  # Only enable in development
-    context_getter=get_graphql_context
+    graphql_ide="graphiql" if is_development else None,
+    context_getter=get_graphql_context,
 )
 app.include_router(graphql_app, prefix="/graphql")
 
