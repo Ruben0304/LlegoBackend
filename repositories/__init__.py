@@ -36,10 +36,6 @@ from .platform_repository import PlatformRepository, platform_repo
 from .product_category_repository import ProductCategoryRepository
 from .product_repository import ProductRepository
 from .searches_repository import SearchesRepository
-from .shortcut_transfer_repository import (
-    ShortcutTransferRepository,
-    shortcut_transfers_repo,
-)
 from .store_location_repository import StoreLocationRepository, store_locations_repo
 from .survey_repository import SurveyRepository
 from .survey_response_repository import SurveyResponseRepository
@@ -70,6 +66,12 @@ draft_orders_repo = DraftOrderRepository()
 branch_likes_repo = BranchLikesRepository()
 tutorials_repo = TutorialRepository()
 delivery_zones_repo = DeliveryZoneRepository()
+
+# Imported after singletons to avoid circular import with domain/models.py
+from .shortcut_transfer_repository import (
+    ShortcutTransferRepository,
+    shortcut_transfers_repo,
+)
 
 __all__ = [
     "UserRepository",
