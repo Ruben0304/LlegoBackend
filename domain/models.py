@@ -97,6 +97,7 @@ class Branch(BaseModel):
     schedule: Dict[str, List[str]]  # {"mon": ["08:00-20:00"], ...}
     managerIds: List[str]
     isActive: bool = True
+    status: Optional[str] = None
     avatar: Optional[str] = None
     coverImage: Optional[str] = None
     socialMedia: Optional[Dict[str, str]] = None

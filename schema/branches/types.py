@@ -74,6 +74,7 @@ class BranchType:
     schedule: strawberry.scalars.JSON
     managerIds: List[str]
     isActive: bool
+    status: Optional[str] = None
     avatar: Optional[str]
     coverImage: Optional[str]
     socialMedia: Optional[strawberry.scalars.JSON]
@@ -160,6 +161,7 @@ class NearbyBranchType:
     schedule: strawberry.scalars.JSON
     managerIds: List[str]
     isActive: bool
+    status: Optional[str] = None
     avatar: Optional[str]
     coverImage: Optional[str]
     socialMedia: Optional[strawberry.scalars.JSON]
@@ -251,6 +253,7 @@ class ScoredBranchType:
     schedule: strawberry.scalars.JSON
     managerIds: List[str]
     isActive: bool
+    status: Optional[str] = None
     avatar: Optional[str]
     coverImage: Optional[str]
     socialMedia: Optional[strawberry.scalars.JSON]
