@@ -110,6 +110,7 @@ class Branch(BaseModel):
         True  # True = mensajería por la app, False = mensajería por cuenta propia
     )
     vehicles: List[str] = []  # ["moto", "bicicleta", "carro", "camion", "a_pie"]
+    deliveryRadius: Optional[float] = None  # Radio de entrega en km
     # Transfer payment info
     accounts: List[TransferAccount] = []
     qrPayments: List[QrPayment] = []

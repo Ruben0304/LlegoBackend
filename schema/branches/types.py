@@ -84,6 +84,7 @@ class BranchType:
     accounts: List[TransferAccountType] = strawberry.field(default_factory=list)
     qrPayments: List[QrPaymentType] = strawberry.field(default_factory=list)
     phones: List[TransferPhoneType] = strawberry.field(default_factory=list)
+    deliveryRadius: Optional[float] = None
     createdAt: datetime
     wallet: WalletBalanceType
     walletStatus: str = "active"
@@ -169,6 +170,7 @@ class NearbyBranchType:
     accounts: List[TransferAccountType] = strawberry.field(default_factory=list)
     qrPayments: List[QrPaymentType] = strawberry.field(default_factory=list)
     phones: List[TransferPhoneType] = strawberry.field(default_factory=list)
+    deliveryRadius: Optional[float] = None
     createdAt: datetime
     distance_m: float
     wallet: WalletBalanceType
@@ -259,6 +261,7 @@ class ScoredBranchType:
     accounts: List[TransferAccountType] = strawberry.field(default_factory=list)
     qrPayments: List[QrPaymentType] = strawberry.field(default_factory=list)
     phones: List[TransferPhoneType] = strawberry.field(default_factory=list)
+    deliveryRadius: Optional[float] = None
     createdAt: datetime
     score: float
     distance_m: Optional[float] = None
