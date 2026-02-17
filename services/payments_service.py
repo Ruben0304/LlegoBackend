@@ -12,6 +12,7 @@ from clients.mongodb_client import get_database
 from domain.payments import PaymentAttempt, PaymentAttemptStatus
 from repositories.payments_attempt_repository import PaymentAttemptRepository
 from repositories import branches_repo, users_repo, businesses_repo
+from services.shortcut_transfer_service import shortcut_transfer_service
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +113,8 @@ class PaymentService:
         order_id: str,
         payment_method_id: str,
         user_id: str,
-        include_delivery_fee: bool = True
+        include_delivery_fee: bool = True,
+        sends_sms_notification: bool = False,
     ) -> PaymentAttempt:
         """
         Initiate a payment for an order.
@@ -184,6 +186,7 @@ class PaymentService:
             currency=currency,
             status=PaymentAttemptStatus.PENDING,
             expiresAt=expires_at,
+            sendsSmsNotification=sends_sms_notification,
         )
 
         # Handle based on payment method type
@@ -960,6 +963,74 @@ class PaymentService:
                 }
             }
         )
+
+    async def confirm_transfer_by_shortcut(
+        self,
+        payment_attempt_id: str,
+        user_id: str,
+        transfer_id: Optional[str] = None,
+    ) -> PaymentAttempt:
+        """
+        Auto-confirm a transfer payment using a registered Shortcut Transfer.
+
+        Flow:
+          1. If transfer_id is None → look up by the user's profile phone number.
+          2. If transfer_id is provided → look up by that transfer_id.
+          3. If a matching pending shortcut transfer is found → activate it and
+             complete the payment immediately (no manual business confirmation needed).
+
+        Args:
+            payment_attempt_id: The payment attempt to confirm.
+            user_id: The authenticated customer's ID.
+            transfer_id: Optional bank transfer reference ID entered by the user.
+                         If omitted the user's profile phone is used to match.
+        """
+        attempt = await self.payment_attempts_repo.get_by_id(payment_attempt_id)
+        if not attempt:
+            raise ValueError("Intento de pago no encontrado")
+
+        order = await self._get_order(attempt.orderId)
+        if not order or order.get("customerId") != user_id:
+            raise ValueError("No autorizado")
+
+        if attempt.status != PaymentAttemptStatus.AWAITING_PROOF:
+            raise ValueError(f"El pago no está en espera de comprobante: {attempt.status}")
+
+        # Only allowed for transfer payments where the user indicated SMS will be sent
+        if not attempt.sendsSmsNotification:
+            raise ValueError("Este pago no fue marcado como transferencia con SMS")
+
+        if transfer_id:
+            transfers = await shortcut_transfer_service.find_pending_transfer(
+                transfer_id=transfer_id.strip()
+            )
+        else:
+            user = await self._get_user(user_id)
+            if not user or not user.get("phone"):
+                raise ValueError("El usuario no tiene número de teléfono en su perfil")
+            transfers = await shortcut_transfer_service.find_pending_transfer(
+                phone=user["phone"]
+            )
+
+        if not transfers:
+            if transfer_id:
+                raise ValueError("No se encontró una transferencia pendiente con ese ID")
+            raise ValueError("phone_not_found")
+
+        matched = transfers[0]
+
+        await shortcut_transfer_service.activate_transfer(matched.id)
+
+        updated = await self.payment_attempts_repo.update_status(
+            payment_attempt_id,
+            PaymentAttemptStatus.COMPLETED,
+            businessConfirmedAt=datetime.utcnow(),
+            shortcutTransferId=matched.id,
+        )
+
+        await self._complete_order_payment(attempt.orderId, payment_attempt_id)
+
+        return updated
 
     async def cancel_payment(
         self,

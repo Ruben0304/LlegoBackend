@@ -133,7 +133,8 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
         orderId: str,
         paymentMethodId: str,
         jwt: str,
-        includeDeliveryFee: bool = True
+        includeDeliveryFee: bool = True,
+        sendsSmsNotification: bool = False,
     ) -> InitiatePaymentResult:
         """
         Initiate a payment for an order.
@@ -163,6 +164,7 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
                 payment_method_id=paymentMethodId,
                 user_id=user_id,
                 include_delivery_fee=includeDeliveryFee,
+                sends_sms_notification=sendsSmsNotification,
             )
 
             # Get payment method for instructions
@@ -333,6 +335,47 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
                 payment_attempt_id=paymentAttemptId,
                 user_id=user_id,
                 reason=reason,
+            )
+            return payment_attempt_to_type(attempt)
+        except ValueError as e:
+            raise Exception(str(e))
+
+    @strawberry.mutation(
+        description=(
+            "Confirmar automáticamente un pago por transferencia usando el sistema "
+            "de Shortcut Transfers. Busca por el teléfono del perfil del usuario; "
+            "si no hay coincidencia, el cliente puede proveer el ID de transferencia."
+        )
+    )
+    async def confirm_transfer_by_shortcut(
+        self,
+        info: Info,
+        paymentAttemptId: str,
+        jwt: str,
+        transferId: Optional[str] = None,
+    ) -> PaymentAttemptType:
+        """
+        Auto-confirm a transfer payment via registered Shortcut Transfer.
+
+        If transferId is omitted, the user's profile phone number is used to
+        match a pending shortcut transfer.  If no match is found that way, the
+        client should prompt the user for their bank transfer reference ID and
+        call this mutation again passing that value as transferId.
+
+        Raises:
+            Exception("phone_not_found") when no pending transfer matches the
+            user's phone — the client should surface the manual-ID fallback.
+        """
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+
+        try:
+            attempt = await payment_service.confirm_transfer_by_shortcut(
+                payment_attempt_id=paymentAttemptId,
+                user_id=user_id,
+                transfer_id=transferId,
             )
             return payment_attempt_to_type(attempt)
         except ValueError as e:

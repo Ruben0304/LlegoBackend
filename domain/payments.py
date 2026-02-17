@@ -64,6 +64,7 @@ class PaymentAttempt(BaseModel):
     stripeClientSecret: Optional[str] = None
 
     # Manual payment fields (transfers, etc.)
+    sendsSmsNotification: bool = False  # User indicated their transfer will send an SMS (Transfermóvil, etc.)
     proofUrl: Optional[str] = None  # Receipt/proof uploaded by customer
     customerConfirmedAt: Optional[datetime] = None
     businessConfirmedAt: Optional[datetime] = None

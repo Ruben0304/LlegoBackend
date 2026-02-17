@@ -85,6 +85,7 @@ class PaymentAttemptType:
     stripeClientSecret: Optional[str] = strawberry.field(description="Stripe client secret for UI")
 
     # Manual payment fields
+    sendsSmsNotification: bool = strawberry.field(description="User indicated their transfer sends SMS (enables Shortcut auto-confirm)")
     proofUrl: Optional[str] = strawberry.field(description="Proof/receipt URL")
     customerConfirmedAt: Optional[datetime] = strawberry.field(description="When customer confirmed")
     businessConfirmedAt: Optional[datetime] = strawberry.field(description="When business confirmed")
@@ -160,6 +161,7 @@ def payment_attempt_to_type(attempt) -> PaymentAttemptType:
         status=PaymentAttemptStatusEnum(attempt.status),
         stripePaymentIntentId=attempt.stripePaymentIntentId,
         stripeClientSecret=attempt.stripeClientSecret,
+        sendsSmsNotification=attempt.sendsSmsNotification,
         proofUrl=attempt.proofUrl,
         customerConfirmedAt=attempt.customerConfirmedAt,
         businessConfirmedAt=attempt.businessConfirmedAt,
