@@ -6,26 +6,29 @@ from strawberry.types import Info
 from schema.payments.types import PaymentAttemptType, PaymentMethodType, payment_attempt_to_type
 from repositories import payment_methods_repo
 from repositories.payments_attempt_repository import payment_attempts_repo
+from repositories import branches_repo
 from services.payments_service import payment_service
 from utils.graphql_auth import apply_optional_jwt
 
 @strawberry.type
 class PaymentMethodQuery:
-    @strawberry.field(description="Obtener todos los métodos de pago disponibles")
+    @strawberry.field(description="Obtener todos los métodos de pago disponibles. Si se provee branchId, retorna solo los aceptados por ese branch.")
     async def payment_methods(
         self,
         info: Info,
+        branch_id: Optional[str] = None,
         jwt: Optional[str] = None
     ) -> List[PaymentMethodType]:
-        """
-        Get all available payment methods.
-
-        Returns:
-            List of all payment methods in the system
-        """
         apply_optional_jwt(jwt, info)
 
-        payment_methods = await payment_methods_repo.get_all()
+        if branch_id:
+            branch = await branches_repo.get_by_id(branch_id)
+            if not branch or not branch.paymentMethodIds:
+                return []
+            payment_methods = await payment_methods_repo.get_by_ids(branch.paymentMethodIds)
+        else:
+            payment_methods = await payment_methods_repo.get_all()
+
         return [PaymentMethodType(**pm.model_dump()) for pm in payment_methods]
 
     @strawberry.field(description="Obtener método de pago por ID")
