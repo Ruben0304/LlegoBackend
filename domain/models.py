@@ -33,6 +33,23 @@ class TransferPhone(BaseModel):
     isActive: bool = True
 
 
+class SavedAddress(BaseModel):
+    """A saved delivery address stored in the user's profile."""
+
+    id: str                                # UUID generated at creation
+    label: str                             # Alias visible (ej: "Casa", "Trabajo")
+    street: str
+    city: Optional[str] = None
+    reference: Optional[str] = None
+    addressType: str = "house"             # "house" | "apartment" | "office" | "other"
+    buildingName: Optional[str] = None
+    floor: Optional[str] = None
+    apartment: Optional[str] = None
+    deliveryInstructions: Optional[str] = None
+    latitude: float
+    longitude: float
+
+
 class User(BaseModel):
     id: str = Field(alias="_id")
     name: str
@@ -60,6 +77,9 @@ class User(BaseModel):
     )
     isPro: bool = False
     aiConsultasLimit: Optional[Dict[str, Any]] = None
+    # Saved delivery addresses (Uber Eats / Glovo style)
+    savedAddresses: List["SavedAddress"] = []
+    defaultAddressId: Optional[str] = None  # ID of the default address
 
     class Config:
         populate_by_name = True
@@ -681,6 +701,7 @@ class Tutorial(BaseModel):
 
 __all__ = [
     "User",
+    "SavedAddress",
     "Business",
     "Coordinates",
     "Branch",

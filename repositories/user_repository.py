@@ -262,6 +262,77 @@ class UserRepository:
         result = await db[self.collection_name].delete_one({"_id": object_id})
         return result.deleted_count > 0
 
+    # ------------------------------------------------------------------
+    # Saved Addresses
+    # ------------------------------------------------------------------
+
+    async def add_saved_address(self, user_id: str, address: dict) -> Optional[User]:
+        """Push a new saved address into the user's savedAddresses array."""
+        db = get_database()
+        try:
+            object_id = ObjectId(user_id)
+        except Exception:
+            object_id = user_id
+
+        result = await db[self.collection_name].find_one_and_update(
+            {"_id": object_id},
+            {"$push": {"savedAddresses": address}},
+            return_document=True,
+        )
+        return User(**self._convert_id(result)) if result else None
+
+    async def remove_saved_address(
+        self, user_id: str, address_id: str
+    ) -> Optional[User]:
+        """Pull a saved address by its id from the user's savedAddresses array."""
+        db = get_database()
+        try:
+            object_id = ObjectId(user_id)
+        except Exception:
+            object_id = user_id
+
+        result = await db[self.collection_name].find_one_and_update(
+            {"_id": object_id},
+            {"$pull": {"savedAddresses": {"id": address_id}}},
+            return_document=True,
+        )
+        return User(**self._convert_id(result)) if result else None
+
+    async def update_saved_address(
+        self, user_id: str, address_id: str, updated_address: dict
+    ) -> Optional[User]:
+        """Replace a saved address in-place using the positional $ operator."""
+        db = get_database()
+        try:
+            object_id = ObjectId(user_id)
+        except Exception:
+            object_id = user_id
+
+        result = await db[self.collection_name].find_one_and_update(
+            {"_id": object_id, "savedAddresses.id": address_id},
+            {"$set": {"savedAddresses.$": updated_address}},
+            return_document=True,
+        )
+        return User(**self._convert_id(result)) if result else None
+
+    async def set_default_address(
+        self, user_id: str, address_id: Optional[str]
+    ) -> Optional[User]:
+        """Set (or unset) the user's default delivery address."""
+        db = get_database()
+        try:
+            object_id = ObjectId(user_id)
+        except Exception:
+            object_id = user_id
+
+        result = await db[self.collection_name].find_one_and_update(
+            {"_id": object_id},
+            {"$set": {"defaultAddressId": address_id}},
+            return_document=True,
+        )
+        return User(**self._convert_id(result)) if result else None
+
+
     async def get_wallet(self, user_id: str) -> Optional[Dict[str, float]]:
         """Get user wallet balance."""
         user = await self.get_by_id(user_id)

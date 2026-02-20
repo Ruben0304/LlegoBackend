@@ -11,6 +11,7 @@ from services.access_checker import access_checker
 
 from domain.orders import (
     ALLOWED_TRANSITIONS,
+    AddressType,
     DeliveryAddress,
     GeoPoint,
     Order,
@@ -147,6 +148,12 @@ class OrderService:
                     delivery_address["latitude"],
                 ],
             ),
+            # Delivery instruction fields (Uber Eats / Glovo style)
+            addressType=AddressType(delivery_address.get("addressType", "house")),
+            buildingName=delivery_address.get("buildingName"),
+            floor=delivery_address.get("floor"),
+            apartment=delivery_address.get("apartment"),
+            deliveryInstructions=delivery_address.get("deliveryInstructions"),
         )
 
         pickup_addr = PickupAddress(

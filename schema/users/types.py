@@ -9,6 +9,24 @@ from schema.wallet.types import WalletBalanceType
 
 
 @strawberry.type
+class SavedAddressType:
+    """A saved delivery address in the user's profile."""
+
+    id: str
+    label: str
+    street: str
+    city: Optional[str]
+    reference: Optional[str]
+    addressType: str
+    buildingName: Optional[str]
+    floor: Optional[str]
+    apartment: Optional[str]
+    deliveryInstructions: Optional[str]
+    latitude: float
+    longitude: float
+
+
+@strawberry.type
 class UserType:
     id: str
     name: str
@@ -29,6 +47,9 @@ class UserType:
     isPro: bool = False
     location: Optional[JSON] = None  # GeoJSON: {"type": "Point", "coordinates": [lon, lat]}
     aiConsultasLimit: Optional[JSON] = None
+    # Saved delivery addresses (Uber Eats / Glovo style)
+    savedAddresses: List[SavedAddressType] = strawberry.field(default_factory=list)
+    defaultAddressId: Optional[str] = None
 
     @strawberry.field(description="URL firmada del avatar del usuario")
     def avatar_url(self) -> Optional[str]:

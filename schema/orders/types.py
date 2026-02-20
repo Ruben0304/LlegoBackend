@@ -59,6 +59,14 @@ class VehicleTypeEnum(Enum):
     A_PIE = "a_pie"
 
 
+@strawberry.enum
+class AddressTypeEnum(Enum):
+    HOUSE = "house"
+    APARTMENT = "apartment"
+    OFFICE = "office"
+    OTHER = "other"
+
+
 # Types
 @strawberry.type
 class OrderItemType:
@@ -87,6 +95,12 @@ class DeliveryAddressType:
     street: str
     city: Optional[str]
     reference: Optional[str]
+    # Delivery instruction fields (Uber Eats / Glovo style)
+    addressType: AddressTypeEnum
+    buildingName: Optional[str]
+    floor: Optional[str]
+    apartment: Optional[str]
+    deliveryInstructions: Optional[str]
 
     @strawberry.field(description="Delivery coordinates")
     def coordinates(self) -> CoordinatesType:
@@ -99,10 +113,20 @@ class DeliveryAddressType:
         city: Optional[str],
         reference: Optional[str],
         coordinates: dict,
+        addressType: str = "house",
+        buildingName: Optional[str] = None,
+        floor: Optional[str] = None,
+        apartment: Optional[str] = None,
+        deliveryInstructions: Optional[str] = None,
     ):
         self.street = street
         self.city = city
         self.reference = reference
+        self.addressType = AddressTypeEnum(addressType)
+        self.buildingName = buildingName
+        self.floor = floor
+        self.apartment = apartment
+        self.deliveryInstructions = deliveryInstructions
         self._coordinates = CoordinatesType(
             type=coordinates.get("type", "Point"),
             coordinates=coordinates.get("coordinates", []),
@@ -264,6 +288,11 @@ class OrderType:
             city=self._delivery_address.get("city"),
             reference=self._delivery_address.get("reference"),
             coordinates=self._delivery_address.get("coordinates", {}),
+            addressType=self._delivery_address.get("addressType", "house"),
+            buildingName=self._delivery_address.get("buildingName"),
+            floor=self._delivery_address.get("floor"),
+            apartment=self._delivery_address.get("apartment"),
+            deliveryInstructions=self._delivery_address.get("deliveryInstructions"),
         )
 
     @strawberry.field(description="Pickup address (branch location)")

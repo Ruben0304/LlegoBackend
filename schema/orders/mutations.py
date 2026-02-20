@@ -69,6 +69,12 @@ class OrderMutation:
                     "reference": input.deliveryAddress.reference,
                     "latitude": input.deliveryAddress.latitude,
                     "longitude": input.deliveryAddress.longitude,
+                    # Delivery instruction fields (Uber Eats / Glovo style)
+                    "addressType": input.deliveryAddress.addressType.value,
+                    "buildingName": input.deliveryAddress.buildingName,
+                    "floor": input.deliveryAddress.floor,
+                    "apartment": input.deliveryAddress.apartment,
+                    "deliveryInstructions": input.deliveryAddress.deliveryInstructions,
                 },
                 payment_method=input.paymentMethod,
                 payment_intent_id=input.paymentIntentId,

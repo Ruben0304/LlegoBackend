@@ -57,6 +57,15 @@ class VehicleType(str, Enum):
     A_PIE = "a_pie"
 
 
+class AddressType(str, Enum):
+    """Type of delivery address location."""
+
+    HOUSE = "house"          # Casa
+    APARTMENT = "apartment"  # Apartamento / Edificio
+    OFFICE = "office"        # Oficina
+    OTHER = "other"          # Otro
+
+
 class GeoPoint(BaseModel):
     """GeoJSON Point for coordinates."""
 
@@ -91,6 +100,13 @@ class DeliveryAddress(BaseModel):
     city: Optional[str] = None
     reference: Optional[str] = None
     coordinates: GeoPoint
+
+    # Delivery instruction fields (Uber Eats / Glovo style)
+    addressType: AddressType = AddressType.HOUSE
+    buildingName: Optional[str] = None       # Nombre del edificio/conjunto
+    floor: Optional[str] = None              # Piso (ej: "3", "PB")
+    apartment: Optional[str] = None          # Número de apartamento (ej: "3B")
+    deliveryInstructions: Optional[str] = None  # Instrucciones libres (ej: "Tocar timbre 2 veces")
 
 
 class PickupAddress(BaseModel):

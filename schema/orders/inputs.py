@@ -1,10 +1,21 @@
 """GraphQL input types for Orders."""
 
+from enum import Enum
 from typing import List, Optional
 
 import strawberry
 
 from .types import OrderStatusEnum
+
+
+@strawberry.enum
+class AddressTypeInput(Enum):
+    """Type of delivery address location."""
+
+    HOUSE = "house"
+    APARTMENT = "apartment"
+    OFFICE = "office"
+    OTHER = "other"
 
 
 @strawberry.input
@@ -20,6 +31,12 @@ class DeliveryAddressInput:
     longitude: float
     city: Optional[str] = None
     reference: Optional[str] = None
+    # Delivery instruction fields (Uber Eats / Glovo style)
+    addressType: AddressTypeInput = AddressTypeInput.HOUSE
+    buildingName: Optional[str] = None      # Nombre del edificio/conjunto
+    floor: Optional[str] = None             # Piso (ej: "3", "PB")
+    apartment: Optional[str] = None         # Número de apartamento (ej: "3B")
+    deliveryInstructions: Optional[str] = None  # Instrucciones libres (ej: "Tocar timbre 2 veces")
 
 
 @strawberry.input
