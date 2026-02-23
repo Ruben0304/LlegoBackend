@@ -1,10 +1,10 @@
-"""Error analysis service using Gemini AI."""
+"""Error analysis service using DeepSeek AI."""
 import re
 import json
 import asyncio
 from typing import Optional, Dict, Any
 
-from clients import get_gemini_client
+from openai import OpenAI
 from core.config import settings
 from domain.error_logs import GeminiAnalysis
 
@@ -68,10 +68,19 @@ Criterios de severidad:
 
 
 class ErrorAnalysisService:
-    """Service for analyzing errors using Gemini AI."""
+    """Service for analyzing errors using DeepSeek AI."""
 
     def __init__(self):
-        self.model_name = settings.gemini_model
+        if not settings.deepseek_api_key:
+            raise RuntimeError(
+                "DeepSeek API key not configured. Set DEEPSEEK_API_KEY in environment variables."
+            )
+
+        self.client = OpenAI(
+            api_key=settings.deepseek_api_key,
+            base_url=settings.deepseek_base_url
+        )
+        self.model_name = settings.deepseek_model
 
     def _build_prompt(
         self,
@@ -101,25 +110,37 @@ class ErrorAnalysisService:
         http_method: Optional[str] = None,
         source: str = "backend"
     ) -> Optional[GeminiAnalysis]:
-        """Analyze an error using Gemini AI."""
+        """Analyze an error using DeepSeek AI."""
         try:
-            client = get_gemini_client()
             prompt = self._build_prompt(
                 error_type, error_message, stack_trace,
                 endpoint, http_method, source
             )
 
+            # Use OpenAI client with DeepSeek
             response = await asyncio.to_thread(
-                client.models.generate_content,
+                self.client.chat.completions.create,
                 model=self.model_name,
-                contents=prompt
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "Eres un asistente experto en análisis de errores de aplicaciones Python/FastAPI. "
+                            "Responde ÚNICAMENTE con un JSON válido (sin markdown, sin explicaciones adicionales)."
+                        )
+                    },
+                    {"role": "user", "content": prompt}
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.7,
+                max_tokens=2000
             )
 
-            if not response.text:
+            if not response.choices or not response.choices[0].message.content:
                 return None
 
             # Parse JSON response
-            text = response.text.strip()
+            text = response.choices[0].message.content.strip()
             # Remove markdown code blocks if present
             if text.startswith("```"):
                 text = re.sub(r'^```(?:json)?\n?', '', text)
@@ -129,7 +150,7 @@ class ErrorAnalysisService:
             return GeminiAnalysis(**data)
 
         except Exception as e:
-            print(f"Error analyzing with Gemini: {e}")
+            print(f"Error analyzing with DeepSeek: {e}")
             return None
 
     async def analyze_and_update(self, error_id: str, error_data: Dict[str, Any]) -> None:
@@ -163,7 +184,7 @@ class ErrorAnalysisService:
                     severity=analysis.severidad
                 )
             else:
-                print(f"⚠️ No analysis returned from Gemini")
+                print(f"⚠️ No analysis returned from DeepSeek")
 
         except Exception as e:
             print(f"❌ Error in background analysis for {error_id}: {e}")

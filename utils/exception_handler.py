@@ -82,7 +82,7 @@ async def log_exception(
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """
     Global exception handler that captures all unhandled exceptions.
-    Logs to MongoDB and triggers Gemini analysis in background.
+    Logs to MongoDB and triggers DeepSeek analysis in background.
     """
     try:
         error_id = await log_exception(request, exc)
