@@ -7,7 +7,10 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git push)",
-      "Bash(git config:*)"
+      "Bash(git config:*)",
+      "Bash(.venv/bin/pip show:*)",
+      "Bash(pip3 uninstall:*)",
+      "Bash(pip3 install:*)"
     ]
   }
 }
