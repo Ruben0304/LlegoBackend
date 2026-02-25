@@ -82,16 +82,12 @@ class CustomContext(BaseContext):
         return getattr(self, key, default)
 
 
-async def get_graphql_context(**kwargs) -> CustomContext:
+async def get_graphql_context(request=None, response=None, websocket=None) -> CustomContext:
     """Provide a custom context for resolvers with DataLoaders.
 
     Supports both HTTP (request/response) and WebSocket connections.
-    Strawberry will inject the appropriate parameters (request, response, websocket).
+    Strawberry will inject the appropriate parameters based on connection type.
     """
-    request = kwargs.get("request")
-    response = kwargs.get("response")
-    websocket = kwargs.get("websocket")
-
     # Determine if request is actually a WebSocket
     if isinstance(request, WebSocket):
         websocket = request
