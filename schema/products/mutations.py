@@ -67,6 +67,13 @@ class ProductMutation:
             branch = branches[0]
             target_branch_id = branch.id
 
+        # Validate categoryId if provided
+        if input.categoryId:
+            from repositories import product_categories_repo
+            category = await product_categories_repo.get_by_id(input.categoryId)
+            if not category:
+                raise Exception(f"Categoría con ID '{input.categoryId}' no encontrada")
+
         # Create product
         product_id = str(ObjectId())
         product = Product(
@@ -114,6 +121,13 @@ class ProductMutation:
 
         # Verify user has access to the branch
         await access_checker.require_branch_access(user_id, product.branchId)
+
+        # Validate categoryId if provided
+        if input.categoryId is not None:
+            from repositories import product_categories_repo
+            category = await product_categories_repo.get_by_id(input.categoryId)
+            if not category:
+                raise Exception(f"Categoría con ID '{input.categoryId}' no encontrada")
 
         # Build updates dict from input
         updates = {}

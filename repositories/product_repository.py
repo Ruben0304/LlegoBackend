@@ -470,7 +470,9 @@ class ProductRepository:
 
         # Apply feed category filtering
         from repositories import product_categories_repo
+        import logging
 
+        logger = logging.getLogger(__name__)
         filtered_products = []
 
         for product in products:
@@ -482,8 +484,19 @@ class ProductRepository:
                 continue
 
             # Get product category
-            category = await product_categories_repo.get_by_id(product.categoryId)
+            try:
+                category = await product_categories_repo.get_by_id(product.categoryId)
+            except Exception as e:
+                logger.warning(
+                    f"Error fetching category {product.categoryId} for product {product.id}: {e}"
+                )
+                category = None
+
             if not category:
+                # Log warning about invalid category
+                logger.warning(
+                    f"Product {product.id} ({product.name}) has invalid categoryId: {product.categoryId}"
+                )
                 # If category not found, include only if no specific tipo requested
                 if not requested_branch_tipo:
                     filtered_products.append(product)
