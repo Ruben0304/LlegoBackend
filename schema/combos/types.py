@@ -1,6 +1,7 @@
 """GraphQL type definitions for Combo entity."""
 
 from datetime import datetime
+from enum import Enum
 from typing import Annotated, List, Optional
 
 import strawberry
@@ -55,7 +56,7 @@ class ComboSlotType:
 
 
 @strawberry.enum
-class DiscountType(str):
+class DiscountType(Enum):
     """Tipo de descuento aplicable al combo."""
 
     NONE = "none"
