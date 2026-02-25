@@ -1,11 +1,12 @@
 import logging
-from typing import Optional
+from typing import Optional, Union
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, Response
 from slowapi.errors import RateLimitExceeded
+from starlette.websockets import WebSocket
 from strawberry.fastapi import BaseContext, GraphQLRouter
 
 from api import router
@@ -55,16 +56,21 @@ app.add_middleware(
 
 
 class CustomContext(BaseContext):
-    """Custom GraphQL context with DataLoaders and auth info."""
+    """Custom GraphQL context with DataLoaders and auth info.
+
+    Supports both HTTP (Request/Response) and WebSocket connections.
+    """
 
     def __init__(
         self,
         request: Optional[Request] = None,
         response: Optional[Response] = None,
+        websocket: Optional[WebSocket] = None,
     ):
         super().__init__()
         self.request = request
         self.response = response
+        self.websocket = websocket
         self.user_id: Optional[str] = None
         self.user_role: Optional[str] = None
         # Add DataLoaders as attributes
@@ -76,12 +82,26 @@ class CustomContext(BaseContext):
         return getattr(self, key, default)
 
 
-async def get_graphql_context(
-    request: Request,
-    response: Response,
-) -> CustomContext:
-    """Provide a custom context for resolvers with DataLoaders."""
-    return CustomContext(request=request, response=response)
+async def get_graphql_context(**kwargs) -> CustomContext:
+    """Provide a custom context for resolvers with DataLoaders.
+
+    Supports both HTTP (request/response) and WebSocket connections.
+    Strawberry will inject the appropriate parameters (request, response, websocket).
+    """
+    request = kwargs.get("request")
+    response = kwargs.get("response")
+    websocket = kwargs.get("websocket")
+
+    # Determine if request is actually a WebSocket
+    if isinstance(request, WebSocket):
+        websocket = request
+        request = None
+
+    return CustomContext(
+        request=request,
+        response=response,
+        websocket=websocket
+    )
 
 
 # Mount GraphQL router

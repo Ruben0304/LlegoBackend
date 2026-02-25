@@ -1,6 +1,7 @@
 """REST endpoints for user operations."""
 
 from io import BytesIO
+from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 
@@ -26,7 +27,7 @@ ALLOWED_IMAGE_TYPES = {
 MAX_AVATAR_SIZE = 10 * 1024 * 1024  # 10MB
 
 
-def validate_image_signature(content: bytes) -> str | None:
+def validate_image_signature(content: bytes) -> Optional[str]:
     """Validate image by checking magic bytes."""
     if len(content) < 12:
         return None

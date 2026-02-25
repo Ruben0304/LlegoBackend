@@ -72,15 +72,15 @@ class ErrorAnalysisService:
 
     def __init__(self):
         if not settings.deepseek_api_key:
-            raise RuntimeError(
-                "DeepSeek API key not configured. Set DEEPSEEK_API_KEY in environment variables."
+            print("⚠ DeepSeek API key not configured. Error analysis will be disabled.")
+            self.client = None
+            self.model_name = None
+        else:
+            self.client = OpenAI(
+                api_key=settings.deepseek_api_key,
+                base_url=settings.deepseek_base_url
             )
-
-        self.client = OpenAI(
-            api_key=settings.deepseek_api_key,
-            base_url=settings.deepseek_base_url
-        )
-        self.model_name = settings.deepseek_model
+            self.model_name = settings.deepseek_model
 
     def _build_prompt(
         self,
@@ -111,6 +111,10 @@ class ErrorAnalysisService:
         source: str = "backend"
     ) -> Optional[GeminiAnalysis]:
         """Analyze an error using DeepSeek AI."""
+        # Skip if DeepSeek is not configured
+        if not self.client:
+            return None
+
         try:
             prompt = self._build_prompt(
                 error_type, error_message, stack_trace,

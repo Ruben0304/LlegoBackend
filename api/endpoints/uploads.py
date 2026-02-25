@@ -4,6 +4,7 @@ The actual data persistence happens via GraphQL mutations.
 """
 
 from io import BytesIO
+from typing import Optional
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
@@ -82,7 +83,7 @@ VIDEO_SIGNATURES = {
 }
 
 
-def validate_image_signature(content: bytes) -> str | None:
+def validate_image_signature(content: bytes) -> Optional[str]:
     """
     Validate image by checking magic bytes (file signature).
     Returns detected MIME type or None if invalid.
@@ -112,7 +113,7 @@ def validate_image_signature(content: bytes) -> str | None:
     return None
 
 
-def validate_3d_model_signature(content: bytes, filename: str) -> str | None:
+def validate_3d_model_signature(content: bytes, filename: str) -> Optional[str]:
     """
     Validate 3D model by checking magic bytes and file extension.
     Returns detected MIME type or None if invalid.
@@ -140,7 +141,7 @@ def validate_3d_model_signature(content: bytes, filename: str) -> str | None:
     return None
 
 
-def validate_video_signature(content: bytes, filename: str) -> str | None:
+def validate_video_signature(content: bytes, filename: str) -> Optional[str]:
     """
     Validate video by checking magic bytes and file extension.
     Returns detected MIME type or None if invalid.
