@@ -12,10 +12,7 @@ class UserIdExtension(SchemaExtension):
 
     def on_request_end(self) -> None:
         context = self.execution_context.context
-        if not isinstance(context, dict):
-            return
-
-        user_id = context.get("user_id")
+        user_id = context.get("user_id") if isinstance(context, dict) else getattr(context, "user_id", None)
         if not user_id or not self.execution_context.result:
             return
 
@@ -34,7 +31,7 @@ class ErrorLoggingExtension(SchemaExtension):
             return
 
         context = self.execution_context.context
-        request = context.get("request") if isinstance(context, dict) else None
+        request = context.get("request") if isinstance(context, dict) else getattr(context, "request", None)
 
         for error in result.errors:
             # Skip client errors (validation, etc)
@@ -69,7 +66,7 @@ class ErrorLoggingExtension(SchemaExtension):
 
                 user_agent = request.headers.get("user-agent")
 
-            user_id = context.get("user_id") if isinstance(context, dict) else None
+            user_id = context.get("user_id") if isinstance(context, dict) else getattr(context, "user_id", None)
 
             error_data = {
                 "error_type": type(original).__name__,

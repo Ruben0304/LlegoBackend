@@ -11,7 +11,9 @@
       "Bash(.venv/bin/pip show:*)",
       "Bash(pip3 uninstall:*)",
       "Bash(pip3 install:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(python3:*)",
+      "Bash(python:*)"
     ]
   }
 }

@@ -19,6 +19,9 @@ def apply_optional_jwt(jwt: Optional[str], info: Info) -> Optional[str]:
     if isinstance(info.context, dict):
         info.context["user_id"] = user_id
         info.context["user_role"] = payload.get("role")
+    else:
+        info.context.user_id = user_id
+        info.context.user_role = payload.get("role")
     return user_id
 
 
