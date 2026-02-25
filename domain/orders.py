@@ -73,15 +73,59 @@ class GeoPoint(BaseModel):
     coordinates: List[float]  # [longitude, latitude]
 
 
-class OrderItem(BaseModel):
-    """Item in an order (snapshot at order creation time)."""
+class OrderComboModifier(BaseModel):
+    """Modificador aplicado a un producto en un combo."""
+
+    name: str
+    priceAdjustment: float
+
+
+class OrderComboSelectedOption(BaseModel):
+    """Opción seleccionada por el cliente en un combo."""
 
     productId: str
     name: str
     price: float
     quantity: int
-    imageUrl: str
+    priceAdjustment: float
+    modifiers: List[OrderComboModifier] = []
+
+
+class OrderComboSelection(BaseModel):
+    """Selección hecha por el cliente en un slot del combo."""
+
+    slotId: str
+    slotName: str
+    selectedOptions: List[OrderComboSelectedOption]
+
+
+class OrderItem(BaseModel):
+    """Item in an order (can be a product or combo)."""
+
+    itemId: str  # productId o comboId
+    itemType: str = "product"  # "product" | "combo"
+    name: str
+    basePrice: float  # Precio base (para combos, suma de productos)
+    finalPrice: float  # Precio final con ajustes y descuentos
+    quantity: int
+    imageUrl: Optional[str] = None
     wasModifiedByStore: bool = False
+
+    # Solo para combos
+    comboSelections: Optional[List[OrderComboSelection]] = None
+    discountType: Optional[str] = None  # "none" | "percentage" | "fixed"
+    discountValue: Optional[float] = None
+
+    # Mantener compatibilidad con órdenes antiguas (productos simples)
+    @property
+    def productId(self) -> str:
+        """Alias para compatibilidad."""
+        return self.itemId
+
+    @property
+    def price(self) -> float:
+        """Alias para compatibilidad."""
+        return self.finalPrice
 
 
 class OrderDiscount(BaseModel):

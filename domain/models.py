@@ -699,6 +699,73 @@ class Tutorial(BaseModel):
         json_encoders = {datetime: lambda v: v.isoformat()}
 
 
+class ComboModifier(BaseModel):
+    """Modificador para un producto dentro del combo (ej: sin cebolla, extra queso)."""
+
+    name: str
+    priceAdjustment: float = 0.0  # Costo adicional/descuento
+
+
+class ComboOption(BaseModel):
+    """Producto seleccionable dentro de un slot del combo."""
+
+    productId: str
+    isDefault: bool = False  # Opción pre-seleccionada
+    priceAdjustment: float = 0.0  # Costo extra si elige esta opción
+    availableModifiers: List[ComboModifier] = []  # Modificadores permitidos
+
+
+class ComboSlot(BaseModel):
+    """Listado de productos a elegir (nombre libre definido por el negocio)."""
+
+    id: str  # UUID generado
+    name: str  # "Plato Fuerte", "Batidos", "Entrantes" (escrito por el negocio)
+    description: Optional[str] = None
+
+    # Productos disponibles (pueden ser de diferentes categorías)
+    options: List[ComboOption]
+
+    # Reglas de selección
+    minSelections: int = 1  # Mínimo a elegir
+    maxSelections: int = 1  # Máximo a elegir
+    isRequired: bool = True
+
+    displayOrder: int = 0  # Orden de visualización
+
+
+class Combo(BaseModel):
+    """
+    Combo personalizable de productos.
+    El precio se calcula sumando los productos elegidos.
+    El negocio puede aplicar descuento en % o cantidad fija.
+    """
+
+    id: str = Field(alias="_id")
+    branchId: str
+    name: str
+    description: str
+    image: Optional[str] = None  # OPCIONAL - si no existe, frontend genera composición
+
+    # Slots (listados de productos)
+    slots: List[ComboSlot]
+
+    # Discount (solo uno aplica)
+    discountType: str = "none"  # "none" | "percentage" | "fixed"
+    discountValue: float = 0.0  # Valor del descuento (% o cantidad fija)
+
+    currency: str = "USD"
+
+    # Metadata
+    availability: bool = True
+    categoryId: Optional[str] = None  # Categoría del combo (opcional)
+    createdAt: datetime = Field(default_factory=datetime.utcnow)
+    updatedAt: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat()}
+
+
 __all__ = [
     "User",
     "SavedAddress",
@@ -734,4 +801,8 @@ __all__ = [
     "DraftOrderItem",
     "BranchLike",
     "Tutorial",
+    "ComboModifier",
+    "ComboOption",
+    "ComboSlot",
+    "Combo",
 ]

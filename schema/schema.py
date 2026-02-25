@@ -19,6 +19,8 @@ from .business_types.queries import BusinessTypeQuery
 from .businesses.mutations import BusinessMutation
 from .businesses.queries import BusinessQuery
 from .categories.queries import CategoryQuery
+from .combos.mutations import ComboMutation
+from .combos.queries import ComboQuery
 from .extensions import ErrorLoggingExtension, UserIdExtension
 from .favorites_cart.mutations import FavoritesCartMutation
 from .feed.queries import FeedQuery
@@ -54,6 +56,7 @@ class Query(
     ProductQuery,
     CategoryQuery,
     ProductCategoryQuery,
+    ComboQuery,
     AiAssistantQuery,
     OrderQuery,
     BusinessTypeQuery,
@@ -85,6 +88,7 @@ class Mutation(
     BusinessMutation,
     BranchMutation,
     ProductMutation,
+    ComboMutation,
     OrderMutation,
     BusinessTypeMutation,
     PaymentMutation,

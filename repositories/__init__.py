@@ -13,6 +13,7 @@ from .business_repository import BusinessRepository
 from .business_type_repository import BusinessTypeRepository, business_type_repo
 from .category_repository import CategoryRepository
 from .chat_memory_repository import ChatMemoryRepository
+from .combo_repository import ComboRepository, combos_repo
 from .delivery_zone_repository import DeliveryZoneRepository
 from .device_token_repository import DeviceTokenRepository, device_token_repo
 from .draft_order_repository import DraftOrderRepository
@@ -144,4 +145,6 @@ __all__ = [
     "platform_repo",
     "ShortcutTransferRepository",
     "shortcut_transfers_repo",
+    "ComboRepository",
+    "combos_repo",
 ]
