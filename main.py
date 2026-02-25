@@ -1,11 +1,12 @@
 import logging
+from typing import Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, Response
 from slowapi.errors import RateLimitExceeded
-from strawberry.fastapi import GraphQLRouter
+from strawberry.fastapi import BaseContext, GraphQLRouter
 
 from api import router
 from clients import lifespan
@@ -53,15 +54,34 @@ app.add_middleware(
 )
 
 
-async def get_graphql_context(request: Request, response: Response) -> dict:
-    """Provide a mutable context for resolvers with DataLoaders."""
-    return {
-        "request": request,
-        "response": response,
-        "user_id": None,
-        "user_role": None,
-        **create_dataloaders(),  # Add DataLoaders to context
-    }
+class CustomContext(BaseContext):
+    """Custom GraphQL context with DataLoaders and auth info."""
+
+    def __init__(
+        self,
+        request: Optional[Request] = None,
+        response: Optional[Response] = None,
+    ):
+        super().__init__()
+        self.request = request
+        self.response = response
+        self.user_id: Optional[str] = None
+        self.user_role: Optional[str] = None
+        # Add DataLoaders as attributes
+        for key, value in create_dataloaders().items():
+            setattr(self, key, value)
+
+    def get(self, key: str, default=None):
+        """Provide dict-like get access for backward compatibility."""
+        return getattr(self, key, default)
+
+
+async def get_graphql_context(
+    request: Request,
+    response: Response,
+) -> CustomContext:
+    """Provide a custom context for resolvers with DataLoaders."""
+    return CustomContext(request=request, response=response)
 
 
 # Mount GraphQL router
