@@ -131,13 +131,9 @@ class ProductRecommendationService:
                 limit=limit,
             )
 
-            # Step 5: Call DeepSeek AI with Structured Outputs
+            # Step 5: Call DeepSeek AI with JSON mode
             print(f"🤖 Calling DeepSeek for recommendations (limit={limit})...")
-            print(f"   Using Structured Outputs with strict JSON schema validation")
-
-            # Build JSON schema from Pydantic model for strict validation
-            schema = ProductRecommendationsResponse.model_json_schema()
-            print(f"   Schema keys: {list(schema.get('properties', {}).keys())}")
+            print(f"   Using JSON mode with Pydantic validation")
 
             response = await asyncio.to_thread(
                 self.client.chat.completions.create,
@@ -148,24 +144,12 @@ class ProductRecommendationService:
                         "content": (
                             "Eres un asistente experto en recomendaciones de productos complementarios. "
                             "Tu objetivo es sugerir productos que complementen bien los items en el carrito del usuario. "
-                            "Responde ÚNICAMENTE con un JSON válido que cumpla EXACTAMENTE con el siguiente schema JSON:\n\n"
-                            f"{schema}\n\n"
-                            "CRÍTICO: La respuesta DEBE ser un objeto JSON válido con exactamente estas propiedades:\n"
-                            "- recommendations: array de objetos con product_id, product_name, reasoning\n"
-                            "- reasoning: string con explicación general\n"
-                            "NO incluyas campos adicionales ni omitas campos requeridos."
+                            "Responde ÚNICAMENTE con un JSON válido siguiendo el schema exacto proporcionado."
                         ),
                     },
                     {"role": "user", "content": prompt},
                 ],
-                response_format={
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": "product_recommendations",
-                        "strict": True,
-                        "schema": schema,
-                    },
-                },
+                response_format={"type": "json_object"},
                 temperature=0.7,
                 max_tokens=2000,
             )
