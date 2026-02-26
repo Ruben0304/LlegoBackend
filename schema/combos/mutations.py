@@ -7,7 +7,7 @@ from strawberry.types import Info
 
 from repositories import combos_repo
 from schema.combos.inputs import CreateComboInput, UpdateComboInput
-from schema.combos.types import ComboType
+from schema.combos.types import ComboType, combo_to_type
 from services.access_checker import access_checker
 from utils.graphql_auth import apply_optional_jwt
 
@@ -88,7 +88,7 @@ class ComboMutation:
         # Crear combo
         combo = await combos_repo.create(combo_data)
 
-        return ComboType(**combo.model_dump())
+        return combo_to_type(combo)
 
     @strawberry.mutation(description="Actualizar un combo existente")
     async def update_combo(
@@ -170,7 +170,7 @@ class ComboMutation:
         if not updated_combo:
             raise Exception("Error al actualizar el combo")
 
-        return ComboType(**updated_combo.model_dump())
+        return combo_to_type(updated_combo)
 
     @strawberry.mutation(description="Eliminar un combo")
     async def delete_combo(
@@ -217,4 +217,4 @@ class ComboMutation:
 
         # Obtener combo actualizado
         updated_combo = await combos_repo.get_by_id(combo_id)
-        return ComboType(**updated_combo.model_dump())
+        return combo_to_type(updated_combo)

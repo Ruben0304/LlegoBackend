@@ -2,13 +2,15 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Annotated, List, Optional
+from typing import TYPE_CHECKING, Annotated, List, Optional
 
 import strawberry
 from strawberry.types import Info
 
 from utils.s3 import generate_presigned_url
 
+if TYPE_CHECKING:
+    from domain.models import Combo
 
 @strawberry.type
 class ComboModifierType:
@@ -174,3 +176,59 @@ class ComboType:
         if branch:
             return BranchType(**branch_to_dict(branch))
         return None
+
+
+def combo_to_type(combo: "Combo") -> ComboType:
+    """Convert Combo domain model to a fully typed GraphQL ComboType."""
+    slots: List[ComboSlotType] = []
+    for slot in combo.slots:
+        options: List[ComboOptionType] = []
+        for option in slot.options:
+            options.append(
+                ComboOptionType(
+                    productId=option.productId,
+                    isDefault=option.isDefault,
+                    priceAdjustment=option.priceAdjustment,
+                    availableModifiers=[
+                        ComboModifierType(
+                            name=modifier.name,
+                            priceAdjustment=modifier.priceAdjustment,
+                        )
+                        for modifier in option.availableModifiers
+                    ],
+                )
+            )
+
+        slots.append(
+            ComboSlotType(
+                id=slot.id,
+                name=slot.name,
+                description=slot.description,
+                options=options,
+                minSelections=slot.minSelections,
+                maxSelections=slot.maxSelections,
+                isRequired=slot.isRequired,
+                displayOrder=slot.displayOrder,
+            )
+        )
+
+    try:
+        discount_type = DiscountType(combo.discountType)
+    except ValueError:
+        discount_type = DiscountType.NONE
+
+    return ComboType(
+        id=combo.id,
+        branchId=combo.branchId,
+        name=combo.name,
+        description=combo.description,
+        image=combo.image,
+        slots=slots,
+        discountType=discount_type,
+        discountValue=combo.discountValue,
+        currency=combo.currency,
+        availability=combo.availability,
+        categoryId=combo.categoryId,
+        createdAt=combo.createdAt,
+        updatedAt=combo.updatedAt,
+    )

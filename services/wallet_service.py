@@ -4,19 +4,24 @@ from datetime import datetime
 from typing import Optional, Literal, Dict
 from uuid import uuid4
 from fastapi import HTTPException
-from bson import ObjectId
 import os
+from bson import ObjectId
 
 from clients.mongodb_client import get_database
 from repositories import wallet_transactions_repo
 
 
-def _to_object_id(id_str: str):
-    """Convert string ID to ObjectId if possible, otherwise return as is."""
+def _build_id_filter(id_str: str) -> dict:
+    """Build a resilient _id filter supporting string and ObjectId ids."""
+    candidates = [id_str]
     try:
-        return ObjectId(id_str)
+        candidates.append(ObjectId(id_str))
     except Exception:
-        return id_str
+        pass
+
+    if len(candidates) == 1:
+        return {"_id": candidates[0]}
+    return {"_id": {"$in": candidates}}
 
 
 # Check if we should use transactions (only works with replica sets)
@@ -34,24 +39,24 @@ class WalletService:
         """Get wallet balance for a user or branch."""
         db = get_database()
         collection = db.users if owner_type == "user" else db.branches
-        
-        owner = await collection.find_one({"_id": _to_object_id(owner_id)})
+
+        owner = await collection.find_one(_build_id_filter(owner_id))
         if not owner:
             raise HTTPException(status_code=404, detail=f"{owner_type.capitalize()} not found")
-        
+
         # Get wallet or return default values
         wallet = owner.get("wallet", {"local": 0.00, "usd": 0.00})
-        
+
         # If wallet doesn't exist in DB, create it
         if "wallet" not in owner:
             await collection.update_one(
-                {"_id": _to_object_id(owner_id)},
+                _build_id_filter(owner_id),
                 {"$set": {
                     "wallet": {"local": 0.00, "usd": 0.00},
                     "walletStatus": "active"
                 }}
             )
-        
+
         return wallet
 
     async def transfer(
@@ -78,10 +83,10 @@ class WalletService:
         to_collection = db.users if to_owner_type == "user" else db.branches
 
         # 1. Validate sender
-        from_owner = await from_collection.find_one({"_id": _to_object_id(from_owner_id)})
+        from_owner = await from_collection.find_one(_build_id_filter(from_owner_id))
         if not from_owner:
             raise HTTPException(status_code=404, detail=f"Sender {from_owner_type} not found")
-        
+
         if from_owner.get("walletStatus") != "active":
             raise HTTPException(status_code=403, detail="Sender wallet is not active")
 
@@ -90,28 +95,27 @@ class WalletService:
             raise HTTPException(status_code=400, detail="Insufficient balance")
 
         # 2. Validate receiver
-        to_owner = await to_collection.find_one({"_id": _to_object_id(to_owner_id)})
+        to_owner = await to_collection.find_one(_build_id_filter(to_owner_id))
         if not to_owner:
             raise HTTPException(status_code=404, detail=f"Receiver {to_owner_type} not found")
-        
+
         if to_owner.get("walletStatus") != "active":
             raise HTTPException(status_code=403, detail="Receiver wallet is not active")
 
         # 3. Deduct from sender using atomic operation
+        from_filter = _build_id_filter(from_owner_id)
+        from_filter[f"wallet.{currency}"] = {"$gte": float(amount)}
         result = await from_collection.update_one(
-            {
-                "_id": _to_object_id(from_owner_id),
-                f"wallet.{currency}": {"$gte": float(amount)}
-            },
+            from_filter,
             {"$inc": {f"wallet.{currency}": -float(amount)}}
         )
-        
+
         if result.modified_count == 0:
             raise HTTPException(status_code=400, detail="Insufficient balance or concurrent modification")
 
         # 4. Add to receiver
         await to_collection.update_one(
-            {"_id": _to_object_id(to_owner_id)},
+            _build_id_filter(to_owner_id),
             {"$inc": {f"wallet.{currency}": float(amount)}}
         )
 
@@ -132,7 +136,7 @@ class WalletService:
             "createdAt": datetime.utcnow(),
             "completedAt": datetime.utcnow()
         }
-        
+
         await db.wallet_transactions.insert_one(transaction)
 
         return {
@@ -166,16 +170,16 @@ class WalletService:
         collection = db.users if owner_type == "user" else db.branches
 
         # Validate owner exists and wallet is active
-        owner = await collection.find_one({"_id": _to_object_id(owner_id)})
+        owner = await collection.find_one(_build_id_filter(owner_id))
         if not owner:
             raise HTTPException(status_code=404, detail=f"{owner_type.capitalize()} not found")
-        
+
         if owner.get("walletStatus") != "active":
             raise HTTPException(status_code=403, detail="Wallet is not active")
 
         # Add to wallet
         await collection.update_one(
-            {"_id": _to_object_id(owner_id)},
+            _build_id_filter(owner_id),
             {"$inc": {f"wallet.{currency}": float(amount)}}
         )
 
@@ -196,7 +200,7 @@ class WalletService:
             "createdAt": datetime.utcnow(),
             "completedAt": datetime.utcnow()
         }
-        
+
         await db.wallet_transactions.insert_one(transaction)
 
         return {
@@ -228,10 +232,10 @@ class WalletService:
         collection = db.users if owner_type == "user" else db.branches
 
         # Validate and deduct from wallet
-        owner = await collection.find_one({"_id": _to_object_id(owner_id)})
+        owner = await collection.find_one(_build_id_filter(owner_id))
         if not owner:
             raise HTTPException(status_code=404, detail=f"{owner_type.capitalize()} not found")
-        
+
         if owner.get("walletStatus") != "active":
             raise HTTPException(status_code=403, detail="Wallet is not active")
 
@@ -240,14 +244,13 @@ class WalletService:
             raise HTTPException(status_code=400, detail="Insufficient balance")
 
         # Deduct from wallet
+        owner_filter = _build_id_filter(owner_id)
+        owner_filter[f"wallet.{currency}"] = {"$gte": float(amount)}
         result = await collection.update_one(
-            {
-                "_id": _to_object_id(owner_id),
-                f"wallet.{currency}": {"$gte": float(amount)}
-            },
+            owner_filter,
             {"$inc": {f"wallet.{currency}": -float(amount)}}
         )
-        
+
         if result.modified_count == 0:
             raise HTTPException(status_code=400, detail="Insufficient balance or concurrent modification")
 
@@ -268,7 +271,7 @@ class WalletService:
             "createdAt": datetime.utcnow(),
             "completedAt": None
         }
-        
+
         await db.wallet_transactions.insert_one(transaction)
 
         return {
@@ -306,15 +309,15 @@ class WalletService:
         """Freeze a wallet (admin operation)."""
         db = get_database()
         collection = db.users if owner_type == "user" else db.branches
-        
+
         result = await collection.update_one(
-            {"_id": _to_object_id(owner_id)},
+            _build_id_filter(owner_id),
             {"$set": {"walletStatus": "frozen"}}
         )
-        
+
         if result.modified_count == 0:
             raise HTTPException(status_code=404, detail=f"{owner_type.capitalize()} not found")
-        
+
         return {"status": "frozen", "owner_id": owner_id}
 
     async def unfreeze_wallet(
@@ -325,15 +328,15 @@ class WalletService:
         """Unfreeze a wallet (admin operation)."""
         db = get_database()
         collection = db.users if owner_type == "user" else db.branches
-        
+
         result = await collection.update_one(
-            {"_id": _to_object_id(owner_id)},
+            _build_id_filter(owner_id),
             {"$set": {"walletStatus": "active"}}
         )
-        
+
         if result.modified_count == 0:
             raise HTTPException(status_code=404, detail=f"{owner_type.capitalize()} not found")
-        
+
         return {"status": "active", "owner_id": owner_id}
 
 

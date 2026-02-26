@@ -6,7 +6,7 @@ import strawberry
 from strawberry.types import Info
 
 from repositories import combos_repo
-from schema.combos.types import ComboType
+from schema.combos.types import ComboType, combo_to_type
 
 
 @strawberry.type
@@ -16,7 +16,7 @@ class ComboQuery:
         """Obtiene un combo específico por su ID."""
         combo = await combos_repo.get_by_id(combo_id)
         if combo:
-            return ComboType(**combo.model_dump())
+            return combo_to_type(combo)
         return None
 
     @strawberry.field(description="Obtener todos los combos de una sucursal")
@@ -28,7 +28,7 @@ class ComboQuery:
         Por defecto solo devuelve combos disponibles.
         """
         combos = await combos_repo.get_by_branch(branch_id, available_only)
-        return [ComboType(**combo.model_dump()) for combo in combos]
+        return [combo_to_type(combo) for combo in combos]
 
     @strawberry.field(description="Obtener todos los combos")
     async def all_combos(self, available_only: bool = False) -> List[ComboType]:
@@ -37,4 +37,4 @@ class ComboQuery:
         Útil para administradores.
         """
         combos = await combos_repo.get_all(available_only)
-        return [ComboType(**combo.model_dump()) for combo in combos]
+        return [combo_to_type(combo) for combo in combos]
