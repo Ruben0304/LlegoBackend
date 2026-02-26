@@ -74,13 +74,27 @@ class ProductRecommendationService:
                 f"🏪 Using branch ID: {first_branch_id} (from product: {cart_products[0].name})"
             )
 
-            # Step 3: Get ALL products from the same branch (only names, no descriptions)
+            # Step 3: Get ALL products from the same branch (DIRECT MongoDB query, NO cache)
             print(f"📦 Fetching all products from branch {first_branch_id}...")
-            all_branch_products = await products_repo.get_by_branch(first_branch_id)
+            print(f"   Using DIRECT MongoDB query (bypassing cache)")
+
+            # Query MongoDB directly without cache
+            from clients import get_database
+            from domain.models import Product
+
+            db = get_database()
+            cursor = db["products"].find({"branchId": first_branch_id})
+            documents = await cursor.to_list(length=None)
+            all_branch_products = [Product(**doc) for doc in documents]
+
             print(f"   Total products in branch: {len(all_branch_products)}")
 
             if all_branch_products:
                 print(f"   First 3 products: {[p.name for p in all_branch_products[:3]]}")
+            else:
+                print(
+                    f"   ⚠️ WARNING: No products found in MongoDB for branch {first_branch_id}"
+                )
 
             # If no products in branch, return empty recommendations
             if not all_branch_products or len(all_branch_products) == 0:
