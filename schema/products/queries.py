@@ -329,3 +329,57 @@ class ProductQuery:
         )
 
         return ProductConnection(edges=edges, page_info=page_info)
+
+    @strawberry.field(
+        description="Obtener recomendaciones de productos complementarios basadas en items del carrito"
+    )
+    async def product_recommendations(
+        self,
+        info: Info,
+        product_ids: List[str],
+        limit: int = 5,
+        jwt: Optional[str] = None,
+    ) -> Optional["ProductRecommendationsResponseType"]:
+        """
+        Get AI-powered complementary product recommendations.
+
+        Args:
+            product_ids: List of product IDs currently in the cart
+            limit: Maximum number of recommendations to return (default: 5)
+            jwt: Optional JWT for authenticated requests
+
+        Returns:
+            ProductRecommendationsResponseType with recommendations, or None if unavailable
+        """
+        from schema.products.types import (
+            ProductRecommendationType,
+            ProductRecommendationsResponseType,
+        )
+        from services.product_recommendation_service import (
+            product_recommendation_service,
+        )
+
+        apply_optional_jwt(jwt, info)
+        rate_limit_graphql(info, "ai")
+
+        # Call the AI service
+        recommendations = await product_recommendation_service.get_recommendations(
+            product_ids=product_ids, limit=limit
+        )
+
+        if not recommendations:
+            return None
+
+        # Convert Pydantic model to Strawberry types
+        strawberry_recommendations = [
+            ProductRecommendationType(
+                product_id=rec.product_id,
+                product_name=rec.product_name,
+                reasoning=rec.reasoning,
+            )
+            for rec in recommendations.recommendations
+        ]
+
+        return ProductRecommendationsResponseType(
+            recommendations=strawberry_recommendations, reasoning=recommendations.reasoning
+        )

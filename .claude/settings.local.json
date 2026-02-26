@@ -13,7 +13,9 @@
       "Bash(pip3 install:*)",
       "Bash(curl:*)",
       "Bash(python3:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(\"/Users/ruben/projects/Llego Org/LlegoBackend/schema/products/types.py\":*)",
+      "Bash(\"/Users/ruben/projects/Llego Org/LlegoBackend/schema/products/queries.py\":*)"
     ]
   }
 }

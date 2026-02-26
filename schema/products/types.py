@@ -231,3 +231,30 @@ class ScoredProductType:
         if business_data:
             return BusinessType(**business_data.model_dump())
         return None
+
+
+@strawberry.type
+class ProductRecommendationType:
+    """Single product recommendation with reasoning."""
+
+    product_id: str
+    product_name: str
+    reasoning: str
+
+    @strawberry.field(description="Full product details")
+    async def product(self, info: Info) -> Optional[ProductType]:
+        """Resolve the full product details."""
+        from repositories import products_repo
+
+        product_data = await products_repo.get_by_id(self.product_id)
+        if product_data:
+            return ProductType(**product_data.model_dump())
+        return None
+
+
+@strawberry.type
+class ProductRecommendationsResponseType:
+    """AI-powered complementary product recommendations."""
+
+    recommendations: list[ProductRecommendationType]
+    reasoning: str

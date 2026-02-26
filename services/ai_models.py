@@ -143,3 +143,24 @@ class SearchContext(BaseModel):
     products: List[dict] = Field(default_factory=list)
     branches: List[dict] = Field(default_factory=list)
     businesses: List[dict] = Field(default_factory=list)
+
+
+# ============================================================================
+# Product Recommendations (Cart Complementary Items)
+# ============================================================================
+
+class ProductRecommendation(BaseModel):
+    """Single product recommendation with reasoning."""
+    product_id: str = Field(description="MongoDB ID of the recommended product")
+    product_name: str = Field(description="Name of the recommended product")
+    reasoning: str = Field(description="Brief explanation why this product complements the cart items")
+
+
+class ProductRecommendationsResponse(BaseModel):
+    """AI response with complementary product recommendations."""
+    recommendations: List[ProductRecommendation] = Field(
+        description="List of recommended product IDs with reasoning"
+    )
+    reasoning: str = Field(
+        description="Overall explanation of the recommendation strategy"
+    )
