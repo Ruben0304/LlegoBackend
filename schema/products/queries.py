@@ -18,7 +18,11 @@ from services.scoring_service import scoring_service
 from utils.graphql_auth import apply_optional_jwt
 from utils.rate_limit import rate_limit_graphql
 
-from .types import ProductType, ScoredProductType
+from .types import (
+    ProductRecommendationsResponseType,
+    ProductType,
+    ScoredProductType,
+)
 
 
 @strawberry.type
@@ -339,7 +343,7 @@ class ProductQuery:
         product_ids: List[str],
         limit: int = 5,
         jwt: Optional[str] = None,
-    ) -> Optional["ProductRecommendationsResponseType"]:
+    ) -> Optional[ProductRecommendationsResponseType]:
         """
         Get AI-powered complementary product recommendations.
 
@@ -351,10 +355,7 @@ class ProductQuery:
         Returns:
             ProductRecommendationsResponseType with recommendations, or None if unavailable
         """
-        from schema.products.types import (
-            ProductRecommendationType,
-            ProductRecommendationsResponseType,
-        )
+        from schema.products.types import ProductRecommendationType
         from services.product_recommendation_service import (
             product_recommendation_service,
         )
