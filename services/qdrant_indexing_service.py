@@ -84,7 +84,8 @@ class QdrantIndexingService:
             return True
 
         except Exception as e:
-            logger.error(f"[Qdrant] ✗ Error indexing product {product.name}: {e}")
+            logger.error(f"[Qdrant] ✗ Error indexing product {product.name}: {type(e).__name__}: {str(e)}")
+            logger.debug(f"Full traceback:", exc_info=True)
             return False
 
     async def index_branch(self, branch: Branch) -> bool:
@@ -138,7 +139,8 @@ class QdrantIndexingService:
             return True
 
         except Exception as e:
-            logger.error(f"[Qdrant] ✗ Error indexing branch {branch.name}: {e}")
+            logger.error(f"[Qdrant] ✗ Error indexing branch {branch.name}: {type(e).__name__}: {str(e)}")
+            logger.debug(f"Full traceback:", exc_info=True)
             return False
 
     async def index_business(self, business: Business) -> bool:
@@ -191,7 +193,8 @@ class QdrantIndexingService:
             return True
 
         except Exception as e:
-            logger.error(f"[Qdrant] ✗ Error indexing business {business.name}: {e}")
+            logger.error(f"[Qdrant] ✗ Error indexing business {business.name}: {type(e).__name__}: {str(e)}")
+            logger.debug(f"Full traceback:", exc_info=True)
             return False
 
     async def delete_product(self, product_id: str) -> bool:

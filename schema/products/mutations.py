@@ -2,6 +2,7 @@
 import strawberry
 from typing import Optional
 from datetime import datetime
+import asyncio
 from strawberry.types import Info
 from bson import ObjectId
 
@@ -93,8 +94,8 @@ class ProductMutation:
         # Step 1: Create in MongoDB first
         created_product = await products_repo.create(product)
 
-        # Step 2: Index in Qdrant with the MongoDB ID
-        await qdrant_indexing_service.index_product(created_product)
+        # Step 2: Index in Qdrant in background (non-blocking)
+        asyncio.create_task(qdrant_indexing_service.index_product(created_product))
 
         return ProductType(**created_product.model_dump())
 

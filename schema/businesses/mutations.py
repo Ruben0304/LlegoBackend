@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import List, Optional
+import asyncio
 
 import strawberry
 from bson import ObjectId
@@ -66,11 +67,11 @@ class BusinessMutation:
         # Step 1: Create business in MongoDB first
         created_business = await businesses_repo.create(business)
 
-        # Step 2: Index in Qdrant with the MongoDB ID
-        await qdrant_indexing_service.index_business(created_business)
-
         # 2.1. Agregar businessId a la lista de businessIds del usuario
         await users_repo.add_business_id(user_id, business_id)
+
+        # Step 2: Index in Qdrant in background (non-blocking)
+        asyncio.create_task(qdrant_indexing_service.index_business(created_business))
 
         # 3. Crear Sucursales
         for branch_inp in branches_input:
@@ -133,8 +134,8 @@ class BusinessMutation:
             # Create branch in MongoDB first
             created_branch = await branches_repo.create(branch)
 
-            # Index in Qdrant with the MongoDB ID
-            await qdrant_indexing_service.index_branch(created_branch)
+            # Index in Qdrant in background (non-blocking)
+            asyncio.create_task(qdrant_indexing_service.index_branch(created_branch))
 
         # 4. Retornar negocio creado
         return BusinessType(
@@ -271,11 +272,11 @@ class BusinessMutation:
                 created_businesses.append(created_business)
                 created_business_ids.append(business_id)
 
-                # Index business in Qdrant with the MongoDB ID
-                await qdrant_indexing_service.index_business(created_business)
-
                 # 2.2. Agregar businessId a la lista de businessIds del usuario
                 await users_repo.add_business_id(user_id, business_id)
+
+                # Index business in Qdrant in background (non-blocking)
+                asyncio.create_task(qdrant_indexing_service.index_business(created_business))
 
                 # 2.3. Crear Sucursales
                 for branch_inp in branches_input:
@@ -341,8 +342,8 @@ class BusinessMutation:
                     created_branch = await branches_repo.create(branch)
                     created_branch_ids.append(branch_id)
 
-                    # Index branch in Qdrant with the MongoDB ID
-                    await qdrant_indexing_service.index_branch(created_branch)
+                    # Index branch in Qdrant in background (non-blocking)
+                    asyncio.create_task(qdrant_indexing_service.index_branch(created_branch))
 
             # 3. Retornar negocios creados
             return [

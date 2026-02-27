@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from typing import Optional
+import asyncio
 
 import strawberry
 from bson import ObjectId
@@ -93,8 +94,8 @@ class BranchMutation:
         # Step 1: Create in MongoDB first
         created_branch = await branches_repo.create(branch)
 
-        # Step 2: Index in Qdrant with the MongoDB ID
-        await qdrant_indexing_service.index_branch(created_branch)
+        # Step 2: Index in Qdrant in background (non-blocking)
+        asyncio.create_task(qdrant_indexing_service.index_branch(created_branch))
 
         # Save location to MongoDB stores_location collection
         await store_locations_repo.upsert(
