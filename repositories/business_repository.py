@@ -8,6 +8,7 @@ Hybrid repository pattern:
 from typing import List, Optional, Dict, Any
 import uuid
 
+from bson import ObjectId
 from clients import get_database, get_qdrant_client
 from domain.models import Business
 from qdrant_client.http import models as qdrant_models
@@ -26,6 +27,15 @@ class BusinessRepository:
     # RAG fields stored in Qdrant
     rag_fields = {"name", "description"}
 
+    @staticmethod
+    def _to_object_id(id_value: str):
+        """Convert string ID to ObjectId for MongoDB queries."""
+        try:
+            return ObjectId(id_value)
+        except Exception:
+            # If it's not a valid ObjectId string, return as-is
+            return id_value
+
     # --- GET Methods (MongoDB) ---
 
     async def get_all(self) -> List[Business]:
@@ -41,6 +51,13 @@ class BusinessRepository:
             db = get_database()
             cursor = db[self.mongo_collection_name].find()
             documents = await cursor.to_list(length=None)
+
+            # Ensure IDs are strings
+            for doc in documents:
+                if isinstance(doc.get("_id"), ObjectId):
+                    doc["_id"] = str(doc["_id"])
+                if isinstance(doc.get("ownerId"), ObjectId):
+                    doc["ownerId"] = str(doc["ownerId"])
 
             businesses = [Business(**doc) for doc in documents]
 
@@ -69,9 +86,18 @@ class BusinessRepository:
         try:
             print(f"→ Fetching business {business_id} from MongoDB")
             db = get_database()
-            doc = await db[self.mongo_collection_name].find_one({"_id": business_id})
+            # Try both ObjectId and string to handle mixed data
+            doc = await db[self.mongo_collection_name].find_one({
+                "$or": [
+                    {"_id": self._to_object_id(business_id)},
+                    {"_id": business_id}
+                ]
+            })
 
             if doc:
+                # Ensure _id is stored as string in the model
+                if isinstance(doc.get("_id"), ObjectId):
+                    doc["_id"] = str(doc["_id"])
                 business = Business(**doc)
                 # Cache the result
                 set_cached(cache_key, business.model_dump(), TTL_DEFAULT)
@@ -96,8 +122,20 @@ class BusinessRepository:
         try:
             print(f"→ Fetching {len(business_ids)} businesses from MongoDB")
             db = get_database()
-            cursor = db[self.mongo_collection_name].find({"_id": {"$in": business_ids}})
+            # Convert to ObjectIds and also keep original strings
+            object_ids = [self._to_object_id(bid) for bid in business_ids]
+            cursor = db[self.mongo_collection_name].find({
+                "$or": [
+                    {"_id": {"$in": object_ids}},
+                    {"_id": {"$in": business_ids}}
+                ]
+            })
             documents = await cursor.to_list(length=None)
+
+            # Ensure _id is string in models
+            for doc in documents:
+                if isinstance(doc.get("_id"), ObjectId):
+                    doc["_id"] = str(doc["_id"])
 
             businesses = [Business(**doc) for doc in documents]
 
@@ -115,8 +153,21 @@ class BusinessRepository:
         """Get businesses by owner ID from MongoDB."""
         try:
             db = get_database()
-            cursor = db[self.mongo_collection_name].find({"ownerId": owner_id})
+            # Try both ObjectId and string for ownerId
+            cursor = db[self.mongo_collection_name].find({
+                "$or": [
+                    {"ownerId": self._to_object_id(owner_id)},
+                    {"ownerId": owner_id}
+                ]
+            })
             documents = await cursor.to_list(length=None)
+
+            # Ensure IDs are strings in models
+            for doc in documents:
+                if isinstance(doc.get("_id"), ObjectId):
+                    doc["_id"] = str(doc["_id"])
+                if isinstance(doc.get("ownerId"), ObjectId):
+                    doc["ownerId"] = str(doc["ownerId"])
 
             return [Business(**doc) for doc in documents]
 
@@ -197,9 +248,14 @@ class BusinessRepository:
             if not current:
                 return None
 
-            # 1. Update MongoDB
+            # 1. Update MongoDB (try both ObjectId and string)
             await db[self.mongo_collection_name].update_one(
-                {"_id": business_id},
+                {
+                    "$or": [
+                        {"_id": self._to_object_id(business_id)},
+                        {"_id": business_id}
+                    ]
+                },
                 {"$set": updates}
             )
 
@@ -230,8 +286,13 @@ class BusinessRepository:
         try:
             db = get_database()
 
-            # 1. Delete from MongoDB
-            result = await db[self.mongo_collection_name].delete_one({"_id": business_id})
+            # 1. Delete from MongoDB (try both ObjectId and string)
+            result = await db[self.mongo_collection_name].delete_one({
+                "$or": [
+                    {"_id": self._to_object_id(business_id)},
+                    {"_id": business_id}
+                ]
+            })
 
             if result.deleted_count == 0:
                 return False
