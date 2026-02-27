@@ -266,11 +266,11 @@ class BusinessRepository:
             qdrant_client = get_qdrant_client()
 
             # First, try to find existing point
-            existing = await self._find_qdrant_point(business.id)
+            existing = await self._find_qdrant_point(str(business.id))
 
             # RAG-only payload
             payload = {
-                "mongo_id": business.id,
+                "mongo_id": str(business.id),
                 "name": business.name,
                 "description": business.description,
             }

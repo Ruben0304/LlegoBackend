@@ -424,11 +424,11 @@ class BranchRepository:
             qdrant_client = get_qdrant_client()
 
             # First, try to find existing point
-            existing = await self._find_qdrant_point(branch.id)
+            existing = await self._find_qdrant_point(str(branch.id))
 
             # RAG-only payload
             payload = {
-                "mongo_id": branch.id,
+                "mongo_id": str(branch.id),
                 "name": branch.name,
                 "tipos": branch.tipos or [],
             }
