@@ -43,6 +43,10 @@ class ProductMutation:
         business = None
 
         if input.branchId:
+            # DEBUG: Log user_id and branchId
+            print(f"[DEBUG] create_product - user_id: {user_id} (type: {type(user_id)})")
+            print(f"[DEBUG] create_product - branchId: {input.branchId}")
+
             # Verify branch exists and user has access
             await access_checker.require_branch_access(user_id, input.branchId)
 

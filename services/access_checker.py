@@ -1,12 +1,24 @@
 """Access verification service for branches and businesses."""
 from typing import Optional, Tuple
 from datetime import datetime
+from bson import ObjectId
 
 from repositories import branches_repo, businesses_repo, business_access_repo
 
 
 class AccessChecker:
     """Service to verify user access to branches and businesses."""
+
+    def _normalize_id(self, id_value: str) -> ObjectId:
+        """Convert string ID to ObjectId for comparison."""
+        if isinstance(id_value, ObjectId):
+            return id_value
+        try:
+            return ObjectId(id_value)
+        except Exception:
+            # If conversion fails, return the original value
+            # This shouldn't happen in normal operation
+            return id_value
 
     async def check_branch_access(
         self,
@@ -37,8 +49,18 @@ class AccessChecker:
         if not business:
             return False, "Negocio no encontrado"
 
+        # Convert user_id to ObjectId for comparison
+        user_id_obj = self._normalize_id(user_id)
+
+        # DEBUG: Log comparison
+        print(f"[DEBUG] access_checker - user_id: {user_id} (type: {type(user_id)})")
+        print(f"[DEBUG] access_checker - user_id_obj: {user_id_obj} (type: {type(user_id_obj)})")
+        print(f"[DEBUG] access_checker - business.ownerId: {business.ownerId} (type: {type(business.ownerId)})")
+        print(f"[DEBUG] access_checker - branch.managerIds: {branch.managerIds}")
+
         # Check if user is the business owner
-        is_owner = business.ownerId == user_id
+        is_owner = business.ownerId == user_id_obj
+        print(f"[DEBUG] access_checker - is_owner: {is_owner}")
 
         # If require_owner, only owner can proceed
         if require_owner:
@@ -51,10 +73,12 @@ class AccessChecker:
             return True, None
 
         # Check if user is a direct manager of the branch
-        if user_id in branch.managerIds:
+        print(f"[DEBUG] access_checker - Checking if user_id_obj in managerIds")
+        print(f"[DEBUG] access_checker - user_id_obj in branch.managerIds: {user_id_obj in branch.managerIds}")
+        if user_id_obj in branch.managerIds:
             # Verify access hasn't expired by checking BusinessAccess
             active_business_access = await business_access_repo.get_by_user_and_business(
-                user_id,
+                str(user_id_obj),  # Convert back to string for repository query
                 branch.businessId
             )
 
@@ -98,8 +122,11 @@ class AccessChecker:
         if not business:
             return False, "Negocio no encontrado"
 
+        # Convert user_id to ObjectId for comparison
+        user_id_obj = self._normalize_id(user_id)
+
         # Check if user is the business owner
-        is_owner = business.ownerId == user_id
+        is_owner = business.ownerId == user_id_obj
 
         # If require_owner, only owner can proceed
         if require_owner:
@@ -113,7 +140,7 @@ class AccessChecker:
 
         # Check if user has business-level access
         active_business_access = await business_access_repo.get_by_user_and_business(
-            user_id,
+            str(user_id_obj),  # Convert back to string for repository query
             business_id
         )
 
