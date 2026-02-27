@@ -76,7 +76,7 @@ class ProductMutation:
                 raise Exception(f"Categoría con ID '{input.categoryId}' no encontrada")
 
         # Create product
-        product_id = str(ObjectId())
+        product_id = ObjectId()
         product = Product(
             _id=product_id,
             branchId=target_branch_id,

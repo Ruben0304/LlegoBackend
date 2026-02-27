@@ -34,15 +34,6 @@ class BranchRepository:
     # RAG fields stored in Qdrant
     rag_fields = {"name", "tipos"}
 
-    @staticmethod
-    def _to_object_id(id_value: str):
-        """Convert string ID to ObjectId for MongoDB queries."""
-        try:
-            return ObjectId(id_value)
-        except Exception:
-            # If it's not a valid ObjectId string, return as-is
-            return id_value
-
     # --- GET Methods (MongoDB) ---
 
     async def get_all(self) -> List[Branch]:
@@ -58,18 +49,6 @@ class BranchRepository:
             db = get_database()
             cursor = db[self.mongo_collection_name].find()
             documents = await cursor.to_list(length=None)
-
-            # Ensure IDs are strings
-            for doc in documents:
-                if isinstance(doc.get("_id"), ObjectId):
-                    doc["_id"] = str(doc["_id"])
-                if isinstance(doc.get("businessId"), ObjectId):
-                    doc["businessId"] = str(doc["businessId"])
-                if "managerIds" in doc:
-                    doc["managerIds"] = [
-                        str(mid) if isinstance(mid, ObjectId) else mid
-                        for mid in doc["managerIds"]
-                    ]
 
             branches = [self._dict_to_branch(doc) for doc in documents]
 
@@ -98,26 +77,9 @@ class BranchRepository:
         try:
             print(f"→ Fetching branch {branch_id} from MongoDB")
             db = get_database()
-            # Try both ObjectId and string to handle mixed data
-            doc = await db[self.mongo_collection_name].find_one({
-                "$or": [
-                    {"_id": self._to_object_id(branch_id)},
-                    {"_id": branch_id}
-                ]
-            })
+            doc = await db[self.mongo_collection_name].find_one({"_id": ObjectId(branch_id)})
 
             if doc:
-                # Ensure IDs are strings
-                if isinstance(doc.get("_id"), ObjectId):
-                    doc["_id"] = str(doc["_id"])
-                if isinstance(doc.get("businessId"), ObjectId):
-                    doc["businessId"] = str(doc["businessId"])
-                # Convert managerIds ObjectIds to strings
-                if "managerIds" in doc:
-                    doc["managerIds"] = [
-                        str(mid) if isinstance(mid, ObjectId) else mid
-                        for mid in doc["managerIds"]
-                    ]
                 branch = self._dict_to_branch(doc)
                 # Cache the result
                 set_cached(cache_key, branch.model_dump(), TTL_DEFAULT)
@@ -142,27 +104,9 @@ class BranchRepository:
         try:
             print(f"→ Fetching {len(branch_ids)} branches from MongoDB")
             db = get_database()
-            # Convert to ObjectIds and also keep original strings
-            object_ids = [self._to_object_id(bid) for bid in branch_ids]
-            cursor = db[self.mongo_collection_name].find({
-                "$or": [
-                    {"_id": {"$in": object_ids}},
-                    {"_id": {"$in": branch_ids}}
-                ]
-            })
+            object_ids = [ObjectId(bid) for bid in branch_ids]
+            cursor = db[self.mongo_collection_name].find({"_id": {"$in": object_ids}})
             documents = await cursor.to_list(length=None)
-
-            # Ensure IDs are strings
-            for doc in documents:
-                if isinstance(doc.get("_id"), ObjectId):
-                    doc["_id"] = str(doc["_id"])
-                if isinstance(doc.get("businessId"), ObjectId):
-                    doc["businessId"] = str(doc["businessId"])
-                if "managerIds" in doc:
-                    doc["managerIds"] = [
-                        str(mid) if isinstance(mid, ObjectId) else mid
-                        for mid in doc["managerIds"]
-                    ]
 
             branches = [self._dict_to_branch(doc) for doc in documents]
 
@@ -180,26 +124,8 @@ class BranchRepository:
         """Get branches by business ID from MongoDB."""
         try:
             db = get_database()
-            # Try both ObjectId and string for businessId
-            cursor = db[self.mongo_collection_name].find({
-                "$or": [
-                    {"businessId": self._to_object_id(business_id)},
-                    {"businessId": business_id}
-                ]
-            })
+            cursor = db[self.mongo_collection_name].find({"businessId": ObjectId(business_id)})
             documents = await cursor.to_list(length=None)
-
-            # Ensure IDs are strings
-            for doc in documents:
-                if isinstance(doc.get("_id"), ObjectId):
-                    doc["_id"] = str(doc["_id"])
-                if isinstance(doc.get("businessId"), ObjectId):
-                    doc["businessId"] = str(doc["businessId"])
-                if "managerIds" in doc:
-                    doc["managerIds"] = [
-                        str(mid) if isinstance(mid, ObjectId) else mid
-                        for mid in doc["managerIds"]
-                    ]
 
             return [self._dict_to_branch(doc) for doc in documents]
 
@@ -214,27 +140,9 @@ class BranchRepository:
 
         try:
             db = get_database()
-            # Convert to ObjectIds and also keep original strings
-            object_ids = [self._to_object_id(bid) for bid in business_ids]
-            cursor = db[self.mongo_collection_name].find({
-                "$or": [
-                    {"businessId": {"$in": object_ids}},
-                    {"businessId": {"$in": business_ids}}
-                ]
-            })
+            object_ids = [ObjectId(bid) for bid in business_ids]
+            cursor = db[self.mongo_collection_name].find({"businessId": {"$in": object_ids}})
             documents = await cursor.to_list(length=None)
-
-            # Ensure IDs are strings
-            for doc in documents:
-                if isinstance(doc.get("_id"), ObjectId):
-                    doc["_id"] = str(doc["_id"])
-                if isinstance(doc.get("businessId"), ObjectId):
-                    doc["businessId"] = str(doc["businessId"])
-                if "managerIds" in doc:
-                    doc["managerIds"] = [
-                        str(mid) if isinstance(mid, ObjectId) else mid
-                        for mid in doc["managerIds"]
-                    ]
 
             return [self._dict_to_branch(doc) for doc in documents]
 
@@ -354,14 +262,9 @@ class BranchRepository:
             ):
                 updates["coordinates"] = updates["coordinates"].model_dump()
 
-            # 1. Update MongoDB (try both ObjectId and string)
+            # 1. Update MongoDB
             await db[self.mongo_collection_name].update_one(
-                {
-                    "$or": [
-                        {"_id": self._to_object_id(branch_id)},
-                        {"_id": branch_id}
-                    ]
-                },
+                {"_id": ObjectId(branch_id)},
                 {"$set": updates}
             )
 
@@ -404,13 +307,8 @@ class BranchRepository:
             branch = await self.get_by_id(branch_id)
             business_id = branch.businessId if branch else None
 
-            # 1. Delete from MongoDB (try both ObjectId and string)
-            result = await db[self.mongo_collection_name].delete_one({
-                "$or": [
-                    {"_id": self._to_object_id(branch_id)},
-                    {"_id": branch_id}
-                ]
-            })
+            # 1. Delete from MongoDB
+            result = await db[self.mongo_collection_name].delete_one({"_id": ObjectId(branch_id)})
 
             if result.deleted_count == 0:
                 return False
@@ -455,12 +353,7 @@ class BranchRepository:
         try:
             db = get_database()
             result = await db[self.mongo_collection_name].find_one_and_update(
-                {
-                    "$or": [
-                        {"_id": self._to_object_id(branch_id)},
-                        {"_id": branch_id}
-                    ]
-                },
+                {"_id": ObjectId(branch_id)},
                 {"$set": {f"wallet.{currency}": amount}},
                 return_document=True,
             )
@@ -490,12 +383,7 @@ class BranchRepository:
         try:
             db = get_database()
             result = await db[self.mongo_collection_name].find_one_and_update(
-                {
-                    "$or": [
-                        {"_id": self._to_object_id(branch_id)},
-                        {"_id": branch_id}
-                    ]
-                },
+                {"_id": ObjectId(branch_id)},
                 {"$inc": {f"wallet.{currency}": amount}},
                 return_document=True,
             )

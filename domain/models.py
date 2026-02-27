@@ -3,7 +3,10 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from bson import ObjectId
 from pydantic import BaseModel, Field
+
+from .py_object_id import PyObjectId
 
 # =============================================================================
 # Transfer/Payment Models (shared by Platform and Branch)
@@ -51,7 +54,7 @@ class SavedAddress(BaseModel):
 
 
 class User(BaseModel):
-    id: str = Field(alias="_id")
+    id: PyObjectId = Field(alias="_id")
     name: str
     email: str
     username: str  # Unique username, defaults to email prefix
@@ -59,10 +62,10 @@ class User(BaseModel):
     password: Optional[str] = None
     role: str = "customer"  # "merchant" or "customer"
     avatar: Optional[str] = None
-    businessIds: List[str] = []
-    branchIds: List[str] = []
+    businessIds: List[PyObjectId] = []
+    branchIds: List[PyObjectId] = []
     businessAccessIds: List[
-        str
+        PyObjectId
     ] = []  # IDs de BusinessAccess activos (acceso a negocios completos)
     wallet: Dict[str, float] = Field(
         default_factory=lambda: {"local": 0.00, "usd": 0.00}
@@ -83,13 +86,13 @@ class User(BaseModel):
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class Business(BaseModel):
-    id: str = Field(alias="_id")
+    id: PyObjectId = Field(alias="_id")
     name: str
-    ownerId: str
+    ownerId: PyObjectId
     globalRating: float
     avatar: str
     description: Optional[str] = None
@@ -99,7 +102,7 @@ class Business(BaseModel):
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class Coordinates(BaseModel):
@@ -108,21 +111,21 @@ class Coordinates(BaseModel):
 
 
 class Branch(BaseModel):
-    id: str = Field(alias="_id")
-    businessId: str
+    id: PyObjectId = Field(alias="_id")
+    businessId: PyObjectId
     name: str
     address: Optional[str] = None
     coordinates: Coordinates
     phone: str
     schedule: Dict[str, List[str]]  # {"mon": ["08:00-20:00"], ...}
-    managerIds: List[str]
+    managerIds: List[PyObjectId]
     isActive: bool = True
     status: Optional[str] = None
     avatar: Optional[str] = None
     coverImage: Optional[str] = None
     socialMedia: Optional[Dict[str, str]] = None
     tipos: List[str] = []  # ["restaurante", "dulceria", "tienda"]
-    paymentMethodIds: List[str] = []  # IDs de métodos de pago aceptados
+    paymentMethodIds: List[PyObjectId] = []  # IDs de métodos de pago aceptados
     wallet: Dict[str, float] = Field(
         default_factory=lambda: {"local": 0.00, "usd": 0.00}
     )
@@ -140,7 +143,7 @@ class Branch(BaseModel):
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class Subcategory(BaseModel):
@@ -149,7 +152,7 @@ class Subcategory(BaseModel):
 
 
 class Category(BaseModel):
-    id: str = Field(alias="_id")
+    id: PyObjectId = Field(alias="_id")
     name: str
     imageUrl: str
     subcategories: List[Subcategory]
@@ -157,13 +160,13 @@ class Category(BaseModel):
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class ProductCategory(BaseModel):
     """Product category model for organizing products by branch type."""
 
-    id: str = Field(alias="_id")
+    id: PyObjectId = Field(alias="_id")
     branchType: str  # "restaurante", "dulceria", "tienda"
     name: str
     iconIos: str  # iOS SF Symbol name
@@ -173,12 +176,12 @@ class ProductCategory(BaseModel):
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class Product(BaseModel):
-    id: str = Field(alias="_id")
-    branchId: str
+    id: PyObjectId = Field(alias="_id")
+    branchId: PyObjectId
     name: str
     description: str
     weight: str
@@ -186,18 +189,18 @@ class Product(BaseModel):
     currency: str = "USD"
     image: str
     availability: bool = True
-    categoryId: Optional[str] = None
+    categoryId: Optional[PyObjectId] = None
     createdAt: datetime
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class SmsOcr(BaseModel):
     """Modelo para datos extraídos de capturas de SMS bancarios mediante OCR."""
 
-    id: str = Field(alias="_id")
+    id: PyObjectId = Field(alias="_id")
     quien_envio: str  # Remitente del mensaje
     banco: str  # Nombre del banco
     fecha: datetime  # Fecha de la transferencia
@@ -210,7 +213,7 @@ class SmsOcr(BaseModel):
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class PaymentMethod(BaseModel):
@@ -221,7 +224,7 @@ class PaymentMethod(BaseModel):
     refund policies, and configuration.
     """
 
-    id: str = Field(alias="_id")
+    id: PyObjectId = Field(alias="_id")
 
     # Basic info
     name: str  # "Wallet USD", "Transfermóvil", "Stripe", "Efectivo"
@@ -253,16 +256,16 @@ class PaymentMethod(BaseModel):
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class WalletTransaction(BaseModel):
     """Transaction record for wallet operations."""
 
-    id: str = Field(alias="_id")
-    fromOwnerId: Optional[str] = None  # None for external deposits
+    id: PyObjectId = Field(alias="_id")
+    fromOwnerId: Optional[PyObjectId] = None  # None for external deposits
     fromOwnerType: Optional[str] = None  # "user" or "branch"
-    toOwnerId: Optional[str] = None  # None for withdrawals
+    toOwnerId: Optional[PyObjectId] = None  # None for withdrawals
     toOwnerType: Optional[str] = None  # "user" or "branch"
     amount: float
     currency: str  # "local" or "usd"
@@ -277,7 +280,7 @@ class WalletTransaction(BaseModel):
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class WalletBalance(BaseModel):
@@ -290,8 +293,8 @@ class WalletBalance(BaseModel):
 class StripePaymentLink(BaseModel):
     """Stripe Payment Link model for tracking recharge links."""
 
-    id: str = Field(alias="_id")
-    userId: str
+    id: PyObjectId = Field(alias="_id")
+    userId: PyObjectId
     url: str
     productId: str
     priceId: str
@@ -304,7 +307,7 @@ class StripePaymentLink(BaseModel):
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class BranchInvitation(BaseModel):
@@ -313,26 +316,26 @@ class BranchInvitation(BaseModel):
     Permite a dueños de negocios invitar usuarios con acceso temporal o indefinido.
     """
 
-    id: str = Field(alias="_id")
+    id: PyObjectId = Field(alias="_id")
     code: str  # Código único, ej. "INV-A7B3C2-D9E4F1"
 
     # Tipo de invitación
     invitationType: (
         str  # "branch" (sucursal específica) o "business" (negocio completo)
     )
-    branchId: Optional[str] = None  # Específico para tipo "branch"
-    businessId: str  # Siempre presente
+    branchId: Optional[PyObjectId] = None  # Específico para tipo "branch"
+    businessId: PyObjectId  # Siempre presente
 
     # Control de acceso temporal
     accessDurationDays: Optional[int] = None  # None = indefinido, int = días de acceso
 
     # Metadatos
-    createdBy: str  # ID del usuario dueño del negocio
+    createdBy: PyObjectId  # ID del usuario dueño del negocio
     createdAt: datetime
 
     # Estado del código
     status: str = "pending"  # "pending", "used", "revoked"
-    usedBy: Optional[str] = None  # ID del usuario que canjeó el código
+    usedBy: Optional[PyObjectId] = None  # ID del usuario que canjeó el código
     usedAt: Optional[datetime] = None
 
     # Expiración del acceso (calculado al momento del canje)
@@ -340,7 +343,7 @@ class BranchInvitation(BaseModel):
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class BusinessAccess(BaseModel):
@@ -349,10 +352,10 @@ class BusinessAccess(BaseModel):
     Permite acceso automático a todas las sucursales (presentes y futuras).
     """
 
-    id: str = Field(alias="_id")
-    userId: str
-    businessId: str
-    invitationId: str  # Referencia al código que otorgó el acceso
+    id: PyObjectId = Field(alias="_id")
+    userId: PyObjectId
+    businessId: PyObjectId
+    invitationId: PyObjectId  # Referencia al código que otorgó el acceso
 
     # Control temporal
     grantedAt: datetime
@@ -361,11 +364,11 @@ class BusinessAccess(BaseModel):
     # Estado
     isActive: bool = True
     revokedAt: Optional[datetime] = None
-    revokedBy: Optional[str] = None
+    revokedBy: Optional[PyObjectId] = None
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class AndroidConfig(BaseModel):
@@ -399,7 +402,7 @@ class AppConfig(BaseModel):
     Controls minimum versions, update URLs, maintenance mode, etc.
     """
 
-    id: str = Field(alias="_id")
+    id: PyObjectId = Field(alias="_id")
     android: AndroidConfig
     ios: IosConfig
     maintenance: MaintenanceConfig
@@ -409,7 +412,7 @@ class AppConfig(BaseModel):
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class BusinessAppConfig(BaseModel):
@@ -418,7 +421,7 @@ class BusinessAppConfig(BaseModel):
     Controls minimum versions, update URLs, maintenance mode, etc.
     """
 
-    id: str = Field(alias="_id")
+    id: PyObjectId = Field(alias="_id")
     android: AndroidConfig
     ios: IosConfig
     maintenance: MaintenanceConfig
@@ -428,7 +431,7 @@ class BusinessAppConfig(BaseModel):
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class FeedbackType(str):
@@ -454,8 +457,8 @@ class Feedback(BaseModel):
     Allows users to provide feedback and ratings about the app.
     """
 
-    id: str = Field(alias="_id")
-    userId: str  # Reference to User
+    id: PyObjectId = Field(alias="_id")
+    userId: PyObjectId  # Reference to User
     type: str  # FeedbackType enum value
     description: str
     rating: int = Field(ge=1, le=5)  # 1-5 stars validation
@@ -465,7 +468,7 @@ class Feedback(BaseModel):
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class QuestionType(str):
@@ -491,7 +494,7 @@ class Survey(BaseModel):
     Allows admins to create surveys for user feedback.
     """
 
-    id: str = Field(alias="_id")
+    id: PyObjectId = Field(alias="_id")
     title: str
     description: Optional[str] = None
     questions: List[SurveyQuestion]  # Embedded questions
@@ -501,7 +504,7 @@ class Survey(BaseModel):
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class QuestionResponse(BaseModel):
@@ -517,15 +520,15 @@ class SurveyResponse(BaseModel):
     Stores answers to all questions in a survey.
     """
 
-    id: str = Field(alias="_id")
-    surveyId: str  # Reference to Survey
-    userId: str  # Reference to User
+    id: PyObjectId = Field(alias="_id")
+    surveyId: PyObjectId  # Reference to Survey
+    userId: PyObjectId  # Reference to User
     responses: List[QuestionResponse]  # Embedded responses
     createdAt: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class FavoriteCart(BaseModel):
@@ -534,15 +537,15 @@ class FavoriteCart(BaseModel):
     Stores product favorites and cart items for users.
     """
 
-    id: str = Field(alias="_id")
-    userId: str  # Reference to User
-    productId: str  # Reference to Product
+    id: PyObjectId = Field(alias="_id")
+    userId: PyObjectId  # Reference to User
+    productId: PyObjectId  # Reference to Product
     type: str  # "favorite" or "cart"
     createdAt: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class ClickedItem(BaseModel):
@@ -559,15 +562,15 @@ class Search(BaseModel):
     Stores search queries and tracks which items were clicked.
     """
 
-    id: str = Field(alias="_id")
-    userId: str  # Reference to User
+    id: PyObjectId = Field(alias="_id")
+    userId: PyObjectId  # Reference to User
     query: str  # Search query text
     clickedItems: List[ClickedItem] = []  # Items clicked from this search
     createdAt: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class ChatMessage(BaseModel):
@@ -576,7 +579,7 @@ class ChatMessage(BaseModel):
     Stores user and AI messages for context in conversations.
     """
 
-    id: str = Field(alias="_id")
+    id: PyObjectId = Field(alias="_id")
     sessionId: str  # user_id from JWT
     role: str  # "user" or "assistant"
     content: str  # Message text
@@ -584,7 +587,7 @@ class ChatMessage(BaseModel):
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class DraftOrderItem(BaseModel):
@@ -603,11 +606,11 @@ class DraftOrder(BaseModel):
     Pending user confirmation before creating real order.
     """
 
-    id: str = Field(alias="_id")
+    id: PyObjectId = Field(alias="_id")
     sessionId: str  # user_id from JWT
-    customerId: str  # Same as sessionId
-    branchId: str
-    businessId: str
+    customerId: PyObjectId  # Same as sessionId
+    branchId: PyObjectId
+    businessId: PyObjectId
     branchAvatar: Optional[str] = None  # Denormalized branch avatar URL
     items: List[DraftOrderItem]
     subtotal: float
@@ -617,7 +620,7 @@ class DraftOrder(BaseModel):
     deliveryAddress: Optional[Dict[str, Any]] = (
         None  # Will be structured as DeliveryAddress
     )
-    paymentMethodId: Optional[str] = None
+    paymentMethodId: Optional[PyObjectId] = None
     status: str = (
         "pending_confirmation"  # "pending_confirmation", "confirmed", "cancelled"
     )
@@ -626,7 +629,7 @@ class DraftOrder(BaseModel):
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class BranchLike(BaseModel):
@@ -635,20 +638,20 @@ class BranchLike(BaseModel):
     Stores branch likes for users (similar to FavoriteCart but for branches).
     """
 
-    id: str = Field(alias="_id")
-    userId: str  # Reference to User
-    branchId: str  # Reference to Branch
+    id: PyObjectId = Field(alias="_id")
+    userId: PyObjectId  # Reference to User
+    branchId: PyObjectId  # Reference to Branch
     createdAt: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class DeliveryZone(BaseModel):
     """Zona hexagonal H3 con configuración de precios de envío para delivery por la app."""
 
-    id: str = Field(alias="_id")
+    id: PyObjectId = Field(alias="_id")
     h3Index: str  # H3 index at resolution 7, e.g. "872a1008fffffff"
     resolution: int = 7  # H3 resolution level
     name: Optional[str] = None  # "La Habana Centro", "Vedado", etc.
@@ -672,7 +675,7 @@ class DeliveryZone(BaseModel):
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class Tutorial(BaseModel):
@@ -681,7 +684,7 @@ class Tutorial(BaseModel):
     Stores video tutorials with metadata for customer and merchant apps.
     """
 
-    id: str = Field(alias="_id")
+    id: PyObjectId = Field(alias="_id")
     title: str  # Tutorial title
     description: str  # Tutorial description
     videoUrl: str  # S3 path to video (without signature)
@@ -696,7 +699,7 @@ class Tutorial(BaseModel):
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class ComboModifier(BaseModel):
@@ -709,7 +712,7 @@ class ComboModifier(BaseModel):
 class ComboOption(BaseModel):
     """Producto seleccionable dentro de un slot del combo."""
 
-    productId: str
+    productId: PyObjectId
     isDefault: bool = False  # Opción pre-seleccionada
     priceAdjustment: float = 0.0  # Costo extra si elige esta opción
     availableModifiers: List[ComboModifier] = []  # Modificadores permitidos
@@ -740,8 +743,8 @@ class Combo(BaseModel):
     El negocio puede aplicar descuento en % o cantidad fija.
     """
 
-    id: str = Field(alias="_id")
-    branchId: str
+    id: PyObjectId = Field(alias="_id")
+    branchId: PyObjectId
     name: str
     description: str
     image: Optional[str] = None  # OPCIONAL - si no existe, frontend genera composición
@@ -757,13 +760,13 @@ class Combo(BaseModel):
 
     # Metadata
     availability: bool = True
-    categoryId: Optional[str] = None  # Categoría del combo (opcional)
+    categoryId: Optional[PyObjectId] = None  # Categoría del combo (opcional)
     createdAt: datetime = Field(default_factory=datetime.utcnow)
     updatedAt: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 __all__ = [

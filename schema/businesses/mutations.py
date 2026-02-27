@@ -50,7 +50,7 @@ class BusinessMutation:
             )
 
         # 2. Crear Negocio
-        business_id = str(ObjectId())
+        business_id = ObjectId()
 
         business = Business(
             id=business_id,
@@ -96,7 +96,7 @@ class BusinessMutation:
             if len(payment_methods) != len(branch_inp.paymentMethodIds):
                 raise Exception("Uno o más métodos de pago no existen")
 
-            branch_id = str(ObjectId())
+            branch_id = ObjectId()
 
             branch = Branch(
                 id=branch_id,
@@ -253,7 +253,7 @@ class BusinessMutation:
                 branches_input = business_data.branches
 
                 # 2.1. Crear Negocio
-                business_id = str(ObjectId())
+                business_id = ObjectId()
 
                 business = Business(
                     id=business_id,
@@ -303,7 +303,7 @@ class BusinessMutation:
                             f"Uno o más métodos de pago no existen para el negocio '{business_input.name}'"
                         )
 
-                    branch_id = str(ObjectId())
+                    branch_id = ObjectId()
 
                     branch = Branch(
                         id=branch_id,
