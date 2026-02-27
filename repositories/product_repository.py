@@ -165,7 +165,7 @@ class ProductRepository:
         if not branch_ids:
             return []
 
-        cache_key = get_product_cache_key(f"branch_ids:{','.join(sorted(branch_ids))}")
+        cache_key = get_product_cache_key(f"branch_ids:{','.join(sorted(str(b) for b in branch_ids))}")
         cached = get_cached(cache_key)
 
         if cached is not None:
@@ -228,7 +228,7 @@ class ProductRepository:
             branch_ids = await db[self.mongo_collection_name].distinct(
                 "branchId", {"categoryId": self._to_object_id(category_id)}
             )
-            return set(branch_ids)
+            return {str(bid) for bid in branch_ids}
         except Exception as e:
             print(f"Error fetching distinct branch IDs by category: {e}")
             return set()
