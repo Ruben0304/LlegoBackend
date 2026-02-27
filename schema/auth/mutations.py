@@ -37,7 +37,7 @@ class AuthMutation:
         # Create access token with role
         access_token = create_access_token(data={
             "sub": user.email,
-            "user_id": user.id,
+            "user_id": str(user.id),
             "role": user.role
         })
 
@@ -45,7 +45,7 @@ class AuthMutation:
             access_token=access_token,
             token_type="bearer",
             user=UserData(
-                id=user.id,
+                id=str(user.id),
                 name=user.name,
                 email=user.email,
                 phone=user.phone,
@@ -66,7 +66,7 @@ class AuthMutation:
         # Create access token with role
         access_token = create_access_token(data={
             "sub": user.email,
-            "user_id": user.id,
+            "user_id": str(user.id),
             "role": user.role
         })
 
@@ -74,7 +74,7 @@ class AuthMutation:
             access_token=access_token,
             token_type="bearer",
             user=UserData(
-                id=user.id,
+                id=str(user.id),
                 name=user.name,
                 email=user.email,
                 phone=user.phone,
@@ -107,7 +107,7 @@ class AuthMutation:
         # Create access token with role
         access_token = create_access_token(data={
             "sub": user.email,
-            "user_id": user.id,
+            "user_id": str(user.id),
             "role": user.role
         })
         
@@ -115,7 +115,7 @@ class AuthMutation:
             access_token=access_token,
             token_type="bearer",
             user=UserData(
-                id=user.id,
+                id=str(user.id),
                 name=user.name,
                 email=user.email,
                 phone=user.phone,
@@ -147,7 +147,7 @@ class AuthMutation:
         # Create access token with role
         access_token = create_access_token(data={
             "sub": user.email,
-            "user_id": user.id,
+            "user_id": str(user.id),
             "role": user.role
         })
         
@@ -155,7 +155,7 @@ class AuthMutation:
             access_token=access_token,
             token_type="bearer",
             user=UserData(
-                id=user.id,
+                id=str(user.id),
                 name=user.name,
                 email=user.email,
                 phone=user.phone,

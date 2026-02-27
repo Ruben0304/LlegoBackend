@@ -5,6 +5,7 @@ from typing import List, Optional, Union
 
 import bcrypt
 from jose import JWTError, jwt
+from bson import ObjectId
 from core.config import settings
 
 # JWT configuration
@@ -129,7 +130,18 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """Create a JWT access token."""
-    to_encode = data.copy()
+    def _json_safe(value):
+        if isinstance(value, ObjectId):
+            return str(value)
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if isinstance(value, dict):
+            return {k: _json_safe(v) for k, v in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [_json_safe(v) for v in value]
+        return value
+
+    to_encode = _json_safe(data.copy())
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
