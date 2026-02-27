@@ -55,7 +55,13 @@ class BusinessQuery:
         else:
             businesses = await businesses_repo.get_all()
 
-        return [BusinessType(**b.model_dump()) for b in businesses]
+        result = []
+        for b in businesses:
+            data = b.model_dump()
+            data["id"] = str(b.id)
+            data["ownerId"] = str(b.ownerId)
+            result.append(BusinessType(**data))
+        return result
 
     @strawberry.field(description="Obtener negocio por ID")
     async def business(
@@ -63,7 +69,12 @@ class BusinessQuery:
     ) -> Optional[BusinessType]:
         apply_optional_jwt(jwt, info)
         business = await businesses_repo.get_by_id(id)
-        return BusinessType(**business.model_dump()) if business else None
+        if not business:
+            return None
+        data = business.model_dump()
+        data["id"] = str(business.id)
+        data["ownerId"] = str(business.ownerId)
+        return BusinessType(**data)
 
     @strawberry.field(description="Buscar negocios")
     async def search_businesses(
@@ -95,11 +106,23 @@ class BusinessQuery:
                 if business:
                     businesses.append(business)
 
-            return [BusinessType(**b.model_dump()) for b in businesses]
+            result = []
+            for b in businesses:
+                data = b.model_dump()
+                data["id"] = str(b.id)
+                data["ownerId"] = str(b.ownerId)
+                result.append(BusinessType(**data))
+            return result
         else:
             # Use traditional text search
             businesses = await businesses_repo.search(query)
-            return [BusinessType(**b.model_dump()) for b in businesses]
+            result = []
+            for b in businesses:
+                data = b.model_dump()
+                data["id"] = str(b.id)
+                data["ownerId"] = str(b.ownerId)
+                result.append(BusinessType(**data))
+            return result
 
     @strawberry.field(
         description="Obtener todos mis negocios con sucursales (propios + compartidos)"
@@ -212,9 +235,9 @@ class BusinessQuery:
 
             result.append(
                 BusinessWithBranchesType(
-                    id=business.id,
+                    id=str(business.id),
                     name=business.name,
-                    ownerId=business.ownerId,
+                    ownerId=str(business.ownerId),
                     globalRating=business.globalRating,
                     avatar=business.avatar,
                     description=business.description,

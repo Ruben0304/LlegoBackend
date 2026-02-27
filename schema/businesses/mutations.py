@@ -139,9 +139,9 @@ class BusinessMutation:
 
         # 4. Retornar negocio creado
         return BusinessType(
-            id=created_business.id,
+            id=str(created_business.id),
             name=created_business.name,
-            ownerId=created_business.ownerId,
+            ownerId=str(created_business.ownerId),
             globalRating=created_business.globalRating,
             avatar=created_business.avatar,
             description=created_business.description,
@@ -348,9 +348,9 @@ class BusinessMutation:
             # 3. Retornar negocios creados
             return [
                 BusinessType(
-                    id=b.id,
+                    id=str(b.id),
                     name=b.name,
-                    ownerId=b.ownerId,
+                    ownerId=str(b.ownerId),
                     globalRating=b.globalRating,
                     avatar=b.avatar,
                     description=b.description,
