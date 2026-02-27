@@ -147,9 +147,9 @@ class PlatformType:
 def payment_attempt_to_type(attempt) -> PaymentAttemptType:
     """Convert PaymentAttempt model to GraphQL type."""
     return PaymentAttemptType(
-        id=attempt.id,
-        orderId=attempt.orderId,
-        paymentMethodId=attempt.paymentMethodId,
+        id=str(attempt.id),
+        orderId=str(attempt.orderId),
+        paymentMethodId=str(attempt.paymentMethodId),
         subtotal=attempt.subtotal,
         deliveryFee=attempt.deliveryFee,
         includesDeliveryFee=attempt.includesDeliveryFee,
@@ -167,7 +167,7 @@ def payment_attempt_to_type(attempt) -> PaymentAttemptType:
         businessConfirmedAt=attempt.businessConfirmedAt,
         disputeReason=attempt.disputeReason,
         deliveryPersonConfirmedAt=attempt.deliveryPersonConfirmedAt,
-        deliveryPersonId=attempt.deliveryPersonId,
+        deliveryPersonId=str(attempt.deliveryPersonId) if attempt.deliveryPersonId else None,
         walletTransactionId=attempt.walletTransactionId,
         businessWalletTransactionId=attempt.businessWalletTransactionId,
         commissionTransactionId=attempt.commissionTransactionId,

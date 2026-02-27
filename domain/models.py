@@ -1,7 +1,7 @@
 """Pydantic models for data validation and serialization."""
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from bson import ObjectId
 from pydantic import BaseModel, Field
@@ -125,7 +125,7 @@ class Branch(BaseModel):
     coverImage: Optional[str] = None
     socialMedia: Optional[Dict[str, str]] = None
     tipos: List[str] = []  # ["restaurante", "dulceria", "tienda"]
-    paymentMethodIds: List[PyObjectId] = []  # IDs de métodos de pago aceptados
+    paymentMethodIds: List[Union[PyObjectId, str]] = []  # IDs de métodos de pago aceptados
     wallet: Dict[str, float] = Field(
         default_factory=lambda: {"local": 0.00, "usd": 0.00}
     )
@@ -224,7 +224,7 @@ class PaymentMethod(BaseModel):
     refund policies, and configuration.
     """
 
-    id: PyObjectId = Field(alias="_id")
+    id: Union[PyObjectId, str] = Field(alias="_id")
 
     # Basic info
     name: str  # "Wallet USD", "Transfermóvil", "Stripe", "Efectivo"
@@ -620,7 +620,7 @@ class DraftOrder(BaseModel):
     deliveryAddress: Optional[Dict[str, Any]] = (
         None  # Will be structured as DeliveryAddress
     )
-    paymentMethodId: Optional[PyObjectId] = None
+    paymentMethodId: Optional[Union[PyObjectId, str]] = None
     status: str = (
         "pending_confirmation"  # "pending_confirmation", "confirmed", "cancelled"
     )

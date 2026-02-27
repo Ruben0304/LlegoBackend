@@ -1,6 +1,6 @@
 """Payment attempt models and enums."""
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Union
 from datetime import datetime
 from enum import Enum
 from bson import ObjectId
@@ -47,7 +47,7 @@ class PaymentAttempt(BaseModel):
 
     id: PyObjectId = Field(alias="_id")
     orderId: PyObjectId
-    paymentMethodId: PyObjectId
+    paymentMethodId: Union[PyObjectId, str]
 
     # Amounts (all calculated at payment initiation)
     subtotal: float  # Order items total

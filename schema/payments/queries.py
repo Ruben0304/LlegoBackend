@@ -10,6 +10,13 @@ from repositories import branches_repo
 from services.payments_service import payment_service
 from utils.graphql_auth import apply_optional_jwt
 
+
+def _payment_method_to_type(pm) -> PaymentMethodType:
+    data = pm.model_dump()
+    data["id"] = str(pm.id)
+    return PaymentMethodType(**data)
+
+
 @strawberry.type
 class PaymentMethodQuery:
     @strawberry.field(description="Obtener todos los métodos de pago disponibles. Si se provee branchId, retorna solo los aceptados por ese branch.")
@@ -29,7 +36,7 @@ class PaymentMethodQuery:
         else:
             payment_methods = await payment_methods_repo.get_all()
 
-        return [PaymentMethodType(**pm.model_dump()) for pm in payment_methods]
+        return [_payment_method_to_type(pm) for pm in payment_methods]
 
     @strawberry.field(description="Obtener método de pago por ID")
     async def payment_method(
@@ -51,7 +58,7 @@ class PaymentMethodQuery:
 
         payment_method = await payment_methods_repo.get_by_id(id)
         if payment_method:
-            return PaymentMethodType(**payment_method.model_dump())
+            return _payment_method_to_type(payment_method)
         return None
 
     @strawberry.field(description="Obtener métodos de pago por moneda")
@@ -73,7 +80,7 @@ class PaymentMethodQuery:
         apply_optional_jwt(jwt, info)
 
         payment_methods = await payment_methods_repo.get_by_currency(currency)
-        return [PaymentMethodType(**pm.model_dump()) for pm in payment_methods]
+        return [_payment_method_to_type(pm) for pm in payment_methods]
 
     @strawberry.field(description="Obtener métodos de pago por tipo")
     async def payment_methods_by_method(
@@ -94,7 +101,7 @@ class PaymentMethodQuery:
         apply_optional_jwt(jwt, info)
 
         payment_methods = await payment_methods_repo.get_by_method(method)
-        return [PaymentMethodType(**pm.model_dump()) for pm in payment_methods]
+        return [_payment_method_to_type(pm) for pm in payment_methods]
 
     # ============================================
     # Payment Attempt Queries
