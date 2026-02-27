@@ -61,7 +61,7 @@ class QdrantIndexingService:
 
             # Create payload with MongoDB ID (flat structure)
             payload = {
-                "mongo_id": product.id,
+                "mongo_id": str(product.id),
                 "name": product.name,
                 "price": product.price,
                 "description": product.description or "",
@@ -117,7 +117,7 @@ class QdrantIndexingService:
 
             # Create payload with MongoDB ID (flat structure)
             payload = {
-                "mongo_id": branch.id,
+                "mongo_id": str(branch.id),
                 "name": branch.name,
                 "tipos": branch.tipos or [],
             }
@@ -171,7 +171,7 @@ class QdrantIndexingService:
 
             # Create payload with MongoDB ID (flat structure)
             payload = {
-                "mongo_id": business.id,
+                "mongo_id": str(business.id),
                 "name": business.name,
                 "description": business.description or "",
             }
