@@ -368,7 +368,7 @@ class OrderType:
         dp = await delivery_persons_repo.get_by_id(self.deliveryPersonId)
         if dp:
             return DeliveryPersonType(
-                id=dp.id,
+                id=str(dp.id),
                 name=dp.name,
                 phone=dp.phone,
                 rating=dp.rating,
@@ -407,11 +407,11 @@ class OrderType:
 def order_to_type(order) -> OrderType:
     """Convert Order model to OrderType."""
     return OrderType(
-        id=order.id,
+        id=str(order.id),
         orderNumber=order.orderNumber,
-        customerId=order.customerId,
-        branchId=order.branchId,
-        businessId=order.businessId,
+        customerId=str(order.customerId),
+        branchId=str(order.branchId),
+        businessId=str(order.businessId),
         subtotal=order.subtotal,
         deliveryFee=order.deliveryFee,
         deliveryMode=order.deliveryMode,
@@ -423,11 +423,11 @@ def order_to_type(order) -> OrderType:
         createdAt=order.createdAt,
         updatedAt=order.updatedAt,
         lastStatusAt=order.lastStatusAt,
-        deliveryPersonId=order.deliveryPersonId,
+        deliveryPersonId=str(order.deliveryPersonId) if order.deliveryPersonId else None,
         deliveryZoneId=order.deliveryZoneId,
         estimatedDeliveryTime=order.estimatedDeliveryTime,
         paymentId=order.paymentId,
-        currentPaymentAttemptId=order.currentPaymentAttemptId,
+        currentPaymentAttemptId=str(order.currentPaymentAttemptId) if order.currentPaymentAttemptId else None,
         paidAt=order.paidAt,
         assignedAt=order.assignedAt,
         pickedUpAt=order.pickedUpAt,
@@ -546,7 +546,7 @@ class BranchDeliveryRequestType:
         dp = await delivery_persons_repo.get_by_id(self.deliveryPersonId)
         if dp:
             return DeliveryPersonType(
-                id=dp.id,
+                id=str(dp.id),
                 name=dp.name,
                 phone=dp.phone or "",
                 rating=dp.rating,
@@ -564,12 +564,12 @@ class BranchDeliveryRequestType:
 
 def branch_delivery_request_to_type(req) -> BranchDeliveryRequestType:
     return BranchDeliveryRequestType(
-        id=req.id,
-        deliveryPersonId=req.deliveryPersonId,
-        branchId=req.branchId,
+        id=str(req.id),
+        deliveryPersonId=str(req.deliveryPersonId),
+        branchId=str(req.branchId),
         status=DeliveryRequestStatusEnum(req.status.value),
         message=req.message,
-        respondedBy=req.respondedBy,
+        respondedBy=str(req.respondedBy) if req.respondedBy else None,
         respondedAt=req.respondedAt,
         createdAt=req.createdAt,
         updatedAt=req.updatedAt,
@@ -615,6 +615,6 @@ async def estimate_delivery_fee(
         distanceKm=round(distance_km, 2),
         zoneName=zone_name,
         h3Index=h3_index,
-        branchId=branch.id,
+        branchId=str(branch.id),
         branchName=branch.name,
     )

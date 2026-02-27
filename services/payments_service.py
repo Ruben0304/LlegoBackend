@@ -2,7 +2,6 @@
 from decimal import Decimal
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
-from uuid import uuid4
 from bson import ObjectId
 import stripe
 import logging
@@ -25,6 +24,15 @@ class PaymentService:
 
     def __init__(self):
         self.payment_attempts_repo = PaymentAttemptRepository()
+
+    @staticmethod
+    def _to_object_id(value: Optional[str]):
+        if value is None:
+            return None
+        try:
+            return ObjectId(value)
+        except Exception:
+            return value
 
     async def _get_order(self, order_id: str):
         """Get order by ID."""
@@ -281,7 +289,7 @@ class PaymentService:
         # Credit branch wallet
         branch_id = order.get("branchId")
         await db.branches.update_one(
-            {"_id": branch_id},
+            {"_id": self._to_object_id(branch_id)},
             {"$inc": {f"wallet.{currency}": amount_to_business}}
         )
 
@@ -301,12 +309,12 @@ class PaymentService:
         now = datetime.utcnow()
 
         # User debit transaction
-        user_tx_id = str(uuid4())
+        user_tx_id = ObjectId()
         user_tx = {
             "_id": user_tx_id,
-            "fromOwnerId": user_id,
+            "fromOwnerId": self._to_object_id(user_id),
             "fromOwnerType": "user",
-            "toOwnerId": order.get("branchId"),
+            "toOwnerId": self._to_object_id(order.get("branchId")),
             "toOwnerType": "branch",
             "amount": amount_to_business,
             "currency": currency,
@@ -323,12 +331,12 @@ class PaymentService:
         await db.wallet_transactions.insert_one(user_tx)
 
         # Business credit transaction
-        business_tx_id = str(uuid4())
+        business_tx_id = ObjectId()
         business_tx = {
             "_id": business_tx_id,
-            "fromOwnerId": user_id,
+            "fromOwnerId": self._to_object_id(user_id),
             "fromOwnerType": "user",
-            "toOwnerId": order.get("branchId"),
+            "toOwnerId": self._to_object_id(order.get("branchId")),
             "toOwnerType": "branch",
             "amount": amount_to_business,
             "currency": currency,
@@ -345,11 +353,11 @@ class PaymentService:
         await db.wallet_transactions.insert_one(business_tx)
 
         # Commission transaction
-        commission_tx_id = str(uuid4())
+        commission_tx_id = ObjectId()
         if commission > 0:
             commission_tx = {
                 "_id": commission_tx_id,
-                "fromOwnerId": user_id,
+                "fromOwnerId": self._to_object_id(user_id),
                 "fromOwnerType": "user",
                 "toOwnerId": "platform",
                 "toOwnerType": "platform",
@@ -376,9 +384,9 @@ class PaymentService:
         # Update payment attempt
         payment_attempt.status = PaymentAttemptStatus.COMPLETED
         payment_attempt.completedAt = now
-        payment_attempt.walletTransactionId = user_tx_id
-        payment_attempt.businessWalletTransactionId = business_tx_id
-        payment_attempt.commissionTransactionId = commission_tx_id if commission > 0 else None
+        payment_attempt.walletTransactionId = str(user_tx_id)
+        payment_attempt.businessWalletTransactionId = str(business_tx_id)
+        payment_attempt.commissionTransactionId = str(commission_tx_id) if commission > 0 else None
 
         # Update order payment status
         await self._complete_order_payment(str(order.get("_id")), payment_attempt.id)
@@ -570,10 +578,10 @@ class PaymentService:
 
         # Record business received (they'll get cash from delivery person)
         business_tx = {
-            "_id": str(uuid4()),
-            "fromOwnerId": order.get("customerId"),
+            "_id": ObjectId(),
+            "fromOwnerId": self._to_object_id(order.get("customerId")),
             "fromOwnerType": "user",
-            "toOwnerId": order.get("branchId"),
+            "toOwnerId": self._to_object_id(order.get("branchId")),
             "toOwnerType": "branch",
             "amount": amount_to_business,
             "currency": currency,
@@ -593,8 +601,8 @@ class PaymentService:
         # Commission is owed to platform (to be settled later)
         if commission > 0:
             commission_tx = {
-                "_id": str(uuid4()),
-                "fromOwnerId": order.get("branchId"),
+                "_id": ObjectId(),
+                "fromOwnerId": self._to_object_id(order.get("branchId")),
                 "fromOwnerType": "branch",
                 "toOwnerId": "platform",
                 "toOwnerType": "platform",
@@ -745,12 +753,12 @@ class PaymentService:
         )
 
         # Create refund transaction
-        refund_tx_id = str(uuid4())
+        refund_tx_id = ObjectId()
         refund_tx = {
             "_id": refund_tx_id,
-            "fromOwnerId": order.get("branchId"),
+            "fromOwnerId": self._to_object_id(order.get("branchId")),
             "fromOwnerType": "branch",
-            "toOwnerId": order.get("customerId"),
+            "toOwnerId": self._to_object_id(order.get("customerId")),
             "toOwnerType": "user",
             "amount": refund_amount,
             "currency": currency,
@@ -771,7 +779,7 @@ class PaymentService:
         return await self.payment_attempts_repo.complete_refund(
             attempt.id,
             refund_amount,
-            refund_tx_id
+            str(refund_tx_id)
         )
 
     async def _process_stripe_refund(self, attempt: PaymentAttempt) -> PaymentAttempt:
@@ -860,7 +868,7 @@ class PaymentService:
         # Credit business wallet
         branch_id = order.get("branchId")
         await db.branches.update_one(
-            {"_id": branch_id},
+            {"_id": self._to_object_id(branch_id)},
             {"$inc": {f"wallet.{currency}": amount_to_business}}
         )
 
@@ -878,10 +886,10 @@ class PaymentService:
 
         # Create transaction records
         business_tx = {
-            "_id": str(uuid4()),
+            "_id": ObjectId(),
             "fromOwnerId": "stripe",
             "fromOwnerType": "external",
-            "toOwnerId": order.get("branchId"),
+            "toOwnerId": self._to_object_id(order.get("branchId")),
             "toOwnerType": "branch",
             "amount": amount_to_business,
             "currency": currency,
@@ -900,7 +908,7 @@ class PaymentService:
 
         if commission > 0:
             commission_tx = {
-                "_id": str(uuid4()),
+                "_id": ObjectId(),
                 "fromOwnerId": "stripe",
                 "fromOwnerType": "external",
                 "toOwnerId": "platform",
@@ -1116,4 +1124,3 @@ class PaymentService:
 
         return count
 payment_service = PaymentService()
-

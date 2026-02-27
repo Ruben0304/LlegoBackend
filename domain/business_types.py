@@ -3,6 +3,9 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
 from enum import Enum
+from bson import ObjectId
+
+from .py_object_id import PyObjectId
 
 
 class DevicePlatform(str, Enum):
@@ -64,8 +67,8 @@ class BusinessTypeConfig(BaseModel):
 
 class DeviceToken(BaseModel):
     """Device token model for push notifications."""
-    id: str = Field(alias="_id")
-    userId: Optional[str] = None
+    id: PyObjectId = Field(alias="_id")
+    userId: Optional[PyObjectId] = None
     token: str
     platform: DevicePlatform
     appVersion: Optional[str] = None
@@ -78,5 +81,5 @@ class DeviceToken(BaseModel):
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
         use_enum_values = True

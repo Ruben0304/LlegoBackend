@@ -417,7 +417,7 @@ class OrderMutation:
         branch = await branches_repo.get_by_id(req.branchId)
         if not branch:
             raise Exception("Sucursal no encontrada")
-        if user_id not in branch.managerIds:
+        if str(user_id) not in {str(mid) for mid in branch.managerIds}:
             raise Exception("No tienes permiso para responder esta solicitud")
 
         new_status = (
@@ -449,7 +449,7 @@ class OrderMutation:
         req = await branch_delivery_requests_repo.get_by_id(requestId)
         if not req:
             raise Exception("Solicitud no encontrada")
-        if req.deliveryPersonId != delivery_person.id:
+        if str(req.deliveryPersonId) != str(delivery_person.id):
             raise Exception("No tienes permiso para cancelar esta solicitud")
         if req.status != DeliveryRequestStatus.PENDING:
             raise Exception("Solo se pueden cancelar solicitudes pendientes")

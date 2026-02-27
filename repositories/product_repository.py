@@ -10,6 +10,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from bson import ObjectId
 from qdrant_client.http import models as qdrant_models
 from qdrant_client.models import PointStruct
 
@@ -32,6 +33,19 @@ class ProductRepository:
 
     # RAG fields stored in Qdrant
     rag_fields = {"name", "price", "description"}
+
+    @staticmethod
+    def _to_object_id(value: Any) -> Any:
+        if isinstance(value, ObjectId):
+            return value
+        try:
+            return ObjectId(str(value))
+        except Exception:
+            return value
+
+    @classmethod
+    def _to_object_ids(cls, values: List[Any]) -> List[Any]:
+        return [cls._to_object_id(value) for value in values]
 
     # --- GET Methods (MongoDB) ---
 
@@ -76,7 +90,9 @@ class ProductRepository:
         """Get product by ID from MongoDB."""
         try:
             db = get_database()
-            doc = await db[self.mongo_collection_name].find_one({"_id": product_id})
+            doc = await db[self.mongo_collection_name].find_one(
+                {"_id": self._to_object_id(product_id)}
+            )
 
             if doc:
                 return Product(**doc)
@@ -100,7 +116,8 @@ class ProductRepository:
         try:
             print(f"→ Fetching {len(product_ids)} products by IDs from MongoDB")
             db = get_database()
-            cursor = db[self.mongo_collection_name].find({"_id": {"$in": product_ids}})
+            object_ids = self._to_object_ids(product_ids)
+            cursor = db[self.mongo_collection_name].find({"_id": {"$in": object_ids}})
             documents = await cursor.to_list(length=None)
 
             products = [Product(**doc) for doc in documents]
@@ -126,7 +143,9 @@ class ProductRepository:
         try:
             print(f"→ Fetching products for branch {branch_id} from MongoDB")
             db = get_database()
-            cursor = db[self.mongo_collection_name].find({"branchId": branch_id})
+            cursor = db[self.mongo_collection_name].find(
+                {"branchId": self._to_object_id(branch_id)}
+            )
             documents = await cursor.to_list(length=None)
 
             products = [Product(**doc) for doc in documents]
@@ -155,9 +174,8 @@ class ProductRepository:
         try:
             print(f"→ Fetching products for {len(branch_ids)} branches from MongoDB")
             db = get_database()
-            cursor = db[self.mongo_collection_name].find(
-                {"branchId": {"$in": branch_ids}}
-            )
+            object_ids = self._to_object_ids(branch_ids)
+            cursor = db[self.mongo_collection_name].find({"branchId": {"$in": object_ids}})
             documents = await cursor.to_list(length=None)
 
             products = [Product(**doc) for doc in documents]
@@ -189,7 +207,9 @@ class ProductRepository:
         """Get products by category ID from MongoDB."""
         try:
             db = get_database()
-            cursor = db[self.mongo_collection_name].find({"categoryId": category_id})
+            cursor = db[self.mongo_collection_name].find(
+                {"categoryId": self._to_object_id(category_id)}
+            )
             documents = await cursor.to_list(length=None)
 
             return [Product(**doc) for doc in documents]
@@ -206,7 +226,7 @@ class ProductRepository:
         try:
             db = get_database()
             branch_ids = await db[self.mongo_collection_name].distinct(
-                "branchId", {"categoryId": category_id}
+                "branchId", {"categoryId": self._to_object_id(category_id)}
             )
             return set(branch_ids)
         except Exception as e:
@@ -260,6 +280,10 @@ class ProductRepository:
 
             # 1. Insert into MongoDB (complete document)
             doc = product.model_dump(by_alias=True)
+            doc["_id"] = self._to_object_id(doc.get("_id"))
+            doc["branchId"] = self._to_object_id(doc.get("branchId"))
+            if doc.get("categoryId") is not None:
+                doc["categoryId"] = self._to_object_id(doc.get("categoryId"))
             await db[self.mongo_collection_name].insert_one(doc)
 
             # 2. Insert into Qdrant (RAG fields + embedding)
@@ -290,21 +314,31 @@ class ProductRepository:
                 return None
 
             # 1. Update MongoDB
+            normalized_updates = dict(updates)
+            if "branchId" in normalized_updates:
+                normalized_updates["branchId"] = self._to_object_id(
+                    normalized_updates["branchId"]
+                )
+            if "categoryId" in normalized_updates and normalized_updates["categoryId"] is not None:
+                normalized_updates["categoryId"] = self._to_object_id(
+                    normalized_updates["categoryId"]
+                )
+
             await db[self.mongo_collection_name].update_one(
-                {"_id": product_id}, {"$set": updates}
+                {"_id": self._to_object_id(product_id)}, {"$set": normalized_updates}
             )
 
             # 2. If RAG fields changed, update Qdrant
-            if self.rag_fields.intersection(updates.keys()):
+            if self.rag_fields.intersection(normalized_updates.keys()):
                 updated_product = await self.get_by_id(product_id)
                 if updated_product:
                     await self._upsert_to_qdrant(updated_product)
 
             # Invalidate cache
-            branch_id = updates.get("branchId", current.branchId)
-            invalidate_product_cache(branch_id=branch_id)
+            branch_id = normalized_updates.get("branchId", current.branchId)
+            invalidate_product_cache(branch_id=str(branch_id))
             if current.branchId != branch_id:
-                invalidate_product_cache(branch_id=current.branchId)
+                invalidate_product_cache(branch_id=str(current.branchId))
             invalidate_product_cache()  # Invalidate get_all cache
 
             return await self.get_by_id(product_id)
@@ -332,7 +366,7 @@ class ProductRepository:
 
             # 1. Delete from MongoDB
             result = await db[self.mongo_collection_name].delete_one(
-                {"_id": product_id}
+                {"_id": self._to_object_id(product_id)}
             )
 
             if result.deleted_count == 0:
@@ -343,7 +377,7 @@ class ProductRepository:
 
             # Invalidate cache
             if branch_id:
-                invalidate_product_cache(branch_id=branch_id)
+                invalidate_product_cache(branch_id=str(branch_id))
             invalidate_product_cache()  # Invalidate get_all cache
 
             return True
@@ -364,11 +398,12 @@ class ProductRepository:
             qdrant_client = get_qdrant_client()
 
             # First, try to find existing point
-            existing = await self._find_qdrant_point(product.id)
+            mongo_id = str(product.id)
+            existing = await self._find_qdrant_point(mongo_id)
 
             # RAG-only payload
             payload = {
-                "mongo_id": product.id,
+                "mongo_id": mongo_id,
                 "name": product.name,
                 "price": product.price,
                 "description": product.description,
@@ -396,7 +431,7 @@ class ProductRepository:
             qdrant_client = get_qdrant_client()
 
             # Find point by mongo_id
-            existing = await self._find_qdrant_point(product_id)
+            existing = await self._find_qdrant_point(str(product_id))
             if existing:
                 await qdrant_client.delete(
                     collection_name=self.qdrant_collection_name,

@@ -4,7 +4,10 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
+from bson import ObjectId
 from pydantic import BaseModel, Field
+
+from .py_object_id import PyObjectId
 
 
 class OrderStatus(str, Enum):
@@ -83,7 +86,7 @@ class OrderComboModifier(BaseModel):
 class OrderComboSelectedOption(BaseModel):
     """Opción seleccionada por el cliente en un combo."""
 
-    productId: str
+    productId: PyObjectId
     name: str
     price: float
     quantity: int
@@ -181,11 +184,11 @@ class OrderComment(BaseModel):
 class Order(BaseModel):
     """Order model."""
 
-    id: str = Field(alias="_id")
+    id: PyObjectId = Field(alias="_id")
     orderNumber: str
-    customerId: str
-    branchId: str
-    businessId: str
+    customerId: PyObjectId
+    branchId: PyObjectId
+    businessId: PyObjectId
     items: List[OrderItem]
     subtotal: float
     deliveryFee: float
@@ -196,14 +199,14 @@ class Order(BaseModel):
     currency: str = "USD"
     status: OrderStatus = OrderStatus.PENDING_ACCEPTANCE
     deliveryAddress: DeliveryAddress
-    deliveryPersonId: Optional[str] = None
+    deliveryPersonId: Optional[PyObjectId] = None
     estimatedDeliveryTime: Optional[datetime] = None
     timeline: List[OrderTimeline] = []
     comments: List[OrderComment] = []
     paymentMethod: str
     paymentStatus: PaymentStatus = PaymentStatus.PENDING
     paymentId: Optional[str] = None
-    currentPaymentAttemptId: Optional[str] = None  # Current active payment attempt
+    currentPaymentAttemptId: Optional[PyObjectId] = None  # Current active payment attempt
     paidAt: Optional[datetime] = None  # When payment was completed
     deliveryFeePaid: float = 0.0  # Delivery fee actually paid (for tracking)
 
@@ -226,7 +229,7 @@ class Order(BaseModel):
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class DeliveryRequestStatus(str, Enum):
@@ -240,8 +243,8 @@ class DeliveryRequestStatus(str, Enum):
 class DeliveryPerson(BaseModel):
     """Delivery person model."""
 
-    id: str = Field(alias="_id")
-    userId: str
+    id: PyObjectId = Field(alias="_id")
+    userId: PyObjectId
     name: str
     phone: Optional[str] = None
     rating: float = 5.0
@@ -252,40 +255,40 @@ class DeliveryPerson(BaseModel):
     isActive: bool = True
     isOnline: bool = False
     currentLocation: Optional[GeoPoint] = None
-    currentOrderId: Optional[str] = None
-    linkedBranchIds: List[str] = []
+    currentOrderId: Optional[PyObjectId] = None
+    linkedBranchIds: List[PyObjectId] = []
     createdAt: datetime
     updatedAt: datetime
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class BranchDeliveryRequest(BaseModel):
     """Request by a delivery person to be linked to a branch."""
 
-    id: str = Field(alias="_id")
-    deliveryPersonId: str
-    branchId: str
+    id: PyObjectId = Field(alias="_id")
+    deliveryPersonId: PyObjectId
+    branchId: PyObjectId
     status: DeliveryRequestStatus = DeliveryRequestStatus.PENDING
     message: Optional[str] = None
-    respondedBy: Optional[str] = None
+    respondedBy: Optional[PyObjectId] = None
     respondedAt: Optional[datetime] = None
     createdAt: datetime
     updatedAt: datetime
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class OrderLocationUpdate(BaseModel):
     """Location update for order tracking."""
 
-    id: str = Field(alias="_id")
-    orderId: str
-    deliveryPersonId: str
+    id: PyObjectId = Field(alias="_id")
+    orderId: PyObjectId
+    deliveryPersonId: PyObjectId
     location: GeoPoint
     timestamp: datetime
     speed: Optional[float] = None
@@ -293,7 +296,7 @@ class OrderLocationUpdate(BaseModel):
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 # Allowed state transitions

@@ -9,6 +9,13 @@ from domain.models import BranchInvitation
 class BranchInvitationRepository:
     collection_name = "branch_invitations"
 
+    @staticmethod
+    def _to_object_id(value: str):
+        try:
+            return ObjectId(value)
+        except Exception:
+            return value
+
     # --- Query Methods ---
 
     async def get_by_code(self, code: str) -> Optional[BranchInvitation]:
@@ -26,7 +33,9 @@ class BranchInvitationRepository:
     async def get_by_business(self, business_id: str) -> List[BranchInvitation]:
         """Get all invitations for a business (for management UI)."""
         db = get_database()
-        cursor = db[self.collection_name].find({"businessId": business_id}).sort("createdAt", -1)
+        cursor = db[self.collection_name].find(
+            {"businessId": self._to_object_id(business_id)}
+        ).sort("createdAt", -1)
         docs = await cursor.to_list(length=None)
         return [BranchInvitation(**self._convert_id(doc)) for doc in docs]
 
@@ -34,7 +43,7 @@ class BranchInvitationRepository:
         """Get active (pending) invitations for a business."""
         db = get_database()
         cursor = db[self.collection_name].find({
-            "businessId": business_id,
+            "businessId": self._to_object_id(business_id),
             "status": "pending"
         }).sort("createdAt", -1)
         docs = await cursor.to_list(length=None)
@@ -44,7 +53,7 @@ class BranchInvitationRepository:
         """Get all invitations for a specific branch."""
         db = get_database()
         cursor = db[self.collection_name].find({
-            "branchId": branch_id,
+            "branchId": self._to_object_id(branch_id),
             "invitationType": "branch"
         }).sort("createdAt", -1)
         docs = await cursor.to_list(length=None)
@@ -53,7 +62,9 @@ class BranchInvitationRepository:
     async def get_by_user(self, user_id: str) -> List[BranchInvitation]:
         """Get all invitations used by a specific user (audit trail)."""
         db = get_database()
-        cursor = db[self.collection_name].find({"usedBy": user_id}).sort("usedAt", -1)
+        cursor = db[self.collection_name].find(
+            {"usedBy": self._to_object_id(user_id)}
+        ).sort("usedAt", -1)
         docs = await cursor.to_list(length=None)
         return [BranchInvitation(**self._convert_id(doc)) for doc in docs]
 
@@ -63,6 +74,13 @@ class BranchInvitationRepository:
         """Create a new invitation."""
         db = get_database()
         doc = invitation.model_dump(by_alias=True)
+        doc["_id"] = self._to_object_id(doc["_id"])
+        doc["businessId"] = self._to_object_id(doc["businessId"])
+        if doc.get("branchId") is not None:
+            doc["branchId"] = self._to_object_id(doc["branchId"])
+        doc["createdBy"] = self._to_object_id(doc["createdBy"])
+        if doc.get("usedBy") is not None:
+            doc["usedBy"] = self._to_object_id(doc["usedBy"])
         await db[self.collection_name].insert_one(doc)
         return invitation
 
@@ -97,7 +115,7 @@ class BranchInvitationRepository:
             {
                 "$set": {
                     "status": "used",
-                    "usedBy": user_id,
+                    "usedBy": self._to_object_id(user_id),
                     "usedAt": now,
                     "accessExpiresAt": access_expires_at
                 }
@@ -147,7 +165,7 @@ class BranchInvitationRepository:
     @staticmethod
     def _build_id_query(invitation_id: str) -> Dict[str, Any]:
         """Build a query that works with string or ObjectId IDs."""
-        ids = [invitation_id]
+        ids = [BranchInvitationRepository._to_object_id(invitation_id)]
         try:
             ids.append(ObjectId(invitation_id))
         except Exception:

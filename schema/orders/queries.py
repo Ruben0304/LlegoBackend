@@ -118,7 +118,7 @@ class OrderQuery:
         # Verify access (customer, business owner, branch manager, or delivery person)
         # For simplicity, just return if user is customer
         # Full authorization should check all roles
-        if order.customerId != user_id:
+        if str(order.customerId) != str(user_id):
             # TODO: Check if user is business owner, branch manager, or delivery person
             pass
 
@@ -316,7 +316,7 @@ class OrderQuery:
         branch = await branches_repo.get_by_id(branchId)
         if not branch:
             raise Exception("Sucursal no encontrada")
-        if user_id not in branch.managerIds:
+        if str(user_id) not in {str(mid) for mid in branch.managerIds}:
             raise Exception("No tienes permiso para ver estas solicitudes")
 
         status_filter = DeliveryRequestStatus(status.value) if status else None

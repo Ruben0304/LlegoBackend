@@ -11,6 +11,13 @@ from domain.models import User
 class UserRepository:
     collection_name = "users"
 
+    @staticmethod
+    def _to_object_id(value: str):
+        try:
+            return ObjectId(value)
+        except Exception:
+            return value
+
     async def get_all(self) -> List[User]:
         db = get_database()
         cursor = db[self.collection_name].find()
@@ -117,7 +124,7 @@ class UserRepository:
 
         result = await db[self.collection_name].find_one_and_update(
             {"_id": object_id},
-            {"$addToSet": {"businessIds": business_id}},
+            {"$addToSet": {"businessIds": self._to_object_id(business_id)}},
             return_document=True,
         )
         return User(**self._convert_id(result)) if result else None
@@ -134,7 +141,7 @@ class UserRepository:
 
         result = await db[self.collection_name].find_one_and_update(
             {"_id": object_id},
-            {"$pull": {"businessIds": business_id}},
+            {"$pull": {"businessIds": self._to_object_id(business_id)}},
             return_document=True,
         )
         return User(**self._convert_id(result)) if result else None
@@ -149,7 +156,7 @@ class UserRepository:
 
         result = await db[self.collection_name].find_one_and_update(
             {"_id": object_id},
-            {"$addToSet": {"branchIds": branch_id}},
+            {"$addToSet": {"branchIds": self._to_object_id(branch_id)}},
             return_document=True,
         )
         return User(**self._convert_id(result)) if result else None
@@ -164,7 +171,7 @@ class UserRepository:
 
         result = await db[self.collection_name].find_one_and_update(
             {"_id": object_id},
-            {"$pull": {"branchIds": branch_id}},
+            {"$pull": {"branchIds": self._to_object_id(branch_id)}},
             return_document=True,
         )
         return User(**self._convert_id(result)) if result else None
@@ -181,7 +188,7 @@ class UserRepository:
 
         result = await db[self.collection_name].find_one_and_update(
             {"_id": object_id},
-            {"$addToSet": {"businessAccessIds": access_id}},
+            {"$addToSet": {"businessAccessIds": self._to_object_id(access_id)}},
             return_document=True,
         )
         return User(**self._convert_id(result)) if result else None
@@ -198,7 +205,7 @@ class UserRepository:
 
         result = await db[self.collection_name].find_one_and_update(
             {"_id": object_id},
-            {"$pull": {"businessAccessIds": access_id}},
+            {"$pull": {"businessAccessIds": self._to_object_id(access_id)}},
             return_document=True,
         )
         return User(**self._convert_id(result)) if result else None

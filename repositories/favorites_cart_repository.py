@@ -9,6 +9,13 @@ from domain.models import FavoriteCart
 class FavoritesCartRepository:
     collection_name = "favorites_cart"
 
+    @staticmethod
+    def _to_object_id(value: str):
+        try:
+            return ObjectId(value)
+        except Exception:
+            return value
+
     async def add(self, user_id: str, product_id: str, item_type: str) -> Optional[FavoriteCart]:
         """
         Add a favorite or cart item. Checks for duplicates before adding.
@@ -25,8 +32,8 @@ class FavoritesCartRepository:
 
         # Check if already exists
         existing = await db[self.collection_name].find_one({
-            "userId": user_id,
-            "productId": product_id,
+            "userId": self._to_object_id(user_id),
+            "productId": self._to_object_id(product_id),
             "type": item_type
         })
 
@@ -35,8 +42,8 @@ class FavoritesCartRepository:
 
         # Create new entry
         new_item = {
-            "userId": user_id,
-            "productId": product_id,
+            "userId": self._to_object_id(user_id),
+            "productId": self._to_object_id(product_id),
             "type": item_type,
             "createdAt": datetime.utcnow()
         }
@@ -60,8 +67,8 @@ class FavoritesCartRepository:
         """
         db = get_database()
         result = await db[self.collection_name].delete_one({
-            "userId": user_id,
-            "productId": product_id,
+            "userId": self._to_object_id(user_id),
+            "productId": self._to_object_id(product_id),
             "type": item_type
         })
         return result.deleted_count > 0
@@ -78,7 +85,7 @@ class FavoritesCartRepository:
             List of FavoriteCart objects
         """
         db = get_database()
-        query = {"userId": user_id}
+        query = {"userId": self._to_object_id(user_id)}
         if item_type:
             query["type"] = item_type
 
@@ -100,8 +107,8 @@ class FavoritesCartRepository:
         """
         db = get_database()
         item = await db[self.collection_name].find_one({
-            "userId": user_id,
-            "productId": product_id,
+            "userId": self._to_object_id(user_id),
+            "productId": self._to_object_id(product_id),
             "type": item_type
         })
         return item is not None
@@ -135,7 +142,7 @@ class FavoritesCartRepository:
         if max_count == 0:
             return {}
 
-        return {r["_id"]: r["count"] / max_count for r in results}
+        return {str(r["_id"]): r["count"] / max_count for r in results}
 
     async def get_user_preferences(self, user_id: str, item_type: str = "favorite") -> List[str]:
         """
@@ -182,7 +189,7 @@ class FavoritesCartRepository:
 
         results = await db[self.collection_name].aggregate(pipeline).to_list(length=None)
 
-        return {r["_id"]: r["count"] for r in results}
+        return {str(r["_id"]): r["count"] for r in results}
 
     @staticmethod
     def _convert_id(doc: Dict[str, Any]) -> Dict[str, Any]:

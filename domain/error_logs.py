@@ -3,6 +3,9 @@ from pydantic import BaseModel, Field
 from typing import List, Dict, Optional, Any, Literal
 from datetime import datetime
 from enum import Enum
+from bson import ObjectId
+
+from .py_object_id import PyObjectId
 
 
 class ErrorSeverity(str, Enum):
@@ -33,7 +36,7 @@ class GeminiAnalysis(BaseModel):
 
 class ErrorLog(BaseModel):
     """Error log model for MongoDB storage."""
-    id: str = Field(alias="_id")
+    id: PyObjectId = Field(alias="_id")
     error_type: str
     error_message: str
     stack_trace: Optional[str] = None
@@ -41,7 +44,7 @@ class ErrorLog(BaseModel):
     http_method: Optional[str] = None
     client_ip: Optional[str] = None
     user_agent: Optional[str] = None
-    user_id: Optional[str] = None
+    user_id: Optional[PyObjectId] = None
     source: ErrorSource
     app_version: Optional[str] = None
     device_info: Optional[str] = None
@@ -51,14 +54,14 @@ class ErrorLog(BaseModel):
     gemini_analysis: Optional[GeminiAnalysis] = None
     resolved: bool = False
     resolved_at: Optional[datetime] = None
-    resolved_by: Optional[str] = None
+    resolved_by: Optional[PyObjectId] = None
     occurrence_count: int = 1
     last_occurrence_at: datetime = Field(default_factory=datetime.utcnow)
     created_at: datetime
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class MobileErrorReport(BaseModel):

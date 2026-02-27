@@ -8,6 +8,13 @@ from domain.models import SurveyResponse
 class SurveyResponseRepository:
     collection_name = "survey_responses"
 
+    @staticmethod
+    def _to_object_id(value: str):
+        try:
+            return ObjectId(value)
+        except Exception:
+            return value
+
     async def get_all(self) -> List[SurveyResponse]:
         """Get all survey responses."""
         db = get_database()
@@ -28,14 +35,14 @@ class SurveyResponseRepository:
     async def get_by_survey(self, survey_id: str) -> List[SurveyResponse]:
         """Get all responses for a specific survey."""
         db = get_database()
-        cursor = db[self.collection_name].find({"surveyId": survey_id})
+        cursor = db[self.collection_name].find({"surveyId": self._to_object_id(survey_id)})
         responses = await cursor.to_list(length=None)
         return [SurveyResponse(**self._convert_id(r)) for r in responses]
 
     async def get_by_user(self, user_id: str) -> List[SurveyResponse]:
         """Get all responses by a specific user."""
         db = get_database()
-        cursor = db[self.collection_name].find({"userId": user_id})
+        cursor = db[self.collection_name].find({"userId": self._to_object_id(user_id)})
         responses = await cursor.to_list(length=None)
         return [SurveyResponse(**self._convert_id(r)) for r in responses]
 
@@ -47,17 +54,20 @@ class SurveyResponseRepository:
         """Check if user has already responded to a survey."""
         db = get_database()
         response = await db[self.collection_name].find_one({
-            "surveyId": survey_id,
-            "userId": user_id
+            "surveyId": self._to_object_id(survey_id),
+            "userId": self._to_object_id(user_id)
         })
         return SurveyResponse(**self._convert_id(response)) if response else None
 
     async def create(self, response_data: Dict[str, Any]) -> SurveyResponse:
         """Create a new survey response."""
         db = get_database()
-        result = await db[self.collection_name].insert_one(response_data)
-        response_data["_id"] = str(result.inserted_id)
-        return SurveyResponse(**response_data)
+        response_doc = dict(response_data)
+        response_doc["surveyId"] = self._to_object_id(response_doc["surveyId"])
+        response_doc["userId"] = self._to_object_id(response_doc["userId"])
+        result = await db[self.collection_name].insert_one(response_doc)
+        response_doc["_id"] = result.inserted_id
+        return SurveyResponse(**response_doc)
 
     async def delete(self, response_id: str) -> bool:
         """Delete a survey response."""

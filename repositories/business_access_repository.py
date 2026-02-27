@@ -9,6 +9,13 @@ from domain.models import BusinessAccess
 class BusinessAccessRepository:
     collection_name = "business_access"
 
+    @staticmethod
+    def _to_object_id(value: str):
+        try:
+            return ObjectId(value)
+        except Exception:
+            return value
+
     # --- Query Methods ---
 
     async def get_by_id(self, access_id: str) -> Optional[BusinessAccess]:
@@ -28,8 +35,8 @@ class BusinessAccessRepository:
         """
         db = get_database()
         doc = await db[self.collection_name].find_one({
-            "userId": user_id,
-            "businessId": business_id,
+            "userId": self._to_object_id(user_id),
+            "businessId": self._to_object_id(business_id),
             "isActive": True
         })
         return BusinessAccess(**self._convert_id(doc)) if doc else None
@@ -38,7 +45,7 @@ class BusinessAccessRepository:
         """Get all active business accesses for a user."""
         db = get_database()
         cursor = db[self.collection_name].find({
-            "userId": user_id,
+            "userId": self._to_object_id(user_id),
             "isActive": True
         }).sort("grantedAt", -1)
         docs = await cursor.to_list(length=None)
@@ -48,7 +55,7 @@ class BusinessAccessRepository:
         """Get all active business accesses for a business."""
         db = get_database()
         cursor = db[self.collection_name].find({
-            "businessId": business_id,
+            "businessId": self._to_object_id(business_id),
             "isActive": True
         }).sort("grantedAt", -1)
         docs = await cursor.to_list(length=None)
@@ -58,7 +65,7 @@ class BusinessAccessRepository:
         """Get all business accesses for a business (active and inactive)."""
         db = get_database()
         cursor = db[self.collection_name].find({
-            "businessId": business_id
+            "businessId": self._to_object_id(business_id)
         }).sort("grantedAt", -1)
         docs = await cursor.to_list(length=None)
         return [BusinessAccess(**self._convert_id(doc)) for doc in docs]
@@ -67,7 +74,7 @@ class BusinessAccessRepository:
         """Get all business accesses for a user (active and inactive)."""
         db = get_database()
         cursor = db[self.collection_name].find({
-            "userId": user_id
+            "userId": self._to_object_id(user_id)
         }).sort("grantedAt", -1)
         docs = await cursor.to_list(length=None)
         return [BusinessAccess(**self._convert_id(doc)) for doc in docs]
@@ -75,7 +82,9 @@ class BusinessAccessRepository:
     async def get_by_invitation(self, invitation_id: str) -> Optional[BusinessAccess]:
         """Get business access by invitation ID."""
         db = get_database()
-        doc = await db[self.collection_name].find_one({"invitationId": invitation_id})
+        doc = await db[self.collection_name].find_one(
+            {"invitationId": self._to_object_id(invitation_id)}
+        )
         return BusinessAccess(**self._convert_id(doc)) if doc else None
 
     # --- Create Method ---
@@ -84,6 +93,12 @@ class BusinessAccessRepository:
         """Create a new business access record."""
         db = get_database()
         doc = access.model_dump(by_alias=True)
+        doc["_id"] = self._to_object_id(doc["_id"])
+        doc["userId"] = self._to_object_id(doc["userId"])
+        doc["businessId"] = self._to_object_id(doc["businessId"])
+        doc["invitationId"] = self._to_object_id(doc["invitationId"])
+        if doc.get("revokedBy") is not None:
+            doc["revokedBy"] = self._to_object_id(doc["revokedBy"])
         await db[self.collection_name].insert_one(doc)
         return access
 
@@ -109,7 +124,7 @@ class BusinessAccessRepository:
                 "$set": {
                     "isActive": False,
                     "revokedAt": now,
-                    "revokedBy": revoked_by
+                    "revokedBy": self._to_object_id(revoked_by)
                 }
             },
             return_document=True
@@ -185,7 +200,7 @@ class BusinessAccessRepository:
     @staticmethod
     def _build_id_query(access_id: str) -> Dict[str, Any]:
         """Build a query that works with string or ObjectId IDs."""
-        ids = [access_id]
+        ids = [BusinessAccessRepository._to_object_id(access_id)]
         try:
             ids.append(ObjectId(access_id))
         except Exception:

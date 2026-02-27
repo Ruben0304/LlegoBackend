@@ -30,6 +30,13 @@ class OrderRepository:
         return get_database()[self.collection_name]
 
     @staticmethod
+    def _to_object_id(value: str):
+        try:
+            return ObjectId(value)
+        except Exception:
+            return value
+
+    @staticmethod
     def _doc_to_order(doc: dict) -> Order:
         """Convert MongoDB document to Order model."""
         doc["_id"] = str(doc["_id"])
@@ -39,14 +46,21 @@ class OrderRepository:
         """Create a new order."""
         collection = self._get_collection()
         doc = order.model_dump(by_alias=True)
-        doc["_id"] = ObjectId(doc["_id"])
+        doc["_id"] = self._to_object_id(doc["_id"])
+        doc["customerId"] = self._to_object_id(doc["customerId"])
+        doc["branchId"] = self._to_object_id(doc["branchId"])
+        doc["businessId"] = self._to_object_id(doc["businessId"])
+        if doc.get("deliveryPersonId") is not None:
+            doc["deliveryPersonId"] = self._to_object_id(doc["deliveryPersonId"])
+        if doc.get("currentPaymentAttemptId") is not None:
+            doc["currentPaymentAttemptId"] = self._to_object_id(doc["currentPaymentAttemptId"])
         await collection.insert_one(doc)
         return order
 
     async def get_by_id(self, order_id: str) -> Optional[Order]:
         """Get order by ID."""
         collection = self._get_collection()
-        doc = await collection.find_one({"_id": ObjectId(order_id)})
+        doc = await collection.find_one({"_id": self._to_object_id(order_id)})
         return self._doc_to_order(doc) if doc else None
 
     async def get_by_order_number(self, order_number: str) -> Optional[Order]:
@@ -64,7 +78,7 @@ class OrderRepository:
     ) -> tuple[List[Order], int]:
         """Get orders by customer with pagination."""
         collection = self._get_collection()
-        query: Dict[str, Any] = {"customerId": customer_id}
+        query: Dict[str, Any] = {"customerId": self._to_object_id(customer_id)}
         if status:
             query["status"] = status.value
 
@@ -84,7 +98,7 @@ class OrderRepository:
     ) -> tuple[List[Order], int]:
         """Get orders by branch with filters and pagination."""
         collection = self._get_collection()
-        query: Dict[str, Any] = {"branchId": branch_id}
+        query: Dict[str, Any] = {"branchId": self._to_object_id(branch_id)}
 
         if status:
             query["status"] = status.value
@@ -102,7 +116,7 @@ class OrderRepository:
         """Get pending orders for a branch."""
         collection = self._get_collection()
         query = {
-            "branchId": branch_id,
+            "branchId": self._to_object_id(branch_id),
             "status": {
                 "$in": [
                     OrderStatus.PENDING_ACCEPTANCE.value,
@@ -147,7 +161,7 @@ class OrderRepository:
         query = {
             "status": OrderStatus.READY_FOR_PICKUP.value,
             "deliveryPersonId": None,
-            "branchId": {"$in": branch_ids},
+            "branchId": {"$in": [self._to_object_id(bid) for bid in branch_ids]},
         }
         cursor = collection.find(query).sort("createdAt", 1).limit(50)
         return [self._doc_to_order(doc) async for doc in cursor]
@@ -157,7 +171,7 @@ class OrderRepository:
         collection = self._get_collection()
         doc = await collection.find_one(
             {
-                "deliveryPersonId": delivery_person_id,
+                "deliveryPersonId": self._to_object_id(delivery_person_id),
                 "status": {
                     "$in": [
                         OrderStatus.READY_FOR_PICKUP.value,
@@ -192,7 +206,7 @@ class OrderRepository:
                 set_fields["deliveryDurationMin"] = int(delta.total_seconds() / 60)
 
         result = await collection.find_one_and_update(
-            {"_id": ObjectId(order_id)},
+            {"_id": self._to_object_id(order_id)},
             {
                 "$set": set_fields,
                 "$push": {"timeline": timeline_entry.model_dump()},
@@ -213,7 +227,7 @@ class OrderRepository:
         collection = self._get_collection()
         now = datetime.utcnow()
         result = await collection.find_one_and_update(
-            {"_id": ObjectId(order_id)},
+            {"_id": self._to_object_id(order_id)},
             {
                 "$set": {
                     "items": [item.model_dump() for item in items],
@@ -236,10 +250,10 @@ class OrderRepository:
         collection = self._get_collection()
         now = datetime.utcnow()
         result = await collection.find_one_and_update(
-            {"_id": ObjectId(order_id)},
+            {"_id": self._to_object_id(order_id)},
             {
                 "$set": {
-                    "deliveryPersonId": delivery_person_id,
+                    "deliveryPersonId": self._to_object_id(delivery_person_id),
                     "estimatedDeliveryTime": estimated_delivery_time,
                     "assignedAt": now,
                     "updatedAt": now,
@@ -255,7 +269,7 @@ class OrderRepository:
         """Add a comment to an order."""
         collection = self._get_collection()
         result = await collection.find_one_and_update(
-            {"_id": ObjectId(order_id)},
+            {"_id": self._to_object_id(order_id)},
             {
                 "$push": {"comments": comment.model_dump()},
                 "$set": {"updatedAt": datetime.utcnow()},
@@ -274,7 +288,7 @@ class OrderRepository:
             update["$set"]["ratingComment"] = comment
 
         result = await collection.find_one_and_update(
-            {"_id": ObjectId(order_id)}, update, return_document=True
+            {"_id": self._to_object_id(order_id)}, update, return_document=True
         )
         return self._doc_to_order(result) if result else None
 
@@ -289,7 +303,7 @@ class OrderRepository:
         collection = self._get_collection()
         now = datetime.utcnow()
         result = await collection.find_one_and_update(
-            {"_id": ObjectId(order_id)},
+            {"_id": self._to_object_id(order_id)},
             {
                 "$set": {
                     "deliveryFee": delivery_fee,
@@ -318,7 +332,7 @@ class OrderRepository:
             update["paymentId"] = payment_id
 
         result = await collection.find_one_and_update(
-            {"_id": ObjectId(order_id)}, {"$set": update}, return_document=True
+            {"_id": self._to_object_id(order_id)}, {"$set": update}, return_document=True
         )
         return self._doc_to_order(result) if result else None
 
@@ -331,7 +345,7 @@ class OrderRepository:
             "createdAt": {"$gte": from_date, "$lte": to_date}
         }
         if branch_id:
-            match_stage["branchId"] = branch_id
+            match_stage["branchId"] = self._to_object_id(branch_id)
 
         pipeline = [
             {"$match": match_stage},
@@ -382,7 +396,7 @@ class OrderRepository:
         """Get dashboard statistics: revenue, completed, cancelled, top products."""
         collection = self._get_collection()
         match_stage: Dict[str, Any] = {
-            "businessId": business_id,
+            "businessId": self._to_object_id(business_id),
             "createdAt": {"$gte": from_date, "$lte": to_date},
         }
 
@@ -457,7 +471,7 @@ class OrderRepository:
     ) -> List[Order]:
         """Get orders assigned to a delivery person, sorted by most recent."""
         collection = self._get_collection()
-        query: Dict[str, Any] = {"deliveryPersonId": delivery_person_id}
+        query: Dict[str, Any] = {"deliveryPersonId": self._to_object_id(delivery_person_id)}
         if status:
             query["status"] = status
         skip = (page - 1) * page_size
@@ -472,7 +486,7 @@ class OrderRepository:
         """Get aggregated delivery stats for a delivery person."""
         collection = self._get_collection()
         pipeline = [
-            {"$match": {"deliveryPersonId": delivery_person_id, "status": "delivered"}},
+            {"$match": {"deliveryPersonId": self._to_object_id(delivery_person_id), "status": "delivered"}},
             {
                 "$group": {
                     "_id": None,
@@ -516,6 +530,13 @@ class DeliveryPersonRepository:
         return get_database()[self.collection_name]
 
     @staticmethod
+    def _to_object_id(value: str):
+        try:
+            return ObjectId(value)
+        except Exception:
+            return value
+
+    @staticmethod
     def _doc_to_delivery_person(doc: dict) -> DeliveryPerson:
         """Convert MongoDB document to DeliveryPerson model."""
         doc["_id"] = str(doc["_id"])
@@ -525,20 +546,24 @@ class DeliveryPersonRepository:
         """Create a new delivery person."""
         collection = self._get_collection()
         doc = delivery_person.model_dump(by_alias=True)
-        doc["_id"] = ObjectId(doc["_id"])
+        doc["_id"] = self._to_object_id(doc["_id"])
+        doc["userId"] = self._to_object_id(doc["userId"])
+        if doc.get("currentOrderId") is not None:
+            doc["currentOrderId"] = self._to_object_id(doc["currentOrderId"])
+        doc["linkedBranchIds"] = [self._to_object_id(bid) for bid in doc.get("linkedBranchIds", [])]
         await collection.insert_one(doc)
         return delivery_person
 
     async def get_by_id(self, delivery_person_id: str) -> Optional[DeliveryPerson]:
         """Get delivery person by ID."""
         collection = self._get_collection()
-        doc = await collection.find_one({"_id": ObjectId(delivery_person_id)})
+        doc = await collection.find_one({"_id": self._to_object_id(delivery_person_id)})
         return self._doc_to_delivery_person(doc) if doc else None
 
     async def get_by_user_id(self, user_id: str) -> Optional[DeliveryPerson]:
         """Get delivery person by user ID."""
         collection = self._get_collection()
-        doc = await collection.find_one({"userId": user_id})
+        doc = await collection.find_one({"userId": self._to_object_id(user_id)})
         return self._doc_to_delivery_person(doc) if doc else None
 
     async def get_available_nearby(
@@ -569,7 +594,7 @@ class DeliveryPersonRepository:
         """Update delivery person location."""
         collection = self._get_collection()
         result = await collection.find_one_and_update(
-            {"_id": ObjectId(delivery_person_id)},
+            {"_id": self._to_object_id(delivery_person_id)},
             {
                 "$set": {
                     "currentLocation": {
@@ -589,7 +614,7 @@ class DeliveryPersonRepository:
         """Update delivery person online status."""
         collection = self._get_collection()
         result = await collection.find_one_and_update(
-            {"_id": ObjectId(delivery_person_id)},
+            {"_id": self._to_object_id(delivery_person_id)},
             {"$set": {"isOnline": is_online, "updatedAt": datetime.utcnow()}},
             return_document=True,
         )
@@ -601,8 +626,8 @@ class DeliveryPersonRepository:
         """Assign an order to a delivery person."""
         collection = self._get_collection()
         result = await collection.find_one_and_update(
-            {"_id": ObjectId(delivery_person_id)},
-            {"$set": {"currentOrderId": order_id, "updatedAt": datetime.utcnow()}},
+            {"_id": self._to_object_id(delivery_person_id)},
+            {"$set": {"currentOrderId": self._to_object_id(order_id), "updatedAt": datetime.utcnow()}},
             return_document=True,
         )
         return self._doc_to_delivery_person(result) if result else None
@@ -613,7 +638,7 @@ class DeliveryPersonRepository:
         """Mark delivery as complete and increment counter."""
         collection = self._get_collection()
         result = await collection.find_one_and_update(
-            {"_id": ObjectId(delivery_person_id)},
+            {"_id": self._to_object_id(delivery_person_id)},
             {
                 "$set": {"currentOrderId": None, "updatedAt": datetime.utcnow()},
                 "$inc": {"totalDeliveries": 1},
@@ -628,9 +653,9 @@ class DeliveryPersonRepository:
         """Add a branch to the delivery person's linked branches list."""
         collection = self._get_collection()
         result = await collection.find_one_and_update(
-            {"_id": ObjectId(delivery_person_id)},
+            {"_id": self._to_object_id(delivery_person_id)},
             {
-                "$addToSet": {"linkedBranchIds": branch_id},
+                "$addToSet": {"linkedBranchIds": self._to_object_id(branch_id)},
                 "$set": {"updatedAt": datetime.utcnow()},
             },
             return_document=True,
@@ -643,9 +668,9 @@ class DeliveryPersonRepository:
         """Remove a branch from the delivery person's linked branches list."""
         collection = self._get_collection()
         result = await collection.find_one_and_update(
-            {"_id": ObjectId(delivery_person_id)},
+            {"_id": self._to_object_id(delivery_person_id)},
             {
-                "$pull": {"linkedBranchIds": branch_id},
+                "$pull": {"linkedBranchIds": self._to_object_id(branch_id)},
                 "$set": {"updatedAt": datetime.utcnow()},
             },
             return_document=True,
@@ -656,9 +681,9 @@ class DeliveryPersonRepository:
         """Remove a branch from all delivery persons' linkedBranchIds."""
         collection = self._get_collection()
         result = await collection.update_many(
-            {"linkedBranchIds": branch_id},
+            {"linkedBranchIds": self._to_object_id(branch_id)},
             {
-                "$pull": {"linkedBranchIds": branch_id},
+                "$pull": {"linkedBranchIds": self._to_object_id(branch_id)},
                 "$set": {"updatedAt": datetime.utcnow()},
             },
         )
@@ -681,7 +706,7 @@ class DeliveryPersonRepository:
             avg_rating = ((dp.rating * total) + new_rating) / (total + 1)
 
         result = await collection.find_one_and_update(
-            {"_id": ObjectId(delivery_person_id)},
+            {"_id": self._to_object_id(delivery_person_id)},
             {"$set": {"rating": round(avg_rating, 2), "updatedAt": datetime.utcnow()}},
             return_document=True,
         )
@@ -697,6 +722,13 @@ class OrderLocationRepository:
         return get_database()[self.collection_name]
 
     @staticmethod
+    def _to_object_id(value: str):
+        try:
+            return ObjectId(value)
+        except Exception:
+            return value
+
+    @staticmethod
     def _doc_to_location_update(doc: dict) -> OrderLocationUpdate:
         """Convert MongoDB document to OrderLocationUpdate model."""
         doc["_id"] = str(doc["_id"])
@@ -706,14 +738,19 @@ class OrderLocationRepository:
         """Create a new location update."""
         collection = self._get_collection()
         doc = location_update.model_dump(by_alias=True)
-        doc["_id"] = ObjectId(doc["_id"])
+        doc["_id"] = self._to_object_id(doc["_id"])
+        doc["orderId"] = self._to_object_id(doc["orderId"])
+        doc["deliveryPersonId"] = self._to_object_id(doc["deliveryPersonId"])
         await collection.insert_one(doc)
         return location_update
 
     async def get_latest_by_order(self, order_id: str) -> Optional[OrderLocationUpdate]:
         """Get the latest location update for an order."""
         collection = self._get_collection()
-        doc = await collection.find_one({"orderId": order_id}, sort=[("timestamp", -1)])
+        doc = await collection.find_one(
+            {"orderId": self._to_object_id(order_id)},
+            sort=[("timestamp", -1)],
+        )
         return self._doc_to_location_update(doc) if doc else None
 
     async def get_by_order(
@@ -722,7 +759,9 @@ class OrderLocationRepository:
         """Get location updates for an order."""
         collection = self._get_collection()
         cursor = (
-            collection.find({"orderId": order_id}).sort("timestamp", -1).limit(limit)
+            collection.find({"orderId": self._to_object_id(order_id)})
+            .sort("timestamp", -1)
+            .limit(limit)
         )
         return [self._doc_to_location_update(doc) async for doc in cursor]
 
@@ -736,6 +775,13 @@ class BranchDeliveryRequestRepository:
         return get_database()[self.collection_name]
 
     @staticmethod
+    def _to_object_id(value: str):
+        try:
+            return ObjectId(value)
+        except Exception:
+            return value
+
+    @staticmethod
     def _doc_to_request(doc: dict) -> BranchDeliveryRequest:
         doc["_id"] = str(doc["_id"])
         return BranchDeliveryRequest(**doc)
@@ -743,13 +789,17 @@ class BranchDeliveryRequestRepository:
     async def create(self, request: BranchDeliveryRequest) -> BranchDeliveryRequest:
         collection = self._get_collection()
         doc = request.model_dump(by_alias=True)
-        doc["_id"] = ObjectId(doc["_id"])
+        doc["_id"] = self._to_object_id(doc["_id"])
+        doc["deliveryPersonId"] = self._to_object_id(doc["deliveryPersonId"])
+        doc["branchId"] = self._to_object_id(doc["branchId"])
+        if doc.get("respondedBy") is not None:
+            doc["respondedBy"] = self._to_object_id(doc["respondedBy"])
         await collection.insert_one(doc)
         return request
 
     async def get_by_id(self, request_id: str) -> Optional[BranchDeliveryRequest]:
         collection = self._get_collection()
-        doc = await collection.find_one({"_id": ObjectId(request_id)})
+        doc = await collection.find_one({"_id": self._to_object_id(request_id)})
         return self._doc_to_request(doc) if doc else None
 
     async def get_by_delivery_person(
@@ -758,7 +808,7 @@ class BranchDeliveryRequestRepository:
         status: Optional[DeliveryRequestStatus] = None,
     ) -> List[BranchDeliveryRequest]:
         collection = self._get_collection()
-        query: Dict[str, Any] = {"deliveryPersonId": delivery_person_id}
+        query: Dict[str, Any] = {"deliveryPersonId": self._to_object_id(delivery_person_id)}
         if status:
             query["status"] = status.value
         cursor = collection.find(query).sort("createdAt", -1)
@@ -770,7 +820,7 @@ class BranchDeliveryRequestRepository:
         status: Optional[DeliveryRequestStatus] = None,
     ) -> List[BranchDeliveryRequest]:
         collection = self._get_collection()
-        query: Dict[str, Any] = {"branchId": branch_id}
+        query: Dict[str, Any] = {"branchId": self._to_object_id(branch_id)}
         if status:
             query["status"] = status.value
         cursor = collection.find(query).sort("createdAt", -1)
@@ -781,7 +831,10 @@ class BranchDeliveryRequestRepository:
     ) -> Optional[BranchDeliveryRequest]:
         collection = self._get_collection()
         doc = await collection.find_one(
-            {"deliveryPersonId": delivery_person_id, "branchId": branch_id}
+            {
+                "deliveryPersonId": self._to_object_id(delivery_person_id),
+                "branchId": self._to_object_id(branch_id),
+            }
         )
         return self._doc_to_request(doc) if doc else None
 
@@ -794,11 +847,11 @@ class BranchDeliveryRequestRepository:
         collection = self._get_collection()
         now = datetime.utcnow()
         result = await collection.find_one_and_update(
-            {"_id": ObjectId(request_id)},
+            {"_id": self._to_object_id(request_id)},
             {
                 "$set": {
                     "status": status.value,
-                    "respondedBy": responded_by,
+                    "respondedBy": self._to_object_id(responded_by),
                     "respondedAt": now,
                     "updatedAt": now,
                 }

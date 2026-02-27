@@ -1,12 +1,22 @@
 """Wallet transaction repository for database operations."""
 from typing import List, Optional
 from datetime import datetime
+from bson import ObjectId
 from clients import get_database
 from domain.models import WalletTransaction
 
 
 class WalletTransactionRepository:
     collection_name = "wallet_transactions"
+
+    @staticmethod
+    def _to_object_id(value: Optional[str]):
+        if value is None:
+            return None
+        try:
+            return ObjectId(value)
+        except Exception:
+            return value
 
     async def create(self, transaction_data: dict) -> WalletTransaction:
         """Create a new wallet transaction."""
@@ -17,7 +27,9 @@ class WalletTransactionRepository:
     async def get_by_id(self, transaction_id: str) -> Optional[WalletTransaction]:
         """Get transaction by ID."""
         db = get_database()
-        transaction = await db[self.collection_name].find_one({"_id": transaction_id})
+        transaction = await db[self.collection_name].find_one(
+            {"_id": self._to_object_id(transaction_id)}
+        )
         return WalletTransaction(**transaction) if transaction else None
 
     async def get_by_owner(
@@ -32,8 +44,8 @@ class WalletTransactionRepository:
         db = get_database()
         query = {
             "$or": [
-                {"fromOwnerId": owner_id, "fromOwnerType": owner_type},
-                {"toOwnerId": owner_id, "toOwnerType": owner_type}
+                {"fromOwnerId": self._to_object_id(owner_id), "fromOwnerType": owner_type},
+                {"toOwnerId": self._to_object_id(owner_id), "toOwnerType": owner_type}
             ]
         }
         
@@ -75,7 +87,7 @@ class WalletRepository:
         
         # Update user wallet balance
         result = await db["users"].update_one(
-            {"_id": user_id},
+            {"_id": self._to_object_id(user_id)},
             {
                 "$inc": {"wallet.balance": amount},
                 "$set": {"wallet.updatedAt": datetime.utcnow()}
@@ -87,10 +99,10 @@ class WalletRepository:
         
         # Create transaction record
         transaction_data = {
-            "_id": reference_id or f"stripe_{user_id}_{datetime.utcnow().timestamp()}",
+            "_id": ObjectId(),
             "fromOwnerId": "system",
             "fromOwnerType": "system",
-            "toOwnerId": user_id,
+            "toOwnerId": self._to_object_id(user_id),
             "toOwnerType": "user",
             "amount": amount,
             "currency": "usd",

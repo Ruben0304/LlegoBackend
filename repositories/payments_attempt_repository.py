@@ -16,6 +16,13 @@ class PaymentAttemptRepository:
         return get_database()[self.collection_name]
 
     @staticmethod
+    def _to_object_id(value: str):
+        try:
+            return ObjectId(value)
+        except Exception:
+            return value
+
+    @staticmethod
     def _doc_to_payment_attempt(doc: dict) -> PaymentAttempt:
         """Convert MongoDB document to PaymentAttempt model."""
         doc["_id"] = str(doc["_id"])
@@ -25,7 +32,11 @@ class PaymentAttemptRepository:
         """Create a new payment attempt."""
         collection = self._get_collection()
         doc = payment_attempt.model_dump(by_alias=True)
-        doc["_id"] = ObjectId(doc["_id"])
+        doc["_id"] = self._to_object_id(doc["_id"])
+        doc["orderId"] = self._to_object_id(doc["orderId"])
+        doc["paymentMethodId"] = self._to_object_id(doc["paymentMethodId"])
+        if doc.get("deliveryPersonId") is not None:
+            doc["deliveryPersonId"] = self._to_object_id(doc["deliveryPersonId"])
         await collection.insert_one(doc)
         return payment_attempt
 
@@ -41,7 +52,7 @@ class PaymentAttemptRepository:
     async def get_by_order_id(self, order_id: str) -> List[PaymentAttempt]:
         """Get all payment attempts for an order."""
         collection = self._get_collection()
-        cursor = collection.find({"orderId": order_id}).sort("createdAt", -1)
+        cursor = collection.find({"orderId": self._to_object_id(order_id)}).sort("createdAt", -1)
         return [self._doc_to_payment_attempt(doc) async for doc in cursor]
 
     async def get_active_by_order_id(self, order_id: str) -> Optional[PaymentAttempt]:
@@ -55,7 +66,7 @@ class PaymentAttemptRepository:
             PaymentAttemptStatus.REFUNDED.value,
         ]
         doc = await collection.find_one({
-            "orderId": order_id,
+            "orderId": self._to_object_id(order_id),
             "status": {"$nin": final_statuses}
         })
         return self._doc_to_payment_attempt(doc) if doc else None
@@ -248,12 +259,10 @@ class PaymentAttemptRepository:
         # Get customer's order IDs
         order_ids = await orders_collection.distinct(
             "_id",
-            {"customerId": customer_id}
+            {"customerId": self._to_object_id(customer_id)}
         )
-        order_ids_str = [str(oid) for oid in order_ids]
-
         collection = self._get_collection()
-        cursor = collection.find({"orderId": {"$in": order_ids_str}}) \
+        cursor = collection.find({"orderId": {"$in": order_ids}}) \
             .sort("createdAt", -1) \
             .skip(offset) \
             .limit(limit)
@@ -275,4 +284,3 @@ async def create_payment_indexes():
 
 # Repository instance
 payment_attempts_repo = PaymentAttemptRepository()
-

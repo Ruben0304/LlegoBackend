@@ -9,6 +9,13 @@ from domain.models import Search, ClickedItem
 class SearchesRepository:
     collection_name = "searches"
 
+    @staticmethod
+    def _to_object_id(value: str):
+        try:
+            return ObjectId(value)
+        except Exception:
+            return value
+
     async def create_search(self, user_id: str, query: str) -> Optional[Search]:
         """
         Create a new search record.
@@ -23,7 +30,7 @@ class SearchesRepository:
         db = get_database()
 
         new_search = {
-            "userId": user_id,
+            "userId": self._to_object_id(user_id),
             "query": query,
             "clickedItems": [],
             "createdAt": datetime.utcnow()
@@ -58,7 +65,7 @@ class SearchesRepository:
 
         # Find the most recent search with this query for this user
         search = await db[self.collection_name].find_one(
-            {"userId": user_id, "query": query},
+            {"userId": self._to_object_id(user_id), "query": query},
             sort=[("createdAt", -1)]
         )
 
@@ -129,7 +136,7 @@ class SearchesRepository:
         db = get_database()
 
         new_search = {
-            "userId": user_id,
+            "userId": self._to_object_id(user_id),
             "query": query,
             "clickedItems": [{
                 "itemId": item_id,
@@ -157,7 +164,7 @@ class SearchesRepository:
         """
         db = get_database()
         cursor = db[self.collection_name].find(
-            {"userId": user_id}
+            {"userId": self._to_object_id(user_id)}
         ).sort("createdAt", -1).limit(limit)
 
         searches = await cursor.to_list(length=limit)
@@ -203,7 +210,7 @@ class SearchesRepository:
             return {}
 
         return {
-            r["productId"]: r["totalClicks"] / max_clicks
+            str(r["productId"]): r["totalClicks"] / max_clicks
             for r in results
         }
 
@@ -268,7 +275,7 @@ class SearchesRepository:
         results = await db[self.collection_name].aggregate(pipeline).to_list(length=None)
 
         return {
-            r["productId"]: {
+            str(r["productId"]): {
                 "clicks": r["totalClicks"],
                 "unique_users": r["uniqueUsers"]
             }

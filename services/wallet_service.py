@@ -2,7 +2,6 @@
 from decimal import Decimal
 from datetime import datetime
 from typing import Optional, Literal, Dict
-from uuid import uuid4
 from fastapi import HTTPException
 import os
 from bson import ObjectId
@@ -22,6 +21,15 @@ def _build_id_filter(id_str: str) -> dict:
     if len(candidates) == 1:
         return {"_id": candidates[0]}
     return {"_id": {"$in": candidates}}
+
+
+def _to_object_id(value: Optional[str]):
+    if value is None:
+        return None
+    try:
+        return ObjectId(value)
+    except Exception:
+        return value
 
 
 # Check if we should use transactions (only works with replica sets)
@@ -120,12 +128,12 @@ class WalletService:
         )
 
         # 5. Create transaction record
-        transaction_id = str(uuid4())
+        transaction_id = ObjectId()
         transaction = {
             "_id": transaction_id,
-            "fromOwnerId": from_owner_id,
+            "fromOwnerId": _to_object_id(from_owner_id),
             "fromOwnerType": from_owner_type,
-            "toOwnerId": to_owner_id,
+            "toOwnerId": _to_object_id(to_owner_id),
             "toOwnerType": to_owner_type,
             "amount": float(amount),
             "currency": currency,
@@ -140,7 +148,7 @@ class WalletService:
         await db.wallet_transactions.insert_one(transaction)
 
         return {
-            "transaction_id": transaction_id,
+            "transaction_id": str(transaction_id),
             "status": "completed",
             "from_owner_id": from_owner_id,
             "to_owner_id": to_owner_id,
@@ -184,12 +192,12 @@ class WalletService:
         )
 
         # Create transaction record
-        transaction_id = str(uuid4())
+        transaction_id = ObjectId()
         transaction = {
             "_id": transaction_id,
             "fromOwnerId": None,
             "fromOwnerType": None,
-            "toOwnerId": owner_id,
+            "toOwnerId": _to_object_id(owner_id),
             "toOwnerType": owner_type,
             "amount": float(amount),
             "currency": currency,
@@ -204,7 +212,7 @@ class WalletService:
         await db.wallet_transactions.insert_one(transaction)
 
         return {
-            "transaction_id": transaction_id,
+            "transaction_id": str(transaction_id),
             "status": "completed",
             "owner_id": owner_id,
             "amount": float(amount),
@@ -255,10 +263,10 @@ class WalletService:
             raise HTTPException(status_code=400, detail="Insufficient balance or concurrent modification")
 
         # Create transaction record
-        transaction_id = str(uuid4())
+        transaction_id = ObjectId()
         transaction = {
             "_id": transaction_id,
-            "fromOwnerId": owner_id,
+            "fromOwnerId": _to_object_id(owner_id),
             "fromOwnerType": owner_type,
             "toOwnerId": None,
             "toOwnerType": None,
@@ -275,7 +283,7 @@ class WalletService:
         await db.wallet_transactions.insert_one(transaction)
 
         return {
-            "transaction_id": transaction_id,
+            "transaction_id": str(transaction_id),
             "status": "pending",
             "owner_id": owner_id,
             "amount": float(amount),

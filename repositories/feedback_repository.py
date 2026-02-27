@@ -8,6 +8,13 @@ from domain.models import Feedback
 class FeedbackRepository:
     collection_name = "feedbacks"
 
+    @staticmethod
+    def _to_object_id(value: str):
+        try:
+            return ObjectId(value)
+        except Exception:
+            return value
+
     async def get_all(self) -> List[Feedback]:
         """Get all feedbacks."""
         db = get_database()
@@ -28,7 +35,7 @@ class FeedbackRepository:
     async def get_by_user(self, user_id: str) -> List[Feedback]:
         """Get all feedbacks by a specific user."""
         db = get_database()
-        cursor = db[self.collection_name].find({"userId": user_id})
+        cursor = db[self.collection_name].find({"userId": self._to_object_id(user_id)})
         feedbacks = await cursor.to_list(length=None)
         return [Feedback(**self._convert_id(f)) for f in feedbacks]
 
@@ -49,9 +56,11 @@ class FeedbackRepository:
     async def create(self, feedback_data: Dict[str, Any]) -> Feedback:
         """Create a new feedback."""
         db = get_database()
-        result = await db[self.collection_name].insert_one(feedback_data)
-        feedback_data["_id"] = str(result.inserted_id)
-        return Feedback(**feedback_data)
+        feedback_doc = dict(feedback_data)
+        feedback_doc["userId"] = self._to_object_id(feedback_doc["userId"])
+        result = await db[self.collection_name].insert_one(feedback_doc)
+        feedback_doc["_id"] = result.inserted_id
+        return Feedback(**feedback_doc)
 
     async def update(self, feedback_id: str, updates: Dict[str, Any]) -> Optional[Feedback]:
         """Update a feedback."""

@@ -35,8 +35,8 @@ class AccessManager:
 
         db = get_database()
         await db.branches.update_one(
-            {"_id": branch_id},
-            {"$addToSet": {"managerIds": user_id}}
+            {"_id": _to_object_id(branch_id)},
+            {"$addToSet": {"managerIds": _to_object_id(user_id)}}
         )
         await users_repo.add_branch_id(user_id, branch_id)
 
@@ -51,8 +51,8 @@ class AccessManager:
 
         db = get_database()
         await db.branches.update_one(
-            {"_id": branch_id},
-            {"$pull": {"managerIds": user_id}}
+            {"_id": _to_object_id(branch_id)},
+            {"$pull": {"managerIds": _to_object_id(user_id)}}
         )
         await users_repo.remove_branch_id(user_id, branch_id)
 
@@ -86,16 +86,16 @@ class AccessManager:
 
         db = get_database()
         await db.branches.update_many(
-            {"businessId": business_id},
-            {"$addToSet": {"managerIds": user_id}}
+            {"businessId": _to_object_id(business_id)},
+            {"$addToSet": {"managerIds": _to_object_id(user_id)}}
         )
 
         branches = await branches_repo.get_by_business(business_id)
         branch_ids = [branch.id for branch in branches]
 
-        add_updates = {"businessAccessIds": access_id}
+        add_updates = {"businessAccessIds": _to_object_id(access_id)}
         if branch_ids:
-            add_updates["branchIds"] = {"$each": branch_ids}
+            add_updates["branchIds"] = {"$each": _to_object_ids(branch_ids)}
 
         await db.users.update_one(
             {"_id": _to_object_id(user_id)},
@@ -125,16 +125,16 @@ class AccessManager:
 
         db = get_database()
         await db.branches.update_many(
-            {"businessId": access.businessId},
-            {"$pull": {"managerIds": access.userId}}
+            {"businessId": _to_object_id(access.businessId)},
+            {"$pull": {"managerIds": _to_object_id(access.userId)}}
         )
 
         branches = await branches_repo.get_by_business(access.businessId)
         branch_ids = [branch.id for branch in branches]
 
-        pull_updates = {"businessAccessIds": access_id}
+        pull_updates = {"businessAccessIds": _to_object_id(access_id)}
         if branch_ids:
-            pull_updates["branchIds"] = {"$in": branch_ids}
+            pull_updates["branchIds"] = {"$in": _to_object_ids(branch_ids)}
 
         await db.users.update_one(
             {"_id": _to_object_id(access.userId)},
@@ -163,13 +163,13 @@ class AccessManager:
 
         db = get_database()
         await db.branches.update_one(
-            {"_id": branch_id},
-            {"$addToSet": {"managerIds": {"$each": user_ids}}}
+            {"_id": _to_object_id(branch_id)},
+            {"$addToSet": {"managerIds": {"$each": _to_object_ids(user_ids)}}}
         )
 
         await db.users.update_many(
             {"_id": {"$in": _to_object_ids(user_ids)}},
-            {"$addToSet": {"branchIds": branch_id}}
+            {"$addToSet": {"branchIds": _to_object_id(branch_id)}}
         )
 
         invalidate_branch_cache(branch_id=branch_id)

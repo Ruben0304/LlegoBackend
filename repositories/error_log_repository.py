@@ -13,11 +13,20 @@ logger = logging.getLogger(__name__)
 class ErrorLogRepository:
     collection_name = "error_logs"
 
+    @staticmethod
+    def _to_object_id(value: str):
+        try:
+            return ObjectId(value)
+        except Exception:
+            return value
+
     async def create(self, error_data: Dict[str, Any]) -> ErrorLog:
         """Create a new error log."""
         db = get_database()
         if "_id" not in error_data:
-            error_data["_id"] = str(ObjectId())
+            error_data["_id"] = ObjectId()
+        else:
+            error_data["_id"] = self._to_object_id(error_data["_id"])
         if "created_at" not in error_data:
             error_data["created_at"] = datetime.utcnow()
         if "resolved" not in error_data:
@@ -33,14 +42,14 @@ class ErrorLogRepository:
     async def get_by_id(self, error_id: str) -> Optional[ErrorLog]:
         """Get error log by ID."""
         db = get_database()
-        doc = await db[self.collection_name].find_one({"_id": error_id})
+        doc = await db[self.collection_name].find_one({"_id": self._to_object_id(error_id)})
         return ErrorLog(**self._convert_id(doc)) if doc else None
 
     async def update_analysis(self, error_id: str, analysis: Dict[str, Any]) -> bool:
         """Update Gemini analysis for an error log."""
         db = get_database()
         result = await db[self.collection_name].update_one(
-            {"_id": error_id},
+            {"_id": self._to_object_id(error_id)},
             {"$set": {"gemini_analysis": analysis}}
         )
         return result.modified_count > 0
@@ -49,7 +58,7 @@ class ErrorLogRepository:
         """Mark error as resolved."""
         db = get_database()
         result = await db[self.collection_name].update_one(
-            {"_id": error_id},
+            {"_id": self._to_object_id(error_id)},
             {"$set": {
                 "resolved": True,
                 "resolved_at": datetime.utcnow(),
@@ -62,7 +71,7 @@ class ErrorLogRepository:
         """Mark error as unresolved (reopen)."""
         db = get_database()
         result = await db[self.collection_name].update_one(
-            {"_id": error_id},
+            {"_id": self._to_object_id(error_id)},
             {"$set": {
                 "resolved": False,
                 "resolved_at": None,
@@ -223,7 +232,7 @@ class ErrorLogRepository:
         db = get_database()
         print(f"   📈 Incrementing occurrence for error {error_id}")
         result = await db[self.collection_name].update_one(
-            {"_id": error_id},
+            {"_id": self._to_object_id(error_id)},
             {
                 "$inc": {"occurrence_count": 1},
                 "$set": {"last_occurrence_at": datetime.utcnow()}

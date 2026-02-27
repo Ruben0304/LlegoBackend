@@ -3,7 +3,10 @@
 from datetime import datetime
 from typing import Optional
 
+from bson import ObjectId
 from pydantic import BaseModel, Field
+
+from .py_object_id import PyObjectId
 
 
 class ShortcutTransfer(BaseModel):
@@ -15,7 +18,7 @@ class ShortcutTransfer(BaseModel):
     to automatically confirm payments.
     """
 
-    id: str = Field(alias="_id")
+    id: PyObjectId = Field(alias="_id")
     transfer_id: str  # Bank transfer ID extracted from SMS
     amount: float  # Transfer amount
     phone: Optional[str] = None  # Phone number that received the SMS
@@ -26,3 +29,4 @@ class ShortcutTransfer(BaseModel):
 
     class Config:
         populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}

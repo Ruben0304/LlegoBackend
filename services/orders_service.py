@@ -45,6 +45,10 @@ class OrderService:
         self.delivery_repo = DeliveryPersonRepository()
         self.locations_repo = OrderLocationRepository()
 
+    @staticmethod
+    def _ids_equal(a, b) -> bool:
+        return str(a) == str(b)
+
     async def create_order(
         self,
         customer_id: str,
@@ -79,7 +83,7 @@ class OrderService:
                 raise ValueError(f"Producto {item['productId']} no encontrado")
             if not product.availability:
                 raise ValueError(f"Producto {product.name} no disponible")
-            if product.branchId != branch_id:
+            if not self._ids_equal(product.branchId, branch_id):
                 raise ValueError(
                     f"Producto {product.name} no pertenece a esta sucursal"
                 )
@@ -383,7 +387,8 @@ class OrderService:
 
             # Check if this item was modified
             original_item = next(
-                (i for i in order.items if i.productId == item["productId"]), None
+                (i for i in order.items if self._ids_equal(i.productId, item["productId"])),
+                None,
             )
             was_modified = (
                 original_item is None
@@ -430,7 +435,7 @@ class OrderService:
         if not order:
             raise ValueError("Pedido no encontrado")
 
-        if order.customerId != user_id:
+        if not self._ids_equal(order.customerId, user_id):
             raise ValueError("No autorizado")
 
         if order.status != OrderStatus.MODIFIED_BY_STORE:
@@ -449,7 +454,7 @@ class OrderService:
         if not order:
             raise ValueError("Pedido no encontrado")
 
-        if order.customerId != user_id:
+        if not self._ids_equal(order.customerId, user_id):
             raise ValueError("No autorizado")
 
         if order.status != OrderStatus.MODIFIED_BY_STORE:
@@ -472,7 +477,7 @@ class OrderService:
         if not order:
             raise ValueError("Pedido no encontrado")
 
-        if order.customerId != user_id:
+        if not self._ids_equal(order.customerId, user_id):
             raise ValueError("No autorizado")
 
         # Can only cancel in early stages
@@ -535,7 +540,7 @@ class OrderService:
             raise ValueError("Pedido no encontrado")
 
         delivery_person = await self.delivery_repo.get_by_user_id(user_id)
-        if not delivery_person or delivery_person.id != order.deliveryPersonId:
+        if not delivery_person or not self._ids_equal(delivery_person.id, order.deliveryPersonId):
             raise ValueError("No autorizado")
 
         return await self.update_status(
@@ -552,7 +557,7 @@ class OrderService:
             raise ValueError("Pedido no encontrado")
 
         delivery_person = await self.delivery_repo.get_by_user_id(user_id)
-        if not delivery_person or delivery_person.id != order.deliveryPersonId:
+        if not delivery_person or not self._ids_equal(delivery_person.id, order.deliveryPersonId):
             raise ValueError("No autorizado")
 
         # Complete delivery
@@ -575,12 +580,13 @@ class OrderService:
             raise ValueError("Pedido no encontrado")
 
         # Determine actor
-        if order.customerId == user_id:
+        if self._ids_equal(order.customerId, user_id):
             actor = OrderActor.CUSTOMER
         else:
             branch = await branches_repo.get_by_id(order.branchId)
             business = await businesses_repo.get_by_id(order.businessId)
-            if business.ownerId == user_id or user_id in branch.managerIds:
+            manager_ids = {str(mid) for mid in branch.managerIds}
+            if self._ids_equal(business.ownerId, user_id) or str(user_id) in manager_ids:
                 actor = OrderActor.BUSINESS
             else:
                 raise ValueError("No autorizado para comentar en este pedido")
@@ -609,7 +615,7 @@ class OrderService:
         if not order:
             raise ValueError("Pedido no encontrado")
 
-        if order.customerId != user_id:
+        if not self._ids_equal(order.customerId, user_id):
             raise ValueError("No autorizado")
 
         if order.status != OrderStatus.DELIVERED:
@@ -634,7 +640,7 @@ class OrderService:
             raise ValueError("Pedido no encontrado")
 
         # Verify access
-        if order.customerId != user_id:
+        if not self._ids_equal(order.customerId, user_id):
             branch = await branches_repo.get_by_id(order.branchId)
             business = await businesses_repo.get_by_id(order.businessId)
             delivery_person = None
@@ -643,10 +649,11 @@ class OrderService:
                     order.deliveryPersonId
                 )
 
+            manager_ids = {str(mid) for mid in branch.managerIds}
             is_authorized = (
-                business.ownerId == user_id
-                or user_id in branch.managerIds
-                or (delivery_person and delivery_person.userId == user_id)
+                self._ids_equal(business.ownerId, user_id)
+                or str(user_id) in manager_ids
+                or (delivery_person and self._ids_equal(delivery_person.userId, user_id))
             )
             if not is_authorized:
                 raise ValueError("No autorizado")

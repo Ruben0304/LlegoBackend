@@ -9,6 +9,15 @@ from domain.business_types import DeviceToken, DevicePlatform
 class DeviceTokenRepository:
     collection_name = "device_tokens"
 
+    @staticmethod
+    def _to_object_id(value: Optional[str]):
+        if value is None:
+            return None
+        try:
+            return ObjectId(value)
+        except Exception:
+            return value
+
     async def get_all_active(self) -> List[DeviceToken]:
         """Get all active device tokens."""
         db = get_database()
@@ -25,7 +34,9 @@ class DeviceTokenRepository:
     async def get_by_user_id(self, user_id: str) -> List[DeviceToken]:
         """Get all device tokens for a specific user."""
         db = get_database()
-        cursor = db[self.collection_name].find({"userId": user_id, "isActive": True})
+        cursor = db[self.collection_name].find(
+            {"userId": self._to_object_id(user_id), "isActive": True}
+        )
         tokens = await cursor.to_list(length=None)
         return [DeviceToken(**self._convert_id(t)) for t in tokens]
 
@@ -40,7 +51,7 @@ class DeviceTokenRepository:
         if existing:
             # Update existing token
             update_data = {
-                "userId": token_data.get("userId"),
+                "userId": self._to_object_id(token_data.get("userId")),
                 "platform": token_data["platform"],
                 "appVersion": token_data.get("appVersion"),
                 "osVersion": token_data.get("osVersion"),
@@ -54,7 +65,8 @@ class DeviceTokenRepository:
             return await self.get_by_token(token_data["token"])
         else:
             # Create new token
-            token_data["_id"] = str(ObjectId())
+            token_data["_id"] = ObjectId()
+            token_data["userId"] = self._to_object_id(token_data.get("userId"))
             token_data["createdAt"] = now
             token_data["updatedAt"] = now
             token_data["isActive"] = True
@@ -75,7 +87,7 @@ class DeviceTokenRepository:
         """Deactivate all tokens for a user."""
         db = get_database()
         result = await db[self.collection_name].update_many(
-            {"userId": user_id},
+            {"userId": self._to_object_id(user_id)},
             {"$set": {"isActive": False, "updatedAt": datetime.utcnow()}}
         )
         return result.modified_count

@@ -1,6 +1,7 @@
 """Draft order repository for AI-created pending orders."""
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
+from bson import ObjectId
 from clients import get_database
 from domain.models import DraftOrder, DraftOrderItem
 
@@ -9,6 +10,13 @@ class DraftOrderRepository:
     """Repository for managing draft orders created by AI assistant."""
 
     collection_name = "draft_orders"
+
+    @staticmethod
+    def _to_object_id(value: str):
+        try:
+            return ObjectId(value)
+        except Exception:
+            return value
 
     async def create_draft(
         self,
@@ -52,9 +60,9 @@ class DraftOrderRepository:
 
         new_draft = {
             "sessionId": session_id,
-            "customerId": customer_id,
-            "branchId": branch_id,
-            "businessId": business_id,
+            "customerId": self._to_object_id(customer_id),
+            "branchId": self._to_object_id(branch_id),
+            "businessId": self._to_object_id(business_id),
             "branchAvatar": branch_avatar,
             "items": items,
             "subtotal": subtotal,
@@ -62,7 +70,7 @@ class DraftOrderRepository:
             "total": total,
             "currency": currency,
             "deliveryAddress": delivery_address,
-            "paymentMethodId": payment_method_id,
+            "paymentMethodId": self._to_object_id(payment_method_id) if payment_method_id else None,
             "status": "pending_confirmation",
             "createdAt": datetime.utcnow(),
             "expiresAt": expires_at
@@ -84,10 +92,8 @@ class DraftOrderRepository:
             DraftOrder object or None
         """
         db = get_database()
-        from bson import ObjectId
-
         try:
-            draft = await db[self.collection_name].find_one({"_id": ObjectId(draft_id)})
+            draft = await db[self.collection_name].find_one({"_id": self._to_object_id(draft_id)})
             return DraftOrder(**self._convert_id(draft)) if draft else None
         except Exception:
             return None
@@ -129,11 +135,9 @@ class DraftOrderRepository:
             Updated DraftOrder or None
         """
         db = get_database()
-        from bson import ObjectId
-
         try:
             result = await db[self.collection_name].find_one_and_update(
-                {"_id": ObjectId(draft_id)},
+                {"_id": self._to_object_id(draft_id)},
                 {"$set": {"status": status}},
                 return_document=True
             )

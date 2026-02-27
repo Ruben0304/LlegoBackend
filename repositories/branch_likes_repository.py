@@ -9,6 +9,13 @@ from domain.models import BranchLike
 class BranchLikesRepository:
     collection_name = "branch_likes"
 
+    @staticmethod
+    def _to_object_id(value: str):
+        try:
+            return ObjectId(value)
+        except Exception:
+            return value
+
     async def add(self, user_id: str, branch_id: str) -> Optional[BranchLike]:
         """
         Add a branch like. Checks for duplicates before adding.
@@ -24,8 +31,8 @@ class BranchLikesRepository:
 
         # Check if already exists
         existing = await db[self.collection_name].find_one({
-            "userId": user_id,
-            "branchId": branch_id
+            "userId": self._to_object_id(user_id),
+            "branchId": self._to_object_id(branch_id)
         })
 
         if existing:
@@ -33,8 +40,8 @@ class BranchLikesRepository:
 
         # Create new entry
         new_item = {
-            "userId": user_id,
-            "branchId": branch_id,
+            "userId": self._to_object_id(user_id),
+            "branchId": self._to_object_id(branch_id),
             "createdAt": datetime.utcnow()
         }
 
@@ -56,8 +63,8 @@ class BranchLikesRepository:
         """
         db = get_database()
         result = await db[self.collection_name].delete_one({
-            "userId": user_id,
-            "branchId": branch_id
+            "userId": self._to_object_id(user_id),
+            "branchId": self._to_object_id(branch_id)
         })
         return result.deleted_count > 0
 
@@ -72,7 +79,7 @@ class BranchLikesRepository:
             List of BranchLike objects
         """
         db = get_database()
-        cursor = db[self.collection_name].find({"userId": user_id})
+        cursor = db[self.collection_name].find({"userId": self._to_object_id(user_id)})
         items = await cursor.to_list(length=None)
         return [BranchLike(**self._convert_id(item)) for item in items]
 
@@ -89,8 +96,8 @@ class BranchLikesRepository:
         """
         db = get_database()
         item = await db[self.collection_name].find_one({
-            "userId": user_id,
-            "branchId": branch_id
+            "userId": self._to_object_id(user_id),
+            "branchId": self._to_object_id(branch_id)
         })
         return item is not None
 
@@ -119,7 +126,7 @@ class BranchLikesRepository:
         if max_count == 0:
             return {}
 
-        return {r["_id"]: r["count"] / max_count for r in results}
+        return {str(r["_id"]): r["count"] / max_count for r in results}
 
     async def get_user_preferences(self, user_id: str) -> List[str]:
         """

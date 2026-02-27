@@ -3,6 +3,9 @@ from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
 from enum import Enum
+from bson import ObjectId
+
+from .py_object_id import PyObjectId
 
 
 class PaymentAttemptStatus(str, Enum):
@@ -42,9 +45,9 @@ class PaymentAttempt(BaseModel):
     including refunds and disputes.
     """
 
-    id: str = Field(alias="_id")
-    orderId: str
-    paymentMethodId: str
+    id: PyObjectId = Field(alias="_id")
+    orderId: PyObjectId
+    paymentMethodId: PyObjectId
 
     # Amounts (all calculated at payment initiation)
     subtotal: float  # Order items total
@@ -72,7 +75,7 @@ class PaymentAttempt(BaseModel):
 
     # Cash payment fields
     deliveryPersonConfirmedAt: Optional[datetime] = None
-    deliveryPersonId: Optional[str] = None
+    deliveryPersonId: Optional[PyObjectId] = None
 
     # Wallet transaction reference
     walletTransactionId: Optional[str] = None  # For wallet payments
@@ -98,7 +101,7 @@ class PaymentAttempt(BaseModel):
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
         use_enum_values = True
 
 
@@ -109,17 +112,17 @@ class RefundRequest(BaseModel):
     Used to track refund requests separately from the payment attempt.
     """
 
-    id: str = Field(alias="_id")
-    paymentAttemptId: str
-    orderId: str
-    customerId: str
+    id: PyObjectId = Field(alias="_id")
+    paymentAttemptId: PyObjectId
+    orderId: PyObjectId
+    customerId: PyObjectId
     amount: float
     currency: str
     reason: str
     status: str = "pending"  # "pending", "approved", "rejected", "completed"
 
     # Processing
-    approvedBy: Optional[str] = None
+    approvedBy: Optional[PyObjectId] = None
     approvedAt: Optional[datetime] = None
     rejectedReason: Optional[str] = None
     completedAt: Optional[datetime] = None
@@ -131,4 +134,4 @@ class RefundRequest(BaseModel):
 
     class Config:
         populate_by_name = True
-        json_encoders = {datetime: lambda v: v.isoformat()}
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
