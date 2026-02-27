@@ -176,6 +176,11 @@ class BusinessRepository:
 
             # 1. Insert into MongoDB (complete document)
             doc = business.model_dump(by_alias=True)
+
+            # Convert PyObjectId fields from strings to ObjectId for MongoDB
+            doc["_id"] = ObjectId(doc["_id"])
+            doc["ownerId"] = ObjectId(doc["ownerId"])
+
             await db[self.mongo_collection_name].insert_one(doc)
 
             # 2. Insert into Qdrant (RAG fields + embedding)

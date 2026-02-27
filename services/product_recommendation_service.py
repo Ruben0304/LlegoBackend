@@ -79,11 +79,14 @@ class ProductRecommendationService:
             print(f"   Using DIRECT MongoDB query (bypassing cache)")
 
             # Query MongoDB directly without cache
+            from bson import ObjectId
             from clients import get_database
             from domain.models import Product
 
             db = get_database()
-            cursor = db["products"].find({"branchId": first_branch_id})
+            # Convert branchId to ObjectId for proper MongoDB query
+            branch_id_obj = ObjectId(str(first_branch_id))
+            cursor = db["products"].find({"branchId": branch_id_obj})
             documents = await cursor.to_list(length=None)
             all_branch_products = [Product(**doc) for doc in documents]
 

@@ -229,6 +229,18 @@ class BranchRepository:
             # Convert coordinates to dict if it's a Pydantic model
             if hasattr(doc.get("coordinates"), "model_dump"):
                 doc["coordinates"] = doc["coordinates"].model_dump()
+
+            # Convert PyObjectId fields from strings to ObjectId for MongoDB
+            doc["_id"] = ObjectId(doc["_id"])
+            doc["businessId"] = ObjectId(doc["businessId"])
+            doc["managerIds"] = [ObjectId(mid) for mid in doc["managerIds"]]
+
+            # Handle paymentMethodIds - can be ObjectId or string
+            doc["paymentMethodIds"] = [
+                ObjectId(pid) if ObjectId.is_valid(pid) and len(pid) == 24 else pid
+                for pid in doc["paymentMethodIds"]
+            ]
+
             await db[self.mongo_collection_name].insert_one(doc)
 
             # 2. Insert into Qdrant (RAG fields + embedding)
@@ -261,6 +273,18 @@ class BranchRepository:
                 updates["coordinates"], "model_dump"
             ):
                 updates["coordinates"] = updates["coordinates"].model_dump()
+
+            # Convert PyObjectId fields from strings to ObjectId for MongoDB
+            if "businessId" in updates:
+                updates["businessId"] = ObjectId(updates["businessId"])
+            if "managerIds" in updates:
+                updates["managerIds"] = [ObjectId(mid) for mid in updates["managerIds"]]
+            if "paymentMethodIds" in updates:
+                # Handle paymentMethodIds - can be ObjectId or string
+                updates["paymentMethodIds"] = [
+                    ObjectId(pid) if ObjectId.is_valid(pid) and len(pid) == 24 else pid
+                    for pid in updates["paymentMethodIds"]
+                ]
 
             # 1. Update MongoDB
             await db[self.mongo_collection_name].update_one(
