@@ -40,16 +40,14 @@ class VariantListType:
 
         business = await businesses_repo.get_by_id(self.businessId)
         if business:
-            return BusinessType(**business.model_dump())
+            return BusinessType(**business.model_dump(mode="json"))
         return None
 
 
 def variant_list_to_type(variant_list) -> VariantListType:
     """Convert VariantList domain model to GraphQL type."""
     options = [
-        VariantOptionType(
-            id=opt.id, name=opt.name, priceAdjustment=opt.priceAdjustment
-        )
+        VariantOptionType(id=opt.id, name=opt.name, priceAdjustment=opt.priceAdjustment)
         for opt in variant_list.options
     ]
 

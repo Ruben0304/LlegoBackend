@@ -12,6 +12,7 @@ from utils.s3 import generate_presigned_url
 if TYPE_CHECKING:
     from domain.models import Combo
 
+
 @strawberry.type
 class ComboModifierType:
     """Modificador para un producto dentro del combo."""
@@ -39,7 +40,7 @@ class ComboOptionType:
 
         product = await products_repo.get_by_id(self.productId)
         if product:
-            return ProductType(**product.model_dump())
+            return ProductType(**product.model_dump(mode="json"))
         return None
 
 
@@ -115,11 +116,13 @@ class ComboType:
             if default_option:
                 product = await products_repo.get_by_id(default_option.productId)
                 if product:
-                    products.append(ProductType(**product.model_dump()))
+                    products.append(ProductType(**product.model_dump(mode="json")))
 
         return products
 
-    @strawberry.field(description="Base price with default selections (before discount)")
+    @strawberry.field(
+        description="Base price with default selections (before discount)"
+    )
     async def base_price(self, info: Info) -> float:
         """Calcula el precio base sumando productos por defecto y sus ajustes."""
         from repositories import products_repo

@@ -1,30 +1,34 @@
 """GraphQL query resolvers for Payment Methods and Payment Attempts."""
-import strawberry
+
 from typing import List, Optional
+
+import strawberry
 from strawberry.types import Info
 
-from schema.payments.types import PaymentAttemptType, PaymentMethodType, payment_attempt_to_type
-from repositories import payment_methods_repo
+from repositories import branches_repo, payment_methods_repo
 from repositories.payments_attempt_repository import payment_attempts_repo
-from repositories import branches_repo
+from schema.payments.types import (
+    PaymentAttemptType,
+    PaymentMethodType,
+    payment_attempt_to_type,
+)
 from services.payments_service import payment_service
 from utils.graphql_auth import apply_optional_jwt
 
 
 def _payment_method_to_type(pm) -> PaymentMethodType:
-    data = pm.model_dump()
+    data = pm.model_dump(mode="json")
     data["id"] = str(pm.id)
     return PaymentMethodType(**data)
 
 
 @strawberry.type
 class PaymentMethodQuery:
-    @strawberry.field(description="Obtener todos los métodos de pago disponibles. Si se provee branchId, retorna solo los aceptados por ese branch.")
+    @strawberry.field(
+        description="Obtener todos los métodos de pago disponibles. Si se provee branchId, retorna solo los aceptados por ese branch."
+    )
     async def payment_methods(
-        self,
-        info: Info,
-        branch_id: Optional[str] = None,
-        jwt: Optional[str] = None
+        self, info: Info, branch_id: Optional[str] = None, jwt: Optional[str] = None
     ) -> List[PaymentMethodType]:
         apply_optional_jwt(jwt, info)
 
@@ -32,7 +36,9 @@ class PaymentMethodQuery:
             branch = await branches_repo.get_by_id(branch_id)
             if not branch or not branch.paymentMethodIds:
                 return []
-            payment_methods = await payment_methods_repo.get_by_ids(branch.paymentMethodIds)
+            payment_methods = await payment_methods_repo.get_by_ids(
+                branch.paymentMethodIds
+            )
         else:
             payment_methods = await payment_methods_repo.get_all()
 
@@ -40,10 +46,7 @@ class PaymentMethodQuery:
 
     @strawberry.field(description="Obtener método de pago por ID")
     async def payment_method(
-        self,
-        info: Info,
-        id: str,
-        jwt: Optional[str] = None
+        self, info: Info, id: str, jwt: Optional[str] = None
     ) -> Optional[PaymentMethodType]:
         """
         Get a payment method by ID.
@@ -63,10 +66,7 @@ class PaymentMethodQuery:
 
     @strawberry.field(description="Obtener métodos de pago por moneda")
     async def payment_methods_by_currency(
-        self,
-        info: Info,
-        currency: str,
-        jwt: Optional[str] = None
+        self, info: Info, currency: str, jwt: Optional[str] = None
     ) -> List[PaymentMethodType]:
         """
         Get payment methods filtered by currency.
@@ -84,10 +84,7 @@ class PaymentMethodQuery:
 
     @strawberry.field(description="Obtener métodos de pago por tipo")
     async def payment_methods_by_method(
-        self,
-        info: Info,
-        method: str,
-        jwt: Optional[str] = None
+        self, info: Info, method: str, jwt: Optional[str] = None
     ) -> List[PaymentMethodType]:
         """
         Get payment methods filtered by method type.
@@ -109,10 +106,7 @@ class PaymentMethodQuery:
 
     @strawberry.field(description="Obtener intento de pago por ID")
     async def payment_attempt(
-        self,
-        info: Info,
-        id: str,
-        jwt: str
+        self, info: Info, id: str, jwt: str
     ) -> Optional[PaymentAttemptType]:
         """
         Get a payment attempt by ID.
@@ -139,10 +133,7 @@ class PaymentMethodQuery:
 
     @strawberry.field(description="Obtener intentos de pago de un pedido")
     async def payment_attempts_by_order(
-        self,
-        info: Info,
-        orderId: str,
-        jwt: str
+        self, info: Info, orderId: str, jwt: str
     ) -> List[PaymentAttemptType]:
         """
         Get all payment attempts for an order.
@@ -164,10 +155,7 @@ class PaymentMethodQuery:
 
     @strawberry.field(description="Obtener el intento de pago activo de un pedido")
     async def active_payment_attempt(
-        self,
-        info: Info,
-        orderId: str,
-        jwt: str
+        self, info: Info, orderId: str, jwt: str
     ) -> Optional[PaymentAttemptType]:
         """
         Get the active (non-final) payment attempt for an order.

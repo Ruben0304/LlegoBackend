@@ -110,7 +110,7 @@ class ProductQuery:
                 )
                 scored_products = [
                     ScoredProductType(
-                        **item.item.model_dump(),
+                        **item.item.model_dump(mode="json"),
                         score=item.score,
                         distance_m=item.distance_m,
                     )
@@ -119,7 +119,9 @@ class ProductQuery:
 
         if not scored_products:
             scored_products = [
-                ScoredProductType(**p.model_dump(), score=0.0, distance_m=None)
+                ScoredProductType(
+                    **p.model_dump(mode="json"), score=0.0, distance_m=None
+                )
                 for p in all_products
             ]
 
@@ -165,7 +167,7 @@ class ProductQuery:
         apply_optional_jwt(jwt, info)
 
         product = await products_repo.get_by_id(id)
-        return ProductType(**product.model_dump()) if product else None
+        return ProductType(**product.model_dump(mode="json")) if product else None
 
     @strawberry.field(
         description="Buscar productos con scoring por cercanía (paginado)"
@@ -279,7 +281,7 @@ class ProductQuery:
             # Convert to ScoredProductType
             scored_products = [
                 ScoredProductType(
-                    **rp.product.model_dump(),
+                    **rp.product.model_dump(mode="json"),
                     score=rp.final_score,
                     distance_m=None,  # Could extract from proximity_score if needed
                 )
@@ -296,7 +298,9 @@ class ProductQuery:
 
             # Fallback: simple scoring without re-ranking
             scored_products = [
-                ScoredProductType(**p.model_dump(), score=0.0, distance_m=None)
+                ScoredProductType(
+                    **p.model_dump(mode="json"), score=0.0, distance_m=None
+                )
                 for p in all_products
             ]
 
@@ -380,5 +384,6 @@ class ProductQuery:
         ]
 
         return ProductRecommendationsResponseType(
-            recommendations=strawberry_recommendations, reasoning=recommendations.reasoning
+            recommendations=strawberry_recommendations,
+            reasoning=recommendations.reasoning,
         )

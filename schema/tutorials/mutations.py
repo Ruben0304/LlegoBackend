@@ -1,23 +1,23 @@
 """GraphQL mutations for Tutorial entity."""
-import strawberry
+
 from typing import Optional
+
+import strawberry
 from strawberry.types import Info
 
-from .types import TutorialType
-from .inputs import CreateTutorialInput, UpdateTutorialInput
 from repositories import tutorials_repo
 from utils.graphql_auth import apply_optional_jwt
 from utils.s3 import delete_file
+
+from .inputs import CreateTutorialInput, UpdateTutorialInput
+from .types import TutorialType
 
 
 @strawberry.type
 class TutorialMutation:
     @strawberry.mutation(description="Create a new tutorial (admin only)")
     async def create_tutorial(
-        self,
-        info: Info,
-        input: CreateTutorialInput,
-        jwt: Optional[str] = None
+        self, info: Info, input: CreateTutorialInput, jwt: Optional[str] = None
     ) -> TutorialType:
         """
         Create a new tutorial. Upload video first via POST /upload/tutorial/video.
@@ -48,15 +48,11 @@ class TutorialMutation:
         # Create tutorial in database
         created_tutorial = await tutorials_repo.create(tutorial_data)
 
-        return TutorialType(**created_tutorial.model_dump())
+        return TutorialType(**created_tutorial.model_dump(mode="json"))
 
     @strawberry.mutation(description="Update a tutorial (admin only)")
     async def update_tutorial(
-        self,
-        info: Info,
-        id: str,
-        input: UpdateTutorialInput,
-        jwt: Optional[str] = None
+        self, info: Info, id: str, input: UpdateTutorialInput, jwt: Optional[str] = None
     ) -> TutorialType:
         """
         Update an existing tutorial. Only admins can update tutorials.
@@ -105,14 +101,11 @@ class TutorialMutation:
         if not updated_tutorial:
             raise Exception("Error al actualizar tutorial")
 
-        return TutorialType(**updated_tutorial.model_dump())
+        return TutorialType(**updated_tutorial.model_dump(mode="json"))
 
     @strawberry.mutation(description="Delete a tutorial (admin only)")
     async def delete_tutorial(
-        self,
-        info: Info,
-        id: str,
-        jwt: Optional[str] = None
+        self, info: Info, id: str, jwt: Optional[str] = None
     ) -> bool:
         """
         Delete a tutorial. Only admins can delete tutorials.
@@ -146,10 +139,7 @@ class TutorialMutation:
 
     @strawberry.mutation(description="Toggle tutorial active status (admin only)")
     async def toggle_tutorial_active(
-        self,
-        info: Info,
-        id: str,
-        jwt: Optional[str] = None
+        self, info: Info, id: str, jwt: Optional[str] = None
     ) -> TutorialType:
         """
         Toggle the isActive status of a tutorial. Only admins can toggle tutorials.
@@ -168,4 +158,4 @@ class TutorialMutation:
         if not updated_tutorial:
             raise Exception("Tutorial no encontrado")
 
-        return TutorialType(**updated_tutorial.model_dump())
+        return TutorialType(**updated_tutorial.model_dump(mode="json"))

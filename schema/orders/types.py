@@ -6,13 +6,13 @@ from typing import List, Optional
 
 import strawberry
 
-from repositories.orders_repository import delivery_persons_repo
-from services.orders_utils import calculate_delivery_fee_h3, haversine_distance
 from repositories import branches_repo, businesses_repo, users_repo
+from repositories.orders_repository import delivery_persons_repo
 from schema.branches.types import BranchType, CoordinatesType
 from schema.businesses.types import BusinessType
 from schema.users.types import UserType
 from schema.wallet.types import WalletBalanceType
+from services.orders_utils import calculate_delivery_fee_h3, haversine_distance
 
 
 # Enums
@@ -336,7 +336,8 @@ class OrderType:
         return UserType(
             **{
                 **user.model_dump(
-                    exclude={"password", "location", "wallet", "walletStatus"}
+                    mode="json",
+                    exclude={"password", "location", "wallet", "walletStatus"},
                 ),
                 "wallet": WalletBalanceType(
                     local=user.wallet.get("local", 0.0), usd=user.wallet.get("usd", 0.0)
@@ -359,7 +360,7 @@ class OrderType:
         business = await businesses_repo.get_by_id(self.businessId)
         if not business:
             raise Exception(f"Business not found: {self.businessId}")
-        return BusinessType(**business.model_dump())
+        return BusinessType(**business.model_dump(mode="json"))
 
     @strawberry.field(description="Assigned delivery person")
     async def delivery_person(self) -> Optional[DeliveryPersonType]:
@@ -423,11 +424,15 @@ def order_to_type(order) -> OrderType:
         createdAt=order.createdAt,
         updatedAt=order.updatedAt,
         lastStatusAt=order.lastStatusAt,
-        deliveryPersonId=str(order.deliveryPersonId) if order.deliveryPersonId else None,
+        deliveryPersonId=str(order.deliveryPersonId)
+        if order.deliveryPersonId
+        else None,
         deliveryZoneId=order.deliveryZoneId,
         estimatedDeliveryTime=order.estimatedDeliveryTime,
         paymentId=order.paymentId,
-        currentPaymentAttemptId=str(order.currentPaymentAttemptId) if order.currentPaymentAttemptId else None,
+        currentPaymentAttemptId=str(order.currentPaymentAttemptId)
+        if order.currentPaymentAttemptId
+        else None,
         paidAt=order.paidAt,
         assignedAt=order.assignedAt,
         pickedUpAt=order.pickedUpAt,

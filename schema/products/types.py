@@ -40,6 +40,7 @@ class ProductType:
         if category_data:
             return category_data.name
         return None
+
     @strawberry.field(description="Variant lists assigned to this product")
     async def variant_lists(
         self, info: Info
@@ -55,7 +56,6 @@ class ProductType:
 
         variant_lists = await variant_lists_repo.get_by_ids(self.variantListIds)
         return [variant_list_to_type(vl) for vl in variant_lists]
-
 
     @strawberry.field(description="Product category")
     async def category(
@@ -74,7 +74,7 @@ class ProductType:
 
         category_data = await product_categories_repo.get_by_id(self.categoryId)
         if category_data:
-            return ProductCategoryType(**category_data.model_dump())
+            return ProductCategoryType(**category_data.model_dump(mode="json"))
         return None
 
     @strawberry.field(description="Branch associated with this product")
@@ -86,7 +86,7 @@ class ProductType:
 
         loader = info.context.get("branch_loader")
         if loader:
-            branch_data = await loader.load(self.branchId)
+            branch_data = await loader.load(str(self.branchId))
         else:
             from repositories import branches_repo
 
@@ -111,7 +111,7 @@ class ProductType:
 
         branch_loader = info.context.get("branch_loader")
         if branch_loader:
-            branch_data = await branch_loader.load(self.branchId)
+            branch_data = await branch_loader.load(str(self.branchId))
         else:
             from repositories import branches_repo
 
@@ -122,14 +122,14 @@ class ProductType:
 
         business_loader = info.context.get("business_loader")
         if business_loader:
-            business_data = await business_loader.load(branch_data.businessId)
+            business_data = await business_loader.load(str(branch_data.businessId))
         else:
             from repositories import businesses_repo
 
             business_data = await businesses_repo.get_by_id(branch_data.businessId)
 
         if business_data:
-            return BusinessType(**business_data.model_dump())
+            return BusinessType(**business_data.model_dump(mode="json"))
         return None
 
 
@@ -147,6 +147,7 @@ class ScoredProductType:
     image: str
     availability: bool
     categoryId: Optional[str] = None
+    variantListIds: list[str] = strawberry.field(default_factory=list)
     createdAt: datetime
     score: float
     distance_m: Optional[float] = None
@@ -174,6 +175,22 @@ class ScoredProductType:
             return category_data.name
         return None
 
+    @strawberry.field(description="Variant lists assigned to this product")
+    async def variant_lists(
+        self, info: Info
+    ) -> list[
+        Annotated["VariantListType", strawberry.lazy("schema.variant_lists.types")]
+    ]:
+        """Resolve the variant lists relationship."""
+        if not self.variantListIds:
+            return []
+
+        from repositories import variant_lists_repo
+        from schema.variant_lists.types import variant_list_to_type
+
+        variant_lists = await variant_lists_repo.get_by_ids(self.variantListIds)
+        return [variant_list_to_type(vl) for vl in variant_lists]
+
     @strawberry.field(description="Product category")
     async def category(
         self, info: Info
@@ -191,7 +208,7 @@ class ScoredProductType:
 
         category_data = await product_categories_repo.get_by_id(self.categoryId)
         if category_data:
-            return ProductCategoryType(**category_data.model_dump())
+            return ProductCategoryType(**category_data.model_dump(mode="json"))
         return None
 
     @strawberry.field(description="Branch associated with this product")
@@ -203,7 +220,7 @@ class ScoredProductType:
 
         loader = info.context.get("branch_loader")
         if loader:
-            branch_data = await loader.load(self.branchId)
+            branch_data = await loader.load(str(self.branchId))
         else:
             from repositories import branches_repo
 
@@ -228,7 +245,7 @@ class ScoredProductType:
 
         branch_loader = info.context.get("branch_loader")
         if branch_loader:
-            branch_data = await branch_loader.load(self.branchId)
+            branch_data = await branch_loader.load(str(self.branchId))
         else:
             from repositories import branches_repo
 
@@ -239,14 +256,14 @@ class ScoredProductType:
 
         business_loader = info.context.get("business_loader")
         if business_loader:
-            business_data = await business_loader.load(branch_data.businessId)
+            business_data = await business_loader.load(str(branch_data.businessId))
         else:
             from repositories import businesses_repo
 
             business_data = await businesses_repo.get_by_id(branch_data.businessId)
 
         if business_data:
-            return BusinessType(**business_data.model_dump())
+            return BusinessType(**business_data.model_dump(mode="json"))
         return None
 
 
@@ -265,7 +282,7 @@ class ProductRecommendationType:
 
         product_data = await products_repo.get_by_id(self.product_id)
         if product_data:
-            return ProductType(**product_data.model_dump())
+            return ProductType(**product_data.model_dump(mode="json"))
         return None
 
 

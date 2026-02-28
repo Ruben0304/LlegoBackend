@@ -35,7 +35,7 @@ def _user_to_type(user):
     return UserType(
         **{
             **user.model_dump(
-                exclude={"password", "location", "wallet", "walletStatus"}
+                mode="json", exclude={"password", "location", "wallet", "walletStatus"}
             ),
             "wallet": WalletBalanceType(
                 local=user.wallet.get("local", 0.0), usd=user.wallet.get("usd", 0.0)
@@ -86,7 +86,7 @@ class BranchInvitationType:
         from schema.businesses.types import BusinessType
 
         business = await businesses_repo.get_by_id(self.businessId)
-        return BusinessType(**business.model_dump()) if business else None
+        return BusinessType(**business.model_dump(mode="json")) if business else None
 
     @strawberry.field(description="Creador de la invitacion")
     async def creator(
@@ -181,7 +181,7 @@ class BusinessAccessType:
         from schema.businesses.types import BusinessType
 
         business = await businesses_repo.get_by_id(self.businessId)
-        return BusinessType(**business.model_dump()) if business else None
+        return BusinessType(**business.model_dump(mode="json")) if business else None
 
     @strawberry.field(description="Invitacion que otorgo el acceso")
     async def invitation(self, info: Info) -> Optional["BranchInvitationType"]:

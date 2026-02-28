@@ -82,7 +82,9 @@ class FeedQuery:
         all_products = await products_repo.get_by_branch_ids(list(branch_ids))
         print(f"[DEBUG] Feed - all_products fetched: {len(all_products)} products")
         if len(all_products) > 0:
-            print(f"[DEBUG] Feed - Sample product: {all_products[0].model_dump() if hasattr(all_products[0], 'model_dump') else all_products[0]}")
+            print(
+                f"[DEBUG] Feed - Sample product: {all_products[0].model_dump() if hasattr(all_products[0], 'model_dump') else all_products[0]}"
+            )
 
         # Default sections if not specified
         available_sections = {
@@ -129,7 +131,9 @@ class FeedQuery:
                 )
         else:
             requested_sections = available_sections
-            print(f"[DEBUG] Feed - No sections filter, using all {len(requested_sections)} sections")
+            print(
+                f"[DEBUG] Feed - No sections filter, using all {len(requested_sections)} sections"
+            )
 
         # Prepare tasks for parallel execution
         tasks = []
@@ -338,11 +342,7 @@ class FeedQuery:
 
             products = []
             for sp in effective_scored_products:
-                product_data = sp.product.model_dump()
-                product_data["variantListIds"] = [
-                    str(variant_list_id)
-                    for variant_list_id in product_data.get("variantListIds", [])
-                ]
+                product_data = sp.product.model_dump(mode="json")
                 products.append(
                     FeedProductType(**product_data, score=sp.score, distance_m=None)
                 )

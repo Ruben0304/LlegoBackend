@@ -123,7 +123,7 @@ class BranchType:
 
         loader = info.context.get("products_by_branch_loader")
         if loader:
-            all_products = await loader.load(self.id)
+            all_products = await loader.load(str(self.id))
         else:
             from repositories import products_repo
 
@@ -132,7 +132,7 @@ class BranchType:
         if available_only:
             all_products = [p for p in all_products if p.availability]
 
-        return [ProductType(**p.model_dump()) for p in all_products[:limit]]
+        return [ProductType(**p.model_dump(mode="json")) for p in all_products[:limit]]
 
     @strawberry.field(description="Payment methods accepted by this branch")
     async def payment_methods(
@@ -146,7 +146,9 @@ class BranchType:
             return []
 
         payment_methods = await payment_methods_repo.get_by_ids(self.paymentMethodIds)
-        return [PaymentMethodType(**pm.model_dump()) for pm in payment_methods]
+        return [
+            PaymentMethodType(**pm.model_dump(mode="json")) for pm in payment_methods
+        ]
 
 
 @strawberry.type
@@ -215,7 +217,7 @@ class NearbyBranchType:
 
         loader = info.context.get("products_by_branch_loader")
         if loader:
-            all_products = await loader.load(self.id)
+            all_products = await loader.load(str(self.id))
         else:
             from repositories import products_repo
 
@@ -224,7 +226,7 @@ class NearbyBranchType:
         if available_only:
             all_products = [p for p in all_products if p.availability]
 
-        return [ProductType(**p.model_dump()) for p in all_products[:limit]]
+        return [ProductType(**p.model_dump(mode="json")) for p in all_products[:limit]]
 
     @strawberry.field(description="Payment methods accepted by this branch")
     async def payment_methods(
@@ -238,7 +240,9 @@ class NearbyBranchType:
             return []
 
         payment_methods = await payment_methods_repo.get_by_ids(self.paymentMethodIds)
-        return [PaymentMethodType(**pm.model_dump()) for pm in payment_methods]
+        return [
+            PaymentMethodType(**pm.model_dump(mode="json")) for pm in payment_methods
+        ]
 
 
 @strawberry.type
@@ -310,7 +314,7 @@ class ScoredBranchType:
 
         loader = info.context.get("products_by_branch_loader")
         if loader:
-            all_products = await loader.load(self.id)
+            all_products = await loader.load(str(self.id))
         else:
             from repositories import products_repo
 
@@ -319,7 +323,7 @@ class ScoredBranchType:
         if available_only:
             all_products = [p for p in all_products if p.availability]
 
-        return [ProductType(**p.model_dump()) for p in all_products[:limit]]
+        return [ProductType(**p.model_dump(mode="json")) for p in all_products[:limit]]
 
     @strawberry.field(description="Payment methods accepted by this branch")
     async def payment_methods(
@@ -333,4 +337,6 @@ class ScoredBranchType:
             return []
 
         payment_methods = await payment_methods_repo.get_by_ids(self.paymentMethodIds)
-        return [PaymentMethodType(**pm.model_dump()) for pm in payment_methods]
+        return [
+            PaymentMethodType(**pm.model_dump(mode="json")) for pm in payment_methods
+        ]

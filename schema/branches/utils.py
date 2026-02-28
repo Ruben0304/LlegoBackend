@@ -15,6 +15,7 @@ from schema.wallet.types import WalletBalanceType
 def branch_to_dict(branch: Branch) -> dict:
     """Convert Branch model to dict suitable for BranchType instantiation."""
     branch_dict = branch.model_dump(
+        mode="json",
         exclude={
             "wallet",
             "walletStatus",
@@ -24,9 +25,11 @@ def branch_to_dict(branch: Branch) -> dict:
             "accounts",
             "qrPayments",
             "phones",
-        }
+        },
     )
-    branch_dict["coordinates"] = CoordinatesType(**branch.coordinates.model_dump())
+    branch_dict["coordinates"] = CoordinatesType(
+        **branch.coordinates.model_dump(mode="json")
+    )
     branch_dict["tipos"] = [BranchTipo(t) for t in (branch.tipos or [])]
     branch_dict["vehicles"] = [BranchVehicle(v) for v in (branch.vehicles or [])]
     branch_dict["wallet"] = WalletBalanceType(
@@ -34,12 +37,13 @@ def branch_to_dict(branch: Branch) -> dict:
     )
     branch_dict["walletStatus"] = branch.walletStatus
     branch_dict["accounts"] = [
-        TransferAccountType(**a.model_dump()) for a in (branch.accounts or [])
+        TransferAccountType(**a.model_dump(mode="json"))
+        for a in (branch.accounts or [])
     ]
     branch_dict["qrPayments"] = [
-        QrPaymentType(**q.model_dump()) for q in (branch.qrPayments or [])
+        QrPaymentType(**q.model_dump(mode="json")) for q in (branch.qrPayments or [])
     ]
     branch_dict["phones"] = [
-        TransferPhoneType(**p.model_dump()) for p in (branch.phones or [])
+        TransferPhoneType(**p.model_dump(mode="json")) for p in (branch.phones or [])
     ]
     return branch_dict

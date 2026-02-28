@@ -97,17 +97,17 @@ class BranchRepository:
         if not branch_ids:
             return []
 
-        branch_ids = [str(branch_id) for branch_id in branch_ids]
-        cache_key = get_branch_cache_key(f"ids:{','.join(sorted(branch_ids))}")
+        ids = [str(x) for x in branch_ids]
+        cache_key = get_branch_cache_key(f"ids:{','.join(sorted(ids))}")
         cached = get_cached(cache_key)
 
         if cached is not None:
             return [self._dict_to_branch(b) for b in cached]
 
         try:
-            print(f"→ Fetching {len(branch_ids)} branches from MongoDB")
+            print(f"→ Fetching {len(ids)} branches from MongoDB")
             db = get_database()
-            object_ids = [ObjectId(bid) for bid in branch_ids]
+            object_ids = [ObjectId(bid) for bid in ids]
             cursor = db[self.mongo_collection_name].find({"_id": {"$in": object_ids}})
             documents = await cursor.to_list(length=None)
 

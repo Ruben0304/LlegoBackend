@@ -1,18 +1,26 @@
 """GraphQL mutations for payment validation and payment processing."""
-import strawberry
+
 import os
-from typing import Optional
 from datetime import datetime
+from typing import Optional
+
+import strawberry
+from google import genai
+from google.genai import types as genai_types
 from pydantic import BaseModel, ValidationError
 from strawberry.file_uploads import Upload
 from strawberry.types import Info
-from google import genai
-from google.genai import types as genai_types
 
-from .types import PaymentType, PaymentAttemptType, InitiatePaymentResult, payment_attempt_to_type
-from repositories import payments_repo, payment_methods_repo
+from repositories import payment_methods_repo, payments_repo
 from services.payments_service import payment_service
 from utils.graphql_auth import apply_optional_jwt
+
+from .types import (
+    InitiatePaymentResult,
+    PaymentAttemptType,
+    PaymentType,
+    payment_attempt_to_type,
+)
 
 
 # Modelo Pydantic para la respuesta de Gemini (sin el id y createdAt)
@@ -29,12 +37,11 @@ class GeminiPaymentResponse(BaseModel):
 
 @strawberry.type
 class PaymentMutation:
-    @strawberry.mutation(description="Validar una imagen de transferencia bancaria usando Gemini OCR")
+    @strawberry.mutation(
+        description="Validar una imagen de transferencia bancaria usando Gemini OCR"
+    )
     async def validate_payment_image(
-        self,
-        info: Info,
-        file: Upload,
-        jwt: Optional[str] = None
+        self, info: Info, file: Upload, jwt: Optional[str] = None
     ) -> PaymentType:
         """
         Procesa una imagen de SMS bancario usando Gemini Vision API.
@@ -53,7 +60,9 @@ class PaymentMutation:
             model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
             if not api_key:
-                raise Exception("GEMINI_API_KEY no está configurada en las variables de entorno")
+                raise Exception(
+                    "GEMINI_API_KEY no está configurada en las variables de entorno"
+                )
 
             # Crear cliente de Gemini
             client = genai.Client(api_key=api_key)
@@ -89,8 +98,7 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
                 contents=[
                     prompt,
                     genai_types.Part.from_bytes(
-                        data=image_bytes,
-                        mime_type=content_type
+                        data=image_bytes, mime_type=content_type
                     ),
                 ],
                 config=genai_types.GenerateContentConfig(
@@ -117,7 +125,7 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
             payment = await payments_repo.create(payment_data)
 
             # Retornar el tipo GraphQL
-            return PaymentType(**payment.model_dump())
+            return PaymentType(**payment.model_dump(mode="json"))
 
         except Exception as e:
             raise Exception(f"Error al procesar la imagen: {str(e)}")
@@ -179,13 +187,11 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
         except ValueError as e:
             raise Exception(str(e))
 
-    @strawberry.mutation(description="Confirmar que el cliente envió el pago (para métodos manuales)")
+    @strawberry.mutation(
+        description="Confirmar que el cliente envió el pago (para métodos manuales)"
+    )
     async def confirm_payment_sent(
-        self,
-        info: Info,
-        paymentAttemptId: str,
-        proofUrl: str,
-        jwt: str
+        self, info: Info, paymentAttemptId: str, proofUrl: str, jwt: str
     ) -> PaymentAttemptType:
         """
         Customer confirms they sent the payment and uploads proof.
@@ -215,10 +221,7 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
 
     @strawberry.mutation(description="Negocio confirma que recibió el pago")
     async def confirm_payment_received(
-        self,
-        info: Info,
-        paymentAttemptId: str,
-        jwt: str
+        self, info: Info, paymentAttemptId: str, jwt: str
     ) -> PaymentAttemptType:
         """
         Business confirms they received the payment.
@@ -243,12 +246,11 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
         except ValueError as e:
             raise Exception(str(e))
 
-    @strawberry.mutation(description="Repartidor confirma que recibió el pago en efectivo")
+    @strawberry.mutation(
+        description="Repartidor confirma que recibió el pago en efectivo"
+    )
     async def confirm_cash_received(
-        self,
-        info: Info,
-        paymentAttemptId: str,
-        jwt: str
+        self, info: Info, paymentAttemptId: str, jwt: str
     ) -> PaymentAttemptType:
         """
         Delivery person confirms they received cash payment.
@@ -276,11 +278,7 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
 
     @strawberry.mutation(description="Negocio disputa que no recibió el pago")
     async def dispute_payment(
-        self,
-        info: Info,
-        paymentAttemptId: str,
-        reason: str,
-        jwt: str
+        self, info: Info, paymentAttemptId: str, reason: str, jwt: str
     ) -> PaymentAttemptType:
         """
         Business disputes that they didn't receive the payment.
@@ -309,11 +307,7 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
 
     @strawberry.mutation(description="Solicitar reembolso de un pago")
     async def request_refund(
-        self,
-        info: Info,
-        paymentAttemptId: str,
-        reason: str,
-        jwt: str
+        self, info: Info, paymentAttemptId: str, reason: str, jwt: str
     ) -> PaymentAttemptType:
         """
         Customer requests a refund for a completed payment.
@@ -383,10 +377,7 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
 
     @strawberry.mutation(description="Cancelar un intento de pago pendiente")
     async def cancel_payment(
-        self,
-        info: Info,
-        paymentAttemptId: str,
-        jwt: str
+        self, info: Info, paymentAttemptId: str, jwt: str
     ) -> PaymentAttemptType:
         """
         Cancel a pending payment attempt.

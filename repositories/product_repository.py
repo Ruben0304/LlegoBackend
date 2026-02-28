@@ -124,17 +124,17 @@ class ProductRepository:
         if not product_ids:
             return []
 
-        product_ids = [str(product_id) for product_id in product_ids]
-        cache_key = get_product_cache_key(f"ids:{','.join(sorted(product_ids))}")
+        ids = [str(x) for x in product_ids]
+        cache_key = get_product_cache_key(f"ids:{','.join(sorted(ids))}")
         cached = get_cached(cache_key)
 
         if cached is not None:
             return [Product(**p) for p in cached]
 
         try:
-            print(f"→ Fetching {len(product_ids)} products by IDs from MongoDB")
+            print(f"→ Fetching {len(ids)} products by IDs from MongoDB")
             db = get_database()
-            object_ids = self._to_object_ids(product_ids)
+            object_ids = self._to_object_ids(ids)
             cursor = db[self.mongo_collection_name].find({"_id": {"$in": object_ids}})
             documents = await cursor.to_list(length=None)
 
@@ -224,10 +224,8 @@ class ProductRepository:
             return []
 
         # Convert to strings for cache key (handles both str and ObjectId)
-        branch_ids_str = [str(bid).strip() for bid in branch_ids]
-        cache_key = get_product_cache_key(
-            f"branch_ids:{','.join(sorted(branch_ids_str))}"
-        )
+        ids = [str(x).strip() for x in branch_ids]
+        cache_key = get_product_cache_key(f"branch_ids:{','.join(sorted(ids))}")
         cached = get_cached(cache_key)
 
         if cached is not None:
@@ -253,8 +251,8 @@ class ProductRepository:
             query_conditions: List[Dict[str, Any]] = []
             if object_ids:
                 query_conditions.append({"branchId": {"$in": object_ids}})
-            if branch_ids_str:
-                query_conditions.append({"branchId": {"$in": branch_ids_str}})
+            if ids:
+                query_conditions.append({"branchId": {"$in": ids}})
 
             if not query_conditions:
                 return []

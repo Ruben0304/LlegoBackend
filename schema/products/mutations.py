@@ -126,7 +126,7 @@ class ProductMutation:
         # Step 1: Create in MongoDB first
         created_product = await products_repo.create(product)
 
-        return ProductType(**created_product.model_dump())
+        return ProductType(**created_product.model_dump(mode="json"))
 
     @strawberry.mutation(description="Actualizar un producto")
     async def update_product(
@@ -216,7 +216,7 @@ class ProductMutation:
         if not updated_product:
             raise Exception("Error al actualizar el producto")
 
-        return ProductType(**updated_product.model_dump())
+        return ProductType(**updated_product.model_dump(mode="json"))
 
     @strawberry.mutation(description="Eliminar un producto")
     async def delete_product(

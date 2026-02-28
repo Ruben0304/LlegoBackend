@@ -96,18 +96,18 @@ class BusinessRepository:
         if not business_ids:
             return []
 
-        business_ids = [str(business_id) for business_id in business_ids]
-        cache_key = get_business_cache_key(f"ids:{','.join(sorted(business_ids))}")
+        ids = [str(x) for x in business_ids]
+        cache_key = get_business_cache_key(f"ids:{','.join(sorted(ids))}")
         cached = get_cached(cache_key)
 
         if cached is not None:
             return [Business(**b) for b in cached]
 
         try:
-            print(f"→ Fetching {len(business_ids)} businesses from MongoDB")
+            print(f"→ Fetching {len(ids)} businesses from MongoDB")
             db = get_database()
             # Convert string IDs to ObjectIds
-            object_ids = [ObjectId(bid) for bid in business_ids]
+            object_ids = [ObjectId(bid) for bid in ids]
             cursor = db[self.mongo_collection_name].find({"_id": {"$in": object_ids}})
             documents = await cursor.to_list(length=None)
 

@@ -6,7 +6,7 @@ from typing import List, Optional
 import strawberry
 from strawberry.types import Info
 
-from repositories import businesses_repo, branches_repo, searches_repo
+from repositories import branches_repo, businesses_repo, searches_repo
 from schema.branches.types import BranchTipo, BranchType, CoordinatesType
 from utils.graphql_auth import apply_optional_jwt
 from utils.s3 import generate_presigned_url
@@ -57,7 +57,7 @@ class BusinessQuery:
 
         result = []
         for b in businesses:
-            data = b.model_dump()
+            data = b.model_dump(mode="json")
             data["id"] = str(b.id)
             data["ownerId"] = str(b.ownerId)
             result.append(BusinessType(**data))
@@ -71,7 +71,7 @@ class BusinessQuery:
         business = await businesses_repo.get_by_id(id)
         if not business:
             return None
-        data = business.model_dump()
+        data = business.model_dump(mode="json")
         data["id"] = str(business.id)
         data["ownerId"] = str(business.ownerId)
         return BusinessType(**data)
@@ -108,7 +108,7 @@ class BusinessQuery:
 
             result = []
             for b in businesses:
-                data = b.model_dump()
+                data = b.model_dump(mode="json")
                 data["id"] = str(b.id)
                 data["ownerId"] = str(b.ownerId)
                 result.append(BusinessType(**data))
@@ -118,7 +118,7 @@ class BusinessQuery:
             businesses = await businesses_repo.search(query)
             result = []
             for b in businesses:
-                data = b.model_dump()
+                data = b.model_dump(mode="json")
                 data["id"] = str(b.id)
                 data["ownerId"] = str(b.ownerId)
                 result.append(BusinessType(**data))

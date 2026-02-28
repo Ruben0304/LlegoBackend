@@ -54,7 +54,7 @@ class FeedProductType:
 
         loader = info.context.get("branch_loader")
         if loader:
-            branch_data = await loader.load(self.branchId)
+            branch_data = await loader.load(str(self.branchId))
         else:
             from repositories import branches_repo
 
