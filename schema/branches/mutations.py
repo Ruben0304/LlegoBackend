@@ -2,7 +2,6 @@
 
 from datetime import datetime
 from typing import Optional
-import asyncio
 
 import strawberry
 from bson import ObjectId
@@ -16,7 +15,6 @@ from repositories import (
     store_locations_repo,
 )
 from services.access_checker import access_checker
-from services.qdrant_indexing_service import qdrant_indexing_service
 from utils.graphql_auth import apply_optional_jwt
 from utils.s3 import delete_file
 
@@ -93,9 +91,6 @@ class BranchMutation:
 
         # Step 1: Create in MongoDB first
         created_branch = await branches_repo.create(branch)
-
-        # Step 2: Index in Qdrant in background (non-blocking)
-        asyncio.create_task(qdrant_indexing_service.index_branch(created_branch))
 
         # Save location to MongoDB stores_location collection
         await store_locations_repo.upsert(

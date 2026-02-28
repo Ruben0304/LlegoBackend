@@ -181,7 +181,7 @@ class ScoringService:
         
         scored_items = []
         for product in products:
-            branch_id = product.branchId
+            branch_id = str(product.branchId)
             distance_m = store_distances.get(branch_id)
             
             # If radius_km specified, filter out products from branches not in range
@@ -198,7 +198,7 @@ class ScoringService:
             total_score = self.calculate_total_score(proximity_score)
             
             scored_items.append(ScoredItem(
-                id=product.id,
+                id=str(product.id),
                 item=product,
                 score=total_score,
                 distance_m=distance_m

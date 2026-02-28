@@ -2,7 +2,6 @@
 import logging
 from typing import Optional, List
 from qdrant_client.models import PointStruct
-import uuid
 
 from clients import get_qdrant_client
 from services.embeddings.gemini_service import GeminiEmbeddingService
@@ -69,7 +68,7 @@ class QdrantIndexingService:
 
             # Create point
             point = PointStruct(
-                id=str(uuid.uuid4()),  # Random UUID for Qdrant point ID
+                id=str(product.id),
                 vector=embedding,
                 payload=payload
             )
@@ -124,7 +123,7 @@ class QdrantIndexingService:
 
             # Create point
             point = PointStruct(
-                id=str(uuid.uuid4()),  # Random UUID for Qdrant point ID
+                id=str(branch.id),
                 vector=embedding,
                 payload=payload
             )
@@ -178,7 +177,7 @@ class QdrantIndexingService:
 
             # Create point
             point = PointStruct(
-                id=str(uuid.uuid4()),  # Random UUID for Qdrant point ID
+                id=str(business.id),
                 vector=embedding,
                 payload=payload
             )

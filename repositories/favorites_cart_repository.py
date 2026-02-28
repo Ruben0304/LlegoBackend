@@ -156,7 +156,7 @@ class FavoritesCartRepository:
             List of product IDs
         """
         items = await self.get_by_user(user_id, item_type)
-        return [item.productId for item in items]
+        return [str(item.productId) for item in items]
 
     async def get_recent_activity(self, item_type: str = "favorite", days: int = 7) -> Dict[str, int]:
         """

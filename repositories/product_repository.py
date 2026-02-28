@@ -6,7 +6,6 @@ Hybrid repository pattern:
 - Create/Update/Delete: Sync both databases
 """
 
-import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -416,7 +415,7 @@ class ProductRepository:
                 "description": product.description,
             }
 
-            point_id = existing.id if existing else str(uuid.uuid4())
+            point_id = existing.id if existing else mongo_id
             point = PointStruct(
                 id=point_id,
                 vector=embedding,
@@ -606,7 +605,7 @@ class ProductRepository:
 
         # Find oldest and newest products
         now = datetime.utcnow()
-        timestamps = [(p.id, (now - p.createdAt).total_seconds()) for p in products]
+        timestamps = [(str(p.id), (now - p.createdAt).total_seconds()) for p in products]
 
         if not timestamps:
             return {}

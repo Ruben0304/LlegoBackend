@@ -125,7 +125,7 @@ class FeedService:
         # Calculate scores
         scored_products = []
         for product in products:
-            pid = product.id
+            pid = str(product.id)
 
             # Personalization
             pers_clicks = personal_clicks.get(pid, 0.0)
@@ -197,7 +197,7 @@ class FeedService:
         # Calculate scores
         scored_products = []
         for product in products:
-            pid = product.id
+            pid = str(product.id)
 
             # Popularity
             pop_fav = popularity_favorites.get(pid, 0.0)
@@ -292,7 +292,7 @@ class FeedService:
         # Calculate scores
         scored_products = []
         for product in products:
-            pid = product.id
+            pid = str(product.id)
 
             clicks = recent_clicks.get(pid, 0.0)
             favorites = recent_favorites.get(pid, 0.0)
@@ -349,7 +349,7 @@ class FeedService:
         # Calculate scores
         scored_products = []
         for product in products:
-            pid = product.id
+            pid = str(product.id)
 
             # Clicked in searches
             clicked = personal_clicks.get(pid, 0.0)
@@ -418,10 +418,10 @@ class FeedService:
         # Calculate scores
         scored_products = []
         for product in branch_products:
-            pid = product.id
+            pid = str(product.id)
 
             # Branch affinity (how popular is this branch)
-            branch_affinity = branch_popularity.get(product.branchId, 0.5)
+            branch_affinity = branch_popularity.get(str(product.branchId), 0.5)
 
             # Freshness
             freshness = freshness_scores.get(pid, 0.0)
@@ -485,7 +485,7 @@ class FeedService:
         # Calculate scores
         scored_products = []
         for product in products:
-            pid = product.id
+            pid = str(product.id)
 
             favorites = popularity_favorites.get(pid, 0.0)
             cart = popularity_cart.get(pid, 0.0)
@@ -554,7 +554,7 @@ class FeedService:
         # Calculate scores
         scored_products = []
         for product in products:
-            pid = product.id
+            pid = str(product.id)
 
             proximity = proximity_map.get(pid, 0.0)
             availability = 1.0 if product.availability else 0.0
@@ -625,7 +625,7 @@ class FeedService:
         # Calculate scores
         scored_products = []
         for product in products:
-            pid = product.id
+            pid = str(product.id)
 
             # Skip products user already favorited or clicked frequently
             if pid in personal_favorites or personal_clicks.get(pid, 0) > 0.5:
@@ -684,7 +684,7 @@ class FeedService:
         for section in sections:
             deduplicated_section = []
             for scored_product in section:
-                pid = scored_product.product.id
+                pid = str(scored_product.product.id)
                 if pid not in seen_ids:
                     seen_ids.add(pid)
                     deduplicated_section.append(scored_product)

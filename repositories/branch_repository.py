@@ -6,7 +6,6 @@ Hybrid repository pattern:
 - Create/Update/Delete: Sync both databases
 """
 
-import uuid
 from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
@@ -457,7 +456,7 @@ class BranchRepository:
                 "tipos": branch.tipos or [],
             }
 
-            point_id = existing.id if existing else str(uuid.uuid4())
+            point_id = existing.id if existing else str(branch.id)
             point = PointStruct(
                 id=point_id,
                 vector=embedding,

@@ -2,9 +2,10 @@
 from contextlib import asynccontextmanager
 import asyncio
 import logging
-from clients.mongodb_client import connect_to_mongo, close_mongo_connection, get_database
+from clients.mongodb_client import connect_to_mongo, close_mongo_connection
 from clients.qdrant_client import connect_to_qdrant, close_qdrant_connection
 from clients.gemini_client import connect_to_gemini, close_gemini_connection
+from scripts.cleanup_qdrant_duplicates import cleanup_qdrant_duplicates_on_startup
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,9 @@ async def lifespan(app):
     await connect_to_mongo()
     await connect_to_qdrant()
     connect_to_gemini()
+
+    # Cleanup duplicated points in Qdrant collections on startup
+    await cleanup_qdrant_duplicates_on_startup()
 
     # Start access expiration worker
     try:

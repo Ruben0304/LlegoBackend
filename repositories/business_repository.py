@@ -6,7 +6,6 @@ Hybrid repository pattern:
 - Create/Update/Delete: Sync both databases
 """
 from typing import List, Optional, Dict, Any
-import uuid
 
 from bson import ObjectId
 from clients import get_database, get_qdrant_client
@@ -280,7 +279,7 @@ class BusinessRepository:
                 "description": business.description,
             }
 
-            point_id = existing.id if existing else str(uuid.uuid4())
+            point_id = existing.id if existing else str(business.id)
             point = PointStruct(
                 id=point_id,
                 vector=embedding,

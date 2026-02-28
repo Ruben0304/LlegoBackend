@@ -1,6 +1,5 @@
 from datetime import datetime
 from typing import List, Optional
-import asyncio
 
 import strawberry
 from bson import ObjectId
@@ -8,7 +7,6 @@ from strawberry.types import Info
 
 from domain.models import Branch, Business, Coordinates
 from repositories import branches_repo, businesses_repo, users_repo
-from services.qdrant_indexing_service import qdrant_indexing_service
 from utils.graphql_auth import apply_optional_jwt
 from utils.s3 import delete_file
 
@@ -70,9 +68,6 @@ class BusinessMutation:
         # 2.1. Agregar businessId a la lista de businessIds del usuario
         await users_repo.add_business_id(user_id, business_id)
 
-        # Step 2: Index in Qdrant in background (non-blocking)
-        asyncio.create_task(qdrant_indexing_service.index_business(created_business))
-
         # 3. Crear Sucursales
         for branch_inp in branches_input:
             # Validar que tipos no esté vacío
@@ -133,9 +128,6 @@ class BusinessMutation:
 
             # Create branch in MongoDB first
             created_branch = await branches_repo.create(branch)
-
-            # Index in Qdrant in background (non-blocking)
-            asyncio.create_task(qdrant_indexing_service.index_branch(created_branch))
 
         # 4. Retornar negocio creado
         return BusinessType(
@@ -275,9 +267,6 @@ class BusinessMutation:
                 # 2.2. Agregar businessId a la lista de businessIds del usuario
                 await users_repo.add_business_id(user_id, business_id)
 
-                # Index business in Qdrant in background (non-blocking)
-                asyncio.create_task(qdrant_indexing_service.index_business(created_business))
-
                 # 2.3. Crear Sucursales
                 for branch_inp in branches_input:
                     # Validar que tipos no esté vacío
@@ -341,9 +330,6 @@ class BusinessMutation:
                     # Create branch in MongoDB first
                     created_branch = await branches_repo.create(branch)
                     created_branch_ids.append(branch_id)
-
-                    # Index branch in Qdrant in background (non-blocking)
-                    asyncio.create_task(qdrant_indexing_service.index_branch(created_branch))
 
             # 3. Retornar negocios creados
             return [
