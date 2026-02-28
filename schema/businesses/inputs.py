@@ -41,7 +41,7 @@ class RegisterBranchInput:
     coordinates: CoordinatesInput
     phone: str
     schedule: JSON
-    tipos: List[BranchTipo]  # Obligatorio: ["restaurante", "dulceria", "tienda"]
+    tipos: List[BranchTipo]  # Obligatorio: ["restaurante", "dulceria", "tienda", "perfumeria"]
     paymentMethodIds: List[str]  # Obligatorio: IDs de métodos de pago aceptados
     address: Optional[str] = None
     managerIds: Optional[List[str]] = None

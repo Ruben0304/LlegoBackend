@@ -124,7 +124,7 @@ class Branch(BaseModel):
     avatar: Optional[str] = None
     coverImage: Optional[str] = None
     socialMedia: Optional[Dict[str, str]] = None
-    tipos: List[str] = []  # ["restaurante", "dulceria", "tienda"]
+    tipos: List[str] = []  # ["restaurante", "dulceria", "tienda", "perfumeria"]
     paymentMethodIds: List[Union[PyObjectId, str]] = []  # IDs de métodos de pago aceptados
     wallet: Dict[str, float] = Field(
         default_factory=lambda: {"local": 0.00, "usd": 0.00}
@@ -167,7 +167,7 @@ class ProductCategory(BaseModel):
     """Product category model for organizing products by branch type."""
 
     id: PyObjectId = Field(alias="_id")
-    branchType: str  # "restaurante", "dulceria", "tienda"
+    branchType: str  # "restaurante", "dulceria", "tienda", "perfumeria"
     name: str
     iconIos: str  # iOS SF Symbol name
     iconWeb: str  # Material Design icon name for web

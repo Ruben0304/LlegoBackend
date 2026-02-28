@@ -44,6 +44,7 @@ class BranchTipo(Enum):
     RESTAURANTE = "restaurante"
     DULCERIA = "dulceria"
     TIENDA = "tienda"
+    PERFUMERIA = "perfumeria"
 
 
 @strawberry.enum

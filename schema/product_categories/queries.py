@@ -19,7 +19,7 @@ class ProductCategoryQuery:
         Get product categories, optionally filtered by branch type.
 
         Args:
-            branchType: Filter categories by branch type (restaurante, dulceria, tienda)
+            branchType: Filter categories by branch type (restaurante, dulceria, tienda, perfumeria)
         """
         if branchType:
             categories = await product_categories_repo.get_by_branch_type(branchType)

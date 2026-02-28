@@ -51,7 +51,7 @@ class CreateBranchInput:
     coordinates: CoordinatesInput
     phone: str
     schedule: JSON
-    tipos: List[BranchTipo]  # Obligatorio: ["restaurante", "dulceria", "tienda"]
+    tipos: List[BranchTipo]  # Obligatorio: ["restaurante", "dulceria", "tienda", "perfumeria"]
     paymentMethodIds: List[str]  # Obligatorio: IDs de métodos de pago aceptados
     address: Optional[str] = None
     managerIds: Optional[List[str]] = None
@@ -84,7 +84,7 @@ class UpdateBranchInput:
     managerIds: Optional[List[str]] = None
     avatar: Optional[str] = None  # Path from /upload/branch/avatar
     coverImage: Optional[str] = None  # Path from /upload/branch/cover
-    tipos: Optional[List[BranchTipo]] = None  # ["restaurante", "dulceria", "tienda"]
+    tipos: Optional[List[BranchTipo]] = None  # ["restaurante", "dulceria", "tienda", "perfumeria"]
     paymentMethodIds: Optional[List[str]] = None  # IDs de métodos de pago aceptados
     useAppMessaging: Optional[bool] = (
         None  # True = mensajería por la app, False = por cuenta propia

@@ -47,7 +47,7 @@ async def seed_product_categories_from_db(db):
     print(f"✓ Inserted {len(insert_result.inserted_ids)} product categories")
 
     # Display summary by branch type
-    for branch_type in ["restaurante", "dulceria", "tienda"]:
+    for branch_type in ["restaurante", "dulceria", "tienda", "perfumeria"]:
         count = await collection.count_documents({"branchType": branch_type})
         print(f"  - {branch_type}: {count} categories")
 
@@ -82,7 +82,7 @@ async def seed_product_categories():
         print(f"✓ Inserted {len(insert_result.inserted_ids)} product categories")
 
         # Display summary
-        for branch_type in ["restaurante", "dulceria", "tienda"]:
+        for branch_type in ["restaurante", "dulceria", "tienda", "perfumeria"]:
             count = await collection.count_documents({"branchType": branch_type})
             print(f"  - {branch_type}: {count} categories")
 
