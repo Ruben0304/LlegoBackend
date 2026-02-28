@@ -71,10 +71,8 @@ class ProductQuery:
         if ids:
             all_products = await products_repo.get_by_ids(ids)
         elif branchId:
-            # Filter by specific branch - show ALL products (no category filter)
-            all_products = await products_repo.get_feed_products(
-                branch_ids=[branchId], apply_category_filter=False
-            )
+            # Filter by specific branch - simple MongoDB query
+            all_products = await products_repo.get_by_branch(branchId)
         elif branchTipo:
             # Filter by branch type - apply category filtering
             branch_ids = await branches_repo.get_ids_by_tipo(branchTipo.value)
