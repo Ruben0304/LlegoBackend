@@ -1,4 +1,4 @@
-"""Cleanup duplicated points in Qdrant collections."""
+"""Cleanup duplicated points in Qdrant collections safely by mongo_id."""
 
 import asyncio
 import logging
@@ -23,9 +23,11 @@ class DedupRule:
 
 
 DEDUP_RULES: Tuple[DedupRule, ...] = (
-    DedupRule(collection_name="products", key_fields=("name", "price")),
-    DedupRule(collection_name="branches", key_fields=("name",)),
-    DedupRule(collection_name="businesses", key_fields=("name",)),
+    # Deduplicate only same MongoDB entity to avoid deleting valid records
+    # that can share name/price across different businesses/branches/products.
+    DedupRule(collection_name="products", key_fields=("mongo_id",)),
+    DedupRule(collection_name="branches", key_fields=("mongo_id",)),
+    DedupRule(collection_name="businesses", key_fields=("mongo_id",)),
 )
 
 
