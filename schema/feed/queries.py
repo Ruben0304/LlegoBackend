@@ -114,6 +114,7 @@ class FeedQuery:
             requested_sections = {
                 k: v for k, v in available_sections.items() if k in sections
             }
+            print(f"[DEBUG] Feed - sections requested: {sections}")
             unknown_sections = [s for s in sections if s not in available_sections]
             for unknown_section in unknown_sections:
                 section_diagnostics.append(
@@ -128,6 +129,7 @@ class FeedQuery:
                 )
         else:
             requested_sections = available_sections
+            print(f"[DEBUG] Feed - No sections filter, using all {len(requested_sections)} sections")
 
         # Prepare tasks for parallel execution
         tasks = []
