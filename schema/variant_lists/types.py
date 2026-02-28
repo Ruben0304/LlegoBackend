@@ -6,6 +6,8 @@ from typing import Annotated, List, Optional
 import strawberry
 from strawberry.types import Info
 
+from utils.serialization import to_strawberry_dict
+
 
 @strawberry.type
 class VariantOptionType:
@@ -40,7 +42,7 @@ class VariantListType:
 
         business = await businesses_repo.get_by_id(self.businessId)
         if business:
-            return BusinessType(**business.model_dump(mode="json"))
+            return BusinessType(**to_strawberry_dict(business))
         return None
 
 

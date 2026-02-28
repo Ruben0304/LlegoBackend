@@ -14,6 +14,7 @@ from strawberry.types import Info
 from repositories import payment_methods_repo, payments_repo
 from services.payments_service import payment_service
 from utils.graphql_auth import apply_optional_jwt
+from utils.serialization import to_strawberry_dict
 
 from .types import (
     InitiatePaymentResult,
@@ -125,7 +126,7 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
             payment = await payments_repo.create(payment_data)
 
             # Retornar el tipo GraphQL
-            return PaymentType(**payment.model_dump(mode="json"))
+            return PaymentType(**to_strawberry_dict(payment))
 
         except Exception as e:
             raise Exception(f"Error al procesar la imagen: {str(e)}")

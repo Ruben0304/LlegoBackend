@@ -20,6 +20,7 @@ from services.ai_quota_service import ai_quota_service
 from services.ai_rag_service import AiRagService
 from services.vector_search_service import VectorSearchService
 from utils.graphql_auth import require_auth
+from utils.serialization import to_strawberry_dict
 from utils.rate_limit import rate_limit_graphql
 
 from .types import (
@@ -88,7 +89,7 @@ class AiAssistantQuery:
                     product_results.append(
                         SemanticSearchProductResult(
                             score=scores_map.get(product.id, 0.0),
-                            product=ProductType(**product.model_dump(mode="json")),
+                            product=ProductType(**to_strawberry_dict(product)),
                             branch_name=branch.name if branch else None,
                             branch_avatar=branch.avatar if branch else None,
                             branch_address=branch.address if branch else None,
@@ -154,7 +155,7 @@ class AiAssistantQuery:
                     business_results.append(
                         SemanticSearchBusinessResult(
                             score=scores_map.get(biz.id, 0.0),
-                            business=BusinessType(**biz.model_dump(mode="json")),
+                            business=BusinessType(**to_strawberry_dict(biz)),
                         )
                     )
 
@@ -289,7 +290,7 @@ class AiAssistantQuery:
                     branch = branches_map.get(product.branchId)
                     suggested_products.append(
                         ProductSuggestionType(
-                            product=ProductType(**product.model_dump(mode="json")),
+                            product=ProductType(**to_strawberry_dict(product)),
                             reason=suggestion.reason,
                             branch_name=branch.name if branch else None,
                             branch_avatar=branch.avatar if branch else None,

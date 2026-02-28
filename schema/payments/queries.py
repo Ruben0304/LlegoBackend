@@ -14,10 +14,11 @@ from schema.payments.types import (
 )
 from services.payments_service import payment_service
 from utils.graphql_auth import apply_optional_jwt
+from utils.serialization import to_strawberry_dict
 
 
 def _payment_method_to_type(pm) -> PaymentMethodType:
-    data = pm.model_dump(mode="json")
+    data = to_strawberry_dict(pm)
     data["id"] = str(pm.id)
     return PaymentMethodType(**data)
 

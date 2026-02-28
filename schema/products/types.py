@@ -7,6 +7,7 @@ import strawberry
 from strawberry.types import Info
 
 from utils.s3 import generate_presigned_url
+from utils.serialization import to_strawberry_dict
 
 
 @strawberry.type
@@ -74,7 +75,7 @@ class ProductType:
 
         category_data = await product_categories_repo.get_by_id(self.categoryId)
         if category_data:
-            return ProductCategoryType(**category_data.model_dump(mode="json"))
+            return ProductCategoryType(**to_strawberry_dict(category_data))
         return None
 
     @strawberry.field(description="Branch associated with this product")
@@ -129,7 +130,7 @@ class ProductType:
             business_data = await businesses_repo.get_by_id(branch_data.businessId)
 
         if business_data:
-            return BusinessType(**business_data.model_dump(mode="json"))
+            return BusinessType(**to_strawberry_dict(business_data))
         return None
 
 
@@ -208,7 +209,7 @@ class ScoredProductType:
 
         category_data = await product_categories_repo.get_by_id(self.categoryId)
         if category_data:
-            return ProductCategoryType(**category_data.model_dump(mode="json"))
+            return ProductCategoryType(**to_strawberry_dict(category_data))
         return None
 
     @strawberry.field(description="Branch associated with this product")
@@ -263,7 +264,7 @@ class ScoredProductType:
             business_data = await businesses_repo.get_by_id(branch_data.businessId)
 
         if business_data:
-            return BusinessType(**business_data.model_dump(mode="json"))
+            return BusinessType(**to_strawberry_dict(business_data))
         return None
 
 
@@ -282,7 +283,7 @@ class ProductRecommendationType:
 
         product_data = await products_repo.get_by_id(self.product_id)
         if product_data:
-            return ProductType(**product_data.model_dump(mode="json"))
+            return ProductType(**to_strawberry_dict(product_data))
         return None
 
 

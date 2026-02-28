@@ -6,6 +6,7 @@ import strawberry
 from strawberry.types import Info
 
 from repositories import product_categories_repo
+from utils.serialization import to_strawberry_dict
 
 from .types import ProductCategoryType
 
@@ -27,9 +28,7 @@ class ProductCategoryQuery:
         else:
             categories = await product_categories_repo.get_all()
 
-        return [
-            ProductCategoryType(**cat.model_dump(mode="json")) for cat in categories
-        ]
+        return [ProductCategoryType(**to_strawberry_dict(cat)) for cat in categories]
 
     @strawberry.field(description="Get product category by ID")
     async def product_category(
@@ -37,8 +36,4 @@ class ProductCategoryQuery:
     ) -> Optional[ProductCategoryType]:
         """Get a specific product category by ID."""
         category = await product_categories_repo.get_by_id(id)
-        return (
-            ProductCategoryType(**category.model_dump(mode="json"))
-            if category
-            else None
-        )
+        return ProductCategoryType(**to_strawberry_dict(category)) if category else None

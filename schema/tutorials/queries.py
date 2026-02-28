@@ -7,6 +7,7 @@ from strawberry.types import Info
 
 from repositories import tutorials_repo
 from utils.rate_limit import rate_limit_graphql
+from utils.serialization import to_strawberry_dict
 
 from .types import AppTarget, TutorialType
 
@@ -19,7 +20,7 @@ class TutorialQuery:
         rate_limit_graphql(info, "graphql")
         tutorials = await tutorials_repo.get_all()
         return [
-            TutorialType(**tutorial.model_dump(mode="json")) for tutorial in tutorials
+            TutorialType(**to_strawberry_dict(tutorial)) for tutorial in tutorials
         ]
 
     @strawberry.field(description="Get active tutorials only")
@@ -28,7 +29,7 @@ class TutorialQuery:
         rate_limit_graphql(info, "graphql")
         tutorials = await tutorials_repo.get_active()
         return [
-            TutorialType(**tutorial.model_dump(mode="json")) for tutorial in tutorials
+            TutorialType(**to_strawberry_dict(tutorial)) for tutorial in tutorials
         ]
 
     @strawberry.field(description="Get tutorials by app target")
@@ -39,7 +40,7 @@ class TutorialQuery:
         rate_limit_graphql(info, "graphql")
         tutorials = await tutorials_repo.get_by_app_target(appTarget.value)
         return [
-            TutorialType(**tutorial.model_dump(mode="json")) for tutorial in tutorials
+            TutorialType(**to_strawberry_dict(tutorial)) for tutorial in tutorials
         ]
 
     @strawberry.field(description="Get tutorial by ID")
@@ -48,7 +49,7 @@ class TutorialQuery:
         rate_limit_graphql(info, "graphql")
         tutorial = await tutorials_repo.get_by_id(id)
         if tutorial:
-            return TutorialType(**tutorial.model_dump(mode="json"))
+            return TutorialType(**to_strawberry_dict(tutorial))
         return None
 
     @strawberry.field(description="Search tutorials by title, description or tags")
@@ -57,7 +58,7 @@ class TutorialQuery:
         rate_limit_graphql(info, "graphql")
         tutorials = await tutorials_repo.search(query)
         return [
-            TutorialType(**tutorial.model_dump(mode="json")) for tutorial in tutorials
+            TutorialType(**to_strawberry_dict(tutorial)) for tutorial in tutorials
         ]
 
     @strawberry.field(description="Get tutorials by tags")
@@ -68,5 +69,5 @@ class TutorialQuery:
         rate_limit_graphql(info, "graphql")
         tutorials = await tutorials_repo.get_by_tags(tags)
         return [
-            TutorialType(**tutorial.model_dump(mode="json")) for tutorial in tutorials
+            TutorialType(**to_strawberry_dict(tutorial)) for tutorial in tutorials
         ]

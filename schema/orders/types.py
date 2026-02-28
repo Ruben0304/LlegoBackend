@@ -13,6 +13,7 @@ from schema.businesses.types import BusinessType
 from schema.users.types import UserType
 from schema.wallet.types import WalletBalanceType
 from services.orders_utils import calculate_delivery_fee_h3, haversine_distance
+from utils.serialization import to_strawberry_dict
 
 
 # Enums
@@ -335,8 +336,8 @@ class OrderType:
             raise Exception(f"Customer not found: {self.customerId}")
         return UserType(
             **{
-                **user.model_dump(
-                    mode="json",
+                **to_strawberry_dict(
+                    user,
                     exclude={"password", "location", "wallet", "walletStatus"},
                 ),
                 "wallet": WalletBalanceType(
@@ -360,7 +361,7 @@ class OrderType:
         business = await businesses_repo.get_by_id(self.businessId)
         if not business:
             raise Exception(f"Business not found: {self.businessId}")
-        return BusinessType(**business.model_dump(mode="json"))
+        return BusinessType(**to_strawberry_dict(business))
 
     @strawberry.field(description="Assigned delivery person")
     async def delivery_person(self) -> Optional[DeliveryPersonType]:

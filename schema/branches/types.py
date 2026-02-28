@@ -9,6 +9,7 @@ from strawberry.types import Info
 
 from schema.wallet.types import WalletBalanceType
 from utils.s3 import generate_presigned_url
+from utils.serialization import to_strawberry_dict
 
 
 @strawberry.type
@@ -132,7 +133,7 @@ class BranchType:
         if available_only:
             all_products = [p for p in all_products if p.availability]
 
-        return [ProductType(**p.model_dump(mode="json")) for p in all_products[:limit]]
+        return [ProductType(**to_strawberry_dict(p)) for p in all_products[:limit]]
 
     @strawberry.field(description="Payment methods accepted by this branch")
     async def payment_methods(
@@ -147,7 +148,7 @@ class BranchType:
 
         payment_methods = await payment_methods_repo.get_by_ids(self.paymentMethodIds)
         return [
-            PaymentMethodType(**pm.model_dump(mode="json")) for pm in payment_methods
+            PaymentMethodType(**to_strawberry_dict(pm)) for pm in payment_methods
         ]
 
 
@@ -226,7 +227,7 @@ class NearbyBranchType:
         if available_only:
             all_products = [p for p in all_products if p.availability]
 
-        return [ProductType(**p.model_dump(mode="json")) for p in all_products[:limit]]
+        return [ProductType(**to_strawberry_dict(p)) for p in all_products[:limit]]
 
     @strawberry.field(description="Payment methods accepted by this branch")
     async def payment_methods(
@@ -241,7 +242,7 @@ class NearbyBranchType:
 
         payment_methods = await payment_methods_repo.get_by_ids(self.paymentMethodIds)
         return [
-            PaymentMethodType(**pm.model_dump(mode="json")) for pm in payment_methods
+            PaymentMethodType(**to_strawberry_dict(pm)) for pm in payment_methods
         ]
 
 
@@ -323,7 +324,7 @@ class ScoredBranchType:
         if available_only:
             all_products = [p for p in all_products if p.availability]
 
-        return [ProductType(**p.model_dump(mode="json")) for p in all_products[:limit]]
+        return [ProductType(**to_strawberry_dict(p)) for p in all_products[:limit]]
 
     @strawberry.field(description="Payment methods accepted by this branch")
     async def payment_methods(
@@ -338,5 +339,5 @@ class ScoredBranchType:
 
         payment_methods = await payment_methods_repo.get_by_ids(self.paymentMethodIds)
         return [
-            PaymentMethodType(**pm.model_dump(mode="json")) for pm in payment_methods
+            PaymentMethodType(**to_strawberry_dict(pm)) for pm in payment_methods
         ]

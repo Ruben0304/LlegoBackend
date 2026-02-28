@@ -7,6 +7,7 @@ from strawberry.types import Info
 
 from repositories import categories_repo
 from utils.graphql_auth import apply_optional_jwt
+from utils.serialization import to_strawberry_dict
 
 from .types import CategoryType
 
@@ -19,7 +20,7 @@ class CategoryQuery:
     ) -> List[CategoryType]:
         apply_optional_jwt(jwt, info)
         categories = await categories_repo.get_all()
-        return [CategoryType(**c.model_dump(mode="json")) for c in categories]
+        return [CategoryType(**to_strawberry_dict(c)) for c in categories]
 
     @strawberry.field(description="Obtener categoría por ID")
     async def category(
@@ -27,4 +28,4 @@ class CategoryQuery:
     ) -> Optional[CategoryType]:
         apply_optional_jwt(jwt, info)
         category = await categories_repo.get_by_id(id)
-        return CategoryType(**category.model_dump(mode="json")) if category else None
+        return CategoryType(**to_strawberry_dict(category)) if category else None

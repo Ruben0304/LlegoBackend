@@ -7,6 +7,7 @@ from strawberry.types import Info
 
 from repositories import tutorials_repo
 from utils.graphql_auth import apply_optional_jwt
+from utils.serialization import to_strawberry_dict
 from utils.s3 import delete_file
 
 from .inputs import CreateTutorialInput, UpdateTutorialInput
@@ -48,7 +49,7 @@ class TutorialMutation:
         # Create tutorial in database
         created_tutorial = await tutorials_repo.create(tutorial_data)
 
-        return TutorialType(**created_tutorial.model_dump(mode="json"))
+        return TutorialType(**to_strawberry_dict(created_tutorial))
 
     @strawberry.mutation(description="Update a tutorial (admin only)")
     async def update_tutorial(
@@ -101,7 +102,7 @@ class TutorialMutation:
         if not updated_tutorial:
             raise Exception("Error al actualizar tutorial")
 
-        return TutorialType(**updated_tutorial.model_dump(mode="json"))
+        return TutorialType(**to_strawberry_dict(updated_tutorial))
 
     @strawberry.mutation(description="Delete a tutorial (admin only)")
     async def delete_tutorial(
@@ -158,4 +159,4 @@ class TutorialMutation:
         if not updated_tutorial:
             raise Exception("Tutorial no encontrado")
 
-        return TutorialType(**updated_tutorial.model_dump(mode="json"))
+        return TutorialType(**to_strawberry_dict(updated_tutorial))

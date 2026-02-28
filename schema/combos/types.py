@@ -8,6 +8,7 @@ import strawberry
 from strawberry.types import Info
 
 from utils.s3 import generate_presigned_url
+from utils.serialization import to_strawberry_dict
 
 if TYPE_CHECKING:
     from domain.models import Combo
@@ -40,7 +41,7 @@ class ComboOptionType:
 
         product = await products_repo.get_by_id(self.productId)
         if product:
-            return ProductType(**product.model_dump(mode="json"))
+            return ProductType(**to_strawberry_dict(product))
         return None
 
 
@@ -116,7 +117,7 @@ class ComboType:
             if default_option:
                 product = await products_repo.get_by_id(default_option.productId)
                 if product:
-                    products.append(ProductType(**product.model_dump(mode="json")))
+                    products.append(ProductType(**to_strawberry_dict(product)))
 
         return products
 

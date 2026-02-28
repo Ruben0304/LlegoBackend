@@ -10,6 +10,7 @@ from .inputs import CreateProductInput, UpdateProductInput
 from domain.models import Product
 from repositories import products_repo, branches_repo, businesses_repo
 from utils.graphql_auth import apply_optional_jwt
+from utils.serialization import to_strawberry_dict
 from utils.s3 import delete_file
 from services.access_checker import access_checker
 
@@ -126,7 +127,7 @@ class ProductMutation:
         # Step 1: Create in MongoDB first
         created_product = await products_repo.create(product)
 
-        return ProductType(**created_product.model_dump(mode="json"))
+        return ProductType(**to_strawberry_dict(created_product))
 
     @strawberry.mutation(description="Actualizar un producto")
     async def update_product(
@@ -216,7 +217,7 @@ class ProductMutation:
         if not updated_product:
             raise Exception("Error al actualizar el producto")
 
-        return ProductType(**updated_product.model_dump(mode="json"))
+        return ProductType(**to_strawberry_dict(updated_product))
 
     @strawberry.mutation(description="Eliminar un producto")
     async def delete_product(

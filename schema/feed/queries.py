@@ -10,6 +10,7 @@ from strawberry.types import Info
 from services.feed_service import feed_service
 from services.scoring_service import scoring_service
 from utils.graphql_auth import apply_optional_jwt
+from utils.serialization import to_strawberry_dict
 from utils.rate_limit import rate_limit_graphql
 
 from .types import FeedProductType, FeedResponse, FeedSection, FeedSectionDiagnostic
@@ -342,7 +343,7 @@ class FeedQuery:
 
             products = []
             for sp in effective_scored_products:
-                product_data = sp.product.model_dump(mode="json")
+                product_data = to_strawberry_dict(sp.product)
                 products.append(
                     FeedProductType(**product_data, score=sp.score, distance_m=None)
                 )

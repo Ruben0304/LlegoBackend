@@ -8,6 +8,7 @@ from strawberry.types import Info
 from repositories import users_repo
 from schema.wallet.types import WalletBalanceType
 from utils.graphql_auth import apply_optional_jwt, require_auth, require_role
+from utils.serialization import to_strawberry_dict
 
 from .types import UserType
 
@@ -22,8 +23,8 @@ class UserQuery:
         return [
             UserType(
                 **{
-                    **u.model_dump(
-                        mode="json",
+                    **to_strawberry_dict(
+                        u,
                         exclude={
                             "password",
                             "location",
@@ -53,8 +54,8 @@ class UserQuery:
             return None
         return UserType(
             **{
-                **user.model_dump(
-                    mode="json",
+                **to_strawberry_dict(
+                    user,
                     exclude={
                         "password",
                         "location",
@@ -79,8 +80,8 @@ class UserQuery:
         return [
             UserType(
                 **{
-                    **u.model_dump(
-                        mode="json",
+                    **to_strawberry_dict(
+                        u,
                         exclude={
                             "password",
                             "location",
@@ -108,8 +109,8 @@ class UserQuery:
             return None
         return UserType(
             **{
-                **user.model_dump(
-                    mode="json",
+                **to_strawberry_dict(
+                    user,
                     exclude={
                         "password",
                         "location",
