@@ -235,7 +235,7 @@ class ProductRepository:
             branch_ids = await db[self.mongo_collection_name].distinct(
                 "branchId", {"categoryId": self._to_object_id(category_id)}
             )
-            return set(branch_ids)
+            return {str(bid) for bid in branch_ids}
         except Exception as e:
             print(f"Error fetching distinct branch IDs by category: {e}")
             return set()

@@ -173,7 +173,7 @@ class BranchRepository:
             )
             documents = await cursor.to_list(length=None)
 
-            return [doc["_id"] for doc in documents]
+            return [str(doc["_id"]) for doc in documents]
 
         except Exception as e:
             print(f"Error fetching branch IDs by tipo from MongoDB: {e}")
