@@ -6,6 +6,7 @@ Hybrid repository pattern:
 - Create/Update/Delete: Sync both databases
 """
 
+import re
 from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
@@ -152,8 +153,19 @@ class BranchRepository:
     async def get_by_tipo(self, tipo: str) -> List[Branch]:
         """Get branches that have a specific tipo from MongoDB."""
         try:
+            normalized_tipo = (tipo or "").strip()
+            if not normalized_tipo:
+                return []
+
             db = get_database()
-            cursor = db[self.mongo_collection_name].find({"tipos": tipo})
+            cursor = db[self.mongo_collection_name].find(
+                {
+                    "tipos": {
+                        "$regex": f"^{re.escape(normalized_tipo)}$",
+                        "$options": "i",
+                    }
+                }
+            )
             documents = await cursor.to_list(length=None)
 
             return [self._dict_to_branch(doc) for doc in documents]
@@ -165,9 +177,18 @@ class BranchRepository:
     async def get_ids_by_tipo(self, tipo: str) -> List[str]:
         """Get branch IDs that have a specific tipo from MongoDB."""
         try:
+            normalized_tipo = (tipo or "").strip()
+            if not normalized_tipo:
+                return []
+
             db = get_database()
             cursor = db[self.mongo_collection_name].find(
-                {"tipos": tipo},
+                {
+                    "tipos": {
+                        "$regex": f"^{re.escape(normalized_tipo)}$",
+                        "$options": "i",
+                    }
+                },
                 {"_id": 1},  # Only return _id field
             )
             documents = await cursor.to_list(length=None)
