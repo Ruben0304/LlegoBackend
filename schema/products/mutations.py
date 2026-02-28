@@ -77,6 +77,35 @@ class ProductMutation:
             if not category:
                 raise Exception(f"Categoría con ID '{input.categoryId}' no encontrada")
 
+        # Validate variantListIds if provided
+        variant_list_ids = []
+        if input.variantListIds:
+            from repositories import variant_lists_repo
+            
+            # Get branch to validate businessId
+            if not branch:
+                branch = await branches_repo.get_by_id(target_branch_id)
+                if not branch:
+                    raise Exception("Sucursal no encontrada")
+            
+            # Get business to validate ownership
+            business = await businesses_repo.get_by_id(branch.businessId)
+            if not business:
+                raise Exception("Negocio no encontrado")
+            
+            variant_lists = await variant_lists_repo.get_by_ids(input.variantListIds)
+            if len(variant_lists) != len(input.variantListIds):
+                raise Exception("Una o más listas de variantes no fueron encontradas")
+            
+            # Validate that all variant lists belong to the same business as the branch
+            for vl in variant_lists:
+                if str(vl.businessId) != str(business.id):
+                    raise Exception(
+                        f"La lista de variantes '{vl.name}' no pertenece al negocio de esta sucursal"
+                    )
+            
+            variant_list_ids = [ObjectId(vid) for vid in input.variantListIds]
+
         # Create product
         product_id = ObjectId()
         product = Product(
@@ -90,6 +119,7 @@ class ProductMutation:
             image=input.image,
             availability=True,
             categoryId=input.categoryId,
+            variantListIds=variant_list_ids,
             createdAt=datetime.now()
         )
 
@@ -129,6 +159,31 @@ class ProductMutation:
             if not category:
                 raise Exception(f"Categoría con ID '{input.categoryId}' no encontrada")
 
+        # Validate variantListIds if provided
+        if input.variantListIds is not None:
+            from repositories import variant_lists_repo
+            
+            # Get branch to validate businessId
+            branch = await branches_repo.get_by_id(product.branchId)
+            if not branch:
+                raise Exception("Sucursal no encontrada")
+            
+            # Get business to validate ownership
+            business = await businesses_repo.get_by_id(branch.businessId)
+            if not business:
+                raise Exception("Negocio no encontrado")
+            
+            variant_lists = await variant_lists_repo.get_by_ids(input.variantListIds)
+            if len(variant_lists) != len(input.variantListIds):
+                raise Exception("Una o más listas de variantes no fueron encontradas")
+            
+            # Validate that all variant lists belong to the same business as the branch
+            for vl in variant_lists:
+                if str(vl.businessId) != str(business.id):
+                    raise Exception(
+                        f"La lista de variantes '{vl.name}' no pertenece al negocio de esta sucursal"
+                    )
+
         # Build updates dict from input
         updates = {}
         if input.name is not None:
@@ -145,6 +200,8 @@ class ProductMutation:
             updates["availability"] = input.availability
         if input.categoryId is not None:
             updates["categoryId"] = input.categoryId
+        if input.variantListIds is not None:
+            updates["variantListIds"] = [ObjectId(vid) for vid in input.variantListIds]
         if input.image is not None:
             # Delete old image if exists
             if product.image:

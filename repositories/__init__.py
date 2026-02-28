@@ -42,6 +42,7 @@ from .survey_repository import SurveyRepository
 from .survey_response_repository import SurveyResponseRepository
 from .tutorial_repository import TutorialRepository
 from .user_repository import UserRepository
+from .variant_list_repository import VariantListRepository, variant_lists_repo
 from .wallet_repository import WalletTransactionRepository
 
 # Repository instances
@@ -147,4 +148,6 @@ __all__ = [
     "shortcut_transfers_repo",
     "ComboRepository",
     "combos_repo",
+    "VariantListRepository",
+    "variant_lists_repo",
 ]

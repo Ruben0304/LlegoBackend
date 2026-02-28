@@ -15,6 +15,7 @@ class CreateProductInput:
     currency: str = "USD"
     weight: Optional[str] = None
     categoryId: Optional[str] = None
+    variantListIds: Optional[list[str]] = None  # IDs de listas de variantes a asignar
 
 
 @strawberry.input
@@ -28,3 +29,4 @@ class UpdateProductInput:
     availability: Optional[bool] = None
     categoryId: Optional[str] = None
     image: Optional[str] = None  # New image path from /upload/product/image
+    variantListIds: Optional[list[str]] = None  # IDs de listas de variantes a asignar

@@ -21,6 +21,7 @@ class ProductType:
     image: str
     availability: bool
     categoryId: Optional[str] = None
+    variantListIds: list[str] = strawberry.field(default_factory=list)
     createdAt: datetime
 
     @strawberry.field(description="Presigned URL for the product image")
@@ -39,6 +40,22 @@ class ProductType:
         if category_data:
             return category_data.name
         return None
+    @strawberry.field(description="Variant lists assigned to this product")
+    async def variant_lists(
+        self, info: Info
+    ) -> list[
+        Annotated["VariantListType", strawberry.lazy("schema.variant_lists.types")]
+    ]:
+        """Resolve the variant lists relationship."""
+        if not self.variantListIds:
+            return []
+
+        from repositories import variant_lists_repo
+        from schema.variant_lists.types import variant_list_to_type
+
+        variant_lists = await variant_lists_repo.get_by_ids(self.variantListIds)
+        return [variant_list_to_type(vl) for vl in variant_lists]
+
 
     @strawberry.field(description="Product category")
     async def category(

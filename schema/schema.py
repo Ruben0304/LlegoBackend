@@ -44,6 +44,8 @@ from .tutorials.mutations import TutorialMutation
 from .tutorials.queries import TutorialQuery
 from .users.mutations import UserMutation
 from .users.queries import UserQuery
+from .variant_lists.mutations import VariantListMutation
+from .variant_lists.queries import VariantListQuery
 from .wallet.mutations import WalletMutation
 from .wallet.queries import WalletQuery
 
@@ -69,6 +71,7 @@ class Query(
     FeedQuery,
     TutorialQuery,
     ShortcutTransferQuery,
+    VariantListQuery,
 ):
     @strawberry.field(description="Saludo de ejemplo")
     def hello(self, info: Info, jwt: Optional[str] = None) -> str:
@@ -101,6 +104,7 @@ class Mutation(
     SearchesMutation,
     BranchLikesMutation,
     TutorialMutation,
+    VariantListMutation,
 ):
     pass
 

@@ -190,6 +190,7 @@ class Product(BaseModel):
     image: str
     availability: bool = True
     categoryId: Optional[PyObjectId] = None
+    variantListIds: List[PyObjectId] = []  # Referencias a listas globales de variantes
     createdAt: datetime
 
     class Config:
@@ -769,6 +770,30 @@ class Combo(BaseModel):
         json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
+class VariantOption(BaseModel):
+    """Opción individual dentro de una lista de variantes."""
+
+    id: str  # UUID generado
+    name: str  # "Grande", "Extra queso", "Sin cebolla"
+    priceAdjustment: float = 0.0  # Costo adicional/descuento
+
+
+class VariantList(BaseModel):
+    """Lista global de variantes reutilizable por negocio."""
+
+    id: PyObjectId = Field(alias="_id")
+    businessId: PyObjectId  # Pertenece al negocio (global)
+    name: str  # "Tamaños", "Extras", "Ingredientes"
+    description: Optional[str] = None
+    options: List[VariantOption]  # Opciones disponibles
+    createdAt: datetime
+    updatedAt: datetime
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
+
+
 __all__ = [
     "User",
     "SavedAddress",
@@ -797,6 +822,8 @@ __all__ = [
     "SurveyResponse",
     "QuestionResponse",
     "FavoriteCart",
+    "VariantOption",
+    "VariantList",
     "ClickedItem",
     "Search",
     "ChatMessage",

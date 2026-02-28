@@ -377,6 +377,9 @@ class ProductRepository:
             doc["branchId"] = self._to_object_id(doc.get("branchId"))
             if doc.get("categoryId") is not None:
                 doc["categoryId"] = self._to_object_id(doc.get("categoryId"))
+            # Convert variantListIds to ObjectIds
+            if doc.get("variantListIds"):
+                doc["variantListIds"] = self._to_object_ids(doc.get("variantListIds"))
             await db[self.mongo_collection_name].insert_one(doc)
 
             # 2. Insert into Qdrant (RAG fields + embedding)
@@ -415,6 +418,11 @@ class ProductRepository:
             if "categoryId" in normalized_updates and normalized_updates["categoryId"] is not None:
                 normalized_updates["categoryId"] = self._to_object_id(
                     normalized_updates["categoryId"]
+                )
+            # Convert variantListIds to ObjectIds
+            if "variantListIds" in normalized_updates:
+                normalized_updates["variantListIds"] = self._to_object_ids(
+                    normalized_updates["variantListIds"]
                 )
 
             await db[self.mongo_collection_name].update_one(
