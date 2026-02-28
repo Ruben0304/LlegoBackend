@@ -96,7 +96,7 @@ class FeedService:
         Section 1: Para Ti (Personalizado)
         personalization (45%) + popularity (30%) + proximity (25%)
         """
-        products = [p for p in (all_products or []) if p.branchId in branch_ids]
+        products = [p for p in (all_products or []) if str(p.branchId) in branch_ids]
         if not products:
             return []
 
@@ -175,7 +175,7 @@ class FeedService:
         Section 2: Populares Cerca de Ti
         popularity (50%) + proximity (40%) + freshness (10%)
         """
-        products = [p for p in (all_products or []) if p.branchId in branch_ids]
+        products = [p for p in (all_products or []) if str(p.branchId) in branch_ids]
         if not products:
             return []
 
@@ -245,7 +245,7 @@ class FeedService:
         Section 3: Trending Ahora
         recent_clicks (40%) + recent_favorites (30%) + recent_cart (20%) + proximity (10%)
         """
-        products = [p for p in (all_products or []) if p.branchId in branch_ids]
+        products = [p for p in (all_products or []) if str(p.branchId) in branch_ids]
         if not products:
             return []
 
@@ -335,7 +335,7 @@ class FeedService:
         Section 4: Basado en tus Búsquedas
         clicked_in_searches (50%) + popularity (50%)
         """
-        products = [p for p in (all_products or []) if p.branchId in branch_ids]
+        products = [p for p in (all_products or []) if str(p.branchId) in branch_ids]
         if not products:
             return []
 
@@ -393,14 +393,14 @@ class FeedService:
         """
         # Get user's liked branches, intersected with the tipo filter
         liked_branches = await branch_likes_repo.get_user_preferences(user_id)
-        liked_branches = [b for b in liked_branches if b in branch_ids]
+        liked_branches = [b for b in liked_branches if str(b) in branch_ids]
 
         if not liked_branches:
             return []
 
-        liked_branches_set = set(liked_branches)
+        liked_branches_set = {str(b) for b in liked_branches}
         branch_products = [
-            p for p in (all_products or []) if p.branchId in liked_branches_set
+            p for p in (all_products or []) if str(p.branchId) in liked_branches_set
         ]
 
         if not branch_products:
@@ -465,7 +465,7 @@ class FeedService:
         Section 6: Los Más Favoriteados
         favorites_count (60%) + cart_count (25%) + proximity (15%)
         """
-        products = [p for p in (all_products or []) if p.branchId in branch_ids]
+        products = [p for p in (all_products or []) if str(p.branchId) in branch_ids]
         if not products:
             return []
 
@@ -529,7 +529,7 @@ class FeedService:
         products = [
             p
             for p in (all_products or [])
-            if p.branchId in branch_ids and getattr(p, "availability", False)
+            if str(p.branchId) in branch_ids and getattr(p, "availability", False)
         ]
         if not products:
             return []
@@ -598,7 +598,7 @@ class FeedService:
         Section 8: Te Podría Gustar
         similarity (50%) + popularity (30%) + proximity (20%)
         """
-        products = [p for p in (all_products or []) if p.branchId in branch_ids]
+        products = [p for p in (all_products or []) if str(p.branchId) in branch_ids]
         if not products:
             return []
 
