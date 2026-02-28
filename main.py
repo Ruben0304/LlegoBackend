@@ -21,6 +21,7 @@ from utils.rate_limit import get_redis_status, limiter, rate_limit_exceeded_hand
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
+logger = logging.getLogger(__name__)
 
 
 # FastAPI application with lifespan for all clients
@@ -53,6 +54,20 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+
+# Request logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Log every HTTP request."""
+    logger.info(f"📨 Incoming request: {request.method} {request.url.path}")
+    try:
+        response = await call_next(request)
+        logger.info(f"✅ Request completed: {request.method} {request.url.path} - Status: {response.status_code}")
+        return response
+    except Exception as e:
+        logger.error(f"❌ Request failed: {request.method} {request.url.path} - Error: {e}", exc_info=True)
+        raise
 
 
 class CustomContext(BaseContext):
