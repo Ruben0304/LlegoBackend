@@ -81,7 +81,11 @@ class FeedService:
 
     async def get_branch_ids_by_tipo(self, branch_tipo: str) -> Set[str]:
         """Fetch branch IDs filtered by tipo. Used once per feed request."""
+        print(f"[DEBUG] get_branch_ids_by_tipo - Fetching branch IDs for tipo: {branch_tipo}")
         ids = await branches_repo.get_ids_by_tipo(branch_tipo.lower())
+        print(f"[DEBUG] get_branch_ids_by_tipo - Found {len(ids)} branches for tipo {branch_tipo}")
+        if len(ids) > 0:
+            print(f"[DEBUG] get_branch_ids_by_tipo - Sample branch IDs (first 5): {list(ids)[:5]}")
         return set(ids)
 
     async def get_para_ti_section(

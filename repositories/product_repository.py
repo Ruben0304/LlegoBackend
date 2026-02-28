@@ -137,21 +137,39 @@ class ProductRepository:
         cached = get_cached(cache_key)
 
         if cached is not None:
+            print(f"✓ Cache hit for branch {branch_id}: {len(cached)} products")
             return [Product(**p) for p in cached]
 
         try:
             print(f"→ Fetching products for branch {branch_id} from MongoDB")
             db = get_database()
+
+            # Try with ObjectId first
+            branch_oid = self._to_object_id(branch_id)
+            print(f"[DEBUG] get_by_branch - branch_id input: {branch_id} (type: {type(branch_id)})")
+            print(f"[DEBUG] get_by_branch - converted to: {branch_oid} (type: {type(branch_oid)})")
+
             cursor = db[self.mongo_collection_name].find(
-                {"branchId": self._to_object_id(branch_id)}
+                {"branchId": branch_oid}
             )
             documents = await cursor.to_list(length=None)
+            print(f"[DEBUG] get_by_branch - Found {len(documents)} products with ObjectId query")
+
+            # If no results with ObjectId, try with string
+            if len(documents) == 0:
+                print(f"[DEBUG] get_by_branch - Trying query with string branchId")
+                cursor = db[self.mongo_collection_name].find(
+                    {"branchId": branch_id}
+                )
+                documents = await cursor.to_list(length=None)
+                print(f"[DEBUG] get_by_branch - Found {len(documents)} products with string query")
 
             products = [Product(**doc) for doc in documents]
 
             # Cache the results
             serialized = [p.model_dump() for p in products]
             set_cached(cache_key, serialized, TTL_DEFAULT)
+            print(f"✓ Cached {len(products)} products for branch {branch_id}")
 
             return products
 
@@ -166,6 +184,7 @@ class ProductRepository:
             branch_ids: List of branch IDs (can be strings or ObjectIds)
         """
         if not branch_ids:
+            print(f"[DEBUG] get_by_branch_ids - No branch_ids provided, returning empty list")
             return []
 
         # Convert to strings for cache key (handles both str and ObjectId)
@@ -174,21 +193,32 @@ class ProductRepository:
         cached = get_cached(cache_key)
 
         if cached is not None:
+            print(f"✓ Cache hit for {len(branch_ids)} branches: {len(cached)} products")
             return [Product(**p) for p in cached]
 
         try:
             print(f"→ Fetching products for {len(branch_ids)} branches from MongoDB")
+            print(f"[DEBUG] get_by_branch_ids - Input branch_ids (first 5): {branch_ids[:5]}")
             db = get_database()
             # Convert to ObjectIds for MongoDB query (handles both str and ObjectId)
             object_ids = self._to_object_ids(branch_ids)
+            print(f"[DEBUG] get_by_branch_ids - Converted to ObjectIds (first 5): {object_ids[:5]}")
+
             cursor = db[self.mongo_collection_name].find({"branchId": {"$in": object_ids}})
             documents = await cursor.to_list(length=None)
+            print(f"[DEBUG] get_by_branch_ids - Found {len(documents)} products in MongoDB")
+
+            if len(documents) > 0:
+                # Show sample branchIds from results
+                sample_branch_ids = [doc.get('branchId') for doc in documents[:3]]
+                print(f"[DEBUG] get_by_branch_ids - Sample branchIds from results: {sample_branch_ids}")
 
             products = [Product(**doc) for doc in documents]
 
             # Cache the results
             serialized = [p.model_dump() for p in products]
             set_cached(cache_key, serialized, TTL_DEFAULT)
+            print(f"✓ Cached {len(products)} products for {len(branch_ids)} branches")
 
             return products
 
