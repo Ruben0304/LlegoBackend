@@ -160,12 +160,18 @@ class ProductRepository:
             print(f"Error fetching products by branch from MongoDB: {e}")
             return []
 
-    async def get_by_branch_ids(self, branch_ids: List[str]) -> List[Product]:
-        """Get products from multiple branches using MongoDB."""
+    async def get_by_branch_ids(self, branch_ids: List[Any]) -> List[Product]:
+        """Get products from multiple branches using MongoDB.
+
+        Args:
+            branch_ids: List of branch IDs (can be strings or ObjectIds)
+        """
         if not branch_ids:
             return []
 
-        cache_key = get_product_cache_key(f"branch_ids:{','.join(sorted(branch_ids))}")
+        # Convert to strings for cache key (handles both str and ObjectId)
+        branch_ids_str = [str(bid) for bid in branch_ids]
+        cache_key = get_product_cache_key(f"branch_ids:{','.join(sorted(branch_ids_str))}")
         cached = get_cached(cache_key)
 
         if cached is not None:
@@ -174,6 +180,7 @@ class ProductRepository:
         try:
             print(f"→ Fetching products for {len(branch_ids)} branches from MongoDB")
             db = get_database()
+            # Convert to ObjectIds for MongoDB query (handles both str and ObjectId)
             object_ids = self._to_object_ids(branch_ids)
             cursor = db[self.mongo_collection_name].find({"branchId": {"$in": object_ids}})
             documents = await cursor.to_list(length=None)

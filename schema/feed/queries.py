@@ -51,6 +51,9 @@ class FeedQuery:
 
         # Fetch branch IDs for the requested tipo once — all sections share this filter
         branch_ids = await feed_service.get_branch_ids_by_tipo(branch_tipo)
+        print(f"[DEBUG] Feed - branch_tipo: {branch_tipo}")
+        print(f"[DEBUG] Feed - branch_ids found: {len(branch_ids)} branches")
+        print(f"[DEBUG] Feed - branch_ids: {list(branch_ids)[:5]}")  # Show first 5
 
         # Narrow branch_ids by product category if specified
         if product_category_id:
@@ -62,6 +65,7 @@ class FeedQuery:
                 )
             )
             branch_ids = branch_ids & category_branch_ids
+            print(f"[DEBUG] Feed - After category filter: {len(branch_ids)} branches")
 
         # Get user context
         user_id = info.context.get("user_id")
@@ -69,11 +73,16 @@ class FeedQuery:
 
         if user_id:
             user_location = await scoring_service.get_user_location(user_id)
+            print(f"[DEBUG] Feed - user_id: {user_id}")
+            print(f"[DEBUG] Feed - user_location: {user_location}")
 
         # Fetch ALL products ONCE — shared across all feed sections
         from repositories import products_repo
 
         all_products = await products_repo.get_by_branch_ids(list(branch_ids))
+        print(f"[DEBUG] Feed - all_products fetched: {len(all_products)} products")
+        if len(all_products) > 0:
+            print(f"[DEBUG] Feed - Sample product: {all_products[0].model_dump() if hasattr(all_products[0], 'model_dump') else all_products[0]}")
 
         # Default sections if not specified
         available_sections = {
