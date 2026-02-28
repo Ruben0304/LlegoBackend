@@ -77,7 +77,9 @@ class BranchRepository:
         try:
             print(f"→ Fetching branch {branch_id} from MongoDB")
             db = get_database()
-            doc = await db[self.mongo_collection_name].find_one({"_id": ObjectId(branch_id)})
+            doc = await db[self.mongo_collection_name].find_one(
+                {"_id": ObjectId(branch_id)}
+            )
 
             if doc:
                 branch = self._dict_to_branch(doc)
@@ -95,6 +97,7 @@ class BranchRepository:
         if not branch_ids:
             return []
 
+        branch_ids = [str(branch_id) for branch_id in branch_ids]
         cache_key = get_branch_cache_key(f"ids:{','.join(sorted(branch_ids))}")
         cached = get_cached(cache_key)
 
@@ -124,7 +127,9 @@ class BranchRepository:
         """Get branches by business ID from MongoDB."""
         try:
             db = get_database()
-            cursor = db[self.mongo_collection_name].find({"businessId": ObjectId(business_id)})
+            cursor = db[self.mongo_collection_name].find(
+                {"businessId": ObjectId(business_id)}
+            )
             documents = await cursor.to_list(length=None)
 
             return [self._dict_to_branch(doc) for doc in documents]
@@ -141,7 +146,9 @@ class BranchRepository:
         try:
             db = get_database()
             object_ids = [ObjectId(bid) for bid in business_ids]
-            cursor = db[self.mongo_collection_name].find({"businessId": {"$in": object_ids}})
+            cursor = db[self.mongo_collection_name].find(
+                {"businessId": {"$in": object_ids}}
+            )
             documents = await cursor.to_list(length=None)
 
             return [self._dict_to_branch(doc) for doc in documents]
@@ -308,8 +315,7 @@ class BranchRepository:
 
             # 1. Update MongoDB
             await db[self.mongo_collection_name].update_one(
-                {"_id": ObjectId(branch_id)},
-                {"$set": updates}
+                {"_id": ObjectId(branch_id)}, {"$set": updates}
             )
 
             # 2. If RAG fields changed, update Qdrant
@@ -352,7 +358,9 @@ class BranchRepository:
             business_id = branch.businessId if branch else None
 
             # 1. Delete from MongoDB
-            result = await db[self.mongo_collection_name].delete_one({"_id": ObjectId(branch_id)})
+            result = await db[self.mongo_collection_name].delete_one(
+                {"_id": ObjectId(branch_id)}
+            )
 
             if result.deleted_count == 0:
                 return False

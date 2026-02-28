@@ -5,17 +5,23 @@ Hybrid repository pattern:
 - Search: Qdrant vector similarity (semantic search)
 - Create/Update/Delete: Sync both databases
 """
-from typing import List, Optional, Dict, Any
+
+from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
-from clients import get_database, get_qdrant_client
-from domain.models import Business
 from qdrant_client.http import models as qdrant_models
 from qdrant_client.models import PointStruct
+
+from clients import get_database, get_qdrant_client
+from domain.models import Business
 from services.embeddings.gemini_service import GeminiEmbeddingService
 from utils.cache import (
-    get_cached, set_cached, invalidate_business_cache,
-    get_business_cache_key, TTL_DEFAULT, should_cache_result
+    TTL_DEFAULT,
+    get_business_cache_key,
+    get_cached,
+    invalidate_business_cache,
+    set_cached,
+    should_cache_result,
 )
 
 
@@ -70,7 +76,9 @@ class BusinessRepository:
             print(f"→ Fetching business {business_id} from MongoDB")
             db = get_database()
             # Convert string to ObjectId for query
-            doc = await db[self.mongo_collection_name].find_one({"_id": ObjectId(business_id)})
+            doc = await db[self.mongo_collection_name].find_one(
+                {"_id": ObjectId(business_id)}
+            )
 
             if doc:
                 business = Business(**doc)
@@ -88,6 +96,7 @@ class BusinessRepository:
         if not business_ids:
             return []
 
+        business_ids = [str(business_id) for business_id in business_ids]
         cache_key = get_business_cache_key(f"ids:{','.join(sorted(business_ids))}")
         cached = get_cached(cache_key)
 
@@ -119,7 +128,9 @@ class BusinessRepository:
         try:
             db = get_database()
             # Convert string to ObjectId
-            cursor = db[self.mongo_collection_name].find({"ownerId": ObjectId(owner_id)})
+            cursor = db[self.mongo_collection_name].find(
+                {"ownerId": ObjectId(owner_id)}
+            )
             documents = await cursor.to_list(length=None)
 
             return [Business(**doc) for doc in documents]
@@ -196,7 +207,9 @@ class BusinessRepository:
 
     # --- Update Method (MongoDB + Qdrant if RAG fields changed) ---
 
-    async def update(self, business_id: str, updates: Dict[str, Any]) -> Optional[Business]:
+    async def update(
+        self, business_id: str, updates: Dict[str, Any]
+    ) -> Optional[Business]:
         """Update a business in MongoDB and Qdrant (if RAG fields changed)."""
         try:
             db = get_database()
@@ -208,8 +221,7 @@ class BusinessRepository:
 
             # 1. Update MongoDB
             await db[self.mongo_collection_name].update_one(
-                {"_id": ObjectId(business_id)},
-                {"$set": updates}
+                {"_id": ObjectId(business_id)}, {"$set": updates}
             )
 
             # 2. If RAG fields changed, update Qdrant
@@ -228,7 +240,9 @@ class BusinessRepository:
             print(f"Error updating business {business_id}: {e}")
             raise e
 
-    async def update_field(self, business_id: str, field: str, value: Any) -> Optional[Business]:
+    async def update_field(
+        self, business_id: str, field: str, value: Any
+    ) -> Optional[Business]:
         """Update a single field of a business."""
         return await self.update(business_id, {field: value})
 
@@ -240,7 +254,9 @@ class BusinessRepository:
             db = get_database()
 
             # 1. Delete from MongoDB
-            result = await db[self.mongo_collection_name].delete_one({"_id": ObjectId(business_id)})
+            result = await db[self.mongo_collection_name].delete_one(
+                {"_id": ObjectId(business_id)}
+            )
 
             if result.deleted_count == 0:
                 return False
@@ -305,9 +321,7 @@ class BusinessRepository:
             if existing:
                 await qdrant_client.delete(
                     collection_name=self.qdrant_collection_name,
-                    points_selector=qdrant_models.PointIdsList(
-                        points=[existing.id]
-                    ),
+                    points_selector=qdrant_models.PointIdsList(points=[existing.id]),
                 )
 
         except Exception as e:
@@ -325,7 +339,7 @@ class BusinessRepository:
                     must=[
                         qdrant_models.FieldCondition(
                             key="mongo_id",
-                            match=qdrant_models.MatchValue(value=mongo_id)
+                            match=qdrant_models.MatchValue(value=mongo_id),
                         )
                     ]
                 ),

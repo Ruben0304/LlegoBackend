@@ -124,6 +124,7 @@ class ProductRepository:
         if not product_ids:
             return []
 
+        product_ids = [str(product_id) for product_id in product_ids]
         cache_key = get_product_cache_key(f"ids:{','.join(sorted(product_ids))}")
         cached = get_cached(cache_key)
 
@@ -165,9 +166,7 @@ class ProductRepository:
             )
 
         try:
-            print(
-                f"→ Fetching products for branch {normalized_branch_id} from MongoDB"
-            )
+            print(f"→ Fetching products for branch {normalized_branch_id} from MongoDB")
             db = get_database()
 
             branch_oid = self._to_object_id(normalized_branch_id)
@@ -219,12 +218,16 @@ class ProductRepository:
             branch_ids: List of branch IDs (can be strings or ObjectIds)
         """
         if not branch_ids:
-            print(f"[DEBUG] get_by_branch_ids - No branch_ids provided, returning empty list")
+            print(
+                f"[DEBUG] get_by_branch_ids - No branch_ids provided, returning empty list"
+            )
             return []
 
         # Convert to strings for cache key (handles both str and ObjectId)
         branch_ids_str = [str(bid).strip() for bid in branch_ids]
-        cache_key = get_product_cache_key(f"branch_ids:{','.join(sorted(branch_ids_str))}")
+        cache_key = get_product_cache_key(
+            f"branch_ids:{','.join(sorted(branch_ids_str))}"
+        )
         cached = get_cached(cache_key)
 
         if cached is not None:
@@ -233,18 +236,19 @@ class ProductRepository:
                     f"✓ Cache hit for {len(branch_ids)} branches: {len(cached)} products"
                 )
                 return [Product(**p) for p in cached]
-            print(
-                "⚠ Cache hit vacío para branch_ids; "
-                "reconsultando MongoDB"
-            )
+            print("⚠ Cache hit vacío para branch_ids; reconsultando MongoDB")
 
         try:
             print(f"→ Fetching products for {len(branch_ids)} branches from MongoDB")
-            print(f"[DEBUG] get_by_branch_ids - Input branch_ids (first 5): {branch_ids[:5]}")
+            print(
+                f"[DEBUG] get_by_branch_ids - Input branch_ids (first 5): {branch_ids[:5]}"
+            )
             db = get_database()
             converted_ids = self._to_object_ids(branch_ids)
             object_ids = [oid for oid in converted_ids if isinstance(oid, ObjectId)]
-            print(f"[DEBUG] get_by_branch_ids - Converted to ObjectIds (first 5): {object_ids[:5]}")
+            print(
+                f"[DEBUG] get_by_branch_ids - Converted to ObjectIds (first 5): {object_ids[:5]}"
+            )
 
             query_conditions: List[Dict[str, Any]] = []
             if object_ids:
@@ -263,14 +267,20 @@ class ProductRepository:
 
             cursor = db[self.mongo_collection_name].find(query)
             documents = await cursor.to_list(length=None)
-            print(f"[DEBUG] get_by_branch_ids - Found {len(documents)} products in MongoDB")
+            print(
+                f"[DEBUG] get_by_branch_ids - Found {len(documents)} products in MongoDB"
+            )
 
             if len(documents) > 0:
                 # Show sample branchIds from results
-                sample_branch_ids = [doc.get('branchId') for doc in documents[:3]]
-                print(f"[DEBUG] get_by_branch_ids - Sample branchIds from results: {sample_branch_ids}")
+                sample_branch_ids = [doc.get("branchId") for doc in documents[:3]]
+                print(
+                    f"[DEBUG] get_by_branch_ids - Sample branchIds from results: {sample_branch_ids}"
+                )
 
-            products = self._deserialize_products(documents, context="get_by_branch_ids")
+            products = self._deserialize_products(
+                documents, context="get_by_branch_ids"
+            )
 
             # Cache the results
             serialized = [p.model_dump() for p in products]
@@ -415,7 +425,10 @@ class ProductRepository:
                 normalized_updates["branchId"] = self._to_object_id(
                     normalized_updates["branchId"]
                 )
-            if "categoryId" in normalized_updates and normalized_updates["categoryId"] is not None:
+            if (
+                "categoryId" in normalized_updates
+                and normalized_updates["categoryId"] is not None
+            ):
                 normalized_updates["categoryId"] = self._to_object_id(
                     normalized_updates["categoryId"]
                 )
@@ -605,8 +618,9 @@ class ProductRepository:
             return products
 
         # Apply feed category filtering
-        from repositories import product_categories_repo
         import logging
+
+        from repositories import product_categories_repo
 
         logger = logging.getLogger(__name__)
         filtered_products = []
@@ -700,7 +714,9 @@ class ProductRepository:
 
         # Find oldest and newest products
         now = datetime.utcnow()
-        timestamps = [(str(p.id), (now - p.createdAt).total_seconds()) for p in products]
+        timestamps = [
+            (str(p.id), (now - p.createdAt).total_seconds()) for p in products
+        ]
 
         if not timestamps:
             return {}
