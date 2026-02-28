@@ -23,6 +23,7 @@ class FeedProductType:
     image: str
     availability: bool
     categoryId: Optional[str] = None
+    variantListIds: List[str] = strawberry.field(default_factory=list)
     createdAt: datetime
     score: float
     distance_m: Optional[float] = None

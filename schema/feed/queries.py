@@ -339,6 +339,10 @@ class FeedQuery:
             products = []
             for sp in effective_scored_products:
                 product_data = sp.product.model_dump()
+                product_data["variantListIds"] = [
+                    str(variant_list_id)
+                    for variant_list_id in product_data.get("variantListIds", [])
+                ]
                 products.append(
                     FeedProductType(**product_data, score=sp.score, distance_m=None)
                 )
