@@ -28,8 +28,13 @@ def main() -> None:
     sdl = schema.as_str()
     SDL_PATH.write_text(sdl, encoding="utf-8")
 
-    # Exporta JSON (introspección)
-    json_schema = schema.as_json(indent=2)
+    # Exporta JSON (introspección) usando GraphQL introspection
+    from graphql import get_introspection_query, graphql_sync
+    import json
+
+    introspection_query = get_introspection_query()
+    result = graphql_sync(schema._schema, introspection_query)
+    json_schema = json.dumps(result.data, indent=2)
     JSON_PATH.write_text(json_schema, encoding="utf-8")
 
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

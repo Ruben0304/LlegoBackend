@@ -1,0 +1,1 @@
+"""Synchronization schema module."""

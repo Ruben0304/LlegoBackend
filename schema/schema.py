@@ -42,6 +42,7 @@ from .showcases.queries import ShowcaseQuery
 from .shortcut_transfers.queries import ShortcutTransferQuery
 from .surveys.mutations import SurveyMutation
 from .surveys.queries import SurveyQuery
+from .sync.queries import SyncQuery
 from .tutorials.mutations import TutorialMutation
 from .tutorials.queries import TutorialQuery
 from .users.mutations import UserMutation
@@ -75,6 +76,7 @@ class Query(
     TutorialQuery,
     ShortcutTransferQuery,
     VariantListQuery,
+    SyncQuery,
 ):
     @strawberry.field(description="Saludo de ejemplo")
     def hello(self, info: Info, jwt: Optional[str] = None) -> str:

@@ -191,6 +191,32 @@ type BranchSuggestionType {
   reason: String!
 }
 
+type BranchSyncType {
+  id: String!
+  businessId: String!
+  name: String!
+  address: String
+  coordinates: CoordinatesSyncType!
+  phone: String!
+  schedule: JSON!
+  isActive: Boolean!
+  status: String
+  avatar: String
+  coverImage: String
+  socialMedia: JSON
+  tipos: [String!]!
+  useAppMessaging: Boolean!
+  vehicles: [String!]!
+  deliveryRadius: Float
+  createdAt: DateTime!
+
+  """Presigned URL for the branch avatar"""
+  avatarUrl: String
+
+  """Presigned URL for the branch cover image"""
+  coverUrl: String
+}
+
 enum BranchTipo {
   RESTAURANTE
   DULCERIA
@@ -288,6 +314,21 @@ type BusinessAppConfigType {
 
   """Date of the latest release"""
   releaseDate: DateTime!
+}
+
+type BusinessSyncType {
+  id: String!
+  name: String!
+  globalRating: Float!
+  avatar: String
+  description: String
+  tags: [String!]
+  isActive: Boolean!
+  createdAt: DateTime!
+  branches: [BranchSyncType!]!
+
+  """Presigned URL for the business avatar"""
+  avatarUrl: String
 }
 
 type BusinessType {
@@ -464,6 +505,11 @@ input CoordinatesInput {
   lng: Float!
 }
 
+type CoordinatesSyncType {
+  type: String!
+  coordinates: [Float!]!
+}
+
 type CoordinatesType {
   type: String!
   coordinates: [Float!]!
@@ -552,6 +598,14 @@ input CreateProductInput {
   weight: String = null
   categoryId: String = null
   variantListIds: [String!] = null
+}
+
+input CreateShowcaseInput {
+  branchId: String!
+  title: String!
+  image: String!
+  description: String = null
+  items: [ShowcaseItemInput!] = null
 }
 
 input CreateSurveyInput {
@@ -892,6 +946,25 @@ type GradientConfigType {
   overlayColor: String!
 }
 
+enum ImageQuality {
+  BAJA
+  BUENA
+  MEJOR
+}
+
+type ImageSyncType {
+  entityId: String!
+  entityType: String!
+  imagePath: String!
+  urls: ImageUrlType!
+}
+
+type ImageUrlType {
+  baja: String
+  buena: String
+  mejor: String
+}
+
 type InitiatePaymentResult {
   """The created payment attempt"""
   paymentAttempt: PaymentAttemptType!
@@ -1015,6 +1088,18 @@ type Mutation {
 
   """Eliminar un producto"""
   deleteProduct(productId: String!, jwt: String = null): Boolean!
+
+  """Crear una vitrina"""
+  createShowcase(input: CreateShowcaseInput!, jwt: String = null): ShowcaseType!
+
+  """Actualizar una vitrina"""
+  updateShowcase(showcaseId: String!, input: UpdateShowcaseInput!, jwt: String = null): ShowcaseType!
+
+  """Eliminar una vitrina"""
+  deleteShowcase(showcaseId: String!, jwt: String = null): Boolean!
+
+  """Cambiar disponibilidad de una vitrina"""
+  toggleShowcaseAvailability(showcaseId: String!, isActive: Boolean!, jwt: String = null): ShowcaseType!
 
   """Crear un nuevo combo"""
   createCombo(input: CreateComboInput!, jwt: String = null): ComboType!
@@ -1317,20 +1402,33 @@ type OrderDiscountType {
 }
 
 input OrderItemInput {
-  productId: String!
   quantity: Int!
+  itemType: OrderItemTypeInput! = PRODUCT
+  productId: String = null
+  showcaseId: String = null
+  description: String = null
 }
 
 type OrderItemType {
   productId: String!
+  itemId: String!
+  itemType: String!
   name: String!
   price: Float!
+  basePrice: Float!
+  finalPrice: Float!
   quantity: Int!
-  imageUrl: String!
+  imageUrl: String
+  requestDescription: String
   wasModifiedByStore: Boolean!
 
   """Line total (price * quantity)"""
   lineTotal: Float!
+}
+
+enum OrderItemTypeInput {
+  PRODUCT
+  SHOWCASE
 }
 
 type OrderStatsType {
@@ -1718,6 +1816,24 @@ type ProductSuggestionType {
   branchAvatarUrl: String
 }
 
+type ProductSyncType {
+  id: String!
+  branchId: String!
+  name: String!
+  description: String!
+  weight: String!
+  price: Float!
+  currency: String!
+  image: String!
+  availability: Boolean!
+  categoryId: String
+  variantListIds: [String!]!
+  createdAt: DateTime!
+
+  """Presigned URL for the product image"""
+  imageUrl: String!
+}
+
 type ProductType {
   id: String!
   branchId: String!
@@ -1824,6 +1940,15 @@ type Query {
   Obtener productos de la misma branch/sucursal, excluyendo el producto dado
   """
   productsFromSameBranch(productId: String!, limit: Int! = 10, jwt: String = null): [ProductType!]!
+
+  """Obtener vitrina por ID"""
+  showcase(showcaseId: String!, jwt: String = null): ShowcaseType
+
+  """Obtener vitrinas por sucursal"""
+  showcasesByBranch(branchId: String!, activeOnly: Boolean! = true, jwt: String = null): [ShowcaseType!]!
+
+  """Obtener todas las vitrinas"""
+  allShowcases(activeOnly: Boolean! = false, jwt: String = null): [ShowcaseType!]!
 
   """Lista de categorías con subcategorías"""
   categories(jwt: String = null): [CategoryType!]!
@@ -2024,6 +2149,19 @@ type Query {
 
   """Obtener lista de variantes por ID"""
   variantList(id: String!, jwt: String = null): VariantListType
+
+  """
+  Sincronizar negocios con sus branches (excluye datos sensibles como managerIds y ownerId)
+  """
+  syncBusinessesWithBranches(jwt: String = null): [BusinessSyncType!]!
+
+  """Sincronizar productos (todos los productos disponibles)"""
+  syncProducts(branchId: String = null, categoryId: String = null, availableOnly: Boolean! = false, jwt: String = null): [ProductSyncType!]!
+
+  """
+  Sincronizar imágenes con URLs para diferentes calidades (baja, buena, mejor)
+  """
+  syncImages(entityType: String = null, entityIds: [String!] = null, qualities: [ImageQuality!] = null, jwt: String = null): [ImageSyncType!]!
 
   """Saludo de ejemplo"""
   hello(jwt: String = null): String!
@@ -2303,6 +2441,40 @@ type ShortcutTransferType {
   createdAt: DateTime!
 }
 
+input ShowcaseItemInput {
+  id: String = null
+  name: String!
+  description: String = null
+  price: Float = null
+  availability: Boolean! = true
+}
+
+type ShowcaseItemType {
+  id: String!
+  name: String!
+  description: String
+  price: Float
+  availability: Boolean!
+}
+
+type ShowcaseType {
+  id: String!
+  branchId: String!
+  title: String!
+  image: String!
+  description: String
+  items: [ShowcaseItemType!]
+  isActive: Boolean!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+
+  """Presigned URL for the showcase image"""
+  imageUrl: String!
+
+  """Branch associated with this showcase"""
+  branch: BranchType
+}
+
 input SocialLoginInput {
   idToken: String!
   authorizationCode: String = null
@@ -2565,6 +2737,14 @@ input UpdateSavedAddressInput {
   apartment: String = null
   deliveryInstructions: String = null
   setAsDefault: Boolean = null
+}
+
+input UpdateShowcaseInput {
+  title: String = null
+  image: String = null
+  description: String = null
+  items: [ShowcaseItemInput!] = null
+  isActive: Boolean = null
 }
 
 input UpdateSurveyInput {
