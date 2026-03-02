@@ -4423,7 +4423,7 @@
           },
           {
             "name": "syncImages",
-            "description": "Sincronizar im\u00e1genes con URLs para diferentes calidades (baja, buena, mejor)",
+            "description": "Sincronizar im\u00e1genes con URLs para diferentes calidades (baja 100x100, original)",
             "args": [
               {
                 "name": "entityType",
@@ -18459,19 +18459,7 @@
             "deprecationReason": null
           },
           {
-            "name": "buena",
-            "description": null,
-            "args": [],
-            "type": {
-              "kind": "SCALAR",
-              "name": "String",
-              "ofType": null
-            },
-            "isDeprecated": false,
-            "deprecationReason": null
-          },
-          {
-            "name": "mejor",
+            "name": "original",
             "description": null,
             "args": [],
             "type": {
@@ -18503,13 +18491,7 @@
             "deprecationReason": null
           },
           {
-            "name": "BUENA",
-            "description": null,
-            "isDeprecated": false,
-            "deprecationReason": null
-          },
-          {
-            "name": "MEJOR",
+            "name": "ORIGINAL",
             "description": null,
             "isDeprecated": false,
             "deprecationReason": null

@@ -13,9 +13,8 @@ from utils.s3 import generate_presigned_url
 class ImageQuality(Enum):
     """Image quality levels for download."""
 
-    BAJA = "baja"  # Low quality (thumbnail)
-    BUENA = "buena"  # Good quality (medium)
-    MEJOR = "mejor"  # Best quality (original)
+    BAJA = "baja"  # Low quality (thumbnail 100x100)
+    ORIGINAL = "original"  # Original quality (full size)
 
 
 @strawberry.type
@@ -108,9 +107,8 @@ class ProductSyncType:
 class ImageUrlType:
     """Image URLs for different quality levels."""
 
-    baja: Optional[str] = None  # Low quality (e.g., 300x300)
-    buena: Optional[str] = None  # Good quality (e.g., 800x800)
-    mejor: Optional[str] = None  # Best quality (original)
+    baja: Optional[str] = None  # Low quality (100x100 thumbnail)
+    original: Optional[str] = None  # Original quality (full size)
 
 
 @strawberry.type

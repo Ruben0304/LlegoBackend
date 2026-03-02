@@ -948,8 +948,7 @@ type GradientConfigType {
 
 enum ImageQuality {
   BAJA
-  BUENA
-  MEJOR
+  ORIGINAL
 }
 
 type ImageSyncType {
@@ -961,8 +960,7 @@ type ImageSyncType {
 
 type ImageUrlType {
   baja: String
-  buena: String
-  mejor: String
+  original: String
 }
 
 type InitiatePaymentResult {
@@ -2159,7 +2157,7 @@ type Query {
   syncProducts(branchId: String = null, categoryId: String = null, availableOnly: Boolean! = false, jwt: String = null): [ProductSyncType!]!
 
   """
-  Sincronizar imágenes con URLs para diferentes calidades (baja, buena, mejor)
+  Sincronizar imágenes con URLs para diferentes calidades (baja 100x100, original)
   """
   syncImages(entityType: String = null, entityIds: [String!] = null, qualities: [ImageQuality!] = null, jwt: String = null): [ImageSyncType!]!
 

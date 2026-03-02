@@ -7,7 +7,7 @@ from strawberry.types import Info
 
 from repositories import branches_repo, businesses_repo, products_repo
 from utils.graphql_auth import apply_optional_jwt
-from utils.s3 import generate_presigned_url
+from utils.s3 import generate_presigned_url, get_thumbnail_path
 
 from .types import (
     BusinessSyncType,
@@ -154,7 +154,7 @@ class SyncQuery:
         return result
 
     @strawberry.field(
-        description="Sincronizar imágenes con URLs para diferentes calidades (baja, buena, mejor)"
+        description="Sincronizar imágenes con URLs para diferentes calidades (baja 100x100, original)"
     )
     async def sync_images(
         self,
@@ -170,23 +170,20 @@ class SyncQuery:
         Args:
             entity_type: Filter by entity type ("business", "branch", "product")
             entity_ids: Filter by specific entity IDs
-            qualities: List of quality levels to include (default: all)
+            qualities: List of quality levels to include (default: [BAJA, ORIGINAL])
             jwt: Optional JWT for authenticated requests
 
-        Note: Currently generates presigned URLs for the original image.
-        To support different quality levels, you need to:
-        1. Generate image thumbnails during upload (e.g., 300x300, 800x800, original)
-        2. Store them in S3 with naming convention (e.g., "image_300x300.jpg", "image_800x800.jpg")
-        3. Update this resolver to return appropriate URLs for each quality level
+        Quality levels:
+        - BAJA: 100x100 thumbnail (stored as {filename}_thumbnail.jpg)
+        - ORIGINAL: Original full-size image
 
-        For now, this returns the same URL for all quality levels (original).
-        Consider using AWS Lambda@Edge or CloudFront with image optimization.
+        Thumbnails are automatically generated when uploading images via upload_file().
         """
         apply_optional_jwt(jwt, info)
 
         # Default to all qualities if not specified
         if qualities is None:
-            qualities = [ImageQuality.BAJA, ImageQuality.BUENA, ImageQuality.MEJOR]
+            qualities = [ImageQuality.BAJA, ImageQuality.ORIGINAL]
 
         result = []
 
@@ -265,29 +262,17 @@ class SyncQuery:
 
         # Generate URLs for each image
         for img in images_to_sync:
-            # TODO: Implement different quality levels
-            # For now, return the same URL for all qualities (original image)
-            # In production, you should generate thumbnails during upload
-            # and store them with naming conventions like:
-            # - products/123_baja.jpg (300x300)
-            # - products/123_buena.jpg (800x800)
-            # - products/123_mejor.jpg (original)
-
             urls = ImageUrlType()
 
             # Generate presigned URLs based on requested qualities
-            base_url = generate_presigned_url(img["image_path"])
-
             for quality in qualities:
                 if quality == ImageQuality.BAJA:
-                    # TODO: Load thumbnail version (e.g., _300x300)
-                    urls.baja = base_url
-                elif quality == ImageQuality.BUENA:
-                    # TODO: Load medium version (e.g., _800x800)
-                    urls.buena = base_url
-                elif quality == ImageQuality.MEJOR:
+                    # Load thumbnail version (e.g., products/123_456_thumbnail.jpg)
+                    thumbnail_path = get_thumbnail_path(img["image_path"])
+                    urls.baja = generate_presigned_url(thumbnail_path)
+                elif quality == ImageQuality.ORIGINAL:
                     # Original quality
-                    urls.mejor = base_url
+                    urls.original = generate_presigned_url(img["image_path"])
 
             image_sync = ImageSyncType(
                 entity_id=img["entity_id"],
