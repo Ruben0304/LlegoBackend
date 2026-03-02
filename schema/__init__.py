@@ -7,6 +7,9 @@ from .branches.types import BranchType, CoordinatesType
 from .branches.queries import BranchQuery
 from .products.types import ProductType
 from .products.queries import ProductQuery
+from .showcases.types import ShowcaseType
+from .showcases.queries import ShowcaseQuery
+from .showcases.mutations import ShowcaseMutation
 from .ai_assistant.types import AiAssistantResponseType, AiAssistantChatInput
 from .ai_assistant.queries import AiAssistantQuery
 from .orders.types import OrderType, OrderStatusEnum, PaymentStatusEnum
@@ -27,6 +30,9 @@ __all__ = [
     "BranchQuery",
     "ProductType",
     "ProductQuery",
+    "ShowcaseType",
+    "ShowcaseQuery",
+    "ShowcaseMutation",
     "AiAssistantResponseType",
     "AiAssistantChatInput",
     "AiAssistantQuery",

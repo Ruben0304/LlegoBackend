@@ -6,7 +6,13 @@ from typing import List, Optional
 
 from bson import ObjectId
 
-from repositories import branches_repo, businesses_repo, products_repo, users_repo
+from repositories import (
+    branches_repo,
+    businesses_repo,
+    products_repo,
+    showcases_repo,
+    users_repo,
+)
 from services.access_checker import access_checker
 
 from domain.orders import (
@@ -49,11 +55,81 @@ class OrderService:
     def _ids_equal(a, b) -> bool:
         return str(a) == str(b)
 
+    async def _build_order_item_snapshot(
+        self, item: dict, branch_id: str
+    ) -> tuple[OrderItem, float]:
+        """Build order item snapshot and line subtotal from raw input."""
+        item_type = str(item.get("itemType") or "product").strip().lower()
+        quantity = int(item.get("quantity") or 0)
+        if quantity <= 0:
+            raise ValueError("La cantidad de cada ítem debe ser mayor que 0")
+
+        if item_type == "product":
+            product_id = item.get("itemId") or item.get("productId")
+            if not product_id:
+                raise ValueError("productId es requerido para ítems de tipo product")
+
+            product = await products_repo.get_by_id(product_id)
+            if not product:
+                raise ValueError(f"Producto {product_id} no encontrado")
+            if not product.availability:
+                raise ValueError(f"Producto {product.name} no disponible")
+            if not self._ids_equal(product.branchId, branch_id):
+                raise ValueError(
+                    f"Producto {product.name} no pertenece a esta sucursal"
+                )
+
+            order_item = OrderItem(
+                itemId=str(product.id),
+                itemType="product",
+                name=product.name,
+                basePrice=product.price,
+                finalPrice=product.price,
+                quantity=quantity,
+                imageUrl=product.image,
+                wasModifiedByStore=False,
+            )
+            return order_item, product.price * quantity
+
+        if item_type == "showcase":
+            showcase_id = item.get("itemId") or item.get("showcaseId")
+            if not showcase_id:
+                raise ValueError("showcaseId es requerido para ítems de tipo showcase")
+
+            request_description = (item.get("description") or "").strip()
+            if not request_description:
+                raise ValueError(
+                    "Para ítems de vitrina debes escribir una descripción de lo que deseas"
+                )
+
+            showcase = await showcases_repo.get_by_id(showcase_id)
+            if not showcase:
+                raise ValueError(f"Vitrina {showcase_id} no encontrada")
+            if not showcase.isActive:
+                raise ValueError(f"La vitrina {showcase.title} no está disponible")
+            if not self._ids_equal(showcase.branchId, branch_id):
+                raise ValueError("La vitrina no pertenece a esta sucursal")
+
+            order_item = OrderItem(
+                itemId=str(showcase.id),
+                itemType="showcase",
+                name=f"Pedido de vitrina: {showcase.title}",
+                basePrice=0.0,
+                finalPrice=0.0,
+                quantity=quantity,
+                imageUrl=showcase.image,
+                requestDescription=request_description,
+                wasModifiedByStore=False,
+            )
+            return order_item, 0.0
+
+        raise ValueError(f"Tipo de ítem no soportado: {item_type}")
+
     async def create_order(
         self,
         customer_id: str,
         branch_id: str,
-        items: List[dict],  # [{"productId": str, "quantity": int}]
+        items: List[dict],
         delivery_address: dict,
         payment_method: str,
         payment_intent_id: Optional[str] = None,
@@ -73,31 +149,16 @@ class OrderService:
         if not business:
             raise ValueError("Negocio no encontrado")
 
-        # 3. Validate and snapshot products
+        # 3. Validate and snapshot items
         order_items: List[OrderItem] = []
         subtotal = 0.0
 
         for item in items:
-            product = await products_repo.get_by_id(item["productId"])
-            if not product:
-                raise ValueError(f"Producto {item['productId']} no encontrado")
-            if not product.availability:
-                raise ValueError(f"Producto {product.name} no disponible")
-            if not self._ids_equal(product.branchId, branch_id):
-                raise ValueError(
-                    f"Producto {product.name} no pertenece a esta sucursal"
-                )
-
-            order_item = OrderItem(
-                productId=product.id,
-                name=product.name,
-                price=product.price,
-                quantity=item["quantity"],
-                imageUrl=product.image,
-                wasModifiedByStore=False,
+            order_item, line_subtotal = await self._build_order_item_snapshot(
+                item, branch_id
             )
             order_items.append(order_item)
-            subtotal += product.price * item["quantity"]
+            subtotal += line_subtotal
 
         # 4. Calculate delivery fee using H3 zones
         branch_coords = (
@@ -381,31 +442,32 @@ class OrderService:
         subtotal = 0.0
 
         for item in new_items:
-            product = await products_repo.get_by_id(item["productId"])
-            if not product:
-                raise ValueError(f"Producto {item['productId']} no encontrado")
+            order_item, line_subtotal = await self._build_order_item_snapshot(
+                item, str(order.branchId)
+            )
 
             # Check if this item was modified
             original_item = next(
-                (i for i in order.items if self._ids_equal(i.productId, item["productId"])),
+                (
+                    i
+                    for i in order.items
+                    if i.itemType == order_item.itemType
+                    and self._ids_equal(i.itemId, order_item.itemId)
+                    and (i.requestDescription or "")
+                    == (order_item.requestDescription or "")
+                ),
                 None,
             )
             was_modified = (
                 original_item is None
-                or original_item.quantity != item["quantity"]
-                or original_item.price != product.price
+                or original_item.quantity != order_item.quantity
+                or original_item.finalPrice != order_item.finalPrice
+                or original_item.name != order_item.name
             )
 
-            order_item = OrderItem(
-                productId=product.id,
-                name=product.name,
-                price=product.price,
-                quantity=item["quantity"],
-                imageUrl=product.image,
-                wasModifiedByStore=was_modified,
-            )
+            order_item.wasModifiedByStore = was_modified
             modified_items.append(order_item)
-            subtotal += product.price * item["quantity"]
+            subtotal += line_subtotal
 
         # Recalculate total
         total_discounts = sum(d.amount for d in order.discounts)

@@ -425,7 +425,7 @@ class OrderQuery:
             cancelledOrders=stats["cancelledOrders"],
             topProducts=[
                 TopProductType(
-                    productId=p["productId"],
+                    productId=str(p["productId"]),
                     name=p["name"],
                     imageUrl=p["imageUrl"],
                     totalQuantity=p["totalQuantity"],

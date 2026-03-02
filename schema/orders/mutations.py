@@ -60,7 +60,13 @@ class OrderMutation:
                 customer_id=user_id,
                 branch_id=input.branchId,
                 items=[
-                    {"productId": i.productId, "quantity": i.quantity}
+                    {
+                        "itemType": i.itemType.value,
+                        "productId": i.productId,
+                        "showcaseId": i.showcaseId,
+                        "description": i.description,
+                        "quantity": i.quantity,
+                    }
                     for i in input.items
                 ],
                 delivery_address={
@@ -220,7 +226,13 @@ class OrderMutation:
             order = await order_service.modify_order_items(
                 input.orderId,
                 [
-                    {"productId": i.productId, "quantity": i.quantity}
+                    {
+                        "itemType": i.itemType.value,
+                        "productId": i.productId,
+                        "showcaseId": i.showcaseId,
+                        "description": i.description,
+                        "quantity": i.quantity,
+                    }
                     for i in input.items
                 ],
                 input.reason,

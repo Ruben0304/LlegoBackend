@@ -72,15 +72,20 @@ class AddressTypeEnum(Enum):
 @strawberry.type
 class OrderItemType:
     productId: str
+    itemId: str
+    itemType: str
     name: str
     price: float
+    basePrice: float
+    finalPrice: float
     quantity: int
-    imageUrl: str
+    imageUrl: Optional[str]
+    requestDescription: Optional[str] = None
     wasModifiedByStore: bool
 
     @strawberry.field(description="Line total (price * quantity)")
     def line_total(self) -> float:
-        return round(self.price * self.quantity, 2)
+        return round(self.finalPrice * self.quantity, 2)
 
 
 @strawberry.type
@@ -258,17 +263,28 @@ class OrderType:
 
     @strawberry.field(description="Order items")
     def items(self) -> List[OrderItemType]:
-        return [
-            OrderItemType(
-                productId=item["productId"],
-                name=item["name"],
-                price=item["price"],
-                quantity=item["quantity"],
-                imageUrl=item["imageUrl"],
-                wasModifiedByStore=item.get("wasModifiedByStore", False),
+        order_items: List[OrderItemType] = []
+        for item in self._items:
+            item_id = str(item.get("itemId") or item.get("productId") or "")
+            final_price = float(item.get("finalPrice", item.get("price", 0.0)))
+            base_price = float(item.get("basePrice", final_price))
+
+            order_items.append(
+                OrderItemType(
+                    productId=item_id,  # Legacy alias for old clients
+                    itemId=item_id,
+                    itemType=str(item.get("itemType", "product")),
+                    name=item["name"],
+                    price=final_price,  # Legacy alias for old clients
+                    basePrice=base_price,
+                    finalPrice=final_price,
+                    quantity=item["quantity"],
+                    imageUrl=item.get("imageUrl"),
+                    requestDescription=item.get("requestDescription"),
+                    wasModifiedByStore=item.get("wasModifiedByStore", False),
+                )
             )
-            for item in self._items
-        ]
+        return order_items
 
     @strawberry.field(description="Applied discounts")
     def discounts(self) -> List[OrderDiscountType]:

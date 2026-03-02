@@ -37,6 +37,8 @@ from .product_categories.queries import ProductCategoryQuery
 from .products.mutations import ProductMutation
 from .products.queries import ProductQuery
 from .searches.mutations import SearchesMutation
+from .showcases.mutations import ShowcaseMutation
+from .showcases.queries import ShowcaseQuery
 from .shortcut_transfers.queries import ShortcutTransferQuery
 from .surveys.mutations import SurveyMutation
 from .surveys.queries import SurveyQuery
@@ -56,6 +58,7 @@ class Query(
     BusinessQuery,
     BranchQuery,
     ProductQuery,
+    ShowcaseQuery,
     CategoryQuery,
     ProductCategoryQuery,
     ComboQuery,
@@ -91,6 +94,7 @@ class Mutation(
     BusinessMutation,
     BranchMutation,
     ProductMutation,
+    ShowcaseMutation,
     ComboMutation,
     OrderMutation,
     BusinessTypeMutation,

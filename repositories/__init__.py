@@ -37,6 +37,7 @@ from .platform_repository import PlatformRepository, platform_repo
 from .product_category_repository import ProductCategoryRepository
 from .product_repository import ProductRepository
 from .searches_repository import SearchesRepository
+from .showcase_repository import ShowcaseRepository, showcases_repo
 from .store_location_repository import StoreLocationRepository, store_locations_repo
 from .survey_repository import SurveyRepository
 from .survey_response_repository import SurveyResponseRepository
@@ -117,6 +118,7 @@ __all__ = [
     "SurveyResponseRepository",
     "FavoritesCartRepository",
     "SearchesRepository",
+    "ShowcaseRepository",
     "ChatMemoryRepository",
     "DraftOrderRepository",
     "BranchLikesRepository",
@@ -126,6 +128,7 @@ __all__ = [
     "survey_responses_repo",
     "favorites_cart_repo",
     "searches_repo",
+    "showcases_repo",
     "chat_memory_repo",
     "draft_orders_repo",
     "branch_likes_repo",

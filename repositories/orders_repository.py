@@ -426,13 +426,26 @@ class OrderRepository:
             {"$match": {**match_stage, "status": "delivered"}},
             {"$unwind": "$items"},
             {
+                "$match": {
+                    "$or": [
+                        {"items.itemType": "product"},
+                        {"items.itemType": {"$exists": False}},  # Legacy orders
+                    ]
+                }
+            },
+            {
                 "$group": {
-                    "_id": "$items.productId",
+                    "_id": {"$ifNull": ["$items.itemId", "$items.productId"]},
                     "name": {"$first": "$items.name"},
                     "imageUrl": {"$first": "$items.imageUrl"},
                     "totalQuantity": {"$sum": "$items.quantity"},
                     "totalRevenue": {
-                        "$sum": {"$multiply": ["$items.price", "$items.quantity"]}
+                        "$sum": {
+                            "$multiply": [
+                                {"$ifNull": ["$items.finalPrice", "$items.price"]},
+                                "$items.quantity",
+                            ]
+                        }
                     },
                 }
             },

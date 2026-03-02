@@ -569,6 +569,48 @@ async def upload_product_image(
     return {"image_path": image_path, "image_url": generate_presigned_url(image_path)}
 
 
+@router.post("/showcase/image", status_code=status.HTTP_200_OK)
+@limiter.limit(RATE_LIMIT_UPLOADS)
+async def upload_showcase_image(
+    request: Request,
+    image: UploadFile = File(...),
+    user_id: str = Depends(get_current_user_id_from_header),
+):
+    """
+    Upload image for a showcase.
+    Max size: 10MB | Preserves transparency (PNG/WebP supported)
+    """
+    if not user_id:
+        raise HTTPException(status_code=401, detail="No autorizado")
+
+    file_content = await validate_upload(image, "showcase", MAX_FILE_SIZES["product"])
+
+    filename = image.filename or "image.png"
+    original_ext = "." + filename.split(".")[-1].lower() if "." in filename else ".png"
+
+    # Sanitize extension
+    if original_ext not in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
+        original_ext = ".png"
+
+    try:
+        processed_content, extension = await process_product_image_async(
+            file_content, original_ext
+        )
+    except Exception:
+        raise HTTPException(status_code=400, detail="Error procesando imagen")
+
+    entity_id = str(ObjectId())
+
+    try:
+        image_path = await upload_file(
+            processed_content, "showcases", entity_id, extension
+        )
+    except Exception:
+        raise HTTPException(status_code=500, detail="Error subiendo imagen")
+
+    return {"image_path": image_path, "image_url": generate_presigned_url(image_path)}
+
+
 @router.post("/user/avatar", status_code=status.HTTP_200_OK)
 @limiter.limit(RATE_LIMIT_UPLOADS)
 async def upload_user_avatar(

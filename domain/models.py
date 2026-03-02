@@ -198,6 +198,34 @@ class Product(BaseModel):
         json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
+class ShowcaseItem(BaseModel):
+    """Ítem opcional detectado/manual dentro de una vitrina."""
+
+    id: str
+    name: str
+    description: Optional[str] = None
+    price: Optional[float] = None
+    availability: bool = True
+
+
+class Showcase(BaseModel):
+    """Vitrina de una sucursal con foto principal y lista opcional de ítems."""
+
+    id: PyObjectId = Field(alias="_id")
+    branchId: PyObjectId
+    title: str
+    image: str
+    description: Optional[str] = None
+    items: Optional[List[ShowcaseItem]] = None
+    isActive: bool = True
+    createdAt: datetime
+    updatedAt: datetime
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
+
+
 class SmsOcr(BaseModel):
     """Modelo para datos extraídos de capturas de SMS bancarios mediante OCR."""
 
@@ -804,6 +832,8 @@ __all__ = [
     "Category",
     "ProductCategory",
     "Product",
+    "ShowcaseItem",
+    "Showcase",
     "SmsOcr",
     "PaymentMethod",
     "WalletTransaction",

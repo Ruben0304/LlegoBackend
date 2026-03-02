@@ -18,10 +18,19 @@ class AddressTypeInput(Enum):
     OTHER = "other"
 
 
+@strawberry.enum
+class OrderItemTypeInput(Enum):
+    PRODUCT = "product"
+    SHOWCASE = "showcase"
+
+
 @strawberry.input
 class OrderItemInput:
-    productId: str
     quantity: int
+    itemType: OrderItemTypeInput = OrderItemTypeInput.PRODUCT
+    productId: Optional[str] = None
+    showcaseId: Optional[str] = None
+    description: Optional[str] = None
 
 
 @strawberry.input

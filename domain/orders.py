@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .py_object_id import PyObjectId
 
@@ -103,21 +103,46 @@ class OrderComboSelection(BaseModel):
 
 
 class OrderItem(BaseModel):
-    """Item in an order (can be a product or combo)."""
+    """Item in an order (can be product, combo, or showcase)."""
 
     itemId: str  # productId o comboId
-    itemType: str = "product"  # "product" | "combo"
+    itemType: str = "product"  # "product" | "combo" | "showcase"
     name: str
     basePrice: float  # Precio base (para combos, suma de productos)
     finalPrice: float  # Precio final con ajustes y descuentos
     quantity: int
     imageUrl: Optional[str] = None
+    requestDescription: Optional[str] = None  # Requerido para itemType="showcase"
     wasModifiedByStore: bool = False
 
     # Solo para combos
     comboSelections: Optional[List[OrderComboSelection]] = None
     discountType: Optional[str] = None  # "none" | "percentage" | "fixed"
     discountValue: Optional[float] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_legacy_fields(cls, data):
+        """Support old payloads using productId/price."""
+        if not isinstance(data, dict):
+            return data
+
+        normalized = dict(data)
+
+        legacy_item_id = normalized.get("productId")
+        if normalized.get("itemId") is None and legacy_item_id is not None:
+            normalized["itemId"] = legacy_item_id
+
+        legacy_price = normalized.get("price")
+        if normalized.get("finalPrice") is None and legacy_price is not None:
+            normalized["finalPrice"] = legacy_price
+        if normalized.get("basePrice") is None and legacy_price is not None:
+            normalized["basePrice"] = legacy_price
+
+        if normalized.get("itemType") is None:
+            normalized["itemType"] = "product"
+
+        return normalized
 
     # Mantener compatibilidad con órdenes antiguas (productos simples)
     @property
