@@ -388,3 +388,45 @@ class ProductQuery:
             recommendations=strawberry_recommendations,
             reasoning=recommendations.reasoning,
         )
+
+    @strawberry.field(
+        description="Obtener productos de la misma branch/sucursal, excluyendo el producto dado"
+    )
+    async def products_from_same_branch(
+        self,
+        info: Info,
+        product_id: str,
+        limit: int = 10,
+        jwt: Optional[str] = None,
+    ) -> List[ProductType]:
+        """
+        Get products from the same branch as the given product, excluding it.
+
+        Args:
+            product_id: The product ID to use as reference
+            limit: Maximum number of products to return (default: 10)
+            jwt: Optional JWT for authenticated requests
+
+        Returns:
+            List of products from the same branch, excluding the reference product
+        """
+        apply_optional_jwt(jwt, info)
+        rate_limit_graphql(info, "graphql")
+
+        # Get the reference product to obtain its branchId
+        reference_product = await products_repo.get_by_id(product_id)
+        if not reference_product:
+            return []
+
+        # Get all products from the same branch
+        branch_products = await products_repo.get_by_branch(
+            str(reference_product.branchId)
+        )
+
+        # Filter out the reference product and apply limit
+        filtered_products = [
+            p for p in branch_products if str(p.id) != product_id
+        ][:limit]
+
+        # Convert to GraphQL types
+        return [ProductType(**to_strawberry_dict(p)) for p in filtered_products]
