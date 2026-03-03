@@ -34,6 +34,16 @@ class ProductCategoryRepository:
         categories = await cursor.to_list(length=None)
         return [ProductCategory(**self._convert_id(c)) for c in categories]
 
+    async def get_by_branch_types(self, branch_types: List[str]) -> List[ProductCategory]:
+        """Get product categories for multiple branch types in a single query."""
+        if not branch_types:
+            return []
+        db = get_database()
+        normalized = [t.lower() for t in branch_types]
+        cursor = db[self.collection_name].find({"branchType": {"$in": normalized}})
+        categories = await cursor.to_list(length=None)
+        return [ProductCategory(**self._convert_id(c)) for c in categories]
+
     async def get_by_name(self, name: str, branch_type: Optional[str] = None) -> Optional[ProductCategory]:
         """Get product category by name and optionally branch type."""
         db = get_database()

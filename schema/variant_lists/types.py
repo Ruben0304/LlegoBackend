@@ -20,29 +20,29 @@ class VariantOptionType:
 
 @strawberry.type
 class VariantListType:
-    """Lista global de variantes reutilizable por negocio."""
+    """Lista de variantes reutilizable por sucursal."""
 
     id: str
-    businessId: str
+    branchId: str
     name: str
     description: Optional[str]
     options: List[VariantOptionType]
     createdAt: datetime
     updatedAt: datetime
 
-    @strawberry.field(description="Business associated with this variant list")
-    async def business(
+    @strawberry.field(description="Branch associated with this variant list")
+    async def branch(
         self, info: Info
     ) -> Optional[
-        Annotated["BusinessType", strawberry.lazy("schema.businesses.types")]
+        Annotated["BranchType", strawberry.lazy("schema.branches.types")]
     ]:
-        """Resolve business relationship."""
-        from repositories import businesses_repo
-        from schema.businesses.types import BusinessType
+        """Resolve branch relationship."""
+        from repositories import branches_repo
+        from schema.branches.types import BranchType
 
-        business = await businesses_repo.get_by_id(self.businessId)
-        if business:
-            return BusinessType(**to_strawberry_dict(business))
+        branch = await branches_repo.get_by_id(self.branchId)
+        if branch:
+            return BranchType(**to_strawberry_dict(branch))
         return None
 
 
@@ -55,7 +55,7 @@ def variant_list_to_type(variant_list) -> VariantListType:
 
     return VariantListType(
         id=str(variant_list.id),
-        businessId=str(variant_list.businessId),
+        branchId=str(variant_list.branchId),
         name=variant_list.name,
         description=variant_list.description,
         options=options,

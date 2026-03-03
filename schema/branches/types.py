@@ -151,6 +151,21 @@ class BranchType:
             PaymentMethodType(**to_strawberry_dict(pm)) for pm in payment_methods
         ]
 
+    @strawberry.field(description="Product categories applicable to this branch based on its tipos")
+    async def applicable_categories(
+        self, info: Info
+    ) -> List[Annotated["ProductCategoryType", strawberry.lazy("schema.product_categories.types")]]:
+        """Get all product categories that match this branch's tipos in a single query."""
+        from repositories import product_categories_repo
+        from schema.product_categories.types import ProductCategoryType
+
+        if not self.tipos:
+            return []
+
+        tipo_values = [t.value for t in self.tipos]
+        categories = await product_categories_repo.get_by_branch_types(tipo_values)
+        return [ProductCategoryType(**to_strawberry_dict(c)) for c in categories]
+
 
 @strawberry.type
 class NearbyBranchType:
@@ -244,6 +259,21 @@ class NearbyBranchType:
         return [
             PaymentMethodType(**to_strawberry_dict(pm)) for pm in payment_methods
         ]
+
+    @strawberry.field(description="Product categories applicable to this branch based on its tipos")
+    async def applicable_categories(
+        self, info: Info
+    ) -> List[Annotated["ProductCategoryType", strawberry.lazy("schema.product_categories.types")]]:
+        """Get all product categories that match this branch's tipos in a single query."""
+        from repositories import product_categories_repo
+        from schema.product_categories.types import ProductCategoryType
+
+        if not self.tipos:
+            return []
+
+        tipo_values = [t.value for t in self.tipos]
+        categories = await product_categories_repo.get_by_branch_types(tipo_values)
+        return [ProductCategoryType(**to_strawberry_dict(c)) for c in categories]
 
 
 @strawberry.type
@@ -341,3 +371,18 @@ class ScoredBranchType:
         return [
             PaymentMethodType(**to_strawberry_dict(pm)) for pm in payment_methods
         ]
+
+    @strawberry.field(description="Product categories applicable to this branch based on its tipos")
+    async def applicable_categories(
+        self, info: Info
+    ) -> List[Annotated["ProductCategoryType", strawberry.lazy("schema.product_categories.types")]]:
+        """Get all product categories that match this branch's tipos in a single query."""
+        from repositories import product_categories_repo
+        from schema.product_categories.types import ProductCategoryType
+
+        if not self.tipos:
+            return []
+
+        tipo_values = [t.value for t in self.tipos]
+        categories = await product_categories_repo.get_by_branch_types(tipo_values)
+        return [ProductCategoryType(**to_strawberry_dict(c)) for c in categories]

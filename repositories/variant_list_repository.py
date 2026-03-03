@@ -31,8 +31,8 @@ class VariantListRepository:
         variant_list_data["_id"] = cls._to_object_id(
             variant_list_data.get("_id", ObjectId())
         )
-        variant_list_data["businessId"] = cls._to_object_id(
-            variant_list_data.get("businessId")
+        variant_list_data["branchId"] = cls._to_object_id(
+            variant_list_data.get("branchId")
         )
 
         # Ensure each option has an ID
@@ -61,12 +61,12 @@ class VariantListRepository:
         )
         return VariantList(**doc) if doc else None
 
-    async def get_by_business(self, business_id: str) -> List[VariantList]:
-        """Get all variant lists for a business."""
+    async def get_by_branch(self, branch_id: str) -> List[VariantList]:
+        """Get all variant lists for a branch."""
         db = get_database()
         cursor = (
             db[self.mongo_collection_name]
-            .find({"businessId": self._to_object_id(business_id)})
+            .find({"branchId": self._to_object_id(branch_id)})
             .sort("createdAt", -1)
         )
         docs = await cursor.to_list(length=None)
@@ -90,9 +90,9 @@ class VariantListRepository:
         db = get_database()
 
         normalized_update_data = dict(update_data)
-        if "businessId" in normalized_update_data:
-            normalized_update_data["businessId"] = self._to_object_id(
-                normalized_update_data["businessId"]
+        if "branchId" in normalized_update_data:
+            normalized_update_data["branchId"] = self._to_object_id(
+                normalized_update_data["branchId"]
             )
 
         # Ensure each option has an ID

@@ -18,7 +18,7 @@ class VariantOptionInput:
 class CreateVariantListInput:
     """Input para crear una nueva lista de variantes."""
 
-    businessId: str
+    branchId: str
     name: str
     description: Optional[str] = None
     options: List[VariantOptionInput]

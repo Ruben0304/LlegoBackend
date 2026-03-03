@@ -807,10 +807,10 @@ class VariantOption(BaseModel):
 
 
 class VariantList(BaseModel):
-    """Lista global de variantes reutilizable por negocio."""
+    """Lista de variantes reutilizable por sucursal."""
 
     id: PyObjectId = Field(alias="_id")
-    businessId: PyObjectId  # Pertenece al negocio (global)
+    branchId: PyObjectId  # Pertenece a la sucursal
     name: str  # "Tamaños", "Extras", "Ingredientes"
     description: Optional[str] = None
     options: List[VariantOption]  # Opciones disponibles

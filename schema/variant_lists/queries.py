@@ -13,24 +13,24 @@ from utils.graphql_auth import apply_optional_jwt
 
 @strawberry.type
 class VariantListQuery:
-    @strawberry.field(description="Obtener listas de variantes por negocio")
+    @strawberry.field(description="Obtener listas de variantes por sucursal")
     async def variant_lists(
-        self, info: Info, business_id: str, jwt: Optional[str] = None
+        self, info: Info, branch_id: str, jwt: Optional[str] = None
     ) -> List[VariantListType]:
         """
-        Obtiene todas las listas de variantes de un negocio.
-        Solo usuarios con acceso al negocio pueden ver sus listas.
+        Obtiene todas las listas de variantes de una sucursal.
+        Solo usuarios con acceso a la sucursal pueden ver sus listas.
         """
         apply_optional_jwt(jwt, info)
         user_id = info.context.get("user_id")
         if not user_id:
             raise Exception("Usuario no autenticado")
 
-        # Verificar acceso al negocio
-        await access_checker.require_business_access(user_id, business_id)
+        # Verificar acceso a la sucursal
+        await access_checker.require_branch_access(user_id, branch_id)
 
         # Obtener listas
-        variant_lists = await variant_lists_repo.get_by_business(business_id)
+        variant_lists = await variant_lists_repo.get_by_branch(branch_id)
 
         return [variant_list_to_type(vl) for vl in variant_lists]
 
@@ -49,9 +49,9 @@ class VariantListQuery:
         if not variant_list:
             return None
 
-        # Verificar acceso al negocio
-        await access_checker.require_business_access(
-            user_id, str(variant_list.businessId)
+        # Verificar acceso a la sucursal
+        await access_checker.require_branch_access(
+            user_id, str(variant_list.branchId)
         )
 
         return variant_list_to_type(variant_list)

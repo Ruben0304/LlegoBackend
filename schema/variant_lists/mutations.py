@@ -27,9 +27,9 @@ class VariantListMutation:
         if not user_id:
             raise Exception("Usuario no autenticado")
 
-        # Verificar acceso al negocio (solo propietario)
-        await access_checker.require_business_access(
-            user_id, input.businessId, require_owner=True
+        # Verificar acceso a la sucursal (solo propietario)
+        await access_checker.require_branch_access(
+            user_id, input.branchId, require_owner=True
         )
 
         # Validar que haya al menos una opción
@@ -38,7 +38,7 @@ class VariantListMutation:
 
         # Preparar datos
         variant_list_data = {
-            "businessId": input.businessId,
+            "branchId": input.branchId,
             "name": input.name,
             "description": input.description,
             "options": [
@@ -71,9 +71,9 @@ class VariantListMutation:
         if not variant_list:
             raise Exception("Lista de variantes no encontrada")
 
-        # Verificar acceso al negocio (solo propietario)
-        await access_checker.require_business_access(
-            user_id, str(variant_list.businessId), require_owner=True
+        # Verificar acceso a la sucursal (solo propietario)
+        await access_checker.require_branch_access(
+            user_id, str(variant_list.branchId), require_owner=True
         )
 
         # Preparar datos de actualización
@@ -126,9 +126,9 @@ class VariantListMutation:
         if not variant_list:
             raise Exception("Lista de variantes no encontrada")
 
-        # Verificar acceso al negocio (solo propietario)
-        await access_checker.require_business_access(
-            user_id, str(variant_list.businessId), require_owner=True
+        # Verificar acceso a la sucursal (solo propietario)
+        await access_checker.require_branch_access(
+            user_id, str(variant_list.branchId), require_owner=True
         )
 
         # Eliminar

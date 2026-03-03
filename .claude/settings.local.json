@@ -16,7 +16,8 @@
       "Bash(python:*)",
       "Bash(\"/Users/ruben/projects/Llego Org/LlegoBackend/schema/products/types.py\":*)",
       "Bash(\"/Users/ruben/projects/Llego Org/LlegoBackend/schema/products/queries.py\":*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(source .venv/Scripts/activate)"
     ]
   }
 }
