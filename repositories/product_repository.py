@@ -581,6 +581,18 @@ class ProductRepository:
             print(f"Error finding Qdrant point: {e}")
             return None
 
+    async def remove_variant_list_from_products(self, variant_list_id: str) -> int:
+        """Remove a variant list ID from all products that reference it."""
+        db = get_database()
+        oid = self._to_object_id(variant_list_id)
+        result = await db[self.mongo_collection_name].update_many(
+            {"variantListIds": oid},
+            {"$pull": {"variantListIds": oid}},
+        )
+        if result.modified_count > 0:
+            invalidate_product_cache()
+        return result.modified_count
+
     # --- Feed Products Method ---
 
     async def get_feed_products(

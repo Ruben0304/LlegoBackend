@@ -131,6 +131,10 @@ class VariantListMutation:
             user_id, str(variant_list.branchId), require_owner=True
         )
 
+        # Quitar la referencia de todos los productos que la tengan
+        from repositories import products_repo
+        await products_repo.remove_variant_list_from_products(variant_list_id)
+
         # Eliminar
         deleted = await variant_lists_repo.delete(variant_list_id)
         if not deleted:
