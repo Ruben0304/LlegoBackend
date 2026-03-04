@@ -126,7 +126,7 @@ class InvitationMutation:
         business = await businesses_repo.get_by_id(invitation.businessId)
         if not business:
             raise Exception("Negocio no encontrado")
-        if business.ownerId != user_id:
+        if str(business.ownerId) != user_id:
             raise Exception("No autorizado para revocar invitaciones en este negocio")
 
         await branch_invitations_repo.revoke(invitation_id)
