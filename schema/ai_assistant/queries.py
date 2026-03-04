@@ -75,24 +75,24 @@ class AiAssistantQuery:
 
                 products_data = await products_repo.get_by_ids(product_ids)
                 # Preserve Qdrant ordering
-                products_by_id = {p.id: p for p in products_data}
+                products_by_id = {str(p.id): p for p in products_data}
                 products_ordered = [
                     products_by_id[pid] for pid in product_ids if pid in products_by_id
                 ]
 
                 # Fetch branch info for enrichment
-                branch_ids = list(set(p.branchId for p in products_ordered))
+                branch_ids = list(set(str(p.branchId) for p in products_ordered))
                 branches_data = (
                     await branches_repo.get_by_ids(branch_ids) if branch_ids else []
                 )
-                branches_map = {b.id: b for b in branches_data}
+                branches_map = {str(b.id): b for b in branches_data}
 
                 product_results = []
                 for product in products_ordered:
-                    branch = branches_map.get(product.branchId)
+                    branch = branches_map.get(str(product.branchId))
                     product_results.append(
                         SemanticSearchProductResult(
-                            score=scores_map.get(product.id, 0.0),
+                            score=scores_map.get(str(product.id), 0.0),
                             product=ProductType(**to_strawberry_dict(product)),
                             branch_name=branch.name if branch else None,
                             branch_avatar=branch.avatar if branch else None,
@@ -115,7 +115,7 @@ class AiAssistantQuery:
                 scores_map = {r.mongo_id: r.score for r in results}
 
                 branches_data = await branches_repo.get_by_ids(branch_ids)
-                branches_by_id = {b.id: b for b in branches_data}
+                branches_by_id = {str(b.id): b for b in branches_data}
                 branches_ordered = [
                     branches_by_id[bid] for bid in branch_ids if bid in branches_by_id
                 ]
@@ -126,7 +126,7 @@ class AiAssistantQuery:
                 for branch in branches_ordered:
                     branch_results.append(
                         SemanticSearchBranchResult(
-                            score=scores_map.get(branch.id, 0.0),
+                            score=scores_map.get(str(branch.id), 0.0),
                             branch=BranchType(**branch_to_dict(branch)),
                         )
                     )
@@ -147,7 +147,7 @@ class AiAssistantQuery:
                 scores_map = {r.mongo_id: r.score for r in results}
 
                 businesses_data = await businesses_repo.get_by_ids(business_ids)
-                businesses_by_id = {b.id: b for b in businesses_data}
+                businesses_by_id = {str(b.id): b for b in businesses_data}
                 businesses_ordered = [
                     businesses_by_id[bid]
                     for bid in business_ids
@@ -158,7 +158,7 @@ class AiAssistantQuery:
                 for biz in businesses_ordered:
                     business_results.append(
                         SemanticSearchBusinessResult(
-                            score=scores_map.get(biz.id, 0.0),
+                            score=scores_map.get(str(biz.id), 0.0),
                             business=BusinessType(**to_strawberry_dict(biz)),
                         )
                     )
@@ -339,25 +339,25 @@ class AiAssistantQuery:
             # Pre-fetch all branches needed for products
             product_ids = [s.product_id for s in response.suggested_products]
             products_data = await products_repo.get_by_ids(product_ids)
-            products_map = {p.id: p for p in products_data}
+            products_map = {str(p.id): p for p in products_data}
 
             # Get unique branch IDs from products
-            branch_ids = list(set([p.branchId for p in products_data]))
+            branch_ids = list(set([str(p.branchId) for p in products_data]))
             branches_map = {}
             if branch_ids:
                 branches_data = await branches_repo.get_by_ids(branch_ids)
-                branches_map = {b.id: b for b in branches_data}
+                branches_map = {str(b.id): b for b in branches_data}
 
             for i, suggestion in enumerate(response.suggested_products):
                 print(
                     f"[AI CHAT]   Product {i + 1}: ID={suggestion.product_id}, reason={suggestion.reason}"
                 )
-                product = products_map.get(suggestion.product_id)
+                product = products_map.get(str(suggestion.product_id))
                 if product:
                     print(
                         f"[AI CHAT]   Product found: {product.name} (${product.price})"
                     )
-                    branch = branches_map.get(product.branchId)
+                    branch = branches_map.get(str(product.branchId))
                     suggested_products.append(
                         ProductSuggestionType(
                             product=ProductType(**to_strawberry_dict(product)),

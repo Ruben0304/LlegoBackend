@@ -211,19 +211,19 @@ class AiAssistantSubscription:
             # Pre-fetch all branches needed for products
             product_ids = [s.product_id for s in response.suggested_products]
             products_data = await products_repo.get_by_ids(product_ids)
-            products_map = {p.id: p for p in products_data}
+            products_map = {str(p.id): p for p in products_data}
 
             # Get unique branch IDs from products
-            branch_ids = list(set([p.branchId for p in products_data]))
+            branch_ids = list(set([str(p.branchId) for p in products_data]))
             branches_map = {}
             if branch_ids:
                 branches_data = await branches_repo.get_by_ids(branch_ids)
-                branches_map = {b.id: b for b in branches_data}
+                branches_map = {str(b.id): b for b in branches_data}
 
             for suggestion in response.suggested_products:
-                product = products_map.get(suggestion.product_id)
+                product = products_map.get(str(suggestion.product_id))
                 if product:
-                    branch = branches_map.get(product.branchId)
+                    branch = branches_map.get(str(product.branchId))
                     suggested_products.append(
                         ProductSuggestionType(
                             product=ProductType(**to_strawberry_dict(product)),
