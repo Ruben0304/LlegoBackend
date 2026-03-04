@@ -28,6 +28,10 @@ def branch_to_dict(branch: Branch) -> dict:
             "phones",
         },
     )
+    # Keep a stable string value for status to avoid null decoding failures in clients.
+    if not branch_dict.get("status"):
+        branch_dict["status"] = "active" if getattr(branch, "isActive", False) else "inactive"
+
     coordinates_data = to_strawberry_dict(branch.coordinates)
     branch_dict["coordinates"] = CoordinatesType(
         type=coordinates_data.get("type", "Point"),

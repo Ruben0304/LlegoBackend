@@ -9,8 +9,8 @@ from fastapi.responses import PlainTextResponse, Response
 from slowapi.errors import RateLimitExceeded
 from starlette.websockets import WebSocket
 from strawberry.fastapi import BaseContext, GraphQLRouter
-from strawberry.subscriptions.protocols.graphql_ws.handlers import (
-    BaseGraphQLWSHandler,
+from strawberry.fastapi.handlers.graphql_ws_handler import (
+    GraphQLWSHandler as FastAPIGraphQLWSHandler,
 )
 
 from api import router
@@ -119,7 +119,7 @@ async def get_graphql_context(request=None, response=None, websocket=None) -> Cu
     )
 
 
-class SafeGraphQLWSHandler(BaseGraphQLWSHandler):
+class SafeGraphQLWSHandler(FastAPIGraphQLWSHandler):
     """Guard against duplicated/stale STOP messages in legacy graphql-ws protocol."""
 
     async def cleanup_operation(self, operation_id: str) -> None:
