@@ -1,21 +1,15 @@
 """GraphQL subscription resolvers for AI Assistant streaming."""
 
-import asyncio
 import re
 from typing import AsyncGenerator, Optional
 
 import strawberry
 from strawberry.types import Info
 
-from repositories import branches_repo, draft_orders_repo, products_repo
-from schema.branches.utils import branch_to_dict
-from schema.branches.types import BranchType
-from schema.products.types import ProductType
 from services.ai_quota_service import ai_quota_service
 from services.ai_rag_service import AiRagService
 from utils.graphql_auth import require_auth
 from utils.rate_limit import rate_limit_graphql
-from utils.serialization import to_strawberry_dict
 
 from .types import (
     AiAssistantChatInput,
@@ -23,10 +17,6 @@ from .types import (
     AiChatErrorCode,
     AiChatQuotaInfo,
     AiChatStreamChunk,
-    BranchSuggestionType,
-    DraftOrderItemType,
-    DraftOrderType,
-    ProductSuggestionType,
 )
 
 
@@ -42,7 +32,7 @@ class AiAssistantSubscription:
         Stream AI assistant responses in real-time.
 
         This subscription provides incremental text updates as the AI generates
-        the response, followed by structured data (products, branches) in the final chunk.
+        the response, followed by reference IDs in the final chunk.
         """
         max_words = 30
 
@@ -163,149 +153,40 @@ class AiAssistantSubscription:
 
             # Initialize AI RAG service
             ai_service = AiRagService()
+            print("[AI CHAT STREAM] Processing real-time stream with DeepSeek...")
 
-            # Process message with RAG (non-streaming for now)
-            # In the future, this could be enhanced to stream from the LLM
-            print(f"[AI CHAT STREAM] Processing message with RAG...")
-            response = await ai_service.send_message(
+            async for event in ai_service.stream_message(
                 message=input.message,
                 session_id=user_id,
-            )
-
-            print(f"[AI CHAT STREAM] Response received from AI service")
-            print(f"[AI CHAT STREAM]   - response_type: {response.response_type}")
-            print(f"[AI CHAT STREAM]   - ai_text length: {len(response.ai_text)} chars")
-
-            # Simulate streaming by chunking the text
-            # Split text into words for streaming
-            words = response.ai_text.split()
-            accumulated_text = ""
-            chunk_size = 3  # Send 3 words at a time
-
-            print(
-                f"[AI CHAT STREAM] Streaming {len(words)} words in chunks of {chunk_size}..."
-            )
-
-            for i in range(0, len(words), chunk_size):
-                chunk_words = words[i : i + chunk_size]
-                delta = " ".join(chunk_words)
-                if accumulated_text:
-                    delta = " " + delta
-                accumulated_text += delta
-
-                yield AiChatStreamChunk(
-                    delta=delta,
-                    accumulated_text=accumulated_text,
-                    is_final=False,
-                )
-
-                # Small delay to simulate streaming
-                await asyncio.sleep(0.1)
-
-            # Convert suggested products to GraphQL types
-            suggested_products = []
-            print(
-                f"[AI CHAT STREAM] Converting {len(response.suggested_products)} product suggestions..."
-            )
-
-            # Pre-fetch all branches needed for products
-            product_ids = [s.product_id for s in response.suggested_products]
-            products_data = await products_repo.get_by_ids(product_ids)
-            products_map = {str(p.id): p for p in products_data}
-
-            # Get unique branch IDs from products
-            branch_ids = list(set([str(p.branchId) for p in products_data]))
-            branches_map = {}
-            if branch_ids:
-                branches_data = await branches_repo.get_by_ids(branch_ids)
-                branches_map = {str(b.id): b for b in branches_data}
-
-            for suggestion in response.suggested_products:
-                product = products_map.get(str(suggestion.product_id))
-                if product:
-                    branch = branches_map.get(str(product.branchId))
-                    suggested_products.append(
-                        ProductSuggestionType(
-                            product=ProductType(**to_strawberry_dict(product)),
-                            reason=suggestion.reason,
-                            branch_name=branch.name if branch else None,
-                            branch_avatar=branch.avatar if branch else None,
-                            branch_address=branch.address if branch else None,
-                            branch_phone=branch.phone if branch else None,
-                        )
+            ):
+                if event.get("type") == "delta":
+                    yield AiChatStreamChunk(
+                        delta=event.get("delta", ""),
+                        accumulated_text=event.get("accumulated_text", ""),
+                        is_final=False,
                     )
+                    continue
 
-            # Convert suggested branches to GraphQL types
-            suggested_branches = []
-            print(
-                f"[AI CHAT STREAM] Converting {len(response.suggested_branches)} branch suggestions..."
-            )
-            for suggestion in response.suggested_branches:
-                branch = await branches_repo.get_by_id(suggestion.branch_id)
-                if branch:
-                    branch_type = BranchType(**branch_to_dict(branch))
-                    suggested_branches.append(
-                        BranchSuggestionType(
-                            branch=branch_type, reason=suggestion.reason
-                        )
+                if event.get("type") == "final":
+                    product_ids = event.get("suggested_product_ids", [])
+                    branch_ids = event.get("suggested_branch_ids", [])
+                    accumulated_text = event.get("accumulated_text", "")
+
+                    print("[AI CHAT STREAM] Sending final metadata chunk")
+                    print(
+                        f"[AI CHAT STREAM]   - Product IDs: {len(product_ids)}, Branch IDs: {len(branch_ids)}"
                     )
+                    print(f"{'=' * 80}\n")
 
-            # Convert draft order if present
-            draft_order = None
-            if response.draft_order:
-                print(
-                    f"[AI CHAT STREAM] Draft order creation detected, fetching from database..."
-                )
-                drafts = await draft_orders_repo.get_pending_by_session(user_id)
-                if drafts:
-                    latest_draft = drafts[0]
-                    draft_order = DraftOrderType(
-                        id=latest_draft.id,
-                        session_id=latest_draft.sessionId,
-                        customer_id=latest_draft.customerId,
-                        branch_id=latest_draft.branchId,
-                        business_id=latest_draft.businessId,
-                        branch_avatar=latest_draft.branchAvatar,
-                        items=[
-                            DraftOrderItemType(
-                                product_id=item.productId,
-                                name=item.name,
-                                price=item.price,
-                                quantity=item.quantity,
-                                image_url=item.imageUrl,
-                            )
-                            for item in latest_draft.items
-                        ],
-                        subtotal=latest_draft.subtotal,
-                        delivery_fee=latest_draft.deliveryFee,
-                        total=latest_draft.total,
-                        currency=latest_draft.currency,
-                        delivery_address=str(latest_draft.deliveryAddress)
-                        if latest_draft.deliveryAddress
-                        else None,
-                        payment_method_id=latest_draft.paymentMethodId,
-                        status=latest_draft.status,
-                        created_at=latest_draft.createdAt,
-                        expires_at=latest_draft.expiresAt,
+                    yield AiChatStreamChunk(
+                        delta="",
+                        accumulated_text=accumulated_text,
+                        suggested_product_ids=product_ids,
+                        suggested_branch_ids=branch_ids,
+                        missing_fields=event.get("missing_fields", []),
+                        confidence=event.get("confidence"),
+                        is_final=True,
                     )
-
-            # Send final chunk with all structured data
-            print(f"[AI CHAT STREAM] Sending final chunk with structured data")
-            print(
-                f"[AI CHAT STREAM]   - Products: {len(suggested_products)}, Branches: {len(suggested_branches)}"
-            )
-            print(f"{'=' * 80}\n")
-
-            yield AiChatStreamChunk(
-                delta="",
-                accumulated_text=accumulated_text,
-                suggested_products=suggested_products,
-                suggested_branches=suggested_branches,
-                draft_order=draft_order,
-                missing_fields=response.missing_fields,
-                confidence=response.confidence,
-                is_final=True,
-            )
 
         except Exception as e:
             print(f"[AI CHAT STREAM] ERROR in streaming: {e}")

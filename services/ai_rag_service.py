@@ -1,9 +1,10 @@
 """AI RAG service with DeepSeek structured outputs and vector search."""
 
 import json
-from typing import Any, Dict, List, Type, TypeVar
+from typing import Any, AsyncGenerator, Dict, List, Optional, Type, TypeVar
 
-from openai import OpenAI
+from bson import ObjectId
+from openai import AsyncOpenAI, OpenAI
 from pydantic import BaseModel
 
 from core.config import settings
@@ -38,6 +39,9 @@ class AiRagService:
             )
 
         self.client = OpenAI(
+            api_key=settings.deepseek_api_key, base_url=settings.deepseek_base_url
+        )
+        self.async_client = AsyncOpenAI(
             api_key=settings.deepseek_api_key, base_url=settings.deepseek_base_url
         )
         self.model_name = settings.deepseek_model
@@ -144,6 +148,124 @@ When users ask to buy/order, guide them through product and store discovery in a
         )
 
         return final_response
+
+    async def stream_message(
+        self, message: str, session_id: str
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        Stream AI response tokens in real-time and return reference IDs at the end.
+
+        Yields events:
+            {"type": "delta", "delta": str, "accumulated_text": str}
+            {"type": "final", "accumulated_text": str, "suggested_product_ids": [...], ...}
+        """
+        # Step 1: Save user message to memory
+        await chat_memory_repo.add_message(
+            session_id=session_id, role="user", content=message
+        )
+
+        # Step 2: Get conversation history
+        history = await chat_memory_repo.get_conversation_history(
+            session_id=session_id,
+            limit=10,
+        )
+
+        # Step 3: Analyze intent and fetch search context
+        intent = await self._analyze_intent(message, history)
+        search_context = await self._execute_searches(intent.search_queries)
+
+        # Step 4: Build streaming prompt (plain text response)
+        prompt = self._build_final_prompt(
+            message=message, history=history, intent=intent, context=search_context
+        )
+
+        accumulated_text = ""
+        fallback_response: Optional[AiFinalResponse] = None
+
+        try:
+            stream = await self.async_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            f"{self.final_response_system_prompt}\n\n"
+                            "IMPORTANT: Respond with plain natural text only for the end user.\n"
+                            "Do not return JSON, markdown, code fences, or internal notes."
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.9,
+                max_tokens=1200,
+                stream=True,
+            )
+
+            async for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta.content or ""
+                if not delta:
+                    continue
+                accumulated_text += delta
+                yield {
+                    "type": "delta",
+                    "delta": delta,
+                    "accumulated_text": accumulated_text,
+                }
+
+        except Exception as stream_error:
+            print(f"[AI RAG] Streaming failed, using fallback response: {stream_error}")
+            if not accumulated_text.strip():
+                fallback_response = await self._generate_final_response(
+                    message=message,
+                    history=history,
+                    intent=intent,
+                    context=search_context,
+                )
+                accumulated_text = fallback_response.ai_text
+                if accumulated_text:
+                    yield {
+                        "type": "delta",
+                        "delta": accumulated_text,
+                        "accumulated_text": accumulated_text,
+                    }
+
+        # Step 5: Save assistant text to memory
+        if accumulated_text.strip():
+            await chat_memory_repo.add_message(
+                session_id=session_id, role="assistant", content=accumulated_text
+            )
+
+        # Step 6: Send final metadata with reference IDs
+        references = self._extract_reference_ids(
+            context=search_context, final_response=fallback_response
+        )
+        if intent.response_type == "search_branches":
+            references["suggested_product_ids"] = []
+        elif intent.response_type == "search_products":
+            pass
+        else:
+            # For general chat/details, only send references when they actually exist.
+            if not search_context.products:
+                references["suggested_product_ids"] = []
+            if not search_context.branches:
+                references["suggested_branch_ids"] = []
+
+        yield {
+            "type": "final",
+            "accumulated_text": accumulated_text,
+            "suggested_product_ids": references["suggested_product_ids"],
+            "suggested_branch_ids": references["suggested_branch_ids"],
+            "missing_fields": (
+                fallback_response.missing_fields
+                if fallback_response
+                else intent.missing_info
+            ),
+            "confidence": (
+                fallback_response.confidence if fallback_response else intent.confidence
+            ),
+        }
 
     async def _analyze_intent(
         self, message: str, history: List[Any]
@@ -255,11 +377,30 @@ When users ask to buy/order, guide them through product and store discovery in a
         Returns:
             AiFinalResponse with final answer
         """
-        # Build prompt with context
+        prompt = self._build_final_prompt(
+            message=message, history=history, intent=intent, context=context
+        )
+
+        return self._generate_json_output(
+            system_prompt=self.final_response_system_prompt,
+            user_prompt=(
+                f"{prompt}\n\nReturn your answer as a valid json object only."
+            ),
+            output_model=AiFinalResponse,
+            max_tokens=4000,
+        )
+
+    def _build_final_prompt(
+        self,
+        message: str,
+        history: List[Any],
+        intent: AiIntentAnalysis,
+        context: SearchContext,
+    ) -> str:
+        """Build prompt text with conversation, intent, and retrieved context."""
         conversation = self._format_history(history)
         conversation.append(f"User: {message}")
 
-        # Add search context if available
         context_text = ""
         if context.products:
             context_text += f"\n\nAvailable Products ({len(context.products)}):\n"
@@ -273,21 +414,61 @@ When users ask to buy/order, guide them through product and store discovery in a
             context_text += f"\n\nAvailable Businesses ({len(context.businesses)}):\n"
             context_text += self._format_businesses(context.businesses)
 
-        # Add intent analysis
         conversation_text = "\n".join(conversation)
         missing_info_text = (
             ", ".join(intent.missing_info) if intent.missing_info else "None"
         )
-        prompt = f"{conversation_text}\n\nIntent Analysis:\n- Type: {intent.response_type}\n- Reasoning: {intent.reasoning}\n- Missing Info: {missing_info_text}{context_text}"
-
-        return self._generate_json_output(
-            system_prompt=self.final_response_system_prompt,
-            user_prompt=(
-                f"{prompt}\n\nReturn your answer as a valid json object only."
-            ),
-            output_model=AiFinalResponse,
-            max_tokens=4000,
+        return (
+            f"{conversation_text}\n\nIntent Analysis:\n"
+            f"- Type: {intent.response_type}\n"
+            f"- Reasoning: {intent.reasoning}\n"
+            f"- Missing Info: {missing_info_text}"
+            f"{context_text}"
         )
+
+    def _extract_reference_ids(
+        self,
+        context: SearchContext,
+        final_response: Optional[AiFinalResponse] = None,
+        max_items: int = 20,
+    ) -> Dict[str, List[str]]:
+        """
+        Extract suggested entity IDs for frontend hydration.
+
+        Prefers IDs from structured AI output when available; otherwise falls back
+        to IDs from retrieved context.
+        """
+        product_ids: List[str] = []
+        branch_ids: List[str] = []
+
+        if final_response and final_response.suggested_products:
+            product_ids = [
+                str(suggestion.product_id)
+                for suggestion in final_response.suggested_products
+            ]
+        else:
+            product_ids = [str(product.get("id", "")) for product in context.products]
+
+        if final_response and final_response.suggested_branches:
+            branch_ids = [
+                str(suggestion.branch_id)
+                for suggestion in final_response.suggested_branches
+            ]
+        else:
+            context_branch_ids = [str(branch.get("id", "")) for branch in context.branches]
+            product_branch_ids = [
+                str(product.get("branchId", "")) for product in context.products
+            ]
+            branch_ids = context_branch_ids + product_branch_ids
+
+        return {
+            "suggested_product_ids": self._normalize_object_ids(
+                product_ids, max_items=max_items
+            ),
+            "suggested_branch_ids": self._normalize_object_ids(
+                branch_ids, max_items=max_items
+            ),
+        }
 
     def _generate_json_output(
         self,
@@ -453,6 +634,27 @@ When users ask to buy/order, guide them through product and store discovery in a
 
         print(f"[AI RAG] Draft order created successfully: ID={draft.id}")
         print(f"{'=' * 80}\n")
+
+    @staticmethod
+    def _normalize_object_ids(values: List[str], max_items: int = 20) -> List[str]:
+        """Deduplicate IDs, keep order, and return only valid Mongo ObjectIds."""
+        unique_values: List[str] = []
+        seen = set()
+
+        for value in values:
+            normalized = str(value).strip()
+            if not normalized:
+                continue
+            if not ObjectId.is_valid(normalized):
+                continue
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            unique_values.append(normalized)
+            if len(unique_values) >= max_items:
+                break
+
+        return unique_values
 
     @staticmethod
     def _format_history(history: List[Any]) -> List[str]:

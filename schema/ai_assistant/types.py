@@ -293,6 +293,12 @@ class AiChatStreamChunk:
     suggested_branches: List[BranchSuggestionType] = strawberry.field(
         description="Branches suggested (sent in final chunk)", default_factory=list
     )
+    suggested_product_ids: List[str] = strawberry.field(
+        description="Product IDs suggested (sent in final chunk)", default_factory=list
+    )
+    suggested_branch_ids: List[str] = strawberry.field(
+        description="Branch IDs suggested (sent in final chunk)", default_factory=list
+    )
     draft_order: Optional[DraftOrderType] = strawberry.field(
         description="Draft order (sent in final chunk)", default=None
     )
