@@ -31,6 +31,9 @@ input AiAssistantChatInput {
 
   """Unique device identifier from mobile app (required for free quota)"""
   deviceId: String = null
+
+  """Enable streaming mode (requires GraphQL subscription)"""
+  stream: Boolean! = false
 }
 
 type AiAssistantResponseType {
@@ -56,6 +59,89 @@ type AiAssistantResponseType {
 
   """AI confidence score (0.0 to 1.0)"""
   confidence: Float!
+}
+
+type AiChatError {
+  """Error code"""
+  code: AiChatErrorCode!
+
+  """Human-readable error message"""
+  message: String!
+
+  """Quota information (if applicable)"""
+  quota: AiChatQuotaInfo
+
+  """Seconds until retry is allowed (if applicable)"""
+  retryAfter: Int
+
+  """Maximum allowed words (for MESSAGE_TOO_LONG)"""
+  maxWords: Int
+
+  """Actual word count (for MESSAGE_TOO_LONG)"""
+  wordsCount: Int
+}
+
+enum AiChatErrorCode {
+  AI_MESSAGE_TOO_LONG
+  AI_DEVICE_ID_REQUIRED
+  AI_DAILY_DEVICE_QUOTA_EXCEEDED
+  AI_QUOTA_EXCEEDED
+  AI_FREE_QUOTA_EXCEEDED
+  AI_SERVICE_ERROR
+  AI_RATE_LIMIT_EXCEEDED
+  AI_INVALID_REQUEST
+  AI_INTERNAL_ERROR
+}
+
+type AiChatQuotaInfo {
+  """Quota source identifier"""
+  source: String!
+
+  """Total quota limit"""
+  limit: Int!
+
+  """Amount used"""
+  used: Int!
+
+  """Amount remaining"""
+  remaining: Int!
+}
+
+type AiChatResult {
+  """Successful response data"""
+  success: AiAssistantResponseType
+
+  """Error information if request failed"""
+  error: AiChatError
+}
+
+type AiChatStreamChunk {
+  """Incremental text delta for this chunk"""
+  delta: String!
+
+  """Full accumulated text so far"""
+  accumulatedText: String!
+
+  """Products suggested (sent in final chunk)"""
+  suggestedProducts: [ProductSuggestionType!]!
+
+  """Branches suggested (sent in final chunk)"""
+  suggestedBranches: [BranchSuggestionType!]!
+
+  """Draft order (sent in final chunk)"""
+  draftOrder: DraftOrderType
+
+  """Missing fields (sent in final chunk)"""
+  missingFields: [String!]!
+
+  """Confidence score (sent in final chunk)"""
+  confidence: Float
+
+  """Whether this is the final chunk"""
+  isFinal: Boolean!
+
+  """Error if streaming failed"""
+  error: AiChatError
 }
 
 type AndroidConfigType {
@@ -263,6 +349,9 @@ type BranchType {
 
   """Payment methods accepted by this branch"""
   paymentMethods: [PaymentMethodType!]!
+
+  """Product categories applicable to this branch based on its tipos"""
+  applicableCategories: [ProductCategoryType!]!
 }
 
 enum BranchVehicle {
@@ -627,7 +716,7 @@ input CreateTutorialInput {
 }
 
 input CreateVariantListInput {
-  businessId: String!
+  branchId: String!
   name: String!
   description: String = null
   options: [VariantOptionInput!]!
@@ -1376,6 +1465,9 @@ type NearbyBranchType {
 
   """Payment methods accepted by this branch"""
   paymentMethods: [PaymentMethodType!]!
+
+  """Product categories applicable to this branch based on its tipos"""
+  applicableCategories: [ProductCategoryType!]!
 }
 
 enum OrderActorEnum {
@@ -1974,8 +2066,10 @@ type Query {
   """
   semanticSearch(query: String!, collection: SemanticSearchCollection!, limit: Int! = 10, jwt: String = null): SemanticSearchResultType!
 
-  """Send a message to the AI assistant and get a response with RAG"""
-  aiChat(input: AiAssistantChatInput!, jwt: String = null): AiAssistantResponseType
+  """
+  Send a message to the AI assistant and get a response with RAG. Use stream=true for GraphQL subscription streaming.
+  """
+  aiChat(input: AiAssistantChatInput!, jwt: String = null): AiChatResult!
 
   """Obtener mis pedidos con paginación"""
   myOrders(jwt: String!, status: OrderStatusEnum = null, limit: Int! = 20, offset: Int! = 0): OrdersConnectionType!
@@ -2142,8 +2236,8 @@ type Query {
   """Buscar transferencias pendientes por transfer_id y/o teléfono"""
   findPendingTransfers(jwt: String!, transferId: String = null, phone: String = null): [ShortcutTransferType!]!
 
-  """Obtener listas de variantes por negocio"""
-  variantLists(businessId: String!, jwt: String = null): [VariantListType!]!
+  """Obtener listas de variantes por sucursal"""
+  variantLists(branchId: String!, jwt: String = null): [VariantListType!]!
 
   """Obtener lista de variantes por ID"""
   variantList(id: String!, jwt: String = null): VariantListType
@@ -2303,6 +2397,9 @@ type ScoredBranchType {
 
   """Payment methods accepted by this branch"""
   paymentMethods: [PaymentMethodType!]!
+
+  """Product categories applicable to this branch based on its tipos"""
+  applicableCategories: [ProductCategoryType!]!
 }
 
 type ScoredProductType {
@@ -2501,6 +2598,9 @@ type Subscription {
 
   """Cambios en pedidos de una sucursal"""
   branchOrderUpdated(branchId: String!): OrderType!
+
+  """Stream AI assistant responses in real-time with RAG support"""
+  aiChatStream(input: AiAssistantChatInput!, jwt: String = null): AiChatStreamChunk!
 }
 
 input SurveyQuestionInput {
@@ -2818,15 +2918,15 @@ type UserType {
 
 type VariantListType {
   id: String!
-  businessId: String!
+  branchId: String!
   name: String!
   description: String
   options: [VariantOptionType!]!
   createdAt: DateTime!
   updatedAt: DateTime!
 
-  """Business associated with this variant list"""
-  business: BusinessType
+  """Branch associated with this variant list"""
+  branch: BranchType
 }
 
 input VariantOptionInput {

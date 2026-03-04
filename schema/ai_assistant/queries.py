@@ -26,6 +26,10 @@ from utils.rate_limit import rate_limit_graphql
 from .types import (
     AiAssistantChatInput,
     AiAssistantResponseType,
+    AiChatError,
+    AiChatErrorCode,
+    AiChatQuotaInfo,
+    AiChatResult,
     BranchSuggestionType,
     DraftOrderItemType,
     DraftOrderType,
@@ -183,34 +187,79 @@ class AiAssistantQuery:
             raise GraphQLError(f"Error en búsqueda semántica: {str(e)}")
 
     @strawberry.field(
-        description="Send a message to the AI assistant and get a response with RAG"
+        description="Send a message to the AI assistant and get a response with RAG. Use stream=true for GraphQL subscription streaming."
     )
     async def ai_chat(
         self, info: Info, input: AiAssistantChatInput, jwt: Optional[str] = None
-    ) -> Optional[AiAssistantResponseType]:
+    ) -> AiChatResult:
         """Send a message to the AI assistant with RAG support."""
         max_words = 30
-        user_id = require_auth(jwt, info)  # JWT is required, get user_id as session_id
-        rate_limit_graphql(
-            info, "graphql"
-        )  # Keep generic anti-spam; daily cap handled by ai_quota_service
 
         print(f"\n{'=' * 80}")
-        print(f"[AI CHAT] Received message from user: {user_id}")
+        print(f"[AI CHAT] Received message")
         print(f"[AI CHAT] Message: {input.message}")
+        print(f"[AI CHAT] Stream mode: {input.stream}")
 
         try:
-            words_count = len(re.findall(r"\S+", input.message or ""))
-            if words_count > max_words:
-                raise GraphQLError(
-                    f"El mensaje supera el máximo permitido de {max_words} palabras",
-                    extensions={
-                        "code": "AI_MESSAGE_TOO_LONG",
-                        "max_words": max_words,
-                        "words_count": words_count,
-                    },
+            # Authentication
+            try:
+                user_id = require_auth(jwt, info)
+            except GraphQLError as e:
+                print(f"[AI CHAT] Authentication failed: {e}")
+                print(f"{'=' * 80}\n")
+                return AiChatResult(
+                    error=AiChatError(
+                        code=AiChatErrorCode.AI_INVALID_REQUEST,
+                        message="Autenticación requerida. Proporciona un JWT válido.",
+                    )
                 )
 
+            print(f"[AI CHAT] User authenticated: {user_id}")
+
+            # Rate limiting
+            try:
+                rate_limit_graphql(info, "graphql")
+            except GraphQLError as e:
+                print(f"[AI CHAT] Rate limit exceeded: {e}")
+                print(f"{'=' * 80}\n")
+                return AiChatResult(
+                    error=AiChatError(
+                        code=AiChatErrorCode.AI_RATE_LIMIT_EXCEEDED,
+                        message="Demasiadas solicitudes. Por favor espera un momento.",
+                        retry_after=60,  # Suggest retry after 60 seconds
+                    )
+                )
+
+            # Message validation
+            words_count = len(re.findall(r"\S+", input.message or ""))
+            if words_count > max_words:
+                print(
+                    f"[AI CHAT] Message too long: {words_count} words (max: {max_words})"
+                )
+                print(f"{'=' * 80}\n")
+                return AiChatResult(
+                    error=AiChatError(
+                        code=AiChatErrorCode.AI_MESSAGE_TOO_LONG,
+                        message=f"El mensaje supera el máximo permitido de {max_words} palabras",
+                        max_words=max_words,
+                        words_count=words_count,
+                    )
+                )
+
+            # Streaming mode check
+            if input.stream:
+                print(
+                    f"[AI CHAT] Streaming mode requested but called via query (not subscription)"
+                )
+                print(f"{'=' * 80}\n")
+                return AiChatResult(
+                    error=AiChatError(
+                        code=AiChatErrorCode.AI_INVALID_REQUEST,
+                        message="Para usar streaming, debes usar la subscription 'aiChatStream' en lugar de la query 'aiChat'",
+                    )
+                )
+
+            # Device ID and quota check
             request = (
                 info.context.get("request") if isinstance(info.context, dict) else None
             )
@@ -221,17 +270,38 @@ class AiAssistantQuery:
                 user_id=user_id, device_id=device_id
             )
             if not quota.allowed:
-                raise GraphQLError(
-                    quota.reason or "Límite de consultas AI alcanzado",
-                    extensions={
-                        "code": quota.error_code or "AI_QUOTA_EXCEEDED",
-                        "quota": {
-                            "source": quota.source,
-                            "limit": quota.limit,
-                            "used": quota.used,
-                            "remaining": quota.remaining,
-                        },
-                    },
+                print(f"[AI CHAT] Quota exceeded: {quota.reason}")
+                print(
+                    f"[AI CHAT] Quota info: {quota.used}/{quota.limit} ({quota.source})"
+                )
+                print(f"{'=' * 80}\n")
+
+                # Map error code to enum
+                error_code_map = {
+                    "AI_DEVICE_ID_REQUIRED": AiChatErrorCode.AI_DEVICE_ID_REQUIRED,
+                    "AI_DAILY_DEVICE_QUOTA_EXCEEDED": AiChatErrorCode.AI_DAILY_DEVICE_QUOTA_EXCEEDED,
+                    "AI_QUOTA_EXCEEDED": AiChatErrorCode.AI_QUOTA_EXCEEDED,
+                    "AI_FREE_QUOTA_EXCEEDED": AiChatErrorCode.AI_FREE_QUOTA_EXCEEDED,
+                }
+                error_code = error_code_map.get(
+                    quota.error_code, AiChatErrorCode.AI_QUOTA_EXCEEDED
+                )
+
+                return AiChatResult(
+                    error=AiChatError(
+                        code=error_code,
+                        message=quota.reason or "Límite de consultas AI alcanzado",
+                        quota=AiChatQuotaInfo(
+                            source=quota.source,
+                            limit=quota.limit,
+                            used=quota.used,
+                            remaining=quota.remaining,
+                        ),
+                        retry_after=86400
+                        if "diario" in quota.source.lower()
+                        or "daily" in quota.source.lower()
+                        else None,
+                    )
                 )
 
             print(
@@ -425,14 +495,35 @@ class AiAssistantQuery:
             print(f"[AI CHAT]   - confidence: {graphql_response.confidence}")
             print(f"{'=' * 80}\n")
 
-            return graphql_response
+            return AiChatResult(success=graphql_response)
 
-        except GraphQLError:
-            raise
         except Exception as e:
             print(f"[AI CHAT] ERROR in AI chat: {e}")
             import traceback
 
             traceback.print_exc()
             print(f"{'=' * 80}\n")
-            return None
+
+            # Determine error type
+            error_message = str(e)
+            if "DeepSeek" in error_message or "API" in error_message:
+                error_code = AiChatErrorCode.AI_SERVICE_ERROR
+                user_message = "El servicio de IA no está disponible temporalmente. Intenta de nuevo en unos momentos."
+            elif "timeout" in error_message.lower():
+                error_code = AiChatErrorCode.AI_SERVICE_ERROR
+                user_message = (
+                    "La solicitud tardó demasiado. Por favor intenta de nuevo."
+                )
+            elif "database" in error_message.lower() or "mongo" in error_message.lower():
+                error_code = AiChatErrorCode.AI_INTERNAL_ERROR
+                user_message = "Error al procesar tu solicitud. Por favor intenta de nuevo."
+            else:
+                error_code = AiChatErrorCode.AI_INTERNAL_ERROR
+                user_message = "Ocurrió un error inesperado. Por favor intenta de nuevo."
+
+            return AiChatResult(
+                error=AiChatError(
+                    code=error_code,
+                    message=user_message,
+                )
+            )

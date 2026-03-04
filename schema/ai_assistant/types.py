@@ -204,3 +204,107 @@ class AiAssistantChatInput:
         description="Unique device identifier from mobile app (required for free quota)",
         default=None,
     )
+    stream: bool = strawberry.field(
+        description="Enable streaming mode (requires GraphQL subscription)",
+        default=False,
+    )
+
+
+# ============================================================================
+# Error handling types
+# ============================================================================
+
+
+@strawberry.enum
+class AiChatErrorCode(Enum):
+    """Error codes for AI chat."""
+
+    AI_MESSAGE_TOO_LONG = "AI_MESSAGE_TOO_LONG"
+    AI_DEVICE_ID_REQUIRED = "AI_DEVICE_ID_REQUIRED"
+    AI_DAILY_DEVICE_QUOTA_EXCEEDED = "AI_DAILY_DEVICE_QUOTA_EXCEEDED"
+    AI_QUOTA_EXCEEDED = "AI_QUOTA_EXCEEDED"
+    AI_FREE_QUOTA_EXCEEDED = "AI_FREE_QUOTA_EXCEEDED"
+    AI_SERVICE_ERROR = "AI_SERVICE_ERROR"
+    AI_RATE_LIMIT_EXCEEDED = "AI_RATE_LIMIT_EXCEEDED"
+    AI_INVALID_REQUEST = "AI_INVALID_REQUEST"
+    AI_INTERNAL_ERROR = "AI_INTERNAL_ERROR"
+
+
+@strawberry.type
+class AiChatQuotaInfo:
+    """Quota information for AI chat."""
+
+    source: str = strawberry.field(description="Quota source identifier")
+    limit: int = strawberry.field(description="Total quota limit")
+    used: int = strawberry.field(description="Amount used")
+    remaining: int = strawberry.field(description="Amount remaining")
+
+
+@strawberry.type
+class AiChatError:
+    """Error type for AI chat operations."""
+
+    code: AiChatErrorCode = strawberry.field(description="Error code")
+    message: str = strawberry.field(description="Human-readable error message")
+    quota: Optional[AiChatQuotaInfo] = strawberry.field(
+        description="Quota information (if applicable)", default=None
+    )
+    retry_after: Optional[int] = strawberry.field(
+        description="Seconds until retry is allowed (if applicable)", default=None
+    )
+    max_words: Optional[int] = strawberry.field(
+        description="Maximum allowed words (for MESSAGE_TOO_LONG)", default=None
+    )
+    words_count: Optional[int] = strawberry.field(
+        description="Actual word count (for MESSAGE_TOO_LONG)", default=None
+    )
+
+
+@strawberry.type
+class AiChatResult:
+    """Result type for AI chat with error handling."""
+
+    success: Optional[AiAssistantResponseType] = strawberry.field(
+        description="Successful response data", default=None
+    )
+    error: Optional[AiChatError] = strawberry.field(
+        description="Error information if request failed", default=None
+    )
+
+
+# ============================================================================
+# Streaming types
+# ============================================================================
+
+
+@strawberry.type
+class AiChatStreamChunk:
+    """A chunk of the streaming AI chat response."""
+
+    delta: str = strawberry.field(
+        description="Incremental text delta for this chunk"
+    )
+    accumulated_text: str = strawberry.field(
+        description="Full accumulated text so far"
+    )
+    suggested_products: List[ProductSuggestionType] = strawberry.field(
+        description="Products suggested (sent in final chunk)", default_factory=list
+    )
+    suggested_branches: List[BranchSuggestionType] = strawberry.field(
+        description="Branches suggested (sent in final chunk)", default_factory=list
+    )
+    draft_order: Optional[DraftOrderType] = strawberry.field(
+        description="Draft order (sent in final chunk)", default=None
+    )
+    missing_fields: List[str] = strawberry.field(
+        description="Missing fields (sent in final chunk)", default_factory=list
+    )
+    confidence: Optional[float] = strawberry.field(
+        description="Confidence score (sent in final chunk)", default=None
+    )
+    is_final: bool = strawberry.field(
+        description="Whether this is the final chunk"
+    )
+    error: Optional[AiChatError] = strawberry.field(
+        description="Error if streaming failed", default=None
+    )

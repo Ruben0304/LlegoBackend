@@ -8,6 +8,7 @@ from strawberry.types import Info
 from utils.graphql_auth import apply_optional_jwt
 
 from .ai_assistant.queries import AiAssistantQuery
+from .ai_assistant.subscriptions import AiAssistantSubscription
 from .app_config.mutations import AppConfigMutations
 from .app_config.queries import AppConfigQueries
 from .auth.mutations import AuthMutation
@@ -116,7 +117,7 @@ class Mutation(
 
 
 @strawberry.type
-class Subscription(OrderSubscription):
+class Subscription(OrderSubscription, AiAssistantSubscription):
     pass
 
 
