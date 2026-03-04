@@ -1,4 +1,5 @@
 import logging
+from contextlib import suppress
 from typing import Optional, Union
 
 import uvicorn
@@ -8,6 +9,9 @@ from fastapi.responses import PlainTextResponse, Response
 from slowapi.errors import RateLimitExceeded
 from starlette.websockets import WebSocket
 from strawberry.fastapi import BaseContext, GraphQLRouter
+from strawberry.subscriptions.protocols.graphql_ws.handlers import (
+    BaseGraphQLWSHandler,
+)
 
 from api import router
 from clients import lifespan
@@ -115,6 +119,26 @@ async def get_graphql_context(request=None, response=None, websocket=None) -> Cu
     )
 
 
+class SafeGraphQLWSHandler(BaseGraphQLWSHandler):
+    """Guard against duplicated/stale STOP messages in legacy graphql-ws protocol."""
+
+    async def cleanup_operation(self, operation_id: str) -> None:
+        subscription = self.subscriptions.get(operation_id)
+        if not subscription:
+            # Client can send STOP after the operation was already closed.
+            return
+
+        await subscription.aclose()
+        self.subscriptions.pop(operation_id, None)
+
+        task = self.tasks.get(operation_id)
+        if task:
+            task.cancel()
+            with suppress(BaseException):
+                await task
+            self.tasks.pop(operation_id, None)
+
+
 # Mount GraphQL router
 # GraphiQL is disabled in production for security
 graphql_app = GraphQLRouter(
@@ -122,6 +146,7 @@ graphql_app = GraphQLRouter(
     graphql_ide="graphiql" if is_development else None,
     context_getter=get_graphql_context,
 )
+graphql_app.graphql_ws_handler_class = SafeGraphQLWSHandler
 app.include_router(graphql_app, prefix="/graphql")
 
 # Mount REST API router
