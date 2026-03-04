@@ -174,11 +174,13 @@ class ProductRecommendationService:
             print(f"   AI Reasoning: {recommendations.reasoning[:100]}...")
 
             # Step 7: Validate that all recommended product IDs exist in available products
-            valid_product_ids = {p.id for p in available_for_recommendation}
+            # Normalize IDs to string because DB models expose ObjectId and
+            # AI output returns plain strings.
+            valid_product_ids = {str(p.id) for p in available_for_recommendation}
             validated_recommendations = [
                 rec
                 for rec in recommendations.recommendations
-                if rec.product_id in valid_product_ids
+                if str(rec.product_id).strip() in valid_product_ids
             ]
 
             if len(validated_recommendations) < len(recommendations.recommendations):
