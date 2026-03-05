@@ -36,7 +36,7 @@ class InvitationQuery:
         business = await businesses_repo.get_by_id(business_id)
         if not business:
             raise Exception("Negocio no encontrado")
-        if business.ownerId != user_id:
+        if str(business.ownerId) != user_id:
             raise Exception("No autorizado para ver invitaciones de este negocio")
 
         invitations = await branch_invitations_repo.get_by_business(business_id)
@@ -57,7 +57,7 @@ class InvitationQuery:
         business = await businesses_repo.get_by_id(business_id)
         if not business:
             raise Exception("Negocio no encontrado")
-        if business.ownerId != user_id:
+        if str(business.ownerId) != user_id:
             raise Exception("No autorizado para ver invitaciones de este negocio")
 
         invitations = await branch_invitations_repo.get_active_by_business(business_id)
@@ -78,7 +78,7 @@ class InvitationQuery:
         business = await businesses_repo.get_by_id(business_id)
         if not business:
             raise Exception("Negocio no encontrado")
-        if business.ownerId != user_id:
+        if str(business.ownerId) != user_id:
             raise Exception("No autorizado para ver accesos de este negocio")
 
         accesses = await business_access_repo.get_by_business(business_id)

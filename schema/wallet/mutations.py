@@ -198,7 +198,7 @@ class WalletMutation:
 
         # Check if user is owner of the business
         business = await businesses_repo.get_by_id(branch.businessId)
-        is_owner = business and business.ownerId == user_id
+        is_owner = business and str(business.ownerId) == user_id
         
         if not is_manager and not is_owner:
             raise Exception("No autorizado: solo los managers de la sucursal o el dueño del negocio pueden transferir desde la wallet")
@@ -262,7 +262,7 @@ class WalletMutation:
 
         # Check if user is owner of the business
         business = await businesses_repo.get_by_id(branch.businessId)
-        is_owner = business and business.ownerId == user_id
+        is_owner = business and str(business.ownerId) == user_id
         
         if not is_manager and not is_owner:
             raise Exception("No autorizado: solo los managers de la sucursal o el dueño del negocio pueden retirar de la wallet")

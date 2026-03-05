@@ -101,7 +101,7 @@ class BranchInvitationType:
         if not business:
             return None
 
-        if business.ownerId != user_id and user_id != self.usedBy:
+        if str(business.ownerId) != user_id and user_id != self.usedBy:
             return None
 
         user = await users_repo.get_by_id(self.createdBy)
@@ -122,7 +122,7 @@ class BranchInvitationType:
         if not business:
             return None
 
-        if business.ownerId != user_id and user_id != self.usedBy:
+        if str(business.ownerId) != user_id and user_id != self.usedBy:
             return None
 
         user = await users_repo.get_by_id(self.usedBy)
@@ -167,7 +167,7 @@ class BusinessAccessType:
         if not business:
             return None
 
-        if business.ownerId != user_id and user_id != self.userId:
+        if str(business.ownerId) != user_id and user_id != self.userId:
             return None
 
         user = await users_repo.get_by_id(self.userId)

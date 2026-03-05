@@ -165,7 +165,7 @@ class BusinessMutation:
             raise Exception("Negocio no encontrado")
 
         # Verify user is owner
-        if business.ownerId != user_id:
+        if str(business.ownerId) != user_id:
             raise Exception("No autorizado para modificar este negocio")
 
         # Build updates dict from input
@@ -381,7 +381,8 @@ class BusinessMutation:
         if not business:
             raise Exception("Negocio no encontrado")
 
-        if business.ownerId != user_id:
+        # Convert user_id to ObjectId for comparison with business.ownerId
+        if str(business.ownerId) != user_id:
             raise Exception("No autorizado para eliminar este negocio")
 
         # Delete all branches of this business
