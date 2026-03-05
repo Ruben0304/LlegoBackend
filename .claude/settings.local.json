@@ -17,7 +17,8 @@
       "Bash(\"/Users/ruben/projects/Llego Org/LlegoBackend/schema/products/types.py\":*)",
       "Bash(\"/Users/ruben/projects/Llego Org/LlegoBackend/schema/products/queries.py\":*)",
       "Bash(find:*)",
-      "Bash(source .venv/Scripts/activate)"
+      "Bash(source .venv/Scripts/activate)",
+      "mcp__Claude_Preview__preview_start"
     ]
   }
 }

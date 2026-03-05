@@ -84,6 +84,8 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379"
 
     # Cache Configuration
+    # CACHE_ENABLED: master switch for app cache (false = always hit Mongo/source)
+    cache_enabled: bool = True
     # CACHE_ALL_ON_STARTUP: If true, preload all data at startup (no TTL, permanent until restart)
     # If false, use on-demand caching with TTL
     cache_all_on_startup: bool = False

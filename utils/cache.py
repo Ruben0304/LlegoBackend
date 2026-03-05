@@ -22,9 +22,14 @@ TTL_PRESIGNED_URL = settings.cache_presigned_url_ttl
 _cache_all_mode = False
 
 
+def is_cache_enabled() -> bool:
+    """Master switch for cache reads/writes."""
+    return settings.cache_enabled
+
+
 def is_cache_all_mode() -> bool:
     """Check if cache-all mode is enabled."""
-    return settings.cache_all_on_startup
+    return settings.cache_enabled and settings.cache_all_on_startup
 
 
 def get_effective_ttl(custom_ttl: Optional[int] = None) -> Optional[int]:
@@ -53,7 +58,7 @@ def get_cached(key: str) -> Optional[Any]:
     Returns:
         Cached value (deserialized from JSON) or None if not found
     """
-    if redis_client is None:
+    if not is_cache_enabled() or redis_client is None:
         return None
 
     try:
@@ -81,7 +86,7 @@ def set_cached(key: str, value: Any, ttl: Optional[int] = None) -> bool:
     Returns:
         True if successful, False otherwise
     """
-    if redis_client is None:
+    if not is_cache_enabled() or redis_client is None:
         return False
 
     try:
@@ -111,7 +116,7 @@ def invalidate_cache(pattern: str) -> int:
     Returns:
         Number of keys deleted
     """
-    if redis_client is None:
+    if not is_cache_enabled() or redis_client is None:
         return 0
 
     try:
@@ -157,7 +162,7 @@ def set_presigned_url_cached(key: str, value: Any) -> bool:
     Presigned URLs ALWAYS use TTL regardless of cache mode,
     because they have an expiration time from S3.
     """
-    if redis_client is None:
+    if not is_cache_enabled() or redis_client is None:
         return False
 
     try:
@@ -297,6 +302,10 @@ async def warm_up_cache():
         async def startup():
             await warm_up_cache()
     """
+    if not settings.cache_enabled:
+        print("ℹ Cache warm-up skipped: CACHE_ENABLED=false")
+        return
+
     if not settings.cache_all_on_startup:
         print("ℹ Cache warm-up skipped: CACHE_ALL_ON_STARTUP=false (using on-demand mode with TTL)")
         return
