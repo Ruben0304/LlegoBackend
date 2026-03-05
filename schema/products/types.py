@@ -29,6 +29,52 @@ class ProductType:
     def image_url(self) -> str:
         return generate_presigned_url(self.image)
 
+    @strawberry.field(description="Precio convertido a la otra moneda (si la sucursal acepta ambas)")
+    async def converted_price(self, info: Info) -> Optional[float]:
+        """Calcula el precio en la moneda alternativa si la sucursal acepta ambas."""
+        from repositories import branches_repo
+
+        branch_data = await branches_repo.get_by_id(self.branchId)
+        if not branch_data or branch_data.acceptedCurrency != "BOTH" or not branch_data.exchangeRate:
+            return None
+
+        # Si el producto está en USD, convertir a CUP
+        if self.currency.upper() == "USD":
+            return round(self.price * branch_data.exchangeRate, 2)
+        # Si el producto está en CUP, convertir a USD
+        elif self.currency.upper() == "CUP":
+            return round(self.price / branch_data.exchangeRate, 2)
+        
+        return None
+
+    @strawberry.field(description="Moneda del precio convertido")
+    async def converted_currency(self, info: Info) -> Optional[str]:
+        """Retorna la moneda del precio convertido."""
+        from repositories import branches_repo
+
+        branch_data = await branches_repo.get_by_id(self.branchId)
+        if not branch_data or branch_data.acceptedCurrency != "BOTH" or not branch_data.exchangeRate:
+            return None
+
+        # Retornar la moneda opuesta
+        if self.currency.upper() == "USD":
+            return "CUP"
+        elif self.currency.upper() == "CUP":
+            return "USD"
+        
+        return None
+
+    @strawberry.field(description="Tasa de cambio de la sucursal (si acepta ambas monedas)")
+    async def exchange_rate(self, info: Info) -> Optional[int]:
+        """Retorna la tasa de cambio de la sucursal si acepta ambas monedas."""
+        from repositories import branches_repo
+
+        branch_data = await branches_repo.get_by_id(self.branchId)
+        if not branch_data or branch_data.acceptedCurrency != "BOTH":
+            return None
+        
+        return branch_data.exchangeRate
+
     @strawberry.field(description="Product category name")
     async def category_name(self, info: Info) -> Optional[str]:
         """Resolve the product category name."""
@@ -162,6 +208,52 @@ class ScoredProductType:
         if self.distance_m is not None:
             return self.distance_m / 1000
         return None
+
+    @strawberry.field(description="Precio convertido a la otra moneda (si la sucursal acepta ambas)")
+    async def converted_price(self, info: Info) -> Optional[float]:
+        """Calcula el precio en la moneda alternativa si la sucursal acepta ambas."""
+        from repositories import branches_repo
+
+        branch_data = await branches_repo.get_by_id(self.branchId)
+        if not branch_data or branch_data.acceptedCurrency != "BOTH" or not branch_data.exchangeRate:
+            return None
+
+        # Si el producto está en USD, convertir a CUP
+        if self.currency.upper() == "USD":
+            return round(self.price * branch_data.exchangeRate, 2)
+        # Si el producto está en CUP, convertir a USD
+        elif self.currency.upper() == "CUP":
+            return round(self.price / branch_data.exchangeRate, 2)
+        
+        return None
+
+    @strawberry.field(description="Moneda del precio convertido")
+    async def converted_currency(self, info: Info) -> Optional[str]:
+        """Retorna la moneda del precio convertido."""
+        from repositories import branches_repo
+
+        branch_data = await branches_repo.get_by_id(self.branchId)
+        if not branch_data or branch_data.acceptedCurrency != "BOTH" or not branch_data.exchangeRate:
+            return None
+
+        # Retornar la moneda opuesta
+        if self.currency.upper() == "USD":
+            return "CUP"
+        elif self.currency.upper() == "CUP":
+            return "USD"
+        
+        return None
+
+    @strawberry.field(description="Tasa de cambio de la sucursal (si acepta ambas monedas)")
+    async def exchange_rate(self, info: Info) -> Optional[int]:
+        """Retorna la tasa de cambio de la sucursal si acepta ambas monedas."""
+        from repositories import branches_repo
+
+        branch_data = await branches_repo.get_by_id(self.branchId)
+        if not branch_data or branch_data.acceptedCurrency != "BOTH":
+            return None
+        
+        return branch_data.exchangeRate
 
     @strawberry.field(description="Product category name")
     async def category_name(self, info: Info) -> Optional[str]:
