@@ -13,6 +13,7 @@ from utils.graphql_auth import apply_optional_jwt
 from utils.serialization import to_strawberry_dict
 from utils.s3 import delete_file
 from services.access_checker import access_checker
+from services.qdrant_indexing_service import qdrant_indexing_service
 
 
 @strawberry.type
@@ -127,6 +128,9 @@ class ProductMutation:
         # Step 1: Create in MongoDB first
         created_product = await products_repo.create(product)
 
+        # Step 2: Index in Qdrant for vector search
+        await qdrant_indexing_service.index_product(created_product)
+
         return ProductType(**to_strawberry_dict(created_product))
 
     @strawberry.mutation(description="Actualizar un producto")
@@ -216,6 +220,10 @@ class ProductMutation:
         updated_product = await products_repo.update(product_id, updates)
         if not updated_product:
             raise Exception("Error al actualizar el producto")
+
+        # Re-index in Qdrant if name or description changed
+        if "name" in updates or "description" in updates:
+            await qdrant_indexing_service.index_product(updated_product)
 
         return ProductType(**to_strawberry_dict(updated_product))
 

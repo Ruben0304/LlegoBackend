@@ -6,11 +6,18 @@ Hybrid repository pattern:
 - Create/Update/Delete: Sync both databases
 """
 
+import uuid
 from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
 from qdrant_client.http import models as qdrant_models
 from qdrant_client.models import PointStruct
+
+_UUID_NAMESPACE = uuid.UUID("b1e7a000-0000-0000-0000-000000000000")
+
+
+def _mongo_id_to_uuid(mongo_id: str) -> str:
+    return str(uuid.uuid5(_UUID_NAMESPACE, mongo_id))
 
 from clients import get_database, get_qdrant_client
 from domain.models import Business
@@ -295,7 +302,7 @@ class BusinessRepository:
                 "description": business.description,
             }
 
-            point_id = existing.id if existing else str(business.id)
+            point_id = existing.id if existing else _mongo_id_to_uuid(str(business.id))
             point = PointStruct(
                 id=point_id,
                 vector=embedding,

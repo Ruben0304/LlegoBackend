@@ -1,5 +1,6 @@
 """Service for indexing entities in Qdrant after creation in MongoDB."""
 import logging
+import uuid
 from typing import Optional, List
 from qdrant_client.models import PointStruct
 
@@ -8,6 +9,13 @@ from services.embeddings.gemini_service import GeminiEmbeddingService
 from domain.models import Product, Branch, Business
 
 logger = logging.getLogger(__name__)
+
+_UUID_NAMESPACE = uuid.UUID("b1e7a000-0000-0000-0000-000000000000")
+
+
+def _mongo_id_to_uuid(mongo_id: str) -> str:
+    """Convert a MongoDB ObjectId string to a deterministic UUID."""
+    return str(uuid.uuid5(_UUID_NAMESPACE, mongo_id))
 
 
 class QdrantIndexingService:
@@ -66,9 +74,9 @@ class QdrantIndexingService:
                 "description": product.description or "",
             }
 
-            # Create point
+            # Create point (UUID derived from mongo_id — Qdrant requires UUID or int)
             point = PointStruct(
-                id=str(product.id),
+                id=_mongo_id_to_uuid(str(product.id)),
                 vector=embedding,
                 payload=payload
             )
@@ -121,9 +129,9 @@ class QdrantIndexingService:
                 "tipos": branch.tipos or [],
             }
 
-            # Create point
+            # Create point (UUID derived from mongo_id — Qdrant requires UUID or int)
             point = PointStruct(
-                id=str(branch.id),
+                id=_mongo_id_to_uuid(str(branch.id)),
                 vector=embedding,
                 payload=payload
             )
@@ -175,9 +183,9 @@ class QdrantIndexingService:
                 "description": business.description or "",
             }
 
-            # Create point
+            # Create point (UUID derived from mongo_id — Qdrant requires UUID or int)
             point = PointStruct(
-                id=str(business.id),
+                id=_mongo_id_to_uuid(str(business.id)),
                 vector=embedding,
                 payload=payload
             )
