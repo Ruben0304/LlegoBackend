@@ -58,6 +58,16 @@ class BranchMutation:
         if len(payment_methods) != len(input.paymentMethodIds):
             raise Exception("Uno o más métodos de pago no existen")
 
+        accepted_currency = input.acceptedCurrency.value if input.acceptedCurrency else None
+
+        if input.exchangeRate is not None:
+            if input.exchangeRate <= 0:
+                raise Exception("exchangeRate debe ser mayor que 0")
+            if accepted_currency != "BOTH":
+                raise Exception(
+                    "exchangeRate solo aplica cuando acceptedCurrency es BOTH"
+                )
+
         # Create branch
         branch_id = str(ObjectId())
         branch = Branch(
@@ -81,6 +91,8 @@ class BranchMutation:
             walletStatus="active",
             useAppMessaging=input.useAppMessaging,
             vehicles=[v.value for v in input.vehicles] if input.vehicles else [],
+            acceptedCurrency=accepted_currency,
+            exchangeRate=input.exchangeRate if accepted_currency == "BOTH" else None,
             accounts=[a.__dict__ for a in input.accounts] if input.accounts else [],
             qrPayments=[q.__dict__ for q in input.qrPayments]
             if input.qrPayments
@@ -190,6 +202,24 @@ class BranchMutation:
                 await delivery_persons_repo.unlink_all_from_branch(branch_id)
         if input.vehicles is not None:
             updates["vehicles"] = [v.value for v in input.vehicles]
+        if input.acceptedCurrency is not None:
+            updates["acceptedCurrency"] = input.acceptedCurrency.value
+            # If currency is not BOTH, exchange rate should be cleared.
+            if input.acceptedCurrency.value != "BOTH" and input.exchangeRate is None:
+                updates["exchangeRate"] = None
+        if input.exchangeRate is not None:
+            if input.exchangeRate <= 0:
+                raise Exception("exchangeRate debe ser mayor que 0")
+            target_currency = (
+                input.acceptedCurrency.value
+                if input.acceptedCurrency is not None
+                else branch.acceptedCurrency
+            )
+            if target_currency != "BOTH":
+                raise Exception(
+                    "exchangeRate solo aplica cuando acceptedCurrency es BOTH"
+                )
+            updates["exchangeRate"] = input.exchangeRate
         if input.accounts is not None:
             updates["accounts"] = [a.__dict__ for a in input.accounts]
         if input.qrPayments is not None:
