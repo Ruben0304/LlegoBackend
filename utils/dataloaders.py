@@ -49,7 +49,7 @@ async def load_products_for_branches(branch_ids: List[str]) -> List[List]:
         # Group by branch and cache
         uncached_products_by_branch = defaultdict(list)
         for product in all_products:
-            uncached_products_by_branch[product.branchId].append(product)
+            uncached_products_by_branch[str(product.branchId)].append(product)
 
         for branch_id in uncached_branch_ids:
             branch_products = uncached_products_by_branch.get(branch_id, [])
