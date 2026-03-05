@@ -94,21 +94,27 @@ class ComboType:
         return None
 
     @strawberry.field(
-        description="Representative products for frontend composition (one per slot)"
+        description="Representative products for frontend composition (max 4 products)"
     )
     async def representative_products(
         self, info: Info
     ) -> List[Annotated["ProductType", strawberry.lazy("schema.products.types")]]:
         """
-        Devuelve un producto representativo por cada slot para que el frontend
-        genere una imagen de composición cuando el combo no tiene foto.
+        Devuelve hasta 4 productos representativos de forma inteligente:
+        - Si hay 4+ slots: 1 producto por slot (primeros 4)
+        - Si hay menos de 4 slots: 1 por slot + productos adicionales de slots con múltiples opciones
+        - Siempre intenta devolver 4 productos para mejor composición visual
         """
+        import random
         from repositories import products_repo
         from schema.products.types import ProductType
 
+        MAX_PRODUCTS = 4
         products = []
-        for slot in self.slots:
-            # Tomar la opción por defecto o la primera
+        used_product_ids = set()
+
+        # Paso 1: Obtener 1 producto por slot (hasta 4 slots)
+        for slot in self.slots[:MAX_PRODUCTS]:
             default_option = next(
                 (opt for opt in slot.options if opt.isDefault),
                 slot.options[0] if slot.options else None,
@@ -118,6 +124,36 @@ class ComboType:
                 product = await products_repo.get_by_id(default_option.productId)
                 if product:
                     products.append(ProductType(**to_strawberry_dict(product)))
+                    used_product_ids.add(str(default_option.productId))
+
+        # Paso 2: Si tenemos menos de 4 productos, intentar agregar más
+        if len(products) < MAX_PRODUCTS:
+            # Buscar slots con múltiples opciones
+            slots_with_multiple = [
+                slot for slot in self.slots if len(slot.options) > 1
+            ]
+            
+            # Mezclar para variedad
+            random.shuffle(slots_with_multiple)
+            
+            for slot in slots_with_multiple:
+                if len(products) >= MAX_PRODUCTS:
+                    break
+                
+                # Buscar opciones no usadas en este slot
+                unused_options = [
+                    opt for opt in slot.options 
+                    if str(opt.productId) not in used_product_ids
+                ]
+                
+                for option in unused_options:
+                    if len(products) >= MAX_PRODUCTS:
+                        break
+                    
+                    product = await products_repo.get_by_id(option.productId)
+                    if product:
+                        products.append(ProductType(**to_strawberry_dict(product)))
+                        used_product_ids.add(str(option.productId))
 
         return products
 
