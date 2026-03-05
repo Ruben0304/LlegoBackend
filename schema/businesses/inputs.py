@@ -9,7 +9,7 @@ from schema.branches.inputs import (
     TransferAccountInput,
     TransferPhoneInput,
 )
-from schema.branches.types import BranchTipo
+from schema.branches.types import AcceptedCurrency, BranchTipo
 
 
 @strawberry.input
@@ -48,6 +48,8 @@ class RegisterBranchInput:
     avatar: Optional[str] = None  # Optional, upload via REST endpoint
     coverImage: Optional[str] = None  # Optional, upload via REST endpoint
     socialMedia: Optional[JSON] = None
+    acceptedCurrency: Optional[AcceptedCurrency] = None  # "CUP", "USD", or "BOTH"
+    exchangeRate: Optional[int] = None  # Tasa de cambio (solo si acceptedCurrency es "BOTH")
     # Transfer payment info
     accounts: Optional[List[TransferAccountInput]] = None
     qrPayments: Optional[List[QrPaymentInput]] = None

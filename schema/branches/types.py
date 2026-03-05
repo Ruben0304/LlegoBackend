@@ -59,6 +59,15 @@ class BranchVehicle(Enum):
     CAMINANDO = "caminando"
 
 
+@strawberry.enum
+class AcceptedCurrency(Enum):
+    """Monedas aceptadas por una sucursal."""
+
+    CUP = "CUP"
+    USD = "USD"
+    BOTH = "BOTH"
+
+
 @strawberry.type
 class CoordinatesType:
     type: str
@@ -88,6 +97,8 @@ class BranchType:
     qrPayments: List[QrPaymentType] = strawberry.field(default_factory=list)
     phones: List[TransferPhoneType] = strawberry.field(default_factory=list)
     deliveryRadius: Optional[float] = None
+    acceptedCurrency: Optional[AcceptedCurrency] = None
+    exchangeRate: Optional[int] = None
     createdAt: datetime
     wallet: WalletBalanceType
     walletStatus: str = "active"
@@ -192,6 +203,8 @@ class NearbyBranchType:
     qrPayments: List[QrPaymentType] = strawberry.field(default_factory=list)
     phones: List[TransferPhoneType] = strawberry.field(default_factory=list)
     deliveryRadius: Optional[float] = None
+    acceptedCurrency: Optional[AcceptedCurrency] = None
+    exchangeRate: Optional[int] = None
     createdAt: datetime
     distance_m: float
     wallet: WalletBalanceType
@@ -301,6 +314,8 @@ class ScoredBranchType:
     qrPayments: List[QrPaymentType] = strawberry.field(default_factory=list)
     phones: List[TransferPhoneType] = strawberry.field(default_factory=list)
     deliveryRadius: Optional[float] = None
+    acceptedCurrency: Optional[AcceptedCurrency] = None
+    exchangeRate: Optional[int] = None
     createdAt: datetime
     score: float
     distance_m: Optional[float] = None

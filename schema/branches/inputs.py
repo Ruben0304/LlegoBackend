@@ -5,7 +5,7 @@ from typing import List, Optional
 import strawberry
 from strawberry.scalars import JSON
 
-from .types import BranchTipo, BranchVehicle
+from .types import AcceptedCurrency, BranchTipo, BranchVehicle
 
 
 @strawberry.input
@@ -64,6 +64,8 @@ class CreateBranchInput:
     vehicles: Optional[List[BranchVehicle]] = (
         None  # ["moto", "bicicleta", "carro", "camioneta", "caminando"]
     )
+    acceptedCurrency: Optional[AcceptedCurrency] = None  # "CUP", "USD", or "BOTH"
+    exchangeRate: Optional[int] = None  # Tasa de cambio (solo si acceptedCurrency es "BOTH")
     # Transfer payment info
     accounts: Optional[List[TransferAccountInput]] = None
     qrPayments: Optional[List[QrPaymentInput]] = None
@@ -92,6 +94,8 @@ class UpdateBranchInput:
     vehicles: Optional[List[BranchVehicle]] = (
         None  # ["moto", "bicicleta", "carro", "camioneta", "caminando"]
     )
+    acceptedCurrency: Optional[AcceptedCurrency] = None  # "CUP", "USD", or "BOTH"
+    exchangeRate: Optional[int] = None  # Tasa de cambio (solo si acceptedCurrency es "BOTH")
     # Transfer payment info
     accounts: Optional[List[TransferAccountInput]] = None
     qrPayments: Optional[List[QrPaymentInput]] = None

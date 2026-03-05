@@ -45,6 +45,8 @@ class BranchSyncType:
     useAppMessaging: bool = True
     vehicles: List[str] = strawberry.field(default_factory=list)
     deliveryRadius: Optional[float] = None
+    acceptedCurrency: Optional[str] = None
+    exchangeRate: Optional[int] = None
     createdAt: datetime
 
     @strawberry.field(description="Presigned URL for the branch avatar")

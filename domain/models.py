@@ -135,6 +135,10 @@ class Branch(BaseModel):
     )
     vehicles: List[str] = []  # ["moto", "bicicleta", "carro", "camion", "a_pie"]
     deliveryRadius: Optional[float] = None  # Radio de entrega en km
+    # Currency acceptance: "CUP", "USD", or "BOTH"
+    acceptedCurrency: Optional[str] = None
+    # Exchange rate (only used when acceptedCurrency is "BOTH")
+    exchangeRate: Optional[int] = None  # Tasa de cambio USD a CUP
     # Transfer payment info
     accounts: List[TransferAccount] = []
     qrPayments: List[QrPayment] = []
