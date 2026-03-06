@@ -183,6 +183,17 @@ class PushNotificationService:
                         error_body = response.text
                         logger.error(f"❌ APNs error {response.status_code} for {token[:10]}...: {error_body}")
                         failed_tokens.append(token)
+
+                        # Auto-cleanup invalid tokens
+                        # APNs status codes that indicate the token should be removed:
+                        # 400 BadDeviceToken, 410 Unregistered
+                        if response.status_code in [400, 410]:
+                            try:
+                                from repositories.device_token_repository import device_token_repo
+                                await device_token_repo.deactivate(token)
+                                logger.info(f"🗑️ Auto-removed invalid token {token[:10]}... (status {response.status_code})")
+                            except Exception as cleanup_error:
+                                logger.error(f"Failed to auto-cleanup token: {cleanup_error}")
                         
                 except Exception as e:
                     logger.error(f"❌ Exception sending to {token[:10]}...: {type(e).__name__}: {e}")
