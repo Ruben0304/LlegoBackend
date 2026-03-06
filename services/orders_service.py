@@ -897,8 +897,8 @@ class OrderService:
                 return
 
             # Group tokens by platform
-            ios_tokens = [t.token for t in device_tokens if t.platform.value == "IOS"]
-            android_tokens = [t.token for t in device_tokens if t.platform.value == "ANDROID"]
+            ios_tokens = [t.token for t in device_tokens if t.platform == "IOS"]
+            android_tokens = [t.token for t in device_tokens if t.platform == "ANDROID"]
 
             # Additional data payload
             data = {
@@ -975,8 +975,8 @@ class OrderService:
             }
 
             # Group tokens by platform
-            ios_tokens = [t.token for t in all_tokens if t.platform.value == "IOS"]
-            android_tokens = [t.token for t in all_tokens if t.platform.value == "ANDROID"]
+            ios_tokens = [t.token for t in all_tokens if t.platform == "IOS"]
+            android_tokens = [t.token for t in all_tokens if t.platform == "ANDROID"]
 
             # Send to iOS devices
             if ios_tokens:
@@ -1069,8 +1069,8 @@ class OrderService:
             }
 
             # Group tokens by platform
-            ios_tokens = [t.token for t in all_tokens if t.platform.value == "IOS"]
-            android_tokens = [t.token for t in all_tokens if t.platform.value == "ANDROID"]
+            ios_tokens = [t.token for t in all_tokens if t.platform == "IOS"]
+            android_tokens = [t.token for t in all_tokens if t.platform == "ANDROID"]
 
             # Send to iOS devices
             if ios_tokens:
