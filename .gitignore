@@ -111,7 +111,6 @@ venv.bak/
 
 # mkdocs documentation
 /site
-*.md
 
 # mypy
 .mypy_cache/
@@ -141,3 +140,19 @@ secrets/
 
 # Data files
 data/*.json
+
+# Claude context (keep local only)
+CLAUDE.md
+
+# Scripts folder (utilities, not part of app)
+scripts/
+
+# Jupyter notebooks (development only)
+notebooks/
+
+# Documentation folder (keep empty for future docs)
+docs/
+
+# IDE configuration folders (local settings)
+.claude/
+.kiro/
