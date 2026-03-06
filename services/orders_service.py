@@ -279,7 +279,8 @@ class OrderService:
 
         created_order = await self.orders_repo.create(order)
 
-        # 8. TODO: Send push notification to branch
+        # 8. Send push notification to branch managers/owner
+        await self._send_new_order_notification_to_business(created_order, branch, business)
 
         return created_order
 
@@ -836,8 +837,9 @@ class OrderService:
 
             print(f"[ORDER SERVICE] Emitted tracking event for order {order.id}, status: {order.status.value}")
 
-            # Send push notification to customer
-            await self._send_order_status_notification(order)
+            # Send push notifications
+            await self._send_order_status_notification(order)  # To customer
+            await self._send_order_status_update_to_business(order)  # To business
 
         except Exception as e:
             # Don't fail the main operation if tracking event fails
@@ -931,6 +933,169 @@ class OrderService:
         except Exception as e:
             # Don't fail the main operation if push notification fails
             print(f"[PUSH] Failed to send notification: {e}")
+            import traceback
+            traceback.print_exc()
+
+    async def _send_new_order_notification_to_business(self, order: Order, branch, business):
+        """Send push notification to business managers/owner when new order arrives."""
+        try:
+            from services.push_notification_service import push_service
+            from repositories.device_token_repository import device_token_repo
+
+            # Collect user IDs to notify (owner + managers)
+            user_ids_to_notify = [str(business.ownerId)]
+            if hasattr(branch, 'managerIds') and branch.managerIds:
+                user_ids_to_notify.extend([str(mid) for mid in branch.managerIds])
+
+            # Remove duplicates
+            user_ids_to_notify = list(set(user_ids_to_notify))
+
+            # Get device tokens for all managers/owner
+            all_tokens = []
+            for user_id in user_ids_to_notify:
+                tokens = await device_token_repo.get_by_user_id(user_id)
+                all_tokens.extend(tokens)
+
+            if not all_tokens:
+                print(f"[PUSH] No device tokens for business {business.id} managers/owner")
+                return
+
+            # Notification message
+            title = "¡Nuevo pedido! 🔔"
+            body = f"Pedido #{order.orderNumber} - ${order.total:.2f} - {len(order.items)} items"
+
+            # Additional data payload
+            data = {
+                "orderId": str(order.id),
+                "orderNumber": order.orderNumber,
+                "branchId": str(order.branchId),
+                "total": str(order.total),
+                "status": order.status.value,
+                "type": "new_order"
+            }
+
+            # Group tokens by platform
+            ios_tokens = [t.token for t in all_tokens if t.platform.value == "IOS"]
+            android_tokens = [t.token for t in all_tokens if t.platform.value == "ANDROID"]
+
+            # Send to iOS devices
+            if ios_tokens:
+                await push_service.send_to_all(
+                    tokens=ios_tokens,
+                    title=title,
+                    body=body,
+                    data=data,
+                    platform="IOS"
+                )
+                print(f"[PUSH BUSINESS] New order sent to {len(ios_tokens)} iOS devices")
+
+            # Send to Android devices
+            if android_tokens:
+                await push_service.send_to_all(
+                    tokens=android_tokens,
+                    title=title,
+                    body=body,
+                    data=data,
+                    platform="ANDROID"
+                )
+                print(f"[PUSH BUSINESS] New order sent to {len(android_tokens)} Android devices")
+
+        except Exception as e:
+            print(f"[PUSH BUSINESS] Failed to send new order notification: {e}")
+            import traceback
+            traceback.print_exc()
+
+    async def _send_order_status_update_to_business(self, order: Order):
+        """Send push notification to business managers/owner about order status updates."""
+        try:
+            from services.push_notification_service import push_service
+            from repositories.device_token_repository import device_token_repo
+
+            # Only notify business for specific status changes
+            business_relevant_statuses = [
+                OrderStatus.CANCELLED,  # Customer cancelled
+                OrderStatus.DELIVERED,  # Delivery confirmed
+            ]
+
+            if order.status not in business_relevant_statuses:
+                return
+
+            # Get branch and business
+            branch = await branches_repo.get_by_id(order.branchId)
+            business = await businesses_repo.get_by_id(order.businessId)
+
+            if not branch or not business:
+                return
+
+            # Collect user IDs to notify
+            user_ids_to_notify = [str(business.ownerId)]
+            if hasattr(branch, 'managerIds') and branch.managerIds:
+                user_ids_to_notify.extend([str(mid) for mid in branch.managerIds])
+
+            user_ids_to_notify = list(set(user_ids_to_notify))
+
+            # Get device tokens
+            all_tokens = []
+            for user_id in user_ids_to_notify:
+                tokens = await device_token_repo.get_by_user_id(user_id)
+                all_tokens.extend(tokens)
+
+            if not all_tokens:
+                return
+
+            # Status-specific messages for business
+            status_messages = {
+                OrderStatus.CANCELLED: {
+                    "title": "Pedido cancelado ❌",
+                    "body": f"Pedido #{order.orderNumber} ha sido cancelado"
+                },
+                OrderStatus.DELIVERED: {
+                    "title": "Pedido entregado ✅",
+                    "body": f"Pedido #{order.orderNumber} fue entregado exitosamente"
+                },
+            }
+
+            notification = status_messages.get(order.status)
+            if not notification:
+                return
+
+            # Additional data payload
+            data = {
+                "orderId": str(order.id),
+                "orderNumber": order.orderNumber,
+                "branchId": str(order.branchId),
+                "status": order.status.value,
+                "type": "order_status_update_business"
+            }
+
+            # Group tokens by platform
+            ios_tokens = [t.token for t in all_tokens if t.platform.value == "IOS"]
+            android_tokens = [t.token for t in all_tokens if t.platform.value == "ANDROID"]
+
+            # Send to iOS devices
+            if ios_tokens:
+                await push_service.send_to_all(
+                    tokens=ios_tokens,
+                    title=notification["title"],
+                    body=notification["body"],
+                    data=data,
+                    platform="IOS"
+                )
+                print(f"[PUSH BUSINESS] Status update sent to {len(ios_tokens)} iOS devices")
+
+            # Send to Android devices
+            if android_tokens:
+                await push_service.send_to_all(
+                    tokens=android_tokens,
+                    title=notification["title"],
+                    body=notification["body"],
+                    data=data,
+                    platform="ANDROID"
+                )
+                print(f"[PUSH BUSINESS] Status update sent to {len(android_tokens)} Android devices")
+
+        except Exception as e:
+            print(f"[PUSH BUSINESS] Failed to send status update: {e}")
             import traceback
             traceback.print_exc()
 
