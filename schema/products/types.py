@@ -29,17 +29,21 @@ class ProductType:
     def image_url(self) -> str:
         return generate_presigned_url(self.image)
 
-    @strawberry.field(description="Presigned URL for the low quality product image (100x100)")
+    @strawberry.field(description="Presigned URL for the very low quality product image (200x200)")
+    def image_url_muy_baja(self) -> str:
+        return generate_image_variant_url(self.image, "muy_baja")
+
+    @strawberry.field(description="Presigned URL for the low quality product image (720x540)")
     def image_url_baja(self) -> str:
-        return generate_image_variant_url(self.image, 100)
+        return generate_image_variant_url(self.image, "baja")
 
-    @strawberry.field(description="Presigned URL for the medium quality product image (500x500)")
+    @strawberry.field(description="Presigned URL for the medium quality product image (1080x1350)")
     def image_url_media(self) -> str:
-        return generate_image_variant_url(self.image, 500)
+        return generate_image_variant_url(self.image, "media")
 
-    @strawberry.field(description="Presigned URL for the high quality product image (1000x1000)")
+    @strawberry.field(description="Presigned URL for the high quality product image (1440x1800)")
     def image_url_alta(self) -> str:
-        return generate_image_variant_url(self.image, 1000)
+        return generate_image_variant_url(self.image, "alta")
 
     @strawberry.field(description="Presigned URL for the original product image")
     def image_url_original(self) -> str:
@@ -219,17 +223,21 @@ class ScoredProductType:
     def image_url(self) -> str:
         return generate_presigned_url(self.image)
 
-    @strawberry.field(description="Presigned URL for the low quality product image (100x100)")
+    @strawberry.field(description="Presigned URL for the very low quality product image (200x200)")
+    def image_url_muy_baja(self) -> str:
+        return generate_image_variant_url(self.image, "muy_baja")
+
+    @strawberry.field(description="Presigned URL for the low quality product image (720x540)")
     def image_url_baja(self) -> str:
-        return generate_image_variant_url(self.image, 100)
+        return generate_image_variant_url(self.image, "baja")
 
-    @strawberry.field(description="Presigned URL for the medium quality product image (500x500)")
+    @strawberry.field(description="Presigned URL for the medium quality product image (1080x1350)")
     def image_url_media(self) -> str:
-        return generate_image_variant_url(self.image, 500)
+        return generate_image_variant_url(self.image, "media")
 
-    @strawberry.field(description="Presigned URL for the high quality product image (1000x1000)")
+    @strawberry.field(description="Presigned URL for the high quality product image (1440x1800)")
     def image_url_alta(self) -> str:
-        return generate_image_variant_url(self.image, 1000)
+        return generate_image_variant_url(self.image, "alta")
 
     @strawberry.field(description="Presigned URL for the original product image")
     def image_url_original(self) -> str:

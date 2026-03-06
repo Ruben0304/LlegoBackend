@@ -154,7 +154,7 @@ class SyncQuery:
         return result
 
     @strawberry.field(
-        description="Sincronizar imágenes con URLs para diferentes calidades (100x100, 500x500, 1000x1000, original)"
+        description="Sincronizar imágenes con URLs para diferentes calidades (200x200, 720x540, 1080x1350, 1440x1800, original)"
     )
     async def sync_images(
         self,
@@ -170,13 +170,14 @@ class SyncQuery:
         Args:
             entity_type: Filter by entity type ("business", "branch", "product")
             entity_ids: Filter by specific entity IDs
-            qualities: List of quality levels to include (default: [BAJA, MEDIA, ALTA, ORIGINAL])
+            qualities: List of quality levels to include (default: [MUY_BAJA, BAJA, MEDIA, ALTA, ORIGINAL])
             jwt: Optional JWT for authenticated requests
 
         Quality levels:
-        - BAJA: 100x100 thumbnail (stored as {filename}_thumbnail.jpg)
-        - MEDIA: 500x500 thumbnail (stored as {filename}_thumbnail_500.jpg)
-        - ALTA: 1000x1000 thumbnail (stored as {filename}_thumbnail_1000.jpg)
+        - MUY_BAJA: 200x200 thumbnail (stored as {filename}_thumbnail_muy_baja.webp)
+        - BAJA: 720x540 thumbnail (stored as {filename}_thumbnail.webp)
+        - MEDIA: 1080x1350 thumbnail (stored as {filename}_thumbnail_media.webp)
+        - ALTA: 1440x1800 thumbnail (stored as {filename}_thumbnail_alta.webp)
         - ORIGINAL: Original full-size image
 
         Thumbnails are automatically generated when uploading images via upload_file().
@@ -186,6 +187,7 @@ class SyncQuery:
         # Default to all qualities if not specified
         if qualities is None:
             qualities = [
+                ImageQuality.MUY_BAJA,
                 ImageQuality.BAJA,
                 ImageQuality.MEDIA,
                 ImageQuality.ALTA,
@@ -273,17 +275,21 @@ class SyncQuery:
 
             # Generate presigned URLs based on requested qualities
             for quality in qualities:
-                if quality == ImageQuality.BAJA:
+                if quality == ImageQuality.MUY_BAJA:
+                    urls.muy_baja = generate_presigned_url(
+                        get_image_variant_path(img["image_path"], "muy_baja")
+                    )
+                elif quality == ImageQuality.BAJA:
                     urls.baja = generate_presigned_url(
-                        get_image_variant_path(img["image_path"], 100)
+                        get_image_variant_path(img["image_path"], "baja")
                     )
                 elif quality == ImageQuality.MEDIA:
                     urls.media = generate_presigned_url(
-                        get_image_variant_path(img["image_path"], 500)
+                        get_image_variant_path(img["image_path"], "media")
                     )
                 elif quality == ImageQuality.ALTA:
                     urls.alta = generate_presigned_url(
-                        get_image_variant_path(img["image_path"], 1000)
+                        get_image_variant_path(img["image_path"], "alta")
                     )
                 elif quality == ImageQuality.ORIGINAL:
                     urls.original = generate_presigned_url(img["image_path"])

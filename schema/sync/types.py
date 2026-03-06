@@ -13,9 +13,10 @@ from utils.s3 import generate_presigned_url
 class ImageQuality(Enum):
     """Image quality levels for download."""
 
-    BAJA = "baja"  # Low quality (thumbnail 100x100)
-    MEDIA = "media"  # Medium quality (thumbnail 500x500)
-    ALTA = "alta"  # High quality (thumbnail 1000x1000)
+    MUY_BAJA = "muy_baja"  # Very low quality (thumbnail 200x200)
+    BAJA = "baja"  # Low quality (thumbnail 720x540)
+    MEDIA = "media"  # Medium quality (thumbnail 1080x1350)
+    ALTA = "alta"  # High quality (thumbnail 1440x1800)
     ORIGINAL = "original"  # Original quality (full size)
 
 
@@ -111,9 +112,10 @@ class ProductSyncType:
 class ImageUrlType:
     """Image URLs for different quality levels."""
 
-    baja: Optional[str] = None  # Low quality (100x100 thumbnail)
-    media: Optional[str] = None  # Medium quality (500x500 thumbnail)
-    alta: Optional[str] = None  # High quality (1000x1000 thumbnail)
+    muy_baja: Optional[str] = None  # Very low quality (200x200 thumbnail)
+    baja: Optional[str] = None  # Low quality (720x540 thumbnail)
+    media: Optional[str] = None  # Medium quality (1080x1350 thumbnail)
+    alta: Optional[str] = None  # High quality (1440x1800 thumbnail)
     original: Optional[str] = None  # Original quality (full size)
 
 

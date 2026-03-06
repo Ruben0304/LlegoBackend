@@ -1,4 +1,4 @@
-"""Generate 100x100, 500x500, and 1000x1000 image variants for existing products."""
+"""Generate product image variants for existing products in S3."""
 
 import argparse
 import sys
@@ -12,7 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from clients.s3_client import get_s3_client
 from core.config import settings
 from utils.s3 import (
-    PRODUCT_IMAGE_VARIANT_SIZES,
+    PRODUCT_IMAGE_VARIANT_KEYS,
     SUPPORTED_IMAGE_EXTENSIONS,
     generate_image_variant,
     get_image_variant_path,
@@ -29,9 +29,9 @@ def parse_args() -> argparse.Namespace:
         help="S3 prefix to scan for product images.",
     )
     parser.add_argument(
-        "--sizes",
-        default="100,500,1000",
-        help="Comma-separated list of variant sizes to generate.",
+        "--variants",
+        default="muy_baja,baja,media,alta",
+        help="Comma-separated list of variant keys to generate.",
     )
     parser.add_argument(
         "--force",
@@ -52,8 +52,8 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def parse_sizes(raw_sizes: str) -> list[int]:
-    return [int(size.strip()) for size in raw_sizes.split(",") if size.strip()]
+def parse_variants(raw_variants: str) -> list[str]:
+    return [variant.strip() for variant in raw_variants.split(",") if variant.strip()]
 
 
 def is_original_product_image(key: str) -> bool:
@@ -83,7 +83,7 @@ def iter_original_images(s3_client, prefix: str) -> Iterable[str]:
 
 def main() -> None:
     args = parse_args()
-    sizes = parse_sizes(args.sizes) or list(PRODUCT_IMAGE_VARIANT_SIZES)
+    variants = parse_variants(args.variants) or list(PRODUCT_IMAGE_VARIANT_KEYS)
     s3_client = get_s3_client()
 
     processed = 0
@@ -92,7 +92,7 @@ def main() -> None:
     failures = 0
 
     print(
-        f"Scanning bucket={settings.s3_bucket_name} prefix={args.prefix} sizes={sizes} force={args.force} dry_run={args.dry_run}"
+        f"Scanning bucket={settings.s3_bucket_name} prefix={args.prefix} variants={variants} force={args.force} dry_run={args.dry_run}"
     )
 
     for key in iter_original_images(s3_client, args.prefix):
@@ -110,10 +110,8 @@ def main() -> None:
             print(f"  ✗ Failed to download original: {exc}")
             continue
 
-        extension = "." + key.rsplit(".", 1)[-1].lower()
-
-        for size in sizes:
-            variant_key = get_image_variant_path(key, size)
+        for variant in variants:
+            variant_key = get_image_variant_path(key, variant)
 
             if not args.force and object_exists(s3_client, variant_key):
                 skipped += 1
@@ -126,9 +124,7 @@ def main() -> None:
                 continue
 
             try:
-                variant_bytes = generate_image_variant(
-                    original_bytes, size=size, output_extension=extension
-                )
+                variant_bytes = generate_image_variant(original_bytes, variant=variant)
                 s3_client.put_object(
                     Bucket=settings.s3_bucket_name,
                     Key=variant_key,

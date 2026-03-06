@@ -129,8 +129,8 @@ def process_product_image(
     """
     img = Image.open(BytesIO(file_content))
 
-    # Maximum size for product images
-    max_size = (1000, 1000)
+    # Maximum size for product originals so alta can still be generated from source
+    max_size = (1440, 1800)
 
     # Resize if too large
     if img.width > max_size[0] or img.height > max_size[1]:

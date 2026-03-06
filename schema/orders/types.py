@@ -96,29 +96,37 @@ class OrderItemType:
         # since orders are relatively immutable after creation
         return generate_presigned_url(self._image_path, expiration=86400)
 
-    @strawberry.field(description="Presigned URL for the low quality item image (100x100)")
+    @strawberry.field(description="Presigned URL for the very low quality item image (200x200)")
+    def imageUrlMuyBaja(self) -> Optional[str]:
+        from utils.s3 import generate_image_variant_url
+
+        if not self._image_path:
+            return None
+        return generate_image_variant_url(self._image_path, "muy_baja", expiration=86400)
+
+    @strawberry.field(description="Presigned URL for the low quality item image (720x540)")
     def imageUrlBaja(self) -> Optional[str]:
         from utils.s3 import generate_image_variant_url
 
         if not self._image_path:
             return None
-        return generate_image_variant_url(self._image_path, 100, expiration=86400)
+        return generate_image_variant_url(self._image_path, "baja", expiration=86400)
 
-    @strawberry.field(description="Presigned URL for the medium quality item image (500x500)")
+    @strawberry.field(description="Presigned URL for the medium quality item image (1080x1350)")
     def imageUrlMedia(self) -> Optional[str]:
         from utils.s3 import generate_image_variant_url
 
         if not self._image_path:
             return None
-        return generate_image_variant_url(self._image_path, 500, expiration=86400)
+        return generate_image_variant_url(self._image_path, "media", expiration=86400)
 
-    @strawberry.field(description="Presigned URL for the high quality item image (1000x1000)")
+    @strawberry.field(description="Presigned URL for the high quality item image (1440x1800)")
     def imageUrlAlta(self) -> Optional[str]:
         from utils.s3 import generate_image_variant_url
 
         if not self._image_path:
             return None
-        return generate_image_variant_url(self._image_path, 1000, expiration=86400)
+        return generate_image_variant_url(self._image_path, "alta", expiration=86400)
 
     @strawberry.field(description="Presigned URL for the original item image")
     def imageUrlOriginal(self) -> Optional[str]:
@@ -546,23 +554,29 @@ class TopProductType:
         # Use 24-hour expiration for dashboard stats (86400 seconds)
         return generate_presigned_url(self._image_path, expiration=86400)
 
-    @strawberry.field(description="Presigned URL for the low quality product image (100x100)")
+    @strawberry.field(description="Presigned URL for the very low quality product image (200x200)")
+    def imageUrlMuyBaja(self) -> str:
+        from utils.s3 import generate_image_variant_url
+
+        return generate_image_variant_url(self._image_path, "muy_baja", expiration=86400)
+
+    @strawberry.field(description="Presigned URL for the low quality product image (720x540)")
     def imageUrlBaja(self) -> str:
         from utils.s3 import generate_image_variant_url
 
-        return generate_image_variant_url(self._image_path, 100, expiration=86400)
+        return generate_image_variant_url(self._image_path, "baja", expiration=86400)
 
-    @strawberry.field(description="Presigned URL for the medium quality product image (500x500)")
+    @strawberry.field(description="Presigned URL for the medium quality product image (1080x1350)")
     def imageUrlMedia(self) -> str:
         from utils.s3 import generate_image_variant_url
 
-        return generate_image_variant_url(self._image_path, 500, expiration=86400)
+        return generate_image_variant_url(self._image_path, "media", expiration=86400)
 
-    @strawberry.field(description="Presigned URL for the high quality product image (1000x1000)")
+    @strawberry.field(description="Presigned URL for the high quality product image (1440x1800)")
     def imageUrlAlta(self) -> str:
         from utils.s3 import generate_image_variant_url
 
-        return generate_image_variant_url(self._image_path, 1000, expiration=86400)
+        return generate_image_variant_url(self._image_path, "alta", expiration=86400)
 
     @strawberry.field(description="Presigned URL for the original product image")
     def imageUrlOriginal(self) -> str:

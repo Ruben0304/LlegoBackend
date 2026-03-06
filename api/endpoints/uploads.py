@@ -51,7 +51,7 @@ ALLOWED_VIDEO_TYPES = {
 MAX_FILE_SIZES = {
     "avatar": 10 * 1024 * 1024,  # 10MB - will be resized to 400x400
     "cover": 10 * 1024 * 1024,  # 10MB - will be resized to 1200x400
-    "product": 10 * 1024 * 1024,  # 10MB - will be resized to max 1000x1000
+    "product": 10 * 1024 * 1024,  # 10MB - will be resized to max 1440x1800
     "model3d": 50 * 1024 * 1024,  # 50MB - 3D models can be large
     "video": 100 * 1024 * 1024,  # 100MB - videos can be large
     "thumbnail": 5 * 1024 * 1024,  # 5MB - thumbnails are smaller
@@ -536,7 +536,7 @@ async def upload_product_image(
 ):
     """
     Upload image for a product.
-    Max size: 5MB | Preserves transparency (PNG/WebP supported)
+    Max size: 10MB | Preserves transparency (PNG/WebP supported)
     """
     if not user_id:
         raise HTTPException(status_code=401, detail="No autorizado")
@@ -565,7 +565,7 @@ async def upload_product_image(
             "products",
             entity_id,
             extension,
-            thumbnail_sizes=(100, 500, 1000),
+            thumbnail_variants=("muy_baja", "baja", "media", "alta"),
         )
     except Exception:
         raise HTTPException(status_code=500, detail="Error subiendo imagen")

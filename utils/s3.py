@@ -1,6 +1,6 @@
 import time
 import io
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Union
 
 from clients.s3_client import get_s3_client
 from core.config import settings
@@ -17,10 +17,49 @@ except ImportError:
     print("⚠ PIL/Pillow not available. Thumbnails will not be generated.")
 
 
-JPEG_QUALITY = 85
+JPEG_QUALITY = 80
+WEBP_QUALITY = 75
 DEFAULT_THUMBNAIL_SIZE = 100
-PRODUCT_IMAGE_VARIANT_SIZES = (100, 500, 1000)
+LEGACY_THUMBNAIL_VARIANT = "legacy_thumbnail"
+PRODUCT_IMAGE_VARIANT_KEYS = ("muy_baja", "baja", "media", "alta")
 SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+IMAGE_VARIANT_DEFINITIONS = {
+    LEGACY_THUMBNAIL_VARIANT: {
+        "suffix": "_thumbnail",
+        "size": (100, 100),
+        "extension": ".jpg",
+        "quality": 85,
+        "fit": False,
+    },
+    "muy_baja": {
+        "suffix": "_thumbnail_muy_baja",
+        "size": (200, 200),
+        "extension": ".webp",
+        "quality": WEBP_QUALITY,
+        "fit": True,
+    },
+    "baja": {
+        "suffix": "_thumbnail",
+        "size": (720, 540),
+        "extension": ".webp",
+        "quality": WEBP_QUALITY,
+        "fit": True,
+    },
+    "media": {
+        "suffix": "_thumbnail_media",
+        "size": (1080, 1350),
+        "extension": ".webp",
+        "quality": WEBP_QUALITY,
+        "fit": True,
+    },
+    "alta": {
+        "suffix": "_thumbnail_alta",
+        "size": (1440, 1800),
+        "extension": ".webp",
+        "quality": WEBP_QUALITY,
+        "fit": True,
+    },
+}
 
 def generate_presigned_url(object_name: str, expiration: int = 3600) -> str:
     """
@@ -77,16 +116,42 @@ def _prepare_image_for_jpeg(img: "Image.Image") -> "Image.Image":
     return img
 
 
+def _prepare_image_for_webp(img: "Image.Image") -> "Image.Image":
+    """Normalize palette images before saving to WebP."""
+    if img.mode == "P":
+        return img.convert("RGBA")
+    return img
+
+
+def _resolve_variant_definition(variant: Optional[Union[str, int]]) -> dict:
+    """Resolve product or legacy variant configuration."""
+    if variant is None:
+        return IMAGE_VARIANT_DEFINITIONS["baja"]
+
+    if isinstance(variant, int):
+        legacy_map = {
+            100: "legacy_thumbnail",
+            200: "muy_baja",
+            500: "media",
+            720: "baja",
+            1000: "alta",
+            1080: "media",
+            1440: "alta",
+        }
+        variant = legacy_map.get(variant, "baja")
+
+    return IMAGE_VARIANT_DEFINITIONS.get(str(variant), IMAGE_VARIANT_DEFINITIONS["baja"])
+
+
 def generate_image_variant(
-    image_bytes: bytes, size: int = DEFAULT_THUMBNAIL_SIZE, output_extension: str = ".jpg"
+    image_bytes: bytes, variant: Union[str, int] = "baja"
 ) -> bytes:
     """
     Generate a resized image variant from image bytes.
 
     Args:
         image_bytes: Original image bytes
-        size: Maximum size for width/height while preserving aspect ratio
-        output_extension: Output extension/format
+        variant: Variant key or legacy integer alias
 
     Returns:
         Image variant bytes
@@ -95,74 +160,88 @@ def generate_image_variant(
         return image_bytes
 
     try:
+        from PIL import ImageOps
+
         img = Image.open(io.BytesIO(image_bytes))
-        img.thumbnail((size, size), Image.Resampling.LANCZOS)
+        definition = _resolve_variant_definition(variant)
+        width, height = definition["size"]
+        if definition["fit"]:
+            img = ImageOps.fit(
+                img,
+                (width, height),
+                method=Image.Resampling.LANCZOS,
+                centering=(0.5, 0.5),
+            )
+        else:
+            img.thumbnail((width, height), Image.Resampling.LANCZOS)
 
         output = io.BytesIO()
-        normalized_extension = output_extension.lower()
+        normalized_extension = definition["extension"].lower()
+        quality = definition["quality"]
 
         if normalized_extension in (".jpg", ".jpeg"):
             img = _prepare_image_for_jpeg(img)
-            img.save(output, format="JPEG", quality=JPEG_QUALITY, optimize=True)
+            img.save(output, format="JPEG", quality=quality, optimize=True)
         elif normalized_extension == ".png":
             img.save(output, format="PNG", optimize=True)
         elif normalized_extension == ".webp":
-            if img.mode == "P":
-                img = img.convert("RGBA")
-            img.save(output, format="WEBP", quality=JPEG_QUALITY)
+            img = _prepare_image_for_webp(img)
+            img.save(output, format="WEBP", quality=quality, method=6)
         elif normalized_extension == ".gif":
             if img.mode not in ("P", "L"):
                 img = img.convert("P", palette=Image.ADAPTIVE)
             img.save(output, format="GIF", optimize=True)
         else:
             img = _prepare_image_for_jpeg(img)
-            img.save(output, format="JPEG", quality=JPEG_QUALITY, optimize=True)
+            img.save(output, format="JPEG", quality=quality, optimize=True)
 
         output.seek(0)
         return output.read()
     except Exception as e:
-        print(f"Error generating image variant ({size}px): {e}")
+        print(f"Error generating image variant ({variant}): {e}")
         return image_bytes
 
 
 def generate_thumbnail(image_bytes: bytes, size: int = DEFAULT_THUMBNAIL_SIZE) -> bytes:
     """Backward-compatible wrapper for the 100x100 thumbnail."""
-    return generate_image_variant(image_bytes, size=size, output_extension=".jpg")
+    return generate_image_variant(image_bytes, variant=size)
 
 
-def get_image_variant_path(original_path: str, size: int = DEFAULT_THUMBNAIL_SIZE) -> str:
+def get_image_variant_path(
+    original_path: str, variant: Union[str, int] = "baja"
+) -> str:
     """
     Build the derived image path for a given size.
 
-    100x100 keeps the legacy `_thumbnail` suffix for backwards compatibility.
-    Other sizes use `_thumbnail_{size}`.
+    Product variants use fixed named outputs in WebP.
+    Legacy 100x100 thumbnail keeps `_thumbnail.jpg`.
     """
     if "." not in original_path:
         return original_path
 
-    base, ext = original_path.rsplit(".", 1)
-    suffix = "_thumbnail" if size == DEFAULT_THUMBNAIL_SIZE else f"_thumbnail_{size}"
-    return f"{base}{suffix}.{ext}"
+    base, _ = original_path.rsplit(".", 1)
+    definition = _resolve_variant_definition(variant)
+    return f"{base}{definition['suffix']}{definition['extension']}"
 
 
 def get_thumbnail_path(original_path: str) -> str:
-    """Get the legacy 100x100 thumbnail path for an original image."""
-    return get_image_variant_path(original_path, DEFAULT_THUMBNAIL_SIZE)
+    """Get the default low quality product thumbnail path for an original image."""
+    return get_image_variant_path(original_path, "baja")
 
 
 def get_image_variant_paths(
-    original_path: str, sizes: Optional[Iterable[int]] = None
+    original_path: str, variants: Optional[Iterable[Union[str, int]]] = None
 ) -> list[str]:
     """Get all derived image paths for the given original path."""
-    resolved_sizes = sizes or PRODUCT_IMAGE_VARIANT_SIZES
-    return [get_image_variant_path(original_path, size) for size in resolved_sizes]
+    resolved_variants = variants or PRODUCT_IMAGE_VARIANT_KEYS
+    return [get_image_variant_path(original_path, variant) for variant in resolved_variants]
 
 
 def generate_image_variant_url(
-    object_name: str, size: int, expiration: int = 3600
+    object_name: str, variant: Union[str, int], expiration: int = 3600
 ) -> str:
     """Generate a presigned URL for a specific derived image variant."""
-    return generate_presigned_url(get_image_variant_path(object_name, size), expiration)
+    return generate_presigned_url(get_image_variant_path(object_name, variant), expiration)
 
 
 async def upload_file(
@@ -171,7 +250,7 @@ async def upload_file(
     entity_id: str,
     extension: str,
     generate_thumbnails: bool = True,
-    thumbnail_sizes: Optional[Iterable[int]] = None,
+    thumbnail_variants: Optional[Iterable[str]] = None,
 ) -> str:
     """
     Upload a file to an S3 bucket and return the relative path.
@@ -182,7 +261,7 @@ async def upload_file(
         entity_id: Entity ID for naming
         extension: File extension (e.g., ".jpg", ".png")
         generate_thumbnails: Whether to generate derived image variants
-        thumbnail_sizes: Sizes for derived variants (defaults to [100])
+        thumbnail_variants: Variant keys for derived images
 
     Returns:
         Relative path to the uploaded file
@@ -204,13 +283,11 @@ async def upload_file(
         invalidate_cache(cache_key)
 
         if generate_thumbnails and extension.lower() in SUPPORTED_IMAGE_EXTENSIONS:
-            variant_sizes = list(thumbnail_sizes or [DEFAULT_THUMBNAIL_SIZE])
+            variant_keys = list(thumbnail_variants or [LEGACY_THUMBNAIL_VARIANT])
 
-            for size in variant_sizes:
-                variant_bytes = generate_image_variant(
-                    file_content, size=size, output_extension=extension
-                )
-                variant_name = get_image_variant_path(object_name, size)
+            for variant in variant_keys:
+                variant_bytes = generate_image_variant(file_content, variant=variant)
+                variant_name = get_image_variant_path(object_name, variant)
                 s3_client.put_object(
                     Bucket=settings.s3_bucket_name,
                     Key=variant_name,
@@ -221,7 +298,7 @@ async def upload_file(
                 invalidate_cache(variant_cache_key)
 
             print(
-                f"✓ Uploaded original and {len(variant_sizes)} derived image(s): {object_name}"
+                f"✓ Uploaded original and {len(variant_keys)} derived image(s): {object_name}"
             )
 
     except Exception as e:
