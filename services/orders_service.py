@@ -777,6 +777,7 @@ class OrderService:
         Emit tracking event for real-time subscription.
 
         Called when order status changes or delivery location updates.
+        Also sends push notification to customer.
         """
         try:
             # Import here to avoid circular dependency
@@ -835,9 +836,101 @@ class OrderService:
 
             print(f"[ORDER SERVICE] Emitted tracking event for order {order.id}, status: {order.status.value}")
 
+            # Send push notification to customer
+            await self._send_order_status_notification(order)
+
         except Exception as e:
             # Don't fail the main operation if tracking event fails
             print(f"[ORDER SERVICE] Failed to emit tracking event: {e}")
+            import traceback
+            traceback.print_exc()
+
+    async def _send_order_status_notification(self, order: Order):
+        """Send push notification to customer about order status change."""
+        try:
+            from services.push_notification_service import push_service
+            from repositories.device_token_repository import device_token_repo
+
+            # Get customer's device tokens
+            device_tokens = await device_token_repo.get_by_user_id(str(order.customerId))
+
+            if not device_tokens:
+                print(f"[PUSH] No device tokens for customer {order.customerId}")
+                return
+
+            # Status-specific messages
+            status_messages = {
+                OrderStatus.ACCEPTED: {
+                    "title": "¡Pedido aceptado! 🎉",
+                    "body": f"Tu pedido #{order.orderNumber} ha sido aceptado y se está preparando"
+                },
+                OrderStatus.PREPARING: {
+                    "title": "Preparando tu pedido 👨‍🍳",
+                    "body": f"Estamos preparando tu pedido #{order.orderNumber}"
+                },
+                OrderStatus.READY_FOR_PICKUP: {
+                    "title": "¡Pedido listo! 📦",
+                    "body": f"Tu pedido #{order.orderNumber} está listo para ser recogido"
+                },
+                OrderStatus.ON_THE_WAY: {
+                    "title": "¡En camino! 🚗",
+                    "body": f"Tu pedido #{order.orderNumber} está en camino"
+                },
+                OrderStatus.DELIVERED: {
+                    "title": "¡Pedido entregado! ✅",
+                    "body": f"Tu pedido #{order.orderNumber} ha sido entregado. ¡Disfrútalo!"
+                },
+                OrderStatus.CANCELLED: {
+                    "title": "Pedido cancelado ❌",
+                    "body": f"Tu pedido #{order.orderNumber} ha sido cancelado"
+                },
+                OrderStatus.MODIFIED_BY_STORE: {
+                    "title": "Pedido modificado ⚠️",
+                    "body": f"La tienda modificó tu pedido #{order.orderNumber}. Por favor revísalo"
+                },
+            }
+
+            notification = status_messages.get(order.status)
+            if not notification:
+                return
+
+            # Group tokens by platform
+            ios_tokens = [t.token for t in device_tokens if t.platform.value == "IOS"]
+            android_tokens = [t.token for t in device_tokens if t.platform.value == "ANDROID"]
+
+            # Additional data payload
+            data = {
+                "orderId": str(order.id),
+                "orderNumber": order.orderNumber,
+                "status": order.status.value,
+                "type": "order_status_update"
+            }
+
+            # Send to iOS devices
+            if ios_tokens:
+                await push_service.send_to_all(
+                    tokens=ios_tokens,
+                    title=notification["title"],
+                    body=notification["body"],
+                    data=data,
+                    platform="IOS"
+                )
+                print(f"[PUSH] Sent to {len(ios_tokens)} iOS devices")
+
+            # Send to Android devices
+            if android_tokens:
+                await push_service.send_to_all(
+                    tokens=android_tokens,
+                    title=notification["title"],
+                    body=notification["body"],
+                    data=data,
+                    platform="ANDROID"
+                )
+                print(f"[PUSH] Sent to {len(android_tokens)} Android devices")
+
+        except Exception as e:
+            # Don't fail the main operation if push notification fails
+            print(f"[PUSH] Failed to send notification: {e}")
             import traceback
             traceback.print_exc()
 
