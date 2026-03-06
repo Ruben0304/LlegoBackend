@@ -427,7 +427,7 @@ class OrderQuery:
                 TopProductType(
                     productId=str(p["productId"]),
                     name=p["name"],
-                    imageUrl=p["imageUrl"],
+                    _image_path=p["imageUrl"],
                     totalQuantity=p["totalQuantity"],
                     totalRevenue=p["totalRevenue"],
                 )
