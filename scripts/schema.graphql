@@ -1528,9 +1528,11 @@ type OrderItemType {
   basePrice: Float!
   finalPrice: Float!
   quantity: Int!
-  imageUrl: String
   requestDescription: String
   wasModifiedByStore: Boolean!
+
+  """Presigned URL for the item image"""
+  imageUrl: String
 
   """Line total (price * quantity)"""
   lineTotal: Float!
@@ -2701,9 +2703,11 @@ type SurveyType {
 type TopProductType {
   productId: String!
   name: String!
-  imageUrl: String!
   totalQuantity: Int!
   totalRevenue: Float!
+
+  """Presigned URL for the product image"""
+  imageUrl: String!
 }
 
 input TransferAccountInput {

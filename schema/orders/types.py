@@ -79,9 +79,22 @@ class OrderItemType:
     basePrice: float
     finalPrice: float
     quantity: int
-    imageUrl: Optional[str]
     requestDescription: Optional[str] = None
     wasModifiedByStore: bool
+
+    # Private field for S3 path
+    _image_path: strawberry.Private[Optional[str]]
+
+    @strawberry.field(description="Presigned URL for the item image")
+    def imageUrl(self) -> Optional[str]:
+        """Generate a fresh presigned URL for the image on each query."""
+        from utils.s3 import generate_presigned_url
+
+        if not self._image_path:
+            return None
+        # Use 24-hour expiration for order items (86400 seconds)
+        # since orders are relatively immutable after creation
+        return generate_presigned_url(self._image_path, expiration=86400)
 
     @strawberry.field(description="Line total (price * quantity)")
     def line_total(self) -> float:
@@ -279,7 +292,7 @@ class OrderType:
                     basePrice=base_price,
                     finalPrice=final_price,
                     quantity=item["quantity"],
-                    imageUrl=item.get("imageUrl"),
+                    _image_path=item.get("imageUrl"),
                     requestDescription=item.get("requestDescription"),
                     wasModifiedByStore=item.get("wasModifiedByStore", False),
                 )
@@ -491,9 +504,19 @@ class OrderStatsType:
 class TopProductType:
     productId: str
     name: str
-    imageUrl: str
     totalQuantity: int
     totalRevenue: float
+
+    # Private field for S3 path
+    _image_path: strawberry.Private[str]
+
+    @strawberry.field(description="Presigned URL for the product image")
+    def imageUrl(self) -> str:
+        """Generate a fresh presigned URL for the image on each query."""
+        from utils.s3 import generate_presigned_url
+
+        # Use 24-hour expiration for dashboard stats (86400 seconds)
+        return generate_presigned_url(self._image_path, expiration=86400)
 
 
 @strawberry.type
