@@ -561,7 +561,11 @@ async def upload_product_image(
 
     try:
         image_path = await upload_file(
-            processed_content, "products", entity_id, extension
+            processed_content,
+            "products",
+            entity_id,
+            extension,
+            thumbnail_sizes=(100, 500, 1000),
         )
     except Exception:
         raise HTTPException(status_code=500, detail="Error subiendo imagen")

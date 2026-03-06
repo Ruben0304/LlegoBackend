@@ -6,7 +6,7 @@ from typing import Annotated, List, Optional
 import strawberry
 from strawberry.types import Info
 
-from utils.s3 import generate_presigned_url
+from utils.s3 import generate_image_variant_url, generate_presigned_url
 
 
 @strawberry.type
@@ -30,6 +30,22 @@ class FeedProductType:
 
     @strawberry.field(description="Presigned URL for the product image")
     def image_url(self) -> str:
+        return generate_presigned_url(self.image)
+
+    @strawberry.field(description="Presigned URL for the low quality product image (100x100)")
+    def image_url_baja(self) -> str:
+        return generate_image_variant_url(self.image, 100)
+
+    @strawberry.field(description="Presigned URL for the medium quality product image (500x500)")
+    def image_url_media(self) -> str:
+        return generate_image_variant_url(self.image, 500)
+
+    @strawberry.field(description="Presigned URL for the high quality product image (1000x1000)")
+    def image_url_alta(self) -> str:
+        return generate_image_variant_url(self.image, 1000)
+
+    @strawberry.field(description="Presigned URL for the original product image")
+    def image_url_original(self) -> str:
         return generate_presigned_url(self.image)
 
     @strawberry.field(description="Product category name")

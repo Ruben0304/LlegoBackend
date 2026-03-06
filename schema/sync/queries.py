@@ -7,7 +7,7 @@ from strawberry.types import Info
 
 from repositories import branches_repo, businesses_repo, products_repo
 from utils.graphql_auth import apply_optional_jwt
-from utils.s3 import generate_presigned_url, get_thumbnail_path
+from utils.s3 import generate_presigned_url, get_image_variant_path
 
 from .types import (
     BusinessSyncType,
@@ -154,7 +154,7 @@ class SyncQuery:
         return result
 
     @strawberry.field(
-        description="Sincronizar imágenes con URLs para diferentes calidades (baja 100x100, original)"
+        description="Sincronizar imágenes con URLs para diferentes calidades (100x100, 500x500, 1000x1000, original)"
     )
     async def sync_images(
         self,
@@ -170,11 +170,13 @@ class SyncQuery:
         Args:
             entity_type: Filter by entity type ("business", "branch", "product")
             entity_ids: Filter by specific entity IDs
-            qualities: List of quality levels to include (default: [BAJA, ORIGINAL])
+            qualities: List of quality levels to include (default: [BAJA, MEDIA, ALTA, ORIGINAL])
             jwt: Optional JWT for authenticated requests
 
         Quality levels:
         - BAJA: 100x100 thumbnail (stored as {filename}_thumbnail.jpg)
+        - MEDIA: 500x500 thumbnail (stored as {filename}_thumbnail_500.jpg)
+        - ALTA: 1000x1000 thumbnail (stored as {filename}_thumbnail_1000.jpg)
         - ORIGINAL: Original full-size image
 
         Thumbnails are automatically generated when uploading images via upload_file().
@@ -183,7 +185,12 @@ class SyncQuery:
 
         # Default to all qualities if not specified
         if qualities is None:
-            qualities = [ImageQuality.BAJA, ImageQuality.ORIGINAL]
+            qualities = [
+                ImageQuality.BAJA,
+                ImageQuality.MEDIA,
+                ImageQuality.ALTA,
+                ImageQuality.ORIGINAL,
+            ]
 
         result = []
 
@@ -267,11 +274,18 @@ class SyncQuery:
             # Generate presigned URLs based on requested qualities
             for quality in qualities:
                 if quality == ImageQuality.BAJA:
-                    # Load thumbnail version (e.g., products/123_456_thumbnail.jpg)
-                    thumbnail_path = get_thumbnail_path(img["image_path"])
-                    urls.baja = generate_presigned_url(thumbnail_path)
+                    urls.baja = generate_presigned_url(
+                        get_image_variant_path(img["image_path"], 100)
+                    )
+                elif quality == ImageQuality.MEDIA:
+                    urls.media = generate_presigned_url(
+                        get_image_variant_path(img["image_path"], 500)
+                    )
+                elif quality == ImageQuality.ALTA:
+                    urls.alta = generate_presigned_url(
+                        get_image_variant_path(img["image_path"], 1000)
+                    )
                 elif quality == ImageQuality.ORIGINAL:
-                    # Original quality
                     urls.original = generate_presigned_url(img["image_path"])
 
             image_sync = ImageSyncType(

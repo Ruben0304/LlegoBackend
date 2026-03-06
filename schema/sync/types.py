@@ -14,6 +14,8 @@ class ImageQuality(Enum):
     """Image quality levels for download."""
 
     BAJA = "baja"  # Low quality (thumbnail 100x100)
+    MEDIA = "media"  # Medium quality (thumbnail 500x500)
+    ALTA = "alta"  # High quality (thumbnail 1000x1000)
     ORIGINAL = "original"  # Original quality (full size)
 
 
@@ -110,6 +112,8 @@ class ImageUrlType:
     """Image URLs for different quality levels."""
 
     baja: Optional[str] = None  # Low quality (100x100 thumbnail)
+    media: Optional[str] = None  # Medium quality (500x500 thumbnail)
+    alta: Optional[str] = None  # High quality (1000x1000 thumbnail)
     original: Optional[str] = None  # Original quality (full size)
 
 
