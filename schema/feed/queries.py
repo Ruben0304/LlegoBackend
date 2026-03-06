@@ -80,7 +80,25 @@ class FeedQuery:
         # Fetch ALL products ONCE — shared across all feed sections
         from repositories import products_repo
 
-        all_products = await products_repo.get_by_branch_ids(list(branch_ids))
+        all_products = await products_repo.get_feed_products(
+            branch_ids=list(branch_ids),
+            apply_category_filter=True,
+            requested_branch_tipo=branch_tipo.lower(),
+        )
+        print(
+            "[DEBUG] Feed - all_products after branch_tipo category filter: "
+            f"{len(all_products)} products"
+        )
+        if product_category_id:
+            all_products = [
+                product
+                for product in all_products
+                if str(product.categoryId) == product_category_id
+            ]
+            print(
+                "[DEBUG] Feed - all_products after product_category_id filter: "
+                f"{len(all_products)} products"
+            )
         print(f"[DEBUG] Feed - all_products fetched: {len(all_products)} products")
         if len(all_products) > 0:
             print(
