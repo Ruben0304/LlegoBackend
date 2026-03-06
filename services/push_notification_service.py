@@ -153,18 +153,19 @@ class PushNotificationService:
         
         apns_url = self._get_apns_url()
         jwt_token = self._get_apns_token()
-        
+
         # Use provided bundle_id or default
         topic = bundle_id or settings.apns_bundle_id or settings.apple_client_id.split(",")[0].strip()
-        
+
         headers = {
             "authorization": f"bearer {jwt_token}",
             "apns-topic": topic,
             "apns-push-type": "alert",
             "apns-priority": "10"
         }
-        
-        logger.info(f"📤 Sending to APNs: {apns_url}, topic: {topic}")
+
+        environment = "SANDBOX" if settings.apns_use_sandbox else "PRODUCTION"
+        logger.info(f"📤 Sending to APNs ({environment}): {apns_url}, topic: {topic}")
         
         async with httpx.AsyncClient(http2=True, timeout=30.0) as client:
             for token in tokens:
