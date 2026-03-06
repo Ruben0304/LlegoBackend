@@ -330,7 +330,10 @@ class OrderMutation:
         )
         await order_locations_repo.create(location_update)
 
-        # TODO: Publish to Redis for real-time updates
+        # Emit tracking event for real-time subscription
+        order = await orders_repo.get_by_id(input.orderId)
+        if order:
+            await order_service._emit_tracking_event(order)
 
         return True
 

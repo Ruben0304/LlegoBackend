@@ -525,6 +525,45 @@ class DeliveryLocationUpdateType:
 
 
 @strawberry.type
+class OrderTrackingStreamPayload:
+    """Real-time order tracking payload for WebSocket subscriptions."""
+    estimatedMinutes: Optional[int] = None
+    distanceKm: Optional[float] = None
+    deliveryPersonLocation: Optional[CoordinatesType] = None
+
+    # Nested order info
+    @strawberry.field(description="Order summary")
+    def order(self) -> "OrderSummaryType":
+        return self._order
+
+    def __init__(
+        self,
+        order_id: str,
+        order_status: OrderStatusEnum,
+        estimated_minutes_remaining: Optional[int],
+        estimatedMinutes: Optional[int] = None,
+        distanceKm: Optional[float] = None,
+        deliveryPersonLocation: Optional[CoordinatesType] = None,
+    ):
+        self.estimatedMinutes = estimatedMinutes
+        self.distanceKm = distanceKm
+        self.deliveryPersonLocation = deliveryPersonLocation
+        self._order = OrderSummaryType(
+            id=order_id,
+            status=order_status,
+            estimatedMinutesRemaining=estimated_minutes_remaining,
+        )
+
+
+@strawberry.type
+class OrderSummaryType:
+    """Minimal order info for tracking stream."""
+    id: str
+    status: OrderStatusEnum
+    estimatedMinutesRemaining: Optional[int] = None
+
+
+@strawberry.type
 class DeliveryFeeEstimateType:
     """Estimación del precio de envío antes de crear el pedido."""
 

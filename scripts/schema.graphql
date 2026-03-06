@@ -2,6 +2,12 @@ input AcceptInvitationInput {
   code: String!
 }
 
+enum AcceptedCurrency {
+  CUP
+  USD
+  BOTH
+}
+
 input AddBranchToUserInput {
   branchId: String!
 }
@@ -127,6 +133,12 @@ type AiChatStreamChunk {
 
   """Branches suggested (sent in final chunk)"""
   suggestedBranches: [BranchSuggestionType!]!
+
+  """Product IDs suggested (sent in final chunk)"""
+  suggestedProductIds: [String!]!
+
+  """Branch IDs suggested (sent in final chunk)"""
+  suggestedBranchIds: [String!]!
 
   """Draft order (sent in final chunk)"""
   draftOrder: DraftOrderType
@@ -294,6 +306,8 @@ type BranchSyncType {
   useAppMessaging: Boolean!
   vehicles: [String!]!
   deliveryRadius: Float
+  acceptedCurrency: String
+  exchangeRate: Int
   createdAt: DateTime!
 
   """Presigned URL for the branch avatar"""
@@ -332,6 +346,8 @@ type BranchType {
   qrPayments: [QrPaymentType!]!
   phones: [TransferPhoneType!]!
   deliveryRadius: Float
+  acceptedCurrency: AcceptedCurrency
+  exchangeRate: Int
   createdAt: DateTime!
   wallet: WalletBalanceType!
   walletStatus: String!
@@ -573,7 +589,7 @@ type ComboType {
   """Presigned URL for combo image (optional)"""
   imageUrl: String
 
-  """Representative products for frontend composition (one per slot)"""
+  """Representative products for frontend composition (max 4 products)"""
   representativeProducts: [ProductType!]!
 
   """Base price with default selections (before discount)"""
@@ -619,6 +635,8 @@ input CreateBranchInput {
   socialMedia: JSON = null
   useAppMessaging: Boolean! = true
   vehicles: [BranchVehicle!] = null
+  acceptedCurrency: AcceptedCurrency = null
+  exchangeRate: Int = null
   accounts: [TransferAccountInput!] = null
   qrPayments: [QrPaymentInput!] = null
   phones: [TransferPhoneInput!] = null
@@ -1444,6 +1462,8 @@ type NearbyBranchType {
   qrPayments: [QrPaymentType!]!
   phones: [TransferPhoneType!]!
   deliveryRadius: Float
+  acceptedCurrency: AcceptedCurrency
+  exchangeRate: Int
   createdAt: DateTime!
   distanceM: Float!
   wallet: WalletBalanceType!
@@ -1541,11 +1561,26 @@ enum OrderStatusEnum {
   CANCELLED
 }
 
+type OrderSummaryType {
+  id: String!
+  status: OrderStatusEnum!
+  estimatedMinutesRemaining: Int
+}
+
 type OrderTimelineType {
   status: OrderStatusEnum!
   timestamp: DateTime!
   message: String!
   actor: OrderActorEnum!
+}
+
+type OrderTrackingStreamPayload {
+  estimatedMinutes: Int
+  distanceKm: Float
+  deliveryPersonLocation: CoordinatesType
+
+  """Order summary"""
+  order: OrderSummaryType!
 }
 
 type OrderTrackingType {
@@ -1941,6 +1976,15 @@ type ProductType {
   """Presigned URL for the product image"""
   imageUrl: String!
 
+  """Precio convertido a la otra moneda (si la sucursal acepta ambas)"""
+  convertedPrice: Float
+
+  """Moneda del precio convertido"""
+  convertedCurrency: String
+
+  """Tasa de cambio de la sucursal (si acepta ambas monedas)"""
+  exchangeRate: Int
+
   """Product category name"""
   categoryName: String
 
@@ -2289,6 +2333,8 @@ input RegisterBranchInput {
   avatar: String = null
   coverImage: String = null
   socialMedia: JSON = null
+  acceptedCurrency: AcceptedCurrency = null
+  exchangeRate: Int = null
   accounts: [TransferAccountInput!] = null
   qrPayments: [QrPaymentInput!] = null
   phones: [TransferPhoneInput!] = null
@@ -2375,6 +2421,8 @@ type ScoredBranchType {
   qrPayments: [QrPaymentType!]!
   phones: [TransferPhoneType!]!
   deliveryRadius: Float
+  acceptedCurrency: AcceptedCurrency
+  exchangeRate: Int
   createdAt: DateTime!
   score: Float!
   distanceM: Float
@@ -2423,6 +2471,15 @@ type ScoredProductType {
 
   """Distance in kilometers from user"""
   distanceKm: Float
+
+  """Precio convertido a la otra moneda (si la sucursal acepta ambas)"""
+  convertedPrice: Float
+
+  """Moneda del precio convertido"""
+  convertedCurrency: String
+
+  """Tasa de cambio de la sucursal (si acepta ambas monedas)"""
+  exchangeRate: Int
 
   """Product category name"""
   categoryName: String
@@ -2599,6 +2656,9 @@ type Subscription {
   """Cambios en pedidos de una sucursal"""
   branchOrderUpdated(branchId: String!): OrderType!
 
+  """Stream de seguimiento de pedido en tiempo real"""
+  orderTrackingStream(orderId: String!, jwt: String = null): OrderTrackingStreamPayload!
+
   """Stream AI assistant responses in real-time with RAG support"""
   aiChatStream(input: AiAssistantChatInput!, jwt: String = null): AiChatStreamChunk!
 }
@@ -2733,6 +2793,8 @@ input UpdateBranchInput {
   paymentMethodIds: [String!] = null
   useAppMessaging: Boolean = null
   vehicles: [BranchVehicle!] = null
+  acceptedCurrency: AcceptedCurrency = null
+  exchangeRate: Int = null
   accounts: [TransferAccountInput!] = null
   qrPayments: [QrPaymentInput!] = null
   phones: [TransferPhoneInput!] = null

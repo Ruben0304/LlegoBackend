@@ -348,6 +348,9 @@ class OrderService:
 
         # TODO: Send push notification based on status
 
+        # Emit tracking event for real-time subscription
+        await self._emit_tracking_event(updated_order)
+
         return updated_order
 
     async def accept_order(
@@ -488,6 +491,9 @@ class OrderService:
             raise ValueError("Error al modificar el pedido")
 
         # TODO: Send push notification to customer
+
+        # Emit tracking event for real-time subscription
+        await self._emit_tracking_event(updated_order)
 
         return updated_order
 
@@ -765,4 +771,75 @@ class OrderService:
             "distanceKm": round(distance_km, 2) if distance_km else None,
             "estimatedMinutes": estimated_minutes,
         }
+
+    async def _emit_tracking_event(self, order: Order):
+        """
+        Emit tracking event for real-time subscription.
+
+        Called when order status changes or delivery location updates.
+        """
+        try:
+            # Import here to avoid circular dependency
+            from schema.orders.subscriptions import publish_order_tracking
+            from schema.orders.types import OrderTrackingStreamPayload, OrderStatusEnum, CoordinatesType
+
+            # Get delivery person location if assigned
+            delivery_person_location = None
+            distance_km = None
+            estimated_minutes = None
+
+            if order.deliveryPersonId:
+                delivery_person = await self.delivery_repo.get_by_id(order.deliveryPersonId)
+                if delivery_person and delivery_person.currentLocation:
+                    delivery_person_location = CoordinatesType(
+                        type="Point",
+                        coordinates=[
+                            delivery_person.currentLocation.coordinates[0],
+                            delivery_person.currentLocation.coordinates[1],
+                        ]
+                    )
+
+                    # Calculate distance and ETA
+                    from services.orders_utils import haversine_distance
+                    distance_km = haversine_distance(
+                        (
+                            delivery_person.currentLocation.coordinates[0],
+                            delivery_person.currentLocation.coordinates[1],
+                        ),
+                        (
+                            order.deliveryAddress.coordinates.coordinates[0],
+                            order.deliveryAddress.coordinates.coordinates[1],
+                        ),
+                    )
+                    # Estimate 25 km/h average speed
+                    estimated_minutes = int((distance_km / 25) * 60)
+
+            # Calculate estimated minutes remaining from estimatedDeliveryTime
+            estimated_minutes_remaining = None
+            if order.estimatedDeliveryTime:
+                remaining = (order.estimatedDeliveryTime - datetime.utcnow()).total_seconds() / 60
+                estimated_minutes_remaining = max(0, int(remaining))
+
+            # Create tracking payload
+            tracking_payload = OrderTrackingStreamPayload(
+                order_id=str(order.id),
+                order_status=OrderStatusEnum(order.status.value),
+                estimated_minutes_remaining=estimated_minutes_remaining,
+                estimatedMinutes=estimated_minutes,
+                distanceKm=round(distance_km, 2) if distance_km else None,
+                deliveryPersonLocation=delivery_person_location,
+            )
+
+            # Publish to subscribers
+            await publish_order_tracking(str(order.id), tracking_payload)
+
+            print(f"[ORDER SERVICE] Emitted tracking event for order {order.id}, status: {order.status.value}")
+
+        except Exception as e:
+            # Don't fail the main operation if tracking event fails
+            print(f"[ORDER SERVICE] Failed to emit tracking event: {e}")
+            import traceback
+            traceback.print_exc()
+
+
 order_service = OrderService()
