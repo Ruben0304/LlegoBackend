@@ -171,6 +171,34 @@ class ProductQuery:
         return ProductType(**to_strawberry_dict(product)) if product else None
 
     @strawberry.field(
+        description="Obtener múltiples productos por lista de IDs (findMany)"
+    )
+    async def products_by_ids(
+        self, info: Info, ids: List[str], jwt: Optional[str] = None
+    ) -> List[ProductType]:
+        """
+        Find many products by a list of product IDs.
+        Returns only matching products, preserving the input ID order.
+        """
+        apply_optional_jwt(jwt, info)
+
+        if not ids:
+            return []
+
+        products = await products_repo.get_by_ids(ids)
+        if not products:
+            return []
+
+        products_by_id = {str(product.id): product for product in products}
+        ordered_products = [
+            products_by_id[product_id]
+            for product_id in ids
+            if product_id in products_by_id
+        ]
+
+        return [ProductType(**to_strawberry_dict(product)) for product in ordered_products]
+
+    @strawberry.field(
         description="Buscar productos con scoring por cercanía (paginado)"
     )
     async def search_products(
