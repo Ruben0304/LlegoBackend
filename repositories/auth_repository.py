@@ -1,13 +1,25 @@
 """Authentication repository for user login and registration."""
+
+from datetime import datetime
+from typing import Optional
+
 from clients import get_database
 from domain.models import User
 from utils.auth import hash_password, verify_password
-from datetime import datetime
-from typing import Optional
 
 
 class AuthRepository:
     collection_name = "users"
+
+    @staticmethod
+    def _normalize_apple_private_email(value: Optional[object]) -> Optional[str]:
+        """Normalize relay email value to Optional[str], rejecting booleans and invalid data."""
+        if isinstance(value, bool) or value is None:
+            return None
+        if isinstance(value, str):
+            normalized = value.strip()
+            return normalized or None
+        return None
 
     async def get_user_by_email(self, email: str) -> Optional[User]:
         """Get a user by email."""
@@ -19,15 +31,20 @@ class AuthRepository:
         return None
 
     async def create_user(
-        self, name: str, email: str, password: str, phone: Optional[str] = None, role: str = "customer"
+        self,
+        name: str,
+        email: str,
+        password: str,
+        phone: Optional[str] = None,
+        role: str = "customer",
     ) -> User:
         """Create a new user with hashed password."""
         db = get_database()
         hashed_password = hash_password(password)
-        
+
         # Generate username from email (part before @)
         username = email.split("@")[0]
-        
+
         # Ensure username is unique by appending numbers if needed
         base_username = username
         counter = 1
@@ -77,17 +94,19 @@ class AuthRepository:
         If a user with the same email exists, link the account.
         """
         db = get_database()
-        
+        normalized_apple_private_email = self._normalize_apple_private_email(
+            apple_private_email
+        )
+
         # 1. Try to find by provider info
-        user_data = await db[self.collection_name].find_one({
-            "providerUserId": provider_user_id,
-            "authProvider": provider
-        })
-        
+        user_data = await db[self.collection_name].find_one(
+            {"providerUserId": provider_user_id, "authProvider": provider}
+        )
+
         if user_data:
             user_data["_id"] = str(user_data["_id"])
             return User(**user_data)
-            
+
         # 2. Try to find by email (linking account)
         if email:
             user_data = await db[self.collection_name].find_one({"email": email})
@@ -101,30 +120,31 @@ class AuthRepository:
                     # We'll just add providerUserId. The authProvider field might be 'local' still.
                     # This is simple linking.
                 }
-                if apple_private_email:
-                    update_fields["applePrivateEmail"] = apple_private_email
-                    
+                if normalized_apple_private_email:
+                    update_fields["applePrivateEmail"] = normalized_apple_private_email
+
                 await db[self.collection_name].update_one(
-                    {"_id": user_data["_id"]},
-                    {"$set": update_fields}
+                    {"_id": user_data["_id"]}, {"$set": update_fields}
                 )
-                
+
                 # Fetch updated user
-                user_data = await db[self.collection_name].find_one({"_id": user_data["_id"]})
+                user_data = await db[self.collection_name].find_one(
+                    {"_id": user_data["_id"]}
+                )
                 user_data["_id"] = str(user_data["_id"])
                 return User(**user_data)
-        
+
         # 3. Create new user
         # Generate username from email (part before @)
         username = email.split("@")[0] if email else "user"
-        
+
         # Ensure username is unique by appending numbers if needed
         base_username = username
         counter = 1
         while await db[self.collection_name].find_one({"username": username}):
             username = f"{base_username}{counter}"
             counter += 1
-        
+
         user_data = {
             "name": name or (email.split("@")[0] if email else "User"),
             "email": email,
@@ -137,10 +157,10 @@ class AuthRepository:
             "createdAt": datetime.utcnow(),
             "authProvider": provider,
             "providerUserId": provider_user_id,
-            "applePrivateEmail": apple_private_email,
+            "applePrivateEmail": normalized_apple_private_email,
         }
-        
+
         result = await db[self.collection_name].insert_one(user_data)
         user_data["_id"] = str(result.inserted_id)
-        
+
         return User(**user_data)

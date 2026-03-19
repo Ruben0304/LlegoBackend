@@ -1,22 +1,34 @@
 """GraphQL mutations for authentication."""
-import strawberry
+
 from typing import Optional
+
+import strawberry
 from strawberry.types import Info
 
-from .types import AuthResponse, RegisterInput, LoginInput, UserData, SocialLoginInput, AppleLoginInput
 from repositories import auth_repo
-from utils.auth import create_access_token, verify_google, verify_apple
+from utils.auth import (
+    create_access_token,
+    get_apple_private_email,
+    verify_apple,
+    verify_google,
+)
 from utils.graphql_auth import apply_optional_jwt
+
+from .types import (
+    AppleLoginInput,
+    AuthResponse,
+    LoginInput,
+    RegisterInput,
+    SocialLoginInput,
+    UserData,
+)
 
 
 @strawberry.type
 class AuthMutation:
     @strawberry.mutation(description="Register a new user")
     async def register(
-        self,
-        info: Info,
-        input: RegisterInput,
-        jwt: Optional[str] = None
+        self, info: Info, input: RegisterInput, jwt: Optional[str] = None
     ) -> AuthResponse:
         """Register a new user with email and password. Role is always 'customer'."""
         apply_optional_jwt(jwt, info)
@@ -31,15 +43,13 @@ class AuthMutation:
             email=input.email,
             password=input.password,
             phone=input.phone,
-            role="customer"  # Hardcoded - only changeable via DB
+            role="customer",  # Hardcoded - only changeable via DB
         )
 
         # Create access token with role
-        access_token = create_access_token(data={
-            "sub": user.email,
-            "user_id": str(user.id),
-            "role": user.role
-        })
+        access_token = create_access_token(
+            data={"sub": user.email, "user_id": str(user.id), "role": user.role}
+        )
 
         return AuthResponse(
             access_token=access_token,
@@ -50,12 +60,14 @@ class AuthMutation:
                 email=user.email,
                 phone=user.phone,
                 role=user.role,
-                created_at=user.createdAt.isoformat()
-            )
+                created_at=user.createdAt.isoformat(),
+            ),
         )
 
     @strawberry.mutation(description="Login with email and password")
-    async def login(self, info: Info, input: LoginInput, jwt: Optional[str] = None) -> AuthResponse:
+    async def login(
+        self, info: Info, input: LoginInput, jwt: Optional[str] = None
+    ) -> AuthResponse:
         """Login with email and password."""
         apply_optional_jwt(jwt, info)
         # Authenticate user
@@ -64,11 +76,9 @@ class AuthMutation:
             raise Exception("Invalid email or password")
 
         # Create access token with role
-        access_token = create_access_token(data={
-            "sub": user.email,
-            "user_id": str(user.id),
-            "role": user.role
-        })
+        access_token = create_access_token(
+            data={"sub": user.email, "user_id": str(user.id), "role": user.role}
+        )
 
         return AuthResponse(
             access_token=access_token,
@@ -79,38 +89,32 @@ class AuthMutation:
                 email=user.email,
                 phone=user.phone,
                 role=user.role,
-                created_at=user.createdAt.isoformat()
-            )
+                created_at=user.createdAt.isoformat(),
+            ),
         )
-
 
     @strawberry.mutation(description="Login with Google")
     async def login_with_google(
-        self,
-        info: Info,
-        input: SocialLoginInput,
-        jwt: Optional[str] = None
+        self, info: Info, input: SocialLoginInput, jwt: Optional[str] = None
     ) -> AuthResponse:
         """Login with Google ID token."""
         apply_optional_jwt(jwt, info)
         # Verify token
         token_info = verify_google(input.id_token, input.nonce)
-        
+
         # Create or update user
         user = await auth_repo.upsert_social_user(
             email=token_info["email"],
             provider="google",
             provider_user_id=token_info["sub"],
-            name=token_info["name"]
+            name=token_info["name"],
         )
-        
+
         # Create access token with role
-        access_token = create_access_token(data={
-            "sub": user.email,
-            "user_id": str(user.id),
-            "role": user.role
-        })
-        
+        access_token = create_access_token(
+            data={"sub": user.email, "user_id": str(user.id), "role": user.role}
+        )
+
         return AuthResponse(
             access_token=access_token,
             token_type="bearer",
@@ -120,37 +124,34 @@ class AuthMutation:
                 email=user.email,
                 phone=user.phone,
                 role=user.role,
-                created_at=user.createdAt.isoformat()
-            )
+                created_at=user.createdAt.isoformat(),
+            ),
         )
 
     @strawberry.mutation(description="Login with Apple")
     async def login_with_apple(
-        self,
-        info: Info,
-        input: AppleLoginInput,
-        jwt: Optional[str] = None
+        self, info: Info, input: AppleLoginInput, jwt: Optional[str] = None
     ) -> AuthResponse:
         """Login with Apple Identity token."""
         apply_optional_jwt(jwt, info)
         # Verify token
         token_info = verify_apple(input.identity_token, input.nonce)
-        
+
         # Create or update user
         user = await auth_repo.upsert_social_user(
             email=token_info["email"],
             provider="apple",
             provider_user_id=token_info["sub"],
-            apple_private_email=token_info["is_private_email"]
+            apple_private_email=get_apple_private_email(
+                token_info.get("email"), token_info.get("is_private_email")
+            ),
         )
-        
+
         # Create access token with role
-        access_token = create_access_token(data={
-            "sub": user.email,
-            "user_id": str(user.id),
-            "role": user.role
-        })
-        
+        access_token = create_access_token(
+            data={"sub": user.email, "user_id": str(user.id), "role": user.role}
+        )
+
         return AuthResponse(
             access_token=access_token,
             token_type="bearer",
@@ -160,6 +161,6 @@ class AuthMutation:
                 email=user.email,
                 phone=user.phone,
                 role=user.role,
-                created_at=user.createdAt.isoformat()
-            )
+                created_at=user.createdAt.isoformat(),
+            ),
         )

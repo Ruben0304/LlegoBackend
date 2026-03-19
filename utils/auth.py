@@ -1,11 +1,13 @@
 """Authentication utilities for password hashing and JWT tokens."""
+
 from datetime import datetime, timedelta
 from hashlib import sha256
 from typing import List, Optional, Union
 
 import bcrypt
-from jose import JWTError, jwt
 from bson import ObjectId
+from jose import JWTError, jwt
+
 from core.config import settings
 
 # JWT configuration
@@ -14,11 +16,11 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 30  # 30 days
 
 # Social Login Imports
 try:
-    from google.oauth2 import id_token
-    from google.auth.transport import requests as grequests
-    import requests
     import jwt
-    from fastapi import HTTPException, Header
+    import requests
+    from fastapi import Header, HTTPException
+    from google.auth.transport import requests as grequests
+    from google.oauth2 import id_token
 except ImportError:
     # Fallback or allow validation to fail if libs missing
     pass
@@ -62,6 +64,15 @@ def _get_google_audiences() -> Union[str, List[str]]:
     if len(parts) <= 1:
         return parts[0] if parts else raw_audience
     return parts
+
+
+def get_apple_private_email(
+    email: Optional[str], is_private_email: Optional[bool]
+) -> Optional[str]:
+    """Return Apple relay email only when claim indicates it is private."""
+    if is_private_email is True and isinstance(email, str) and email.strip():
+        return email.strip()
+    return None
 
 
 def _prepare_password(password: str) -> bytes:
@@ -130,6 +141,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """Create a JWT access token."""
+
     def _json_safe(value):
         if isinstance(value, ObjectId):
             return str(value)
@@ -165,9 +177,7 @@ def verify_google(id_token_str: str, nonce: str = None) -> dict:
     """Verify Google ID token."""
     try:
         claims = id_token.verify_oauth2_token(
-            id_token_str,
-            grequests.Request(),
-            audience=_get_google_audiences()
+            id_token_str, grequests.Request(), audience=_get_google_audiences()
         )
     except ValueError as e:
         raise HTTPException(status_code=401, detail=f"Invalid Google token: {str(e)}")
@@ -179,7 +189,7 @@ def verify_google(id_token_str: str, nonce: str = None) -> dict:
         "sub": claims["sub"],
         "email": claims["email"],
         "name": claims.get("name", claims["email"].split("@")[0]),
-        "picture": claims.get("picture")
+        "picture": claims.get("picture"),
     }
 
 
@@ -187,7 +197,7 @@ def get_apple_keys():
     """Fetch Apple public keys with caching."""
     global _apple_keys_cache
     if not _apple_keys_cache:
-         # simple caching
+        # simple caching
         try:
             response = requests.get(APPLE_KEYS_URL, timeout=5)
             if response.status_code == 200:
@@ -203,37 +213,40 @@ def verify_apple(identity_token: str, nonce: str = None) -> dict:
     try:
         header = jwt.get_unverified_header(identity_token)
         key = next((k for k in keys if k.get("kid") == header.get("kid")), None)
-        
+
         if not key:
-             # Force refresh keys
+            # Force refresh keys
             global _apple_keys_cache
             _apple_keys_cache = []
             keys = get_apple_keys()
             key = next((k for k in keys if k.get("kid") == header.get("kid")), None)
             if not key:
                 raise Exception("Apple key not found")
-        
+
         rsa_key = jwt.algorithms.RSAAlgorithm.from_jwk(key)
         claims = jwt.decode(
             identity_token,
             rsa_key,
             algorithms=[header["alg"]],
             audience=_get_apple_audiences(),
-            issuer=APPLE_ISS
+            issuer=APPLE_ISS,
         )
     except Exception as e:
-         raise HTTPException(status_code=401, detail=f"Invalid Apple token: {str(e)}")
+        raise HTTPException(status_code=401, detail=f"Invalid Apple token: {str(e)}")
 
     if nonce and claims.get("nonce") != nonce:
         raise HTTPException(status_code=401, detail="Invalid nonce")
-        
+
     return {
         "sub": claims["sub"],
         "email": claims.get("email"),
-        "is_private_email": claims.get("is_private_email")
+        "is_private_email": claims.get("is_private_email"),
     }
 
-def get_current_user_id_from_header(authorization: Optional[str] = Header(None)) -> Optional[str]:
+
+def get_current_user_id_from_header(
+    authorization: Optional[str] = Header(None),
+) -> Optional[str]:
     """Extract user_id from Authorization header."""
     if not authorization:
         return None
