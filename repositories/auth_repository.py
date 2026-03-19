@@ -1,5 +1,6 @@
 """Authentication repository for user login and registration."""
 
+import logging
 from datetime import datetime
 from typing import Optional
 
@@ -10,6 +11,7 @@ from utils.auth import hash_password, verify_password
 
 class AuthRepository:
     collection_name = "users"
+    logger = logging.getLogger(__name__)
 
     @staticmethod
     def _normalize_apple_private_email(value: Optional[object]) -> Optional[str]:
@@ -21,12 +23,39 @@ class AuthRepository:
             return normalized or None
         return None
 
+    def _sanitize_user_data_apple_private_email(self, user_data: dict) -> dict:
+        """Ensure applePrivateEmail in user_data is always Optional[str] before User(**user_data)."""
+        current = user_data.get("applePrivateEmail")
+        normalized = self._normalize_apple_private_email(current)
+        user_data["applePrivateEmail"] = normalized
+        self.logger.info(
+            "[auth] applePrivateEmail before User(): value=%r type=%s",
+            normalized,
+            type(normalized).__name__,
+        )
+        return user_data
+
+    async def _persist_apple_private_email_if_changed(
+        self,
+        db,
+        doc_id,
+        original_value: Optional[object],
+        normalized_value: Optional[str],
+    ) -> None:
+        """Persist sanitized applePrivateEmail only when historical data needs correction."""
+        if original_value != normalized_value:
+            await db[self.collection_name].update_one(
+                {"_id": doc_id},
+                {"$set": {"applePrivateEmail": normalized_value}},
+            )
+
     async def get_user_by_email(self, email: str) -> Optional[User]:
         """Get a user by email."""
         db = get_database()
         user_data = await db[self.collection_name].find_one({"email": email})
         if user_data:
             user_data["_id"] = str(user_data["_id"])
+            user_data = self._sanitize_user_data_apple_private_email(user_data)
             return User(**user_data)
         return None
 
@@ -104,7 +133,16 @@ class AuthRepository:
         )
 
         if user_data:
-            user_data["_id"] = str(user_data["_id"])
+            doc_id = user_data["_id"]
+            original_apple_private_email = user_data.get("applePrivateEmail")
+            user_data = self._sanitize_user_data_apple_private_email(user_data)
+            await self._persist_apple_private_email_if_changed(
+                db,
+                doc_id,
+                original_apple_private_email,
+                user_data.get("applePrivateEmail"),
+            )
+            user_data["_id"] = str(doc_id)
             return User(**user_data)
 
         # 2. Try to find by email (linking account)
@@ -131,7 +169,16 @@ class AuthRepository:
                 user_data = await db[self.collection_name].find_one(
                     {"_id": user_data["_id"]}
                 )
-                user_data["_id"] = str(user_data["_id"])
+                doc_id = user_data["_id"]
+                original_apple_private_email = user_data.get("applePrivateEmail")
+                user_data = self._sanitize_user_data_apple_private_email(user_data)
+                await self._persist_apple_private_email_if_changed(
+                    db,
+                    doc_id,
+                    original_apple_private_email,
+                    user_data.get("applePrivateEmail"),
+                )
+                user_data["_id"] = str(doc_id)
                 return User(**user_data)
 
         # 3. Create new user
@@ -162,5 +209,6 @@ class AuthRepository:
 
         result = await db[self.collection_name].insert_one(user_data)
         user_data["_id"] = str(result.inserted_id)
+        user_data = self._sanitize_user_data_apple_private_email(user_data)
 
         return User(**user_data)
