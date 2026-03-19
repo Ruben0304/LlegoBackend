@@ -42,7 +42,7 @@ def _get_jwt_secret() -> str:
 
 def _get_apple_audiences() -> Union[str, List[str]]:
     """Return Apple audiences, supporting comma-separated env values."""
-    raw_audience = settings.apple_client_id
+    raw_audience = settings.apple_allowed_audiences or settings.apple_client_id
     if not isinstance(raw_audience, str):
         return raw_audience
 

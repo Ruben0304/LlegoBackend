@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     # Auth Configuration
     google_client_id: str = "your-google-client-id"
     apple_client_id: str = "your-apple-client-id"
+    # Optional explicit allowlist for Apple token audiences (comma-separated).
+    # If empty, apple_client_id is used for backward compatibility.
+    apple_allowed_audiences: str = ""
     jwt_secret: str = ""
 
     # Push Notifications - Bundle ID for APNs (can be different from auth bundle)
