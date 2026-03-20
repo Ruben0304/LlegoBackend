@@ -117,6 +117,9 @@ class Settings(BaseSettings):
     qvapay_platform_pin: str = ""
     # Test amount for QvaPay invoices (0 = use real amount, >0 = use this test amount)
     qvapay_test_amount: float = 0.0
+    # Deep link scheme for redirecting after payment (e.g., "llego://", "llegobusiness://")
+    qvapay_success_deeplink: str = "llego://payment/success"
+    qvapay_cancel_deeplink: str = "llego://payment/cancel"
 
     # TronDealer Configuration
     trondealer_api_key: str = ""
