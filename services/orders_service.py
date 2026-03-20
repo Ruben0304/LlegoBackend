@@ -143,6 +143,28 @@ class OrderService:
             raise ValueError("Sucursal no encontrada")
         if not branch.isActive:
             raise ValueError("La sucursal no está activa")
+        
+        # 1.5. Convert payment_method ID to code if needed
+        # Frontend might send payment method ID (ObjectId or string ID)
+        # We need to store the code (e.g., "qvapay", "usdt_trondealer", "cash")
+        from repositories import payment_methods_repo
+        from bson import ObjectId
+        
+        payment_method_code = payment_method
+        
+        # Check if payment_method looks like an ID (24 chars or is ObjectId)
+        if len(payment_method) == 24 or isinstance(payment_method, ObjectId):
+            try:
+                pm = await payment_methods_repo.get_by_id(payment_method)
+                if pm:
+                    payment_method_code = pm.code
+                    print(f"✓ Converted payment method ID {payment_method} to code: {payment_method_code}")
+                else:
+                    raise ValueError(f"Método de pago {payment_method} no encontrado")
+            except Exception as e:
+                # If conversion fails, try to use it as-is (might be a legacy code)
+                print(f"⚠️  Could not convert payment method {payment_method}: {e}")
+                pass
 
         # 2. Get business
         business = await businesses_repo.get_by_id(branch.businessId)
@@ -191,7 +213,7 @@ class OrderService:
 
         # 6. Validate payment if card
         payment_status = PaymentStatus.PENDING
-        if payment_method == "card":
+        if payment_method_code == "card" or payment_method_code == "stripe":
             if not payment_intent_id:
                 raise ValueError("Se requiere paymentIntentId para pagos con tarjeta")
             # TODO: Verify payment intent with Stripe
@@ -269,7 +291,7 @@ class OrderService:
             pickupAddress=pickup_addr,
             timeline=timeline,
             comments=comments,
-            paymentMethod=payment_method,
+            paymentMethod=payment_method_code,
             paymentStatus=payment_status,
             paymentId=payment_intent_id,
             createdAt=now,
