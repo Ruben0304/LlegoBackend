@@ -25,12 +25,7 @@ from clients import get_database, get_qdrant_client
 from domain.models import Product
 from services.embeddings.gemini_service import GeminiEmbeddingService
 from utils.cache import (
-    TTL_DEFAULT,
-    get_cached,
-    get_product_cache_key,
     invalidate_product_cache,
-    set_cached,
-    should_cache_result,
 )
 
 
@@ -77,17 +72,12 @@ class ProductRepository:
     DEFAULT_LIMIT = 5000
 
     async def get_all(self, limit: Optional[int] = None) -> List[Product]:
-        """Get all products from MongoDB with caching.
+        """Get all products from MongoDB.
 
         Args:
             limit: Maximum number of products to return. Defaults to DEFAULT_LIMIT.
         """
         effective_limit = limit if limit is not None else self.DEFAULT_LIMIT
-        cache_key = get_product_cache_key(f"all:limit:{effective_limit}")
-        cached = get_cached(cache_key)
-
-        if cached is not None:
-            return [Product(**p) for p in cached]
 
         try:
             print(f"→ Fetching products from MongoDB (limit={effective_limit})")
@@ -96,15 +86,6 @@ class ProductRepository:
             documents = await cursor.to_list(length=effective_limit)
 
             products = [Product(**doc) for doc in documents]
-
-            # Cache the results only if not too large
-            if should_cache_result(products):
-                serialized = [p.model_dump() for p in products]
-                set_cached(cache_key, serialized, TTL_DEFAULT)
-                print(f"✓ Cached {len(products)} products (get_all)")
-            else:
-                print(f"⚠ Skipped caching {len(products)} products (exceeds limit)")
-
             return products
 
         except Exception as e:
@@ -128,16 +109,11 @@ class ProductRepository:
             return None
 
     async def get_by_ids(self, product_ids: List[str]) -> List[Product]:
-        """Get products by IDs from MongoDB with caching."""
+        """Get products by IDs from MongoDB."""
         if not product_ids:
             return []
 
         ids = [str(x) for x in product_ids]
-        cache_key = get_product_cache_key(f"ids:{','.join(sorted(ids))}")
-        cached = get_cached(cache_key)
-
-        if cached is not None:
-            return [Product(**p) for p in cached]
 
         try:
             print(f"→ Fetching {len(ids)} products by IDs from MongoDB")
@@ -147,11 +123,6 @@ class ProductRepository:
             documents = await cursor.to_list(length=None)
 
             products = [Product(**doc) for doc in documents]
-
-            # Cache the results
-            serialized = [p.model_dump() for p in products]
-            set_cached(cache_key, serialized, TTL_DEFAULT)
-
             return products
 
         except Exception as e:
@@ -159,19 +130,8 @@ class ProductRepository:
             return []
 
     async def get_by_branch(self, branch_id: str) -> List[Product]:
-        """Get products by branch ID from MongoDB with caching."""
+        """Get products by branch ID from MongoDB."""
         normalized_branch_id = str(branch_id).strip()
-        cache_key = get_product_cache_key(f"branch:{normalized_branch_id}")
-        cached = get_cached(cache_key)
-
-        if cached is not None:
-            if len(cached) > 0:
-                print(f"✓ Cache hit for branch {branch_id}: {len(cached)} products")
-                return [Product(**p) for p in cached]
-            print(
-                f"⚠ Cache hit vacío para branch {normalized_branch_id}; "
-                "reconsultando MongoDB"
-            )
 
         try:
             print(f"→ Fetching products for branch {normalized_branch_id} from MongoDB")
@@ -206,13 +166,6 @@ class ProductRepository:
                 documents, context=f"get_by_branch:{normalized_branch_id}"
             )
 
-            # Cache the results
-            serialized = [p.model_dump() for p in products]
-            set_cached(cache_key, serialized, TTL_DEFAULT)
-            print(
-                f"✓ Cached {len(products)} products for branch {normalized_branch_id}"
-            )
-
             return products
 
         except Exception as e:
@@ -231,18 +184,8 @@ class ProductRepository:
             )
             return []
 
-        # Convert to strings for cache key (handles both str and ObjectId)
+        # Convert to strings (handles both str and ObjectId)
         ids = [str(x).strip() for x in branch_ids]
-        cache_key = get_product_cache_key(f"branch_ids:{','.join(sorted(ids))}")
-        cached = get_cached(cache_key)
-
-        if cached is not None:
-            if len(cached) > 0:
-                print(
-                    f"✓ Cache hit for {len(branch_ids)} branches: {len(cached)} products"
-                )
-                return [Product(**p) for p in cached]
-            print("⚠ Cache hit vacío para branch_ids; reconsultando MongoDB")
 
         try:
             print(f"→ Fetching products for {len(branch_ids)} branches from MongoDB")
@@ -287,11 +230,6 @@ class ProductRepository:
             products = self._deserialize_products(
                 documents, context="get_by_branch_ids"
             )
-
-            # Cache the results
-            serialized = [p.model_dump() for p in products]
-            set_cached(cache_key, serialized, TTL_DEFAULT)
-            print(f"✓ Cached {len(products)} products for {len(branch_ids)} branches")
 
             return products
 

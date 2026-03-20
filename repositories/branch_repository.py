@@ -24,13 +24,8 @@ from clients import get_database, get_qdrant_client
 from domain.models import Branch, Coordinates
 from services.embeddings.gemini_service import GeminiEmbeddingService
 from utils.cache import (
-    TTL_DEFAULT,
-    get_branch_cache_key,
-    get_cached,
     invalidate_branch_cache,
     invalidate_product_cache,
-    set_cached,
-    should_cache_result,
 )
 
 
@@ -44,13 +39,7 @@ class BranchRepository:
     # --- GET Methods (MongoDB) ---
 
     async def get_all(self) -> List[Branch]:
-        """Get all branches from MongoDB with caching."""
-        cache_key = get_branch_cache_key("all")
-        cached = get_cached(cache_key)
-
-        if cached is not None:
-            return [self._dict_to_branch(b) for b in cached]
-
+        """Get all branches from MongoDB."""
         try:
             print("→ Fetching all branches from MongoDB")
             db = get_database()
@@ -58,15 +47,6 @@ class BranchRepository:
             documents = await cursor.to_list(length=None)
 
             branches = [self._dict_to_branch(doc) for doc in documents]
-
-            # Cache the results only if not too large
-            if should_cache_result(branches):
-                serialized = [b.model_dump() for b in branches]
-                set_cached(cache_key, serialized, TTL_DEFAULT)
-                print(f"✓ Cached {len(branches)} branches (get_all)")
-            else:
-                print(f"⚠ Skipped caching {len(branches)} branches (exceeds limit)")
-
             return branches
 
         except Exception as e:
@@ -74,13 +54,7 @@ class BranchRepository:
             return []
 
     async def get_by_id(self, branch_id: str) -> Optional[Branch]:
-        """Get branch by ID from MongoDB with caching."""
-        cache_key = get_branch_cache_key(f"id:{branch_id}")
-        cached = get_cached(cache_key)
-
-        if cached is not None:
-            return self._dict_to_branch(cached)
-
+        """Get branch by ID from MongoDB."""
         try:
             print(f"→ Fetching branch {branch_id} from MongoDB")
             db = get_database()
@@ -90,8 +64,6 @@ class BranchRepository:
 
             if doc:
                 branch = self._dict_to_branch(doc)
-                # Cache the result
-                set_cached(cache_key, branch.model_dump(), TTL_DEFAULT)
                 return branch
             return None
 
@@ -100,16 +72,11 @@ class BranchRepository:
             return None
 
     async def get_by_ids(self, branch_ids: List[str]) -> List[Branch]:
-        """Get branches by IDs from MongoDB with caching."""
+        """Get branches by IDs from MongoDB."""
         if not branch_ids:
             return []
 
         ids = [str(x) for x in branch_ids]
-        cache_key = get_branch_cache_key(f"ids:{','.join(sorted(ids))}")
-        cached = get_cached(cache_key)
-
-        if cached is not None:
-            return [self._dict_to_branch(b) for b in cached]
 
         try:
             print(f"→ Fetching {len(ids)} branches from MongoDB")
@@ -119,11 +86,6 @@ class BranchRepository:
             documents = await cursor.to_list(length=None)
 
             branches = [self._dict_to_branch(doc) for doc in documents]
-
-            # Cache the results
-            serialized = [b.model_dump() for b in branches]
-            set_cached(cache_key, serialized, TTL_DEFAULT)
-
             return branches
 
         except Exception as e:

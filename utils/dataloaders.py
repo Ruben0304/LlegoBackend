@@ -9,10 +9,8 @@ from domain.models import Branch, Business, Product
 from repositories import branches_repo, businesses_repo, products_repo
 from utils.cache import (
     TTL_DEFAULT,
-    get_branch_cache_key,
     get_business_cache_key,
     get_cached,
-    get_product_cache_key,
     set_cached,
 )
 
@@ -20,45 +18,18 @@ from utils.cache import (
 async def load_products_for_branches(branch_ids: List[str]) -> List[List]:
     """
     Batch load products for multiple branches in a single query.
-    Uses cache to avoid repeated queries.
     """
-    # Normalize IDs so cache keys and map lookups are stable.
+    # Normalize IDs so map lookups are stable.
     branch_ids = [str(branch_id) for branch_id in branch_ids]
 
-    # Try to get cached products for each branch
+    # Fetch all products from database
+    print(f"→ Fetching products for {len(branch_ids)} branches from database")
+    all_products = await products_repo.get_by_branch_ids(branch_ids)
+
+    # Group by branch
     products_by_branch = defaultdict(list)
-    uncached_branch_ids = []
-
-    for branch_id in branch_ids:
-        cache_key = get_product_cache_key(f"branch:{branch_id}")
-        cached = get_cached(cache_key)
-
-        if cached is not None:
-            # Deserialize cached products
-            products_by_branch[branch_id] = [Product(**p) for p in cached]
-        else:
-            uncached_branch_ids.append(branch_id)
-
-    # Fetch uncached branches from database
-    if uncached_branch_ids:
-        print(
-            f"→ Fetching products for {len(uncached_branch_ids)} branches from database"
-        )
-        all_products = await products_repo.get_by_branch_ids(uncached_branch_ids)
-
-        # Group by branch and cache
-        uncached_products_by_branch = defaultdict(list)
-        for product in all_products:
-            uncached_products_by_branch[str(product.branchId)].append(product)
-
-        for branch_id in uncached_branch_ids:
-            branch_products = uncached_products_by_branch.get(branch_id, [])
-            products_by_branch[branch_id] = branch_products
-
-            # Cache the products for this branch
-            cache_key = get_product_cache_key(f"branch:{branch_id}")
-            serialized = [p.model_dump() for p in branch_products]
-            set_cached(cache_key, serialized, TTL_DEFAULT)
+    for product in all_products:
+        products_by_branch[str(product.branchId)].append(product)
 
     return [products_by_branch.get(bid, []) for bid in branch_ids]
 
@@ -66,36 +37,18 @@ async def load_products_for_branches(branch_ids: List[str]) -> List[List]:
 async def load_branches(branch_ids: List[str]) -> List[Optional[object]]:
     """
     Batch load branches by IDs in a single query.
-    Uses cache to avoid repeated queries.
     """
-    # Normalize IDs so cache keys and map lookups are stable.
+    # Normalize IDs so map lookups are stable.
     branch_ids = [str(branch_id) for branch_id in branch_ids]
 
-    # Try to get cached branches
+    # Fetch branches from database
+    print(f"→ Fetching {len(branch_ids)} branches from database")
+    branches = await branches_repo.get_by_ids(branch_ids)
+
+    # Create map
     branch_map = {}
-    uncached_ids = []
-
-    for branch_id in branch_ids:
-        cache_key = get_branch_cache_key(f"id:{branch_id}")
-        cached = get_cached(cache_key)
-
-        if cached is not None:
-            # Deserialize cached branch
-            branch_map[branch_id] = Branch(**cached)
-        else:
-            uncached_ids.append(branch_id)
-
-    # Fetch uncached branches from database
-    if uncached_ids:
-        print(f"→ Fetching {len(uncached_ids)} branches from database")
-        branches = await branches_repo.get_by_ids(uncached_ids)
-
-        for branch in branches:
-            branch_map[str(branch.id)] = branch
-
-            # Cache the branch
-            cache_key = get_branch_cache_key(f"id:{str(branch.id)}")
-            set_cached(cache_key, branch.model_dump(), TTL_DEFAULT)
+    for branch in branches:
+        branch_map[str(branch.id)] = branch
 
     return [branch_map.get(bid) for bid in branch_ids]
 
