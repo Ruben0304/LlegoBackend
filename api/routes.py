@@ -20,6 +20,9 @@ from .endpoints.shortcuts import router as shortcuts_router
 from .endpoints.stripe_payments import router as stripe_router
 from .endpoints.uploads import router as uploads_router
 from .endpoints.users import router as users_router
+from .endpoints.qvapay_webhooks import router as qvapay_webhooks_router
+from .endpoints.trondealer_webhooks import router as trondealer_webhooks_router
+from .endpoints.admin_payouts import router as admin_payouts_router
 
 router = APIRouter()
 router.include_router(uploads_router)
@@ -31,6 +34,9 @@ router.include_router(users_router)
 router.include_router(stripe_router)
 router.include_router(product_detection_router)
 router.include_router(shortcuts_router)
+router.include_router(qvapay_webhooks_router)
+router.include_router(trondealer_webhooks_router)
+router.include_router(admin_payouts_router)
 
 
 # =============================================================================

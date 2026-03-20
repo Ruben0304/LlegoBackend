@@ -45,6 +45,9 @@ from .tutorial_repository import TutorialRepository
 from .user_repository import UserRepository
 from .variant_list_repository import VariantListRepository, variant_lists_repo
 from .wallet_repository import WalletTransactionRepository
+from .qvapay_repository import QvaPayRepository, qvapay_invoices_repo
+from .trondealer_repository import TronDealerRepository, trondealer_wallets_repo
+from .payout_repository import PayoutRepository, payouts_repo
 
 # Repository instances
 users_repo = UserRepository()
@@ -153,4 +156,10 @@ __all__ = [
     "combos_repo",
     "VariantListRepository",
     "variant_lists_repo",
+    "QvaPayRepository",
+    "qvapay_invoices_repo",
+    "TronDealerRepository",
+    "trondealer_wallets_repo",
+    "PayoutRepository",
+    "payouts_repo",
 ]

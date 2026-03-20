@@ -105,6 +105,23 @@ class Settings(BaseSettings):
     stripe_publishable_key: str = ""
     stripe_webhook_secret: str = ""
 
+    # QvaPay Configuration
+    qvapay_app_id: str = ""
+    qvapay_app_secret: str = ""
+    # Secret token sent in X-QvaPay-Signature header by QvaPay webhooks.
+    # Set this in QvaPay dashboard → App → Webhook secret.
+    qvapay_webhook_secret: str = ""
+
+    # TronDealer Configuration
+    trondealer_api_key: str = ""
+    # HMAC-SHA256 secret used to verify TronDealer webhook signatures.
+    trondealer_webhook_secret: str = ""
+    # Optional comma-separated IP whitelist for TronDealer callback source IPs.
+    trondealer_allowed_ips: str = ""
+
+    # Admin API key for /admin/* endpoints (simple bearer token)
+    admin_api_key: str = ""
+
     # AWS Configuration
     aws_access_key_id: str
     aws_default_region: str

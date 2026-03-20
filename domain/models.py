@@ -143,6 +143,13 @@ class Branch(BaseModel):
     accounts: List[TransferAccount] = []
     qrPayments: List[QrPayment] = []
     phones: List[TransferPhone] = []
+
+    # QvaPay / Zelle (TronDealer) acceptance
+    acceptsQvapay: bool = False
+    acceptsZelle: bool = False          # enables TronDealer (USDT/Zelle) payments
+    qvapayUsername: Optional[str] = None   # QvaPay username for manual resend
+    zelleEmail: Optional[str] = None       # Zelle email shown to customer
+
     createdAt: datetime
 
     class Config:

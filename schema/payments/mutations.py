@@ -20,6 +20,8 @@ from .types import (
     InitiatePaymentResult,
     PaymentAttemptType,
     PaymentType,
+    QvaPayPaymentResult,
+    TronDealerPaymentResult,
     payment_attempt_to_type,
 )
 
@@ -402,3 +404,125 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
             return payment_attempt_to_type(attempt)
         except ValueError as e:
             raise Exception(str(e))
+
+    # ============================================
+    # QvaPay Payment Mutations
+    # ============================================
+
+    @strawberry.mutation(description="Iniciar pago con QvaPay para un pedido")
+    async def initiate_qvapay_payment(
+        self, info: Info, orderId: str, jwt: str
+    ) -> QvaPayPaymentResult:
+        """
+        Crea un invoice en QvaPay para la orden indicada.
+
+        Retorna una `paymentUrl` que el cliente debe abrir en un WebView o browser
+        para completar el pago. Una vez pagado, QvaPay notifica al backend
+        automáticamente y la orden pasa a `pending_acceptance`.
+
+        Solo disponible si la sucursal tiene `acceptsQvapay = true`.
+        """
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+
+        from repositories import branches_repo, orders_repo
+        from repositories.qvapay_repository import qvapay_invoices_repo
+        from repositories.payout_repository import payouts_repo
+        from services.payments.qvapay_service import QvaPayService
+
+        order = await orders_repo.get_by_id(orderId)
+        if not order:
+            raise Exception("Pedido no encontrado")
+        if str(order.customerId) != user_id:
+            raise Exception("No autorizado")
+
+        branch = await branches_repo.get_by_id(str(order.branchId))
+        if not branch:
+            raise Exception("Sucursal no encontrada")
+        if not branch.acceptsQvapay:
+            raise Exception("Esta sucursal no acepta pagos con QvaPay")
+
+        svc = QvaPayService(
+            invoices_repo=qvapay_invoices_repo,
+            payouts_repo=payouts_repo,
+        )
+        try:
+            result = await svc.create_invoice(
+                order_id=orderId,
+                branch_id=str(order.branchId),
+                business_id=str(order.businessId),
+                amount=order.total,
+                description=f"Pedido #{order.orderNumber}",
+            )
+        except RuntimeError as e:
+            raise Exception(str(e))
+
+        return QvaPayPaymentResult(
+            paymentUrl=result.url,
+            transactionUuid=result.transaction_uuid,
+            amount=result.amount,
+            orderId=orderId,
+        )
+
+    # ============================================
+    # TronDealer Payment Mutations
+    # ============================================
+
+    @strawberry.mutation(description="Iniciar pago con USDT/TronDealer para un pedido")
+    async def initiate_trondealer_payment(
+        self, info: Info, orderId: str, jwt: str
+    ) -> TronDealerPaymentResult:
+        """
+        Asigna una wallet USDT (TRON) dedicada para esta orden vía TronDealer.
+
+        Retorna la `address` y el `expectedAmount` exacto en USDT que el cliente
+        debe enviar. TronDealer detecta el depósito y notifica al backend
+        automáticamente; la orden pasa a `pending_acceptance`.
+
+        Solo disponible si la sucursal tiene `acceptsZelle = true`.
+        """
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+
+        from repositories import branches_repo, orders_repo
+        from repositories.trondealer_repository import trondealer_wallets_repo
+        from repositories.payout_repository import payouts_repo
+        from services.payments.trondealer_service import TronDealerService
+
+        order = await orders_repo.get_by_id(orderId)
+        if not order:
+            raise Exception("Pedido no encontrado")
+        if str(order.customerId) != user_id:
+            raise Exception("No autorizado")
+
+        branch = await branches_repo.get_by_id(str(order.branchId))
+        if not branch:
+            raise Exception("Sucursal no encontrada")
+        if not branch.acceptsZelle:
+            raise Exception("Esta sucursal no acepta pagos con USDT/TronDealer")
+
+        svc = TronDealerService(
+            wallets_repo=trondealer_wallets_repo,
+            payouts_repo=payouts_repo,
+        )
+        try:
+            result = await svc.create_wallet(
+                order_id=orderId,
+                branch_id=str(order.branchId),
+                business_id=str(order.businessId),
+                expected_amount=order.total,
+            )
+        except RuntimeError as e:
+            raise Exception(str(e))
+
+        return TronDealerPaymentResult(
+            address=result.address,
+            expectedAmount=order.total,
+            token=result.token or "USDT",
+            network=result.network,
+            orderId=orderId,
+        )

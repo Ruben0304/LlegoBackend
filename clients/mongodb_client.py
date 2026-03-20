@@ -30,6 +30,7 @@ async def connect_to_mongo():
         await _create_ai_quota_indexes()
         await _create_delivery_zone_indexes()
         await _create_branch_delivery_request_indexes()
+        await _create_crypto_payment_indexes()
     except Exception as e:
         print(f"✗ Error connecting to MongoDB: {e}")
         raise
@@ -297,6 +298,70 @@ async def _create_branch_delivery_request_indexes():
         print("✓ Branch delivery request indexes created/verified")
     except Exception as e:
         print(f"⚠ Warning: Could not create branch delivery request indexes: {e}")
+
+
+async def _create_crypto_payment_indexes():
+    """Create indexes for QvaPay, TronDealer and PendingPayout collections."""
+    try:
+        # qvapay_invoices — transactionUuid is the idempotency key
+        qvapay_col = database["qvapay_invoices"]
+        await qvapay_col.create_index(
+            "transactionUuid",
+            unique=True,
+            name="idx_qvapay_transaction_uuid_unique",
+            background=True,
+        )
+        await qvapay_col.create_index(
+            "orderId",
+            name="idx_qvapay_order_id",
+            background=True,
+        )
+        await qvapay_col.create_index(
+            [("status", 1), ("createdAt", 1)],
+            name="idx_qvapay_status_created",
+            background=True,
+        )
+
+        # trondealer_wallets — address is the webhook routing key
+        td_col = database["trondealer_wallets"]
+        await td_col.create_index(
+            "address",
+            unique=True,
+            name="idx_trondealer_address_unique",
+            background=True,
+        )
+        await td_col.create_index(
+            "orderId",
+            name="idx_trondealer_order_id",
+            background=True,
+        )
+        await td_col.create_index(
+            [("status", 1), ("createdAt", 1)],
+            name="idx_trondealer_status_created",
+            background=True,
+        )
+
+        # pending_payouts — admin liquidation queue
+        payouts_col = database["pending_payouts"]
+        await payouts_col.create_index(
+            [("payoutStatus", 1), ("createdAt", 1)],
+            name="idx_payouts_status_created",
+            background=True,
+        )
+        await payouts_col.create_index(
+            [("gateway", 1), ("payoutStatus", 1)],
+            name="idx_payouts_gateway_status",
+            background=True,
+        )
+        await payouts_col.create_index(
+            "orderId",
+            name="idx_payouts_order_id",
+            background=True,
+        )
+
+        print("✓ Crypto payment indexes created/verified")
+    except Exception as e:
+        print(f"⚠ Warning: Could not create crypto payment indexes: {e}")
 
 
 async def close_mongo_connection():

@@ -226,6 +226,14 @@ class BranchMutation:
             updates["qrPayments"] = [q.__dict__ for q in input.qrPayments]
         if input.phones is not None:
             updates["phones"] = [p.__dict__ for p in input.phones]
+        if input.acceptsQvapay is not None:
+            updates["acceptsQvapay"] = input.acceptsQvapay
+        if input.acceptsZelle is not None:
+            updates["acceptsZelle"] = input.acceptsZelle
+        if input.qvapayUsername is not None:
+            updates["qvapayUsername"] = input.qvapayUsername
+        if input.zelleEmail is not None:
+            updates["zelleEmail"] = input.zelleEmail
 
         # Handle coordinates update - save to MongoDB stores_location
         if input.coordinates is not None:

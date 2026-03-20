@@ -99,6 +99,11 @@ class BranchType:
     deliveryRadius: Optional[float] = None
     acceptedCurrency: Optional[AcceptedCurrency] = None
     exchangeRate: Optional[int] = None
+    # QvaPay / Zelle (TronDealer) acceptance
+    acceptsQvapay: bool = False
+    acceptsZelle: bool = False
+    qvapayUsername: Optional[str] = None
+    zelleEmail: Optional[str] = None
     createdAt: datetime
     wallet: WalletBalanceType
     walletStatus: str = "active"
@@ -205,6 +210,10 @@ class NearbyBranchType:
     deliveryRadius: Optional[float] = None
     acceptedCurrency: Optional[AcceptedCurrency] = None
     exchangeRate: Optional[int] = None
+    acceptsQvapay: bool = False
+    acceptsZelle: bool = False
+    qvapayUsername: Optional[str] = None
+    zelleEmail: Optional[str] = None
     createdAt: datetime
     distance_m: float
     wallet: WalletBalanceType
@@ -316,6 +325,10 @@ class ScoredBranchType:
     deliveryRadius: Optional[float] = None
     acceptedCurrency: Optional[AcceptedCurrency] = None
     exchangeRate: Optional[int] = None
+    acceptsQvapay: bool = False
+    acceptsZelle: bool = False
+    qvapayUsername: Optional[str] = None
+    zelleEmail: Optional[str] = None
     createdAt: datetime
     score: float
     distance_m: Optional[float] = None

@@ -28,6 +28,11 @@ def branch_to_dict(branch: Branch) -> dict:
             "phones",
         },
     )
+    # New crypto/digital payment fields — default to safe values if not in DB yet
+    branch_dict.setdefault("acceptsQvapay", False)
+    branch_dict.setdefault("acceptsZelle", False)
+    branch_dict.setdefault("qvapayUsername", None)
+    branch_dict.setdefault("zelleEmail", None)
     # Keep a stable string value for status to avoid null decoding failures in clients.
     if not branch_dict.get("status"):
         branch_dict["status"] = "active" if getattr(branch, "isActive", False) else "inactive"

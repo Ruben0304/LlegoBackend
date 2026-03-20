@@ -18,7 +18,20 @@
       "Bash(\"/Users/ruben/projects/Llego Org/LlegoBackend/schema/products/queries.py\":*)",
       "Bash(find:*)",
       "Bash(source .venv/Scripts/activate)",
-      "mcp__Claude_Preview__preview_start"
+      "mcp__Claude_Preview__preview_start",
+      "WebFetch(domain:qvapay.com)",
+      "WebFetch(domain:trondealer.com)",
+      "WebFetch(domain:www.qvapay.com)",
+      "WebFetch(domain:docs.trondealer.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:webcache.googleusercontent.com)",
+      "WebFetch(domain:packagist.org)",
+      "WebSearch",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:pypi.org)",
+      "WebFetch(domain:api.qvapay.com)",
+      "WebFetch(domain:scalar.com)",
+      "WebFetch(domain:api.trondealer.com)"
     ]
   }
 }

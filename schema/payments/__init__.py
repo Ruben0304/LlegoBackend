@@ -7,6 +7,8 @@ from .types import (
     InitiatePaymentResult,
     PlatformType,
     PlatformWalletType,
+    QvaPayPaymentResult,
+    TronDealerPaymentResult,
     payment_attempt_to_type,
 )
 from .queries import PaymentMethodQuery
@@ -23,4 +25,6 @@ __all__ = [
     "payment_attempt_to_type",
     "PaymentMethodQuery",
     "PaymentMutation",
+    "QvaPayPaymentResult",
+    "TronDealerPaymentResult",
 ]

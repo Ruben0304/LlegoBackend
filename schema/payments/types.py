@@ -144,6 +144,25 @@ class PlatformType:
     totalOrdersProcessed: int = strawberry.field(description="Total orders processed")
 
 
+@strawberry.type
+class QvaPayPaymentResult:
+    """Resultado de iniciar un pago con QvaPay."""
+    paymentUrl: str = strawberry.field(description="URL de pago QvaPay — abrir en WebView o browser")
+    transactionUuid: str = strawberry.field(description="UUID de la transacción en QvaPay")
+    amount: float = strawberry.field(description="Monto a pagar en USD")
+    orderId: str = strawberry.field(description="ID de la orden asociada")
+
+
+@strawberry.type
+class TronDealerPaymentResult:
+    """Resultado de iniciar un pago con TronDealer (USDT)."""
+    address: str = strawberry.field(description="Dirección de wallet TRON a la que enviar el USDT")
+    expectedAmount: float = strawberry.field(description="Monto exacto en USDT a enviar")
+    token: str = strawberry.field(description="Token a usar, generalmente USDT")
+    network: Optional[str] = strawberry.field(description="Red blockchain, generalmente TRON", default=None)
+    orderId: str = strawberry.field(description="ID de la orden asociada")
+
+
 def payment_attempt_to_type(attempt) -> PaymentAttemptType:
     """Convert PaymentAttempt model to GraphQL type."""
     return PaymentAttemptType(

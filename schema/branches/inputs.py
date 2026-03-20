@@ -100,3 +100,8 @@ class UpdateBranchInput:
     accounts: Optional[List[TransferAccountInput]] = None
     qrPayments: Optional[List[QrPaymentInput]] = None
     phones: Optional[List[TransferPhoneInput]] = None
+    # QvaPay / Zelle (TronDealer) acceptance
+    acceptsQvapay: Optional[bool] = None
+    acceptsZelle: Optional[bool] = None         # True habilita TronDealer/USDT
+    qvapayUsername: Optional[str] = None        # Username QvaPay para reenvíos manuales
+    zelleEmail: Optional[str] = None            # Email Zelle asociado a TronDealer
