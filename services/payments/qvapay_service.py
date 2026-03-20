@@ -23,6 +23,7 @@ from core.config import settings
 from domain.crypto_payments import PendingPayout, QvaPayInvoice, QvaPayInvoiceStatus
 from repositories.qvapay_repository import QvaPayRepository
 from repositories.payout_repository import PayoutRepository
+from services.payments.qvapay_transfer_service import qvapay_transfer_service
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +35,20 @@ QVAPAY_API_BASE = "https://api.qvapay.com/v2"
 # ---------------------------------------------------------------------------
 
 
+class QvaPayProduct(BaseModel):
+    name: str
+    price: float
+    quantity: int = 1
+
+
 class QvaPayCreateInvoiceRequest(BaseModel):
     amount: float
     description: str
     remote_id: str
     webhook: Optional[str] = None
+    success_url: Optional[str] = None
+    cancel_url: Optional[str] = None
+    products: Optional[list[QvaPayProduct]] = None
     expire_at: Optional[str] = None  # ISO 8601
 
 
@@ -55,16 +65,20 @@ class QvaPayCreateInvoiceResponse(BaseModel):
 class QvaPayWebhookPayload(BaseModel):
     """
     Webhook payload sent by QvaPay when a transaction changes status.
-    Fields confirmed from QvaPay v2 docs.
+    Based on real QvaPay v2 webhook data.
     """
     transaction_uuid: str
     remote_id: str
-    amount: float
-    status: str          # "completed" | "pending" | "failed"
-    description: Optional[str] = None
-    app_id: Optional[str] = None
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
+    amount: str  # Viene como string, ej: "1" o "10.50"
+    status: str  # "paid" | "pending" | "failed"
+    signed: bool  # IMPORTANTE: debe ser true para procesar
+    created_at: str  # ISO 8601
+    updated_at: str  # ISO 8601
+    
+    @property
+    def amount_float(self) -> float:
+        """Convierte amount de string a float."""
+        return float(self.amount)
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +107,7 @@ class QvaPayService:
         amount: float,
         description: str,
         webhook_url: Optional[str] = None,
+        products: Optional[list[dict]] = None,
     ) -> QvaPayCreateInvoiceResponse:
         """
         Create a QvaPay invoice for an order.
@@ -108,6 +123,15 @@ class QvaPayService:
         }
         if webhook_url:
             payload["webhook"] = webhook_url
+        
+        # Add success and cancel URLs if base URL is configured
+        if settings.qvapay_base_url:
+            payload["success_url"] = f"{settings.qvapay_base_url}/api/v1/qvapay/success"
+            payload["cancel_url"] = f"{settings.qvapay_base_url}/api/v1/qvapay/cancel"
+        
+        # Add products if provided
+        if products:
+            payload["products"] = products
 
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
@@ -174,13 +198,21 @@ class QvaPayService:
         Process an incoming QvaPay webhook.
 
         Returns True if the webhook was processed (new), False if it was a duplicate.
-        Raises ValueError on invalid signature.
+        Raises ValueError on invalid signature or unsigned webhook.
         """
-        # 1. Validate signature
+        # 1. Validate signature (if configured)
         self._verify_signature(payload.transaction_uuid, signature_header)
+        
+        # 2. CRITICAL: Verify signed field
+        if not payload.signed:
+            logger.warning(
+                "QvaPay webhook rejected — signed=false uuid=%s",
+                payload.transaction_uuid,
+            )
+            raise ValueError("Webhook not signed by QvaPay (signed=false)")
 
-        # 2. Only act on "completed" events
-        if payload.status != "completed":
+        # 3. Only act on "paid" events (QvaPay usa "paid", no "completed")
+        if payload.status != "paid":
             logger.info(
                 "QvaPay webhook ignored — status=%s uuid=%s",
                 payload.status,
@@ -188,7 +220,7 @@ class QvaPayService:
             )
             return False
 
-        # 3. Idempotency: attempt to mark invoice as completed atomically
+        # 4. Idempotency: attempt to mark invoice as completed atomically
         invoice = await self._invoices.mark_completed(payload.transaction_uuid)
         if invoice is None:
             # Already processed or not found
@@ -203,14 +235,17 @@ class QvaPayService:
             )
             return False
 
+        # Convertir amount de string a float
+        amount_float = payload.amount_float
+
         logger.info(
             "QvaPay payment completed order=%s uuid=%s amount=%s",
             str(invoice.orderId),
             payload.transaction_uuid,
-            payload.amount,
+            amount_float,
         )
 
-        # 4. Mark order as PAID (same pattern as payments_service.py)
+        # 5. Mark order as PAID (same pattern as payments_service.py)
         db = get_database()
         await db.orders.update_one(
             {"_id": invoice.orderId},
@@ -224,13 +259,13 @@ class QvaPayService:
             },
         )
 
-        # 5. Register pending payout
+        # 6. Register pending payout
         payout = PendingPayout(
             _id=ObjectId(),
             orderId=invoice.orderId,
             branchId=invoice.branchId,
             businessId=invoice.businessId,
-            amount=payload.amount,
+            amount=amount_float,
             currency="usd",
             gateway="qvapay",
             externalTransactionId=payload.transaction_uuid,
@@ -242,13 +277,182 @@ class QvaPayService:
         logger.info(
             "PendingPayout created gateway=qvapay order=%s amount=%s",
             str(invoice.orderId),
-            payload.amount,
+            amount_float,
         )
+        
+        # 7. Attempt automatic transfer to business QvaPay account
+        await self._attempt_auto_transfer(payout, invoice)
+        
         return True
+
+    async def handle_success_callback(self, transaction_uuid: str) -> dict:
+        """
+        Handle success callback when user completes payment.
+        Returns dict with 'found' boolean and invoice info.
+        """
+        invoice = await self._invoices.get_by_transaction_uuid(transaction_uuid)
+        
+        if not invoice:
+            logger.warning(
+                "QvaPay success callback: invoice not found uuid=%s", transaction_uuid
+            )
+            return {"found": False, "invoice": None}
+        
+        logger.info(
+            "QvaPay success callback order=%s uuid=%s status=%s",
+            str(invoice.orderId),
+            transaction_uuid,
+            invoice.status,
+        )
+        
+        return {
+            "found": True,
+            "invoice": invoice,
+            "order_id": str(invoice.orderId),
+            "status": invoice.status,
+        }
+
+    async def handle_cancel_callback(self, transaction_uuid: str) -> dict:
+        """
+        Handle cancel callback when user cancels payment.
+        Marks invoice as cancelled and cancels the order.
+        Returns dict with 'cancelled' boolean.
+        """
+        invoice = await self._invoices.get_by_transaction_uuid(transaction_uuid)
+        
+        if not invoice:
+            logger.warning(
+                "QvaPay cancel callback: invoice not found uuid=%s", transaction_uuid
+            )
+            return {"cancelled": False, "found": False}
+        
+        # Only cancel if still pending
+        if invoice.status == QvaPayInvoiceStatus.PENDING:
+            # Mark invoice as cancelled
+            await self._invoices.mark_cancelled(transaction_uuid)
+            
+            # Cancel the order
+            db = get_database()
+            await db.orders.update_one(
+                {"_id": invoice.orderId},
+                {
+                    "$set": {
+                        "paymentStatus": "cancelled",
+                        "status": "cancelled",
+                        "updatedAt": datetime.utcnow(),
+                    }
+                },
+            )
+            
+            logger.info(
+                "QvaPay payment cancelled order=%s uuid=%s",
+                str(invoice.orderId),
+                transaction_uuid,
+            )
+            return {"cancelled": True, "found": True, "order_id": str(invoice.orderId)}
+        
+        logger.info(
+            "QvaPay cancel callback ignored — already processed uuid=%s status=%s",
+            transaction_uuid,
+            invoice.status,
+        )
+        return {"cancelled": False, "found": True, "status": invoice.status}
 
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    async def _attempt_auto_transfer(
+        self, payout: PendingPayout, invoice: QvaPayInvoice
+    ) -> None:
+        """
+        Attempt automatic transfer to business QvaPay account.
+        If successful, marks payout as confirmed.
+        If fails, logs error and leaves payout as pending for manual processing.
+        """
+        # Check if auto-transfer is enabled
+        if not settings.qvapay_platform_pin:
+            logger.info(
+                "QvaPay auto-transfer disabled (no PIN configured) payout=%s",
+                str(payout.id),
+            )
+            return
+        
+        try:
+            # Fetch branch to get qvapayUsername
+            db = get_database()
+            branch = await db.branches.find_one({"_id": invoice.branchId})
+            
+            if not branch:
+                logger.warning(
+                    "Branch not found for auto-transfer payout=%s branch_id=%s",
+                    str(payout.id),
+                    str(invoice.branchId),
+                )
+                return
+            
+            qvapay_username = branch.get("qvapayUsername")
+            if not qvapay_username:
+                logger.warning(
+                    "Branch has no qvapayUsername configured payout=%s branch=%s",
+                    str(payout.id),
+                    branch.get("name", "unknown"),
+                )
+                return
+            
+            business_name = branch.get("name", "Negocio")
+            
+            # Attempt transfer
+            logger.info(
+                "Attempting automatic QvaPay transfer payout=%s to=%s amount=%s",
+                str(payout.id),
+                qvapay_username,
+                payout.amount,
+            )
+            
+            transfer_result = await qvapay_transfer_service.transfer_to_business(
+                amount=payout.amount,
+                qvapay_username=qvapay_username,
+                description=f"Pago por orden {str(payout.orderId)[:8]} - {business_name}",
+                pin=settings.qvapay_platform_pin,
+            )
+            
+            # Mark payout as confirmed with transfer details
+            transfer_notes = (
+                f"Transferencia automática QvaPay exitosa\n"
+                f"Transaction UUID: {transfer_result.transaction}\n"
+                f"Destinatario: {qvapay_username}\n"
+                f"Monto: ${payout.amount:.2f}"
+            )
+            
+            confirmed_payout = await self._payouts.confirm(
+                payout_id=str(payout.id),
+                confirmed_by=str(ObjectId()),  # System user
+                notes=transfer_notes,
+            )
+            
+            if confirmed_payout:
+                logger.info(
+                    "QvaPay auto-transfer successful payout=%s transaction=%s to=%s",
+                    str(payout.id),
+                    transfer_result.transaction,
+                    qvapay_username,
+                )
+            else:
+                logger.error(
+                    "Failed to mark payout as confirmed after successful transfer payout=%s",
+                    str(payout.id),
+                )
+                
+        except Exception as exc:
+            # Log error but don't fail the webhook processing
+            # Payout remains pending for manual processing
+            logger.error(
+                "QvaPay auto-transfer failed payout=%s error=%s",
+                str(payout.id),
+                str(exc),
+                exc_info=True,
+            )
 
     def _verify_signature(
         self, transaction_uuid: str, signature_header: Optional[str]

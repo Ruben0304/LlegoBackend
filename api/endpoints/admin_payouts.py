@@ -2,6 +2,7 @@
 
 GET  /admin/pending-payouts         — list payouts with payoutStatus=pending.
 POST /admin/payouts/{id}/confirm    — mark a payout as confirmed (liquidated).
+                                       For QvaPay payouts, attempts automatic transfer.
 
 Authentication: static Bearer token via ADMIN_API_KEY env var.
 """
@@ -13,9 +14,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
+from clients.mongodb_client import get_database
 from core.config import settings
 from domain.crypto_payments import PendingPayout
 from repositories.payout_repository import payouts_repo
+from services.payments.qvapay_transfer_service import qvapay_transfer_service
 
 logger = logging.getLogger(__name__)
 
@@ -92,11 +95,13 @@ class PendingPayoutsResponse(BaseModel):
 class ConfirmPayoutRequest(BaseModel):
     confirmed_by: str  # admin user ID (ObjectId string)
     notes: Optional[str] = None
+    auto_transfer: bool = True  # Attempt automatic QvaPay transfer if applicable
 
 
 class ConfirmPayoutResponse(BaseModel):
     payout: PayoutOut
     message: str = "Payout confirmed."
+    transfer_transaction: Optional[str] = None  # QvaPay transaction UUID if auto-transferred
 
 
 # ---------------------------------------------------------------------------
@@ -134,13 +139,100 @@ async def list_pending_payouts(
 async def confirm_payout(payout_id: str, body: ConfirmPayoutRequest):
     """
     Mark a payout as confirmed once the manual transfer has been executed.
+    
+    For QvaPay payouts with auto_transfer=True:
+      - Fetches business qvapayUsername from branch
+      - Attempts automatic transfer via QvaPay API
+      - Stores transaction UUID in notes if successful
+    
     Idempotent — returns 404 if already confirmed or not found.
     """
+    # Get payout details before confirming
+    payout_before = await payouts_repo.get_by_id(payout_id)
+    if not payout_before:
+        raise HTTPException(status_code=404, detail="Payout not found.")
+    
+    if payout_before.payoutStatus != "pending":
+        raise HTTPException(status_code=400, detail="Payout already processed.")
+    
+    transfer_transaction: Optional[str] = None
+    transfer_notes = body.notes or ""
+    
+    # Attempt automatic QvaPay transfer if enabled
+    if (
+        body.auto_transfer
+        and payout_before.gateway == "qvapay"
+        and settings.qvapay_platform_pin
+    ):
+        try:
+            # Fetch branch to get qvapayUsername
+            db = get_database()
+            branch = await db.branches.find_one({"_id": payout_before.branchId})
+            
+            if not branch:
+                logger.warning(
+                    "Branch not found for payout id=%s branch_id=%s",
+                    payout_id,
+                    str(payout_before.branchId),
+                )
+            elif not branch.get("qvapayUsername"):
+                logger.warning(
+                    "Branch has no qvapayUsername configured id=%s",
+                    str(payout_before.branchId),
+                )
+            else:
+                qvapay_username = branch["qvapayUsername"]
+                business_name = branch.get("name", "Negocio")
+                
+                # Attempt transfer
+                logger.info(
+                    "Attempting automatic QvaPay transfer payout=%s to=%s amount=%s",
+                    payout_id,
+                    qvapay_username,
+                    payout_before.amount,
+                )
+                
+                transfer_result = await qvapay_transfer_service.transfer_to_business(
+                    amount=payout_before.amount,
+                    qvapay_username=qvapay_username,
+                    description=f"Pago por orden {str(payout_before.orderId)[:8]} - {business_name}",
+                    pin=settings.qvapay_platform_pin,
+                )
+                
+                transfer_transaction = transfer_result.transaction
+                transfer_notes = (
+                    f"Transferencia automática QvaPay: {transfer_transaction}\n"
+                    f"Destinatario: {qvapay_username}\n"
+                    f"{transfer_notes}"
+                )
+                
+                logger.info(
+                    "QvaPay auto-transfer successful payout=%s transaction=%s",
+                    payout_id,
+                    transfer_transaction,
+                )
+                
+        except Exception as exc:
+            # Log error but don't fail the confirmation
+            # Admin can retry manually or transfer outside the system
+            logger.error(
+                "QvaPay auto-transfer failed payout=%s error=%s",
+                payout_id,
+                str(exc),
+            )
+            transfer_notes = (
+                f"⚠️ Transferencia automática falló: {str(exc)}\n"
+                f"Requiere transferencia manual.\n"
+                f"{transfer_notes}"
+            )
+    
+    # Confirm the payout
     payout = await payouts_repo.confirm(
         payout_id=payout_id,
         confirmed_by=body.confirmed_by,
-        notes=body.notes,
+        notes=transfer_notes.strip() or None,
     )
+    
     if payout is None:
         raise HTTPException(
             status_code=404,
@@ -148,10 +240,16 @@ async def confirm_payout(payout_id: str, body: ConfirmPayoutRequest):
         )
 
     logger.info(
-        "Payout confirmed id=%s gateway=%s amount=%s by=%s",
+        "Payout confirmed id=%s gateway=%s amount=%s by=%s auto_transfer=%s",
         payout_id,
         payout.gateway,
         payout.amount,
         body.confirmed_by,
+        transfer_transaction is not None,
     )
-    return ConfirmPayoutResponse(payout=PayoutOut.from_domain(payout))
+    
+    return ConfirmPayoutResponse(
+        payout=PayoutOut.from_domain(payout),
+        message="Payout confirmed and transferred." if transfer_transaction else "Payout confirmed.",
+        transfer_transaction=transfer_transaction,
+    )

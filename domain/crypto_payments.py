@@ -15,6 +15,7 @@ class QvaPayInvoiceStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     EXPIRED = "expired"
+    CANCELLED = "cancelled"
 
 
 class QvaPayInvoice(BaseModel):
@@ -43,6 +44,7 @@ class QvaPayInvoice(BaseModel):
     # Status tracking
     status: QvaPayInvoiceStatus = QvaPayInvoiceStatus.PENDING
     completedAt: Optional[datetime] = None
+    cancelledAt: Optional[datetime] = None
     webhookReceivedAt: Optional[datetime] = None  # timestamp of first valid webhook
 
     # Audit

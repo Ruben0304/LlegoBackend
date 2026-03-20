@@ -111,9 +111,14 @@ class Settings(BaseSettings):
     # Secret token sent in X-QvaPay-Signature header by QvaPay webhooks.
     # Set this in QvaPay dashboard → App → Webhook secret.
     qvapay_webhook_secret: str = ""
+    # Base URL for QvaPay callbacks (success/cancel)
+    qvapay_base_url: str = ""  # e.g., https://api.yourdomain.com
+    # Platform account PIN for automatic transfers (4 or 6 digits)
+    qvapay_platform_pin: str = ""
 
     # TronDealer Configuration
     trondealer_api_key: str = ""
+    trondealer_business_id: str = ""
     # HMAC-SHA256 secret used to verify TronDealer webhook signatures.
     trondealer_webhook_secret: str = ""
     # Optional comma-separated IP whitelist for TronDealer callback source IPs.

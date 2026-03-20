@@ -62,6 +62,25 @@ class QvaPayRepository:
             {"$set": {"status": QvaPayInvoiceStatus.FAILED, "updatedAt": now}},
         )
 
+    async def mark_cancelled(self, transaction_uuid: str) -> Optional[QvaPayInvoice]:
+        """Mark invoice as cancelled; returns the updated invoice or None if not found."""
+        now = datetime.utcnow()
+        result = await self._col.find_one_and_update(
+            {
+                "transactionUuid": transaction_uuid,
+                "status": QvaPayInvoiceStatus.PENDING,  # only cancel if still pending
+            },
+            {
+                "$set": {
+                    "status": QvaPayInvoiceStatus.CANCELLED,
+                    "cancelledAt": now,
+                    "updatedAt": now,
+                }
+            },
+            return_document=True,
+        )
+        return QvaPayInvoice(**result) if result else None
+
     async def get_pending(self, limit: int = 100) -> List[QvaPayInvoice]:
         cursor = self._col.find(
             {"status": QvaPayInvoiceStatus.PENDING}

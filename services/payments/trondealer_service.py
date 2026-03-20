@@ -104,7 +104,10 @@ class TronDealerService:
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
                 f"{TRONDEALER_API_BASE}/create-wallet",
-                json={"order_id": order_id},
+                json={
+                    "order_id": order_id,
+                    "business_id": settings.trondealer_business_id,
+                },
                 headers={
                     "Authorization": f"Bearer {settings.trondealer_api_key}",
                     "Content-Type": "application/json",
