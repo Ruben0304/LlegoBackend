@@ -115,6 +115,8 @@ class Settings(BaseSettings):
     qvapay_base_url: str = ""  # e.g., https://api.yourdomain.com
     # Platform account PIN for automatic transfers (4 or 6 digits)
     qvapay_platform_pin: str = ""
+    # Test amount for QvaPay invoices (0 = use real amount, >0 = use this test amount)
+    qvapay_test_amount: float = 0.0
 
     # TronDealer Configuration
     trondealer_api_key: str = ""

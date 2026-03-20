@@ -112,12 +112,26 @@ class QvaPayService:
         """
         Create a QvaPay invoice for an order.
         Returns the QvaPay response including the payment URL.
+        
+        If QVAPAY_TEST_AMOUNT is set to a value > 0, that amount will be used
+        instead of the real amount for testing purposes.
         """
         if not settings.qvapay_app_id or not settings.qvapay_app_secret:
             raise RuntimeError("QvaPay credentials not configured.")
 
+        # Use test amount if configured, otherwise use real amount
+        invoice_amount = amount
+        if settings.qvapay_test_amount > 0:
+            invoice_amount = settings.qvapay_test_amount
+            logger.info(
+                "Using QvaPay test amount: $%.2f (real amount: $%.2f) for order=%s",
+                invoice_amount,
+                amount,
+                order_id,
+            )
+
         payload = {
-            "amount": amount,
+            "amount": invoice_amount,
             "description": description,
             "remote_id": order_id,
         }
@@ -156,7 +170,8 @@ class QvaPayService:
         data = response.json()
         invoice_resp = QvaPayCreateInvoiceResponse(**data)
 
-        # Persist invoice
+        # Persist invoice with the REAL amount (not test amount)
+        # This ensures the database reflects the actual order amount
         expire_at: Optional[datetime] = None
         if invoice_resp.expire_at:
             try:
@@ -171,7 +186,7 @@ class QvaPayService:
             businessId=ObjectId(business_id),
             transactionUuid=invoice_resp.transaction_uuid,
             remoteId=order_id,
-            amount=amount,
+            amount=amount,  # Store REAL amount, not test amount
             description=description,
             paymentUrl=invoice_resp.url,
             expireAt=expire_at,
@@ -182,10 +197,12 @@ class QvaPayService:
         await self._invoices.create(invoice)
 
         logger.info(
-            "QvaPay invoice created order=%s uuid=%s url=%s",
+            "QvaPay invoice created order=%s uuid=%s url=%s invoice_amount=$%.2f real_amount=$%.2f",
             order_id,
             invoice_resp.transaction_uuid,
             invoice_resp.url,
+            invoice_amount,
+            amount,
         )
         return invoice_resp
 
