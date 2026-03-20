@@ -29,7 +29,7 @@ from repositories.payout_repository import PayoutRepository
 
 logger = logging.getLogger(__name__)
 
-TRONDEALER_API_BASE = "https://api.trondealer.com/v1"
+TRONDEALER_API_BASE = "https://trondealer.com/api/v2"
 
 
 # ---------------------------------------------------------------------------
@@ -37,16 +37,31 @@ TRONDEALER_API_BASE = "https://api.trondealer.com/v1"
 # ---------------------------------------------------------------------------
 
 
+class TronDealerWalletData(BaseModel):
+    """Wallet data from TronDealer API v2."""
+    id: str
+    address: str
+    label: Optional[str] = None
+    status: str
+    created_at: str
+
+
 class TronDealerCreateWalletResponse(BaseModel):
     """
-    Response from POST /v1/create-wallet.
-    Field names are based on TronDealer REST API v1/v2 conventions.
-    Adjust if TronDealer changes their schema.
+    Response from POST /api/v2/wallets/assign.
+    Based on TronDealer API v2 documentation.
     """
-    address: str
-    # TronDealer may return additional fields; capture them loosely.
-    network: Optional[str] = None
-    token: Optional[str] = None
+    success: bool
+    wallet: TronDealerWalletData
+    
+    # Alias for backward compatibility
+    @property
+    def address(self) -> str:
+        return self.wallet.address
+    
+    @property
+    def wallet_address(self) -> str:
+        return self.wallet.address
 
     class Config:
         extra = "allow"
@@ -103,13 +118,13 @@ class TronDealerService:
 
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
-                f"{TRONDEALER_API_BASE}/create-wallet",
+                f"{TRONDEALER_API_BASE}/wallets/assign",
                 json={
+                    "client_id": settings.trondealer_business_id,
                     "order_id": order_id,
-                    "business_id": settings.trondealer_business_id,
                 },
                 headers={
-                    "Authorization": f"Bearer {settings.trondealer_api_key}",
+                    "x-api-key": settings.trondealer_api_key,
                     "Content-Type": "application/json",
                 },
             )
@@ -128,13 +143,13 @@ class TronDealerService:
         data = response.json()
         wallet_resp = TronDealerCreateWalletResponse(**data)
 
-        # Persist wallet mapping
+        # Persist wallet mapping (use .address property for compatibility)
         wallet = TronDealerWallet(
             _id=ObjectId(),
             orderId=ObjectId(order_id),
             branchId=ObjectId(branch_id),
             businessId=ObjectId(business_id),
-            address=wallet_resp.address,
+            address=wallet_resp.address,  # Uses property for backward compatibility
             expectedAmount=expected_amount,
             status=TronDealerWalletStatus.PENDING,
             createdAt=datetime.utcnow(),
