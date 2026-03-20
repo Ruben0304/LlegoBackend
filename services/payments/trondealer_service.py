@@ -62,6 +62,17 @@ class TronDealerCreateWalletResponse(BaseModel):
     @property
     def wallet_address(self) -> str:
         return self.wallet.address
+    
+    # Default values for fields not provided by API v2
+    @property
+    def token(self) -> str:
+        """Default token is USDT on BSC."""
+        return "USDT"
+    
+    @property
+    def network(self) -> str:
+        """TronDealer API v2 uses BSC (BEP20)."""
+        return "BSC"
 
     class Config:
         extra = "allow"

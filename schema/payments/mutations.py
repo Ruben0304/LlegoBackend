@@ -522,7 +522,7 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
         return TronDealerPaymentResult(
             address=result.address,
             expectedAmount=order.total,
-            token=result.token or "USDT",
+            token=result.token,
             network=result.network,
             orderId=orderId,
         )
