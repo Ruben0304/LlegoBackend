@@ -31,10 +31,30 @@ class ComboQuery:
         return [combo_to_type(combo) for combo in combos]
 
     @strawberry.field(description="Obtener todos los combos")
-    async def all_combos(self, available_only: bool = False) -> List[ComboType]:
+    async def all_combos(
+        self,
+        available_only: bool = False,
+        branch_tipo: Optional[str] = None,
+        product_category_id: Optional[str] = None,
+    ) -> List[ComboType]:
         """
         Obtiene todos los combos del sistema.
-        Útil para administradores.
+        Puede filtrar por tipo de negocio y categoría de producto.
+        
+        Args:
+            available_only: Solo combos disponibles
+            branch_tipo: Filtrar por tipo de negocio (restaurante, tienda, dulceria, etc.)
+            product_category_id: Filtrar por categoría de producto
         """
-        combos = await combos_repo.get_all(available_only)
+        # Si hay filtros, usar el método optimizado con agregación
+        if branch_tipo or product_category_id:
+            combos = await combos_repo.get_filtered(
+                available_only=available_only,
+                branch_tipo=branch_tipo,
+                product_category_id=product_category_id,
+            )
+        else:
+            # Sin filtros, usar el método simple
+            combos = await combos_repo.get_all(available_only)
+        
         return [combo_to_type(combo) for combo in combos]

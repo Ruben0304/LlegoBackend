@@ -80,6 +80,92 @@ class ComboRepository:
         docs = await cursor.to_list(length=None)
         return [Combo(**doc) for doc in docs]
 
+    async def get_filtered(
+        self,
+        available_only: bool = False,
+        branch_tipo: Optional[str] = None,
+        product_category_id: Optional[str] = None,
+    ) -> List[Combo]:
+        """
+        Get combos filtered by branch tipo and/or product category using MongoDB aggregation.
+        
+        Args:
+            available_only: Only return available combos
+            branch_tipo: Filter by branch type (e.g., "restaurante", "tienda")
+            product_category_id: Filter by product category ID
+            
+        Returns:
+            List of filtered combos
+        """
+        db = get_database()
+        
+        # Build aggregation pipeline
+        pipeline = []
+        
+        # Initial match for availability
+        if available_only:
+            pipeline.append({"$match": {"availability": True}})
+        
+        # Filter by branch tipo if specified
+        if branch_tipo:
+            import re
+            normalized_tipo = (branch_tipo or "").strip()
+            pipeline.extend([
+                {
+                    "$lookup": {
+                        "from": "branches",
+                        "localField": "branchId",
+                        "foreignField": "_id",
+                        "as": "branch_info"
+                    }
+                },
+                {"$unwind": "$branch_info"},
+                {
+                    "$match": {
+                        "branch_info.tipos": {
+                            "$regex": f"^{re.escape(normalized_tipo)}$",
+                            "$options": "i"
+                        }
+                    }
+                }
+            ])
+        
+        # Filter by product category if specified
+        if product_category_id:
+            category_oid = self._to_object_id(product_category_id)
+            pipeline.extend([
+                {
+                    "$lookup": {
+                        "from": "products",
+                        "localField": "slots.options.productId",
+                        "foreignField": "_id",
+                        "as": "products_info"
+                    }
+                },
+                {
+                    "$match": {
+                        "products_info.categoryId": category_oid
+                    }
+                }
+            ])
+        
+        # Remove joined fields to return clean combo documents
+        pipeline.append({
+            "$project": {
+                "branch_info": 0,
+                "products_info": 0
+            }
+        })
+        
+        # Sort by creation date
+        pipeline.append({"$sort": {"createdAt": -1}})
+        
+        # Execute aggregation
+        cursor = db[self.mongo_collection_name].aggregate(pipeline)
+        docs = await cursor.to_list(length=None)
+        
+        return [Combo(**doc) for doc in docs]
+
     async def update(self, combo_id: str, update_data: dict) -> Optional[Combo]:
         """Update a combo."""
         db = get_database()
