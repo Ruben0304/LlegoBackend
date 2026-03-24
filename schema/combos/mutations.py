@@ -45,8 +45,8 @@ class ComboMutation:
 
         raise Exception(f"Tipo de descuento no soportado: {discount_type}")
 
+    @staticmethod
     async def _validate_and_prepare_slots(
-        self,
         slots: List[Any],
         branch_id: str,
     ) -> tuple[List[Dict[str, Any]], str]:
@@ -118,7 +118,9 @@ class ComboMutation:
                     )
 
                 currencies.add(
-                    self._normalize_currency(getattr(product, "currency", None))
+                    ComboMutation._normalize_currency(
+                        getattr(product, "currency", None)
+                    )
                 )
 
                 seen_modifiers = set()
@@ -193,11 +195,11 @@ class ComboMutation:
         await access_checker.require_branch_access(user_id, input.branchId)
 
         # Validar slots/productos y descuento
-        slots_payload, combo_currency = await self._validate_and_prepare_slots(
+        slots_payload, combo_currency = await ComboMutation._validate_and_prepare_slots(
             slots=input.slots,
             branch_id=input.branchId,
         )
-        self._validate_discount(input.discountType.value, input.discountValue)
+        ComboMutation._validate_discount(input.discountType.value, input.discountValue)
 
         combo_data = {
             "branchId": input.branchId,
@@ -246,7 +248,7 @@ class ComboMutation:
             update_data["image"] = input.image
 
         if input.slots is not None:
-            slots_payload, combo_currency = await self._validate_and_prepare_slots(
+            slots_payload, combo_currency = await ComboMutation._validate_and_prepare_slots(
                 slots=input.slots,
                 branch_id=str(combo.branchId),
             )
@@ -263,7 +265,7 @@ class ComboMutation:
         )
         if final_discount_type == "none":
             final_discount_value = 0.0
-        self._validate_discount(final_discount_type, final_discount_value)
+        ComboMutation._validate_discount(final_discount_type, final_discount_value)
         update_data["discountType"] = final_discount_type
         update_data["discountValue"] = final_discount_value
 
