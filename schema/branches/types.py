@@ -182,6 +182,17 @@ class BranchType:
         categories = await product_categories_repo.get_by_branch_types(tipo_values)
         return [ProductCategoryType(**to_strawberry_dict(c)) for c in categories]
 
+    @strawberry.field(description="Showcases from this branch")
+    async def showcases(
+        self, info: Info, active_only: bool = True
+    ) -> List[Annotated["ShowcaseType", strawberry.lazy("schema.showcases.types")]]:
+        """Get showcases for this branch."""
+        from repositories import showcases_repo
+        from schema.showcases.types import showcase_to_type
+
+        showcases = await showcases_repo.get_by_branch(self.id, active_only=active_only)
+        return [showcase_to_type(s) for s in showcases]
+
 
 @strawberry.type
 class NearbyBranchType:
