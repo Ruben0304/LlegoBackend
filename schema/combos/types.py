@@ -205,6 +205,84 @@ class ComboType:
         final = await self.final_price(info)
         return round(max(0.0, base - final), 2)
 
+    @strawberry.field(
+        description="Minimum valid base price to build this combo (before discount)"
+    )
+    async def starting_base_price(self, info: Info) -> float:
+        """
+        Calcula el precio base mínimo válido para armar el combo.
+        Respeta minSelections y maxSelections de cada slot.
+        Construye la combinación válida más barata posible.
+        """
+        from repositories import products_repo
+
+        total = 0.0
+
+        for slot in self.slots:
+            # Determinar cuántos productos seleccionar (mínimo requerido)
+            num_selections = slot.minSelections
+
+            if num_selections == 0:
+                # Si no es obligatorio, no incluir en el precio "desde"
+                continue
+
+            # Obtener precios de todas las opciones
+            option_prices = []
+            for option in slot.options:
+                product = await products_repo.get_by_id(option.productId)
+                if product:
+                    # Precio del producto + ajuste de precio de la opción
+                    option_price = product.price + option.priceAdjustment
+                    
+                    # Agregar modifiers obligatorios si existen
+                    mandatory_modifiers_price = sum(
+                        mod.priceAdjustment
+                        for mod in option.availableModifiers
+                        # Asumimos que modifiers con priceAdjustment >= 0 son opcionales
+                        # Los obligatorios tendrían que estar marcados explícitamente
+                        # Por ahora, no incluimos modifiers en el "desde" a menos que sean default
+                    )
+                    
+                    option_prices.append(option_price)
+
+            # Ordenar por precio y tomar las más baratas según minSelections
+            option_prices.sort()
+            slot_total = sum(option_prices[:num_selections])
+            total += slot_total
+
+        return round(total, 2)
+
+    @strawberry.field(
+        description="Minimum valid final price after discount (for catalog 'From $X' display)"
+    )
+    async def starting_final_price(self, info: Info) -> float:
+        """
+        Calcula el precio final mínimo válido después de aplicar el descuento.
+        Este es el precio que debe mostrarse en catálogo como 'Desde $X'.
+        """
+        base = await self.starting_base_price(info)
+        discount_value = float(self.discountValue or 0.0)
+
+        if self.discountType == DiscountType.PERCENTAGE:
+            percentage = min(max(discount_value, 0.0), 100.0)
+            return round(max(0.0, base * (1 - percentage / 100)), 2)
+        elif self.discountType == DiscountType.FIXED:
+            return round(max(0.0, base - max(0.0, discount_value)), 2)
+        else:
+            return round(base, 2)
+
+    @strawberry.field(
+        description="Minimum savings amount (startingBasePrice - startingFinalPrice)"
+    )
+    async def starting_savings(self, info: Info) -> float:
+        """
+        Calcula el ahorro mínimo del combo.
+        Diferencia entre el precio base mínimo y el precio final mínimo.
+        """
+        base = await self.starting_base_price(info)
+        final = await self.starting_final_price(info)
+        return round(max(0.0, base - final), 2)
+
     @strawberry.field(description="Branch associated with this combo")
     async def branch(
         self, info: Info
