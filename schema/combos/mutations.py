@@ -28,9 +28,7 @@ class ComboMutation:
 
         if dt == "none":
             if dv != 0:
-                raise Exception(
-                    "Cuando discountType es 'none', discountValue debe ser 0"
-                )
+                raise Exception("Cuando discountType es 'none', discountValue debe ser 0")
             return
 
         if dt == "percentage":
@@ -59,7 +57,7 @@ class ComboMutation:
 
         for slot in slots:
             if not slot.options:
-                raise Exception(f"El slot '{slot.name}' debe tener al menos una opciÃ³n")
+                raise Exception(f"El slot '{slot.name}' debe tener al menos una opcion")
 
             min_sel = int(slot.minSelections)
             max_sel = int(slot.maxSelections)
@@ -76,23 +74,15 @@ class ComboMutation:
                 raise Exception(
                     f"El slot '{slot.name}' tiene maxSelections menor que minSelections"
                 )
-            if slot.isRequired and min_sel == 0:
-                raise Exception(
-                    f"El slot '{slot.name}' es requerido, minSelections debe ser mayor que 0"
-                )
             if max_sel > len(slot.options):
                 raise Exception(
-                    f"El slot '{slot.name}' permite mÃ¡s selecciones que opciones disponibles"
+                    f"El slot '{slot.name}' permite mas selecciones que opciones disponibles"
                 )
 
             default_count = sum(1 for opt in slot.options if opt.isDefault)
             if default_count > max_sel:
                 raise Exception(
-                    f"El slot '{slot.name}' tiene mÃ¡s opciones por defecto que maxSelections"
-                )
-            if slot.isRequired and min_sel > 0 and default_count == 0:
-                raise Exception(
-                    f"El slot '{slot.name}' requiere al menos una opciÃ³n por defecto"
+                    f"El slot '{slot.name}' tiene mas opciones por defecto que maxSelections"
                 )
 
             seen_product_ids = set()
@@ -118,9 +108,7 @@ class ComboMutation:
                     )
 
                 currencies.add(
-                    ComboMutation._normalize_currency(
-                        getattr(product, "currency", None)
-                    )
+                    ComboMutation._normalize_currency(getattr(product, "currency", None))
                 )
 
                 seen_modifiers = set()
@@ -160,7 +148,6 @@ class ComboMutation:
                     "options": prepared_options,
                     "minSelections": min_sel,
                     "maxSelections": max_sel,
-                    "isRequired": bool(slot.isRequired),
                     "displayOrder": int(slot.displayOrder),
                 }
             )
@@ -174,9 +161,48 @@ class ComboMutation:
             combo_currency = next(iter(currencies))
         else:
             branch = await branches_repo.get_by_id(branch_id)
-            combo_currency = "CUP" if getattr(branch, "acceptedCurrency", None) == "CUP" else "USD"
+            combo_currency = (
+                "CUP" if getattr(branch, "acceptedCurrency", None) == "CUP" else "USD"
+            )
 
         return prepared_slots, combo_currency
+
+    @staticmethod
+    async def _validate_and_prepare_gifts(
+        gift_options: List[Any],
+        branch_id: str,
+    ) -> List[Dict[str, str]]:
+        options = list(gift_options or [])
+        if not options:
+            return []
+
+        seen_product_ids = set()
+        prepared_options: List[Dict[str, str]] = []
+
+        for gift_option in options:
+            raw_product_id = (
+                gift_option.get("productId")
+                if isinstance(gift_option, dict)
+                else getattr(gift_option, "productId", None)
+            )
+            product_id = str(raw_product_id or "").strip()
+            if not product_id:
+                raise Exception("Cada giftOption debe incluir productId")
+            if product_id in seen_product_ids:
+                raise Exception(f"Producto de regalo duplicado: {product_id}")
+            seen_product_ids.add(product_id)
+
+            product = await products_repo.get_by_id(product_id)
+            if not product:
+                raise Exception(f"Producto {product_id} no encontrado")
+            if str(product.branchId) != str(branch_id):
+                raise Exception(
+                    f"Producto {product.name} no pertenece a la sucursal del combo"
+                )
+
+            prepared_options.append({"productId": product_id})
+
+        return prepared_options
 
     @strawberry.mutation(description="Crear un nuevo combo")
     async def create_combo(
@@ -184,19 +210,21 @@ class ComboMutation:
     ) -> ComboType:
         """
         Crea un nuevo combo personalizable.
-        La imagen es opcional - si no se proporciona, el frontend generará una composición.
+        La imagen es opcional - si no se proporciona, el frontend generara una composicion.
         """
         apply_optional_jwt(jwt, info)
         user_id = info.context.get("user_id")
         if not user_id:
             raise Exception("Usuario no autenticado")
 
-        # Verificar acceso a la sucursal
         await access_checker.require_branch_access(user_id, input.branchId)
 
-        # Validar slots/productos y descuento
         slots_payload, combo_currency = await ComboMutation._validate_and_prepare_slots(
             slots=input.slots,
+            branch_id=input.branchId,
+        )
+        gifts_payload = await ComboMutation._validate_and_prepare_gifts(
+            gift_options=input.giftOptions,
             branch_id=input.branchId,
         )
         ComboMutation._validate_discount(input.discountType.value, input.discountValue)
@@ -209,6 +237,7 @@ class ComboMutation:
             "slots": slots_payload,
             "discountType": input.discountType.value,
             "discountValue": float(input.discountValue or 0.0),
+            "giftOptions": gifts_payload,
             "currency": combo_currency,
             "availability": True,
             "categoryId": input.categoryId,
@@ -227,15 +256,12 @@ class ComboMutation:
         if not user_id:
             raise Exception("Usuario no autenticado")
 
-        # Obtener combo existente
         combo = await combos_repo.get_by_id(input.comboId)
         if not combo:
             raise Exception("Combo no encontrado")
 
-        # Verificar acceso a la sucursal
         await access_checker.require_branch_access(user_id, combo.branchId)
 
-        # Preparar datos de actualización
         update_data = {}
 
         if input.name is not None:
@@ -269,13 +295,23 @@ class ComboMutation:
         update_data["discountType"] = final_discount_type
         update_data["discountValue"] = final_discount_value
 
+        final_gift_options = (
+            input.giftOptions
+            if input.giftOptions is not None
+            else list(getattr(combo, "giftOptions", []) or [])
+        )
+        gifts_payload = await ComboMutation._validate_and_prepare_gifts(
+            gift_options=final_gift_options,
+            branch_id=str(combo.branchId),
+        )
+        update_data["giftOptions"] = gifts_payload
+
         if input.availability is not None:
             update_data["availability"] = input.availability
 
         if input.categoryId is not None:
             update_data["categoryId"] = input.categoryId
 
-        # Actualizar
         updated_combo = await combos_repo.update(input.comboId, update_data)
         if not updated_combo:
             raise Exception("Error al actualizar el combo")
@@ -292,15 +328,12 @@ class ComboMutation:
         if not user_id:
             raise Exception("Usuario no autenticado")
 
-        # Obtener combo existente
         combo = await combos_repo.get_by_id(combo_id)
         if not combo:
             raise Exception("Combo no encontrado")
 
-        # Verificar acceso a la sucursal
         await access_checker.require_branch_access(user_id, combo.branchId)
 
-        # Eliminar
         deleted = await combos_repo.delete(combo_id)
         return deleted
 
@@ -314,17 +347,13 @@ class ComboMutation:
         if not user_id:
             raise Exception("Usuario no autenticado")
 
-        # Obtener combo existente
         combo = await combos_repo.get_by_id(combo_id)
         if not combo:
             raise Exception("Combo no encontrado")
 
-        # Verificar acceso a la sucursal
         await access_checker.require_branch_access(user_id, combo.branchId)
 
-        # Actualizar disponibilidad
         await combos_repo.update_availability(combo_id, availability)
 
-        # Obtener combo actualizado
         updated_combo = await combos_repo.get_by_id(combo_id)
         return combo_to_type(updated_combo)

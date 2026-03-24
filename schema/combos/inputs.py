@@ -26,6 +26,13 @@ class ComboOptionInput:
 
 
 @strawberry.input
+class ComboGiftOptionInput:
+    """Input para configurar productos posibles de regalo."""
+
+    productId: str
+
+
+@strawberry.input
 class ComboSlotInput:
     """Input para crear un slot (listado de productos)."""
 
@@ -34,7 +41,6 @@ class ComboSlotInput:
     options: List[ComboOptionInput]
     minSelections: int = 1
     maxSelections: int = 1
-    isRequired: bool = True
     displayOrder: int = 0
 
 
@@ -49,6 +55,7 @@ class CreateComboInput:
     slots: List[ComboSlotInput]
     discountType: DiscountType = DiscountType.NONE
     discountValue: float = 0.0
+    giftOptions: List[ComboGiftOptionInput] = strawberry.field(default_factory=list)
     categoryId: Optional[str] = None
 
 
@@ -63,5 +70,6 @@ class UpdateComboInput:
     slots: Optional[List[ComboSlotInput]] = None
     discountType: Optional[DiscountType] = None
     discountValue: Optional[float] = None
+    giftOptions: Optional[List[ComboGiftOptionInput]] = None
     availability: Optional[bool] = None
     categoryId: Optional[str] = None

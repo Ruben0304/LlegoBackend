@@ -142,7 +142,7 @@ class OrderService:
         branch_id: str,
         order_currency: str,
         exchange_rate: Optional[float],
-    ) -> tuple[list[Any], float, float, str, float]:
+    ) -> tuple[list[Any], list[Any], bool, float, float, str, float]:
         """Build validated combo selection snapshot and prices for one combo unit."""
         selection_map: Dict[str, dict] = {}
         for slot_selection in combo_selections or []:
@@ -166,7 +166,22 @@ class OrderService:
         )
         product_cache: Dict[str, Any] = {}
         selection_snapshots = []
+        preview_products = []
+        preview_product_ids = set()
         base_unit_total = 0.0
+
+        def add_preview_product(product: Any) -> None:
+            product_id = str(product.id)
+            if product_id in preview_product_ids or len(preview_products) >= 4:
+                return
+            preview_product_ids.add(product_id)
+            preview_products.append(
+                {
+                    "productId": product_id,
+                    "name": product.name,
+                    "imageUrl": getattr(product, "image", None),
+                }
+            )
 
         for slot in combo_slots:
             slot_id = str(slot.id)
@@ -176,7 +191,7 @@ class OrderService:
                 selected_options_input = provided_selection.get("selectedOptions") or []
             else:
                 selected_options_input = []
-                if slot.isRequired or slot.minSelections > 0:
+                if slot.minSelections > 0:
                     defaults = [opt for opt in slot.options if opt.isDefault]
                     if not defaults:
                         defaults = list(slot.options)
@@ -233,6 +248,7 @@ class OrderService:
                     raise ValueError(
                         f"Producto {product.name} no pertenece a esta sucursal"
                     )
+                add_preview_product(product)
 
                 product_price = self._convert_amount(
                     amount=product.price,
@@ -307,8 +323,6 @@ class OrderService:
                 raise ValueError(
                     f"El slot '{slot.name}' permite máximo {slot.maxSelections} selección(es)"
                 )
-            if slot.isRequired and selected_count == 0:
-                raise ValueError(f"El slot '{slot.name}' es obligatorio")
 
             if selected_option_snapshots:
                 selection_snapshots.append(
@@ -318,6 +332,28 @@ class OrderService:
                         "selectedOptions": selected_option_snapshots,
                     }
                 )
+
+        has_gift = bool(getattr(combo, "giftOptions", []))
+
+        if not preview_products:
+            for slot in combo_slots:
+                default_option = next(
+                    (opt for opt in slot.options if opt.isDefault),
+                    slot.options[0] if slot.options else None,
+                )
+                if not default_option:
+                    continue
+
+                default_product_id = str(default_option.productId)
+                product = product_cache.get(default_product_id)
+                if not product:
+                    product = await products_repo.get_by_id(default_product_id)
+                    if not product:
+                        continue
+                    product_cache[default_product_id] = product
+                add_preview_product(product)
+                if len(preview_products) >= 4:
+                    break
 
         discount_type = str(getattr(combo, "discountType", "none") or "none").lower()
         discount_value_raw = float(getattr(combo, "discountValue", 0.0) or 0.0)
@@ -348,6 +384,8 @@ class OrderService:
         final_unit_total = max(0.0, base_unit_total - discount_amount)
         return (
             selection_snapshots,
+            preview_products,
+            has_gift,
             round(base_unit_total, 2),
             round(final_unit_total, 2),
             discount_type,
@@ -419,6 +457,8 @@ class OrderService:
             combo_selections_input = item.get("comboSelections") or []
             (
                 combo_selection_snapshots,
+                preview_products,
+                has_gift,
                 base_unit_price,
                 final_unit_price,
                 discount_type,
@@ -431,6 +471,10 @@ class OrderService:
                 exchange_rate=exchange_rate,
             )
 
+            image_path = combo.image
+            if not image_path and preview_products:
+                image_path = preview_products[0].get("imageUrl")
+
             order_item = OrderItem(
                 itemId=str(combo.id),
                 itemType="combo",
@@ -438,11 +482,13 @@ class OrderService:
                 basePrice=base_unit_price,
                 finalPrice=final_unit_price,
                 quantity=quantity,
-                imageUrl=combo.image,
+                imageUrl=image_path,
                 wasModifiedByStore=False,
                 comboSelections=combo_selection_snapshots,
+                hasGift=has_gift,
                 discountType=discount_type,
                 discountValue=float(discount_value),
+                previewProducts=preview_products,
             )
             return order_item, round(final_unit_price * quantity, 2)
 
@@ -874,6 +920,7 @@ class OrderService:
                 or original_item.name != order_item.name
                 or (original_item.comboSelections or [])
                 != (order_item.comboSelections or [])
+                or bool(getattr(original_item, "hasGift", False)) != bool(order_item.hasGift)
             )
 
             order_item.wasModifiedByStore = was_modified
@@ -1506,3 +1553,4 @@ class OrderService:
             import traceback
             traceback.print_exc()
 order_service = OrderService()
+

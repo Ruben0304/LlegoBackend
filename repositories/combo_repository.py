@@ -37,6 +37,8 @@ class ComboRepository:
                 slot["id"] = str(uuid.uuid4())
             for option in slot.get("options", []):
                 option["productId"] = cls._to_object_id(option.get("productId"))
+        for gift_option in combo_data.get("giftOptions", []):
+            gift_option["productId"] = cls._to_object_id(gift_option.get("productId"))
 
         return combo_data
 
@@ -185,6 +187,11 @@ class ComboRepository:
                     slot["id"] = str(uuid.uuid4())
                 for option in slot.get("options", []):
                     option["productId"] = self._to_object_id(option.get("productId"))
+        if "giftOptions" in normalized_update_data:
+            for gift_option in normalized_update_data["giftOptions"]:
+                gift_option["productId"] = self._to_object_id(
+                    gift_option.get("productId")
+                )
 
         normalized_update_data["updatedAt"] = datetime.utcnow()
 

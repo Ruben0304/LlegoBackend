@@ -758,6 +758,12 @@ class ComboOption(BaseModel):
     availableModifiers: List[ComboModifier] = []  # Modificadores permitidos
 
 
+class ComboGiftOption(BaseModel):
+    """Producto elegible como regalo al comprar el combo."""
+
+    productId: PyObjectId
+
+
 class ComboSlot(BaseModel):
     """Listado de productos a elegir (nombre libre definido por el negocio)."""
 
@@ -771,7 +777,6 @@ class ComboSlot(BaseModel):
     # Reglas de selección
     minSelections: int = 1  # Mínimo a elegir
     maxSelections: int = 1  # Máximo a elegir
-    isRequired: bool = True
 
     displayOrder: int = 0  # Orden de visualización
 
@@ -795,6 +800,9 @@ class Combo(BaseModel):
     # Discount (solo uno aplica)
     discountType: str = "none"  # "none" | "percentage" | "fixed"
     discountValue: float = 0.0  # Valor del descuento (% o cantidad fija)
+
+    # Regalos opcionales (selección del cliente al armar el combo)
+    giftOptions: List[ComboGiftOption] = []
 
     currency: str = "USD"
 
@@ -874,6 +882,7 @@ __all__ = [
     "Tutorial",
     "ComboModifier",
     "ComboOption",
+    "ComboGiftOption",
     "ComboSlot",
     "Combo",
 ]

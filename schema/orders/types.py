@@ -82,8 +82,10 @@ class OrderItemType:
     requestDescription: Optional[str] = None
     wasModifiedByStore: bool
     comboSelections: Optional[List["OrderComboSelectionType"]] = None
+    hasGift: bool = False
     discountType: Optional[str] = None
     discountValue: Optional[float] = None
+    previewProducts: Optional[List["OrderPreviewProductType"]] = None
 
     # Private field for S3 path
     _image_path: strawberry.Private[Optional[str]]
@@ -161,6 +163,22 @@ class OrderComboSelectionType:
     slotId: str
     slotName: str
     selectedOptions: List[OrderComboSelectedOptionType]
+
+
+@strawberry.type
+class OrderPreviewProductType:
+    productId: str
+    name: str
+
+    _image_path: strawberry.Private[Optional[str]]
+
+    @strawberry.field(description="Presigned URL for preview product image")
+    def imageUrl(self) -> Optional[str]:
+        from utils.s3 import generate_presigned_url
+
+        if not self._image_path:
+            return None
+        return generate_presigned_url(self._image_path, expiration=86400)
 
 
 @strawberry.type
@@ -375,6 +393,17 @@ class OrderType:
                             ],
                         )
                     )
+            raw_preview_products = item.get("previewProducts")
+            preview_products = None
+            if raw_preview_products:
+                preview_products = [
+                    OrderPreviewProductType(
+                        productId=str(preview.get("productId", "")),
+                        name=str(preview.get("name", "")),
+                        _image_path=preview.get("imageUrl"),
+                    )
+                    for preview in raw_preview_products
+                ]
 
             order_items.append(
                 OrderItemType(
@@ -390,8 +419,10 @@ class OrderType:
                     requestDescription=item.get("requestDescription"),
                     wasModifiedByStore=item.get("wasModifiedByStore", False),
                     comboSelections=combo_selections,
+                    hasGift=bool(item.get("hasGift", False)),
                     discountType=item.get("discountType"),
                     discountValue=item.get("discountValue"),
+                    previewProducts=preview_products,
                 )
             )
         return order_items

@@ -102,6 +102,14 @@ class OrderComboSelection(BaseModel):
     selectedOptions: List[OrderComboSelectedOption]
 
 
+class OrderPreviewProduct(BaseModel):
+    """Producto de preview para mostrar collage/fallback visual del item."""
+
+    productId: PyObjectId
+    name: str
+    imageUrl: Optional[str] = None
+
+
 class OrderItem(BaseModel):
     """Item in an order (can be product, combo, or showcase)."""
 
@@ -117,8 +125,10 @@ class OrderItem(BaseModel):
 
     # Solo para combos
     comboSelections: Optional[List[OrderComboSelection]] = None
+    hasGift: bool = False
     discountType: Optional[str] = None  # "none" | "percentage" | "fixed"
     discountValue: Optional[float] = None
+    previewProducts: Optional[List[OrderPreviewProduct]] = None
 
     @model_validator(mode="before")
     @classmethod

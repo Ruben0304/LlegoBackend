@@ -46,6 +46,25 @@ class ComboOptionType:
 
 
 @strawberry.type
+class ComboGiftOptionType:
+    """Producto elegible como regalo del combo."""
+
+    productId: str
+
+    @strawberry.field(description="Gift product details")
+    async def product(
+        self, info: Info
+    ) -> Optional[Annotated["ProductType", strawberry.lazy("schema.products.types")]]:
+        from repositories import products_repo
+        from schema.products.types import ProductType
+
+        product = await products_repo.get_by_id(self.productId)
+        if product:
+            return ProductType(**to_strawberry_dict(product))
+        return None
+
+
+@strawberry.type
 class ComboSlotType:
     """Listado de productos a elegir."""
 
@@ -55,7 +74,6 @@ class ComboSlotType:
     options: List[ComboOptionType]
     minSelections: int
     maxSelections: int
-    isRequired: bool
     displayOrder: int
 
 
@@ -80,6 +98,7 @@ class ComboType:
     slots: List[ComboSlotType]
     discountType: DiscountType
     discountValue: float
+    giftOptions: List[ComboGiftOptionType]
     currency: str
     availability: bool
     categoryId: Optional[str]
@@ -306,7 +325,7 @@ def combo_to_type(combo: "Combo") -> ComboType:
         for option in slot.options:
             options.append(
                 ComboOptionType(
-                    productId=option.productId,
+                    productId=str(option.productId),
                     isDefault=option.isDefault,
                     priceAdjustment=option.priceAdjustment,
                     availableModifiers=[
@@ -327,10 +346,14 @@ def combo_to_type(combo: "Combo") -> ComboType:
                 options=options,
                 minSelections=slot.minSelections,
                 maxSelections=slot.maxSelections,
-                isRequired=slot.isRequired,
                 displayOrder=slot.displayOrder,
             )
         )
+
+    gift_options = [
+        ComboGiftOptionType(productId=str(gift_option.productId))
+        for gift_option in (combo.giftOptions or [])
+    ]
 
     try:
         discount_type = DiscountType(combo.discountType)
@@ -346,6 +369,7 @@ def combo_to_type(combo: "Combo") -> ComboType:
         slots=slots,
         discountType=discount_type,
         discountValue=combo.discountValue,
+        giftOptions=gift_options,
         currency=combo.currency,
         availability=combo.availability,
         categoryId=combo.categoryId,
