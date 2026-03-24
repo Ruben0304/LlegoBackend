@@ -81,6 +81,9 @@ class OrderItemType:
     quantity: int
     requestDescription: Optional[str] = None
     wasModifiedByStore: bool
+    comboSelections: Optional[List["OrderComboSelectionType"]] = None
+    discountType: Optional[str] = None
+    discountValue: Optional[float] = None
 
     # Private field for S3 path
     _image_path: strawberry.Private[Optional[str]]
@@ -135,6 +138,29 @@ class OrderItemType:
     @strawberry.field(description="Line total (price * quantity)")
     def line_total(self) -> float:
         return round(self.finalPrice * self.quantity, 2)
+
+
+@strawberry.type
+class OrderComboModifierType:
+    name: str
+    priceAdjustment: float
+
+
+@strawberry.type
+class OrderComboSelectedOptionType:
+    productId: str
+    name: str
+    price: float
+    quantity: int
+    priceAdjustment: float
+    modifiers: List[OrderComboModifierType]
+
+
+@strawberry.type
+class OrderComboSelectionType:
+    slotId: str
+    slotName: str
+    selectedOptions: List[OrderComboSelectedOptionType]
 
 
 @strawberry.type
@@ -317,6 +343,38 @@ class OrderType:
             item_id = str(item.get("itemId") or item.get("productId") or "")
             final_price = float(item.get("finalPrice", item.get("price", 0.0)))
             base_price = float(item.get("basePrice", final_price))
+            raw_combo_selections = item.get("comboSelections")
+            combo_selections = None
+            if raw_combo_selections:
+                combo_selections = []
+                for selection in raw_combo_selections:
+                    combo_selections.append(
+                        OrderComboSelectionType(
+                            slotId=str(selection.get("slotId", "")),
+                            slotName=str(selection.get("slotName", "")),
+                            selectedOptions=[
+                                OrderComboSelectedOptionType(
+                                    productId=str(opt.get("productId", "")),
+                                    name=str(opt.get("name", "")),
+                                    price=float(opt.get("price", 0.0)),
+                                    quantity=int(opt.get("quantity", 1)),
+                                    priceAdjustment=float(
+                                        opt.get("priceAdjustment", 0.0)
+                                    ),
+                                    modifiers=[
+                                        OrderComboModifierType(
+                                            name=str(mod.get("name", "")),
+                                            priceAdjustment=float(
+                                                mod.get("priceAdjustment", 0.0)
+                                            ),
+                                        )
+                                        for mod in opt.get("modifiers", [])
+                                    ],
+                                )
+                                for opt in selection.get("selectedOptions", [])
+                            ],
+                        )
+                    )
 
             order_items.append(
                 OrderItemType(
@@ -331,6 +389,9 @@ class OrderType:
                     _image_path=item.get("imageUrl"),
                     requestDescription=item.get("requestDescription"),
                     wasModifiedByStore=item.get("wasModifiedByStore", False),
+                    comboSelections=combo_selections,
+                    discountType=item.get("discountType"),
+                    discountValue=item.get("discountValue"),
                 )
             )
         return order_items

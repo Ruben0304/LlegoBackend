@@ -2,16 +2,17 @@
 
 import uuid
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
 
 from repositories import (
     branches_repo,
     businesses_repo,
+    combos_repo,
+    payment_methods_repo,
     products_repo,
     showcases_repo,
-    users_repo,
 )
 from services.access_checker import access_checker
 
@@ -55,8 +56,310 @@ class OrderService:
     def _ids_equal(a, b) -> bool:
         return str(a) == str(b)
 
+    @staticmethod
+    def _normalize_currency(currency: Optional[str], fallback: str = "USD") -> str:
+        normalized = (currency or "").strip().upper()
+        if normalized in {"USD", "CUP"}:
+            return normalized
+        return fallback.upper()
+
+    @staticmethod
+    def _resolve_exchange_rate(branch: Any) -> Optional[float]:
+        rate = getattr(branch, "exchangeRate", None)
+        if rate is None:
+            return None
+        try:
+            value = float(rate)
+            return value if value > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    def _convert_amount(
+        self,
+        amount: float,
+        from_currency: str,
+        to_currency: str,
+        exchange_rate: Optional[float],
+    ) -> float:
+        value = float(amount or 0.0)
+        from_curr = self._normalize_currency(from_currency, fallback="USD")
+        to_curr = self._normalize_currency(to_currency, fallback="USD")
+
+        if from_curr == to_curr:
+            return value
+
+        if not exchange_rate or exchange_rate <= 0:
+            raise ValueError(
+                "Falta exchangeRate vÃ¡lido en la sucursal para convertir monedas"
+            )
+
+        if from_curr == "USD" and to_curr == "CUP":
+            return value * exchange_rate
+        if from_curr == "CUP" and to_curr == "USD":
+            return value / exchange_rate
+        raise ValueError(f"ConversiÃ³n de moneda no soportada: {from_curr} -> {to_curr}")
+
+    async def _resolve_payment_method(
+        self, payment_method: str
+    ) -> tuple[str, Optional[str], Optional[Any]]:
+        payment_method_raw = str(payment_method or "").strip()
+        if not payment_method_raw:
+            raise ValueError("paymentMethod es requerido")
+
+        payment_method_doc = None
+        if len(payment_method_raw) == 24:
+            payment_method_doc = await payment_methods_repo.get_by_id(payment_method_raw)
+        if not payment_method_doc:
+            payment_method_doc = await payment_methods_repo.get_by_code(payment_method_raw)
+
+        if payment_method_doc:
+            return (
+                payment_method_doc.code,
+                self._normalize_currency(payment_method_doc.currency, fallback="USD"),
+                payment_method_doc,
+            )
+
+        # Legacy fallback: accept plain code even if not found in DB.
+        return payment_method_raw, None, None
+
+    def _resolve_order_currency(
+        self, branch: Any, payment_method_currency: Optional[str]
+    ) -> str:
+        if payment_method_currency in {"USD", "CUP"}:
+            return payment_method_currency
+
+        accepted_currency = (getattr(branch, "acceptedCurrency", None) or "").upper()
+        if accepted_currency in {"USD", "CUP"}:
+            return accepted_currency
+        if accepted_currency == "BOTH":
+            return "USD"
+        return "USD"
+
+    async def _build_combo_selection_snapshot(
+        self,
+        combo: Any,
+        combo_selections: List[dict],
+        branch_id: str,
+        order_currency: str,
+        exchange_rate: Optional[float],
+    ) -> tuple[list[Any], float, float, str, float]:
+        """Build validated combo selection snapshot and prices for one combo unit."""
+        selection_map: Dict[str, dict] = {}
+        for slot_selection in combo_selections or []:
+            slot_id = str(slot_selection.get("slotId") or "").strip()
+            if not slot_id:
+                raise ValueError("Cada selección de combo debe incluir slotId")
+            if slot_id in selection_map:
+                raise ValueError(f"Slot duplicado en selección de combo: {slot_id}")
+            selection_map[slot_id] = slot_selection
+
+        combo_slots = list(combo.slots or [])
+        combo_slot_ids = {str(slot.id) for slot in combo_slots}
+        unknown_slots = set(selection_map.keys()) - combo_slot_ids
+        if unknown_slots:
+            raise ValueError(
+                f"Hay slots inválidos en la selección del combo: {sorted(unknown_slots)}"
+            )
+
+        combo_currency = self._normalize_currency(
+            getattr(combo, "currency", None), fallback=order_currency
+        )
+        product_cache: Dict[str, Any] = {}
+        selection_snapshots = []
+        base_unit_total = 0.0
+
+        for slot in combo_slots:
+            slot_id = str(slot.id)
+            provided_selection = selection_map.get(slot_id)
+
+            if provided_selection:
+                selected_options_input = provided_selection.get("selectedOptions") or []
+            else:
+                selected_options_input = []
+                if slot.isRequired or slot.minSelections > 0:
+                    defaults = [opt for opt in slot.options if opt.isDefault]
+                    if not defaults:
+                        defaults = list(slot.options)
+                    if not defaults:
+                        raise ValueError(f"El slot '{slot.name}' no tiene opciones")
+
+                    required_count = max(int(slot.minSelections or 0), 1)
+                    for idx in range(required_count):
+                        default_option = defaults[idx % len(defaults)]
+                        selected_options_input.append(
+                            {
+                                "productId": str(default_option.productId),
+                                "quantity": 1,
+                                "modifiers": [],
+                            }
+                        )
+
+            selected_count = 0
+            selected_option_snapshots = []
+            options_by_product_id = {
+                str(option.productId): option for option in (slot.options or [])
+            }
+
+            for selected in selected_options_input:
+                selected_product_id = str(selected.get("productId") or "").strip()
+                if not selected_product_id:
+                    raise ValueError(
+                        f"Cada opción seleccionada del slot '{slot.name}' debe incluir productId"
+                    )
+
+                selected_quantity = int(selected.get("quantity") or 0)
+                if selected_quantity <= 0:
+                    raise ValueError(
+                        f"La cantidad seleccionada en slot '{slot.name}' debe ser mayor que 0"
+                    )
+
+                selected_count += selected_quantity
+                combo_option = options_by_product_id.get(selected_product_id)
+                if not combo_option:
+                    raise ValueError(
+                        f"El producto {selected_product_id} no pertenece al slot '{slot.name}'"
+                    )
+
+                product = product_cache.get(selected_product_id)
+                if not product:
+                    product = await products_repo.get_by_id(selected_product_id)
+                    if not product:
+                        raise ValueError(f"Producto {selected_product_id} no encontrado")
+                    product_cache[selected_product_id] = product
+
+                if not product.availability:
+                    raise ValueError(f"Producto {product.name} no disponible")
+                if not self._ids_equal(product.branchId, branch_id):
+                    raise ValueError(
+                        f"Producto {product.name} no pertenece a esta sucursal"
+                    )
+
+                product_price = self._convert_amount(
+                    amount=product.price,
+                    from_currency=self._normalize_currency(
+                        getattr(product, "currency", None), fallback=order_currency
+                    ),
+                    to_currency=order_currency,
+                    exchange_rate=exchange_rate,
+                )
+                option_adjustment = self._convert_amount(
+                    amount=combo_option.priceAdjustment,
+                    from_currency=combo_currency,
+                    to_currency=order_currency,
+                    exchange_rate=exchange_rate,
+                )
+
+                modifiers_input = selected.get("modifiers") or []
+                available_modifiers = {
+                    (modifier.name or "").strip().lower(): modifier
+                    for modifier in (combo_option.availableModifiers or [])
+                    if (modifier.name or "").strip()
+                }
+                modifier_snapshots = []
+                modifiers_total = 0.0
+                for mod in modifiers_input:
+                    mod_name = str(mod.get("name") or "").strip()
+                    if not mod_name:
+                        raise ValueError(
+                            f"Modifier inválido en el slot '{slot.name}' del combo"
+                        )
+                    matched_modifier = available_modifiers.get(mod_name.lower())
+                    if not matched_modifier:
+                        raise ValueError(
+                            f"Modifier '{mod_name}' no permitido para '{product.name}'"
+                        )
+
+                    mod_adjustment = self._convert_amount(
+                        amount=matched_modifier.priceAdjustment,
+                        from_currency=combo_currency,
+                        to_currency=order_currency,
+                        exchange_rate=exchange_rate,
+                    )
+                    modifiers_total += mod_adjustment
+                    modifier_snapshots.append(
+                        {
+                            "name": matched_modifier.name,
+                            "priceAdjustment": round(mod_adjustment, 2),
+                        }
+                    )
+
+                base_option_total = (
+                    product_price + option_adjustment + modifiers_total
+                ) * selected_quantity
+                base_unit_total += base_option_total
+
+                selected_option_snapshots.append(
+                    {
+                        "productId": str(product.id),
+                        "name": product.name,
+                        "price": round(product_price, 2),
+                        "quantity": selected_quantity,
+                        "priceAdjustment": round(option_adjustment, 2),
+                        "modifiers": modifier_snapshots,
+                    }
+                )
+
+            if selected_count < int(slot.minSelections or 0):
+                raise ValueError(
+                    f"El slot '{slot.name}' requiere al menos {slot.minSelections} selección(es)"
+                )
+            if selected_count > int(slot.maxSelections or 0):
+                raise ValueError(
+                    f"El slot '{slot.name}' permite máximo {slot.maxSelections} selección(es)"
+                )
+            if slot.isRequired and selected_count == 0:
+                raise ValueError(f"El slot '{slot.name}' es obligatorio")
+
+            if selected_option_snapshots:
+                selection_snapshots.append(
+                    {
+                        "slotId": slot_id,
+                        "slotName": slot.name,
+                        "selectedOptions": selected_option_snapshots,
+                    }
+                )
+
+        discount_type = str(getattr(combo, "discountType", "none") or "none").lower()
+        discount_value_raw = float(getattr(combo, "discountValue", 0.0) or 0.0)
+        discount_value_snapshot = discount_value_raw
+        discount_amount = 0.0
+
+        if discount_type == "percentage":
+            if discount_value_raw < 0 or discount_value_raw > 100:
+                raise ValueError(
+                    f"El combo '{combo.name}' tiene descuento porcentual inválido"
+                )
+            discount_amount = base_unit_total * (discount_value_raw / 100)
+        elif discount_type == "fixed":
+            if discount_value_raw < 0:
+                raise ValueError(f"El combo '{combo.name}' tiene descuento fijo inválido")
+            discount_value_snapshot = self._convert_amount(
+                amount=discount_value_raw,
+                from_currency=combo_currency,
+                to_currency=order_currency,
+                exchange_rate=exchange_rate,
+            )
+            discount_amount = discount_value_snapshot
+            discount_value_snapshot = round(discount_value_snapshot, 2)
+        else:
+            discount_type = "none"
+            discount_value_snapshot = 0.0
+
+        final_unit_total = max(0.0, base_unit_total - discount_amount)
+        return (
+            selection_snapshots,
+            round(base_unit_total, 2),
+            round(final_unit_total, 2),
+            discount_type,
+            discount_value_snapshot,
+        )
+
     async def _build_order_item_snapshot(
-        self, item: dict, branch_id: str
+        self,
+        item: dict,
+        branch_id: str,
+        order_currency: str,
+        exchange_rate: Optional[float],
     ) -> tuple[OrderItem, float]:
         """Build order item snapshot and line subtotal from raw input."""
         item_type = str(item.get("itemType") or "product").strip().lower()
@@ -79,17 +382,69 @@ class OrderService:
                     f"Producto {product.name} no pertenece a esta sucursal"
                 )
 
+            unit_price = self._convert_amount(
+                amount=product.price,
+                from_currency=self._normalize_currency(
+                    getattr(product, "currency", None), fallback=order_currency
+                ),
+                to_currency=order_currency,
+                exchange_rate=exchange_rate,
+            )
+            unit_price = round(unit_price, 2)
             order_item = OrderItem(
                 itemId=str(product.id),
                 itemType="product",
                 name=product.name,
-                basePrice=product.price,
-                finalPrice=product.price,
+                basePrice=unit_price,
+                finalPrice=unit_price,
                 quantity=quantity,
                 imageUrl=product.image,
                 wasModifiedByStore=False,
             )
-            return order_item, product.price * quantity
+            return order_item, round(unit_price * quantity, 2)
+
+        if item_type == "combo":
+            combo_id = item.get("itemId") or item.get("comboId")
+            if not combo_id:
+                raise ValueError("comboId es requerido para ítems de tipo combo")
+
+            combo = await combos_repo.get_by_id(combo_id)
+            if not combo:
+                raise ValueError(f"Combo {combo_id} no encontrado")
+            if not combo.availability:
+                raise ValueError(f"Combo {combo.name} no disponible")
+            if not self._ids_equal(combo.branchId, branch_id):
+                raise ValueError(f"El combo {combo.name} no pertenece a esta sucursal")
+
+            combo_selections_input = item.get("comboSelections") or []
+            (
+                combo_selection_snapshots,
+                base_unit_price,
+                final_unit_price,
+                discount_type,
+                discount_value,
+            ) = await self._build_combo_selection_snapshot(
+                combo=combo,
+                combo_selections=combo_selections_input,
+                branch_id=branch_id,
+                order_currency=order_currency,
+                exchange_rate=exchange_rate,
+            )
+
+            order_item = OrderItem(
+                itemId=str(combo.id),
+                itemType="combo",
+                name=combo.name,
+                basePrice=base_unit_price,
+                finalPrice=final_unit_price,
+                quantity=quantity,
+                imageUrl=combo.image,
+                wasModifiedByStore=False,
+                comboSelections=combo_selection_snapshots,
+                discountType=discount_type,
+                discountValue=float(discount_value),
+            )
+            return order_item, round(final_unit_price * quantity, 2)
 
         if item_type == "showcase":
             showcase_id = item.get("itemId") or item.get("showcaseId")
@@ -143,54 +498,72 @@ class OrderService:
             raise ValueError("Sucursal no encontrada")
         if not branch.isActive:
             raise ValueError("La sucursal no está activa")
-        
-        # 1.5. Convert payment_method ID to code if needed
-        # Frontend might send payment method ID (ObjectId or string ID)
-        # We need to store the code (e.g., "qvapay", "usdt_trondealer", "cash")
-        from repositories import payment_methods_repo
-        from bson import ObjectId
-        
-        payment_method_code = payment_method
-        
-        # Check if payment_method looks like an ID (24 chars or is ObjectId)
-        if len(payment_method) == 24 or isinstance(payment_method, ObjectId):
-            try:
-                pm = await payment_methods_repo.get_by_id(payment_method)
-                if pm:
-                    payment_method_code = pm.code
-                    print(f"✓ Converted payment method ID {payment_method} to code: {payment_method_code}")
-                else:
-                    raise ValueError(f"Método de pago {payment_method} no encontrado")
-            except Exception as e:
-                # If conversion fails, try to use it as-is (might be a legacy code)
-                print(f"⚠️  Could not convert payment method {payment_method}: {e}")
-                pass
+        if not items:
+            raise ValueError("El pedido debe incluir al menos un ítem")
+
+        # 1.5. Resolve payment method and monetary context
+        (
+            payment_method_code,
+            payment_method_currency,
+            _payment_method_doc,
+        ) = await self._resolve_payment_method(payment_method)
+        order_currency = self._resolve_order_currency(branch, payment_method_currency)
+        exchange_rate = self._resolve_exchange_rate(branch)
 
         # 2. Get business
         business = await businesses_repo.get_by_id(branch.businessId)
         if not business:
             raise ValueError("Negocio no encontrado")
 
-        # 3. Validate and snapshot items
+        # 3. Validate and snapshot items in order currency
         order_items: List[OrderItem] = []
         subtotal = 0.0
 
         for item in items:
             order_item, line_subtotal = await self._build_order_item_snapshot(
-                item, branch_id
+                item=item,
+                branch_id=branch_id,
+                order_currency=order_currency,
+                exchange_rate=exchange_rate,
             )
             order_items.append(order_item)
             subtotal += line_subtotal
 
-        # 4. Calculate delivery fee using H3 zones
+        subtotal = round(subtotal, 2)
+
+        # 4. Calculate delivery fee using H3 zones (zone config in CUP)
         branch_coords = (
             branch.coordinates.coordinates[0],
             branch.coordinates.coordinates[1],
         )
         delivery_coords = (delivery_address["longitude"], delivery_address["latitude"])
-        delivery_fee, delivery_zone_id = await calculate_delivery_fee_h3(
-            branch_coords, delivery_coords, subtotal
+
+        subtotal_for_zone = subtotal
+        if order_currency != "CUP":
+            subtotal_for_zone = self._convert_amount(
+                amount=subtotal,
+                from_currency=order_currency,
+                to_currency="CUP",
+                exchange_rate=exchange_rate,
+            )
+
+        delivery_fee_cup, delivery_zone_id = await calculate_delivery_fee_h3(
+            branch_coords,
+            delivery_coords,
+            subtotal_for_zone,
         )
+
+        if order_currency == "CUP":
+            delivery_fee = delivery_fee_cup
+        else:
+            delivery_fee = self._convert_amount(
+                amount=delivery_fee_cup,
+                from_currency="CUP",
+                to_currency=order_currency,
+                exchange_rate=exchange_rate,
+            )
+
+        delivery_fee = round(delivery_fee, 2)
         delivery_mode = "app"
 
         # H3 index of branch for efficient geo queries by delivery persons
@@ -198,7 +571,6 @@ class OrderService:
 
         # 5. Apply discounts
         discounts: List[OrderDiscount] = []
-        customer = await users_repo.get_by_id(customer_id)
 
         # Premium discount (example - 10% off)
         # TODO: Check if user has premium subscription
@@ -213,7 +585,7 @@ class OrderService:
 
         # 6. Validate payment if card
         payment_status = PaymentStatus.PENDING
-        if payment_method_code == "card" or payment_method_code == "stripe":
+        if payment_method_code in {"card", "stripe"}:
             if not payment_intent_id:
                 raise ValueError("Se requiere paymentIntentId para pagos con tarjeta")
             # TODO: Verify payment intent with Stripe
@@ -278,14 +650,14 @@ class OrderService:
             branchId=branch_id,
             businessId=business.id,
             items=order_items,
-            subtotal=round(subtotal, 2),
+            subtotal=subtotal,
             deliveryFee=delivery_fee,
             deliveryMode=delivery_mode,
             deliveryZoneId=delivery_zone_id,
             branchH3=branch_h3,
             discounts=discounts,
             total=total,
-            currency="USD",
+            currency=order_currency,
             status=OrderStatus.PENDING_ACCEPTANCE,
             deliveryAddress=delivery_addr,
             pickupAddress=pickup_addr,
@@ -302,7 +674,9 @@ class OrderService:
         created_order = await self.orders_repo.create(order)
 
         # 8. Send push notification to branch managers/owner
-        await self._send_new_order_notification_to_business(created_order, branch, business)
+        await self._send_new_order_notification_to_business(
+            created_order, branch, business
+        )
 
         return created_order
 
@@ -328,10 +702,10 @@ class OrderService:
 
         if not force and not self._validate_transition(order.status, new_status):
             raise ValueError(
-                f"Transición de estado no permitida: {order.status.value} -> {new_status.value}"
+                f"TransiciÃ³n de estado no permitida: {order.status.value} -> {new_status.value}"
             )
 
-        # VALIDACIÓN CRÍTICA: Verificar pago antes de PREPARING
+        # VALIDACIÃ“N CRÃTICA: Verificar pago antes de PREPARING
         if new_status == OrderStatus.PREPARING:
             payment_method = order.paymentMethod.lower()
 
@@ -347,9 +721,9 @@ class OrderService:
         if not message:
             messages = {
                 OrderStatus.ACCEPTED: "Pedido aceptado por la tienda",
-                OrderStatus.PREPARING: "Tu pedido está siendo preparado",
+                OrderStatus.PREPARING: "Tu pedido estÃ¡ siendo preparado",
                 OrderStatus.READY_FOR_PICKUP: "Pedido listo para recoger",
-                OrderStatus.ON_THE_WAY: "Tu pedido está en camino",
+                OrderStatus.ON_THE_WAY: "Tu pedido estÃ¡ en camino",
                 OrderStatus.DELIVERED: "Pedido entregado",
                 OrderStatus.CANCELLED: "Pedido cancelado",
                 OrderStatus.MODIFIED_BY_STORE: "La tienda ha modificado tu pedido",
@@ -407,7 +781,7 @@ class OrderService:
         # If branch sets its own delivery fee, update it before accepting
         if delivery_fee_override is not None:
             if delivery_fee_override < 0:
-                raise ValueError("El precio de envío no puede ser negativo")
+                raise ValueError("El precio de envÃ­o no puede ser negativo")
             total_discounts = sum(d.amount for d in order.discounts)
             new_total = round(
                 order.subtotal + delivery_fee_override - total_discounts, 2
@@ -463,13 +837,22 @@ class OrderService:
         if not has_access:
             raise ValueError(error_msg or "No autorizado para modificar este pedido")
 
+        branch = await branches_repo.get_by_id(order.branchId)
+        if not branch:
+            raise ValueError("Sucursal no encontrada")
+        exchange_rate = self._resolve_exchange_rate(branch)
+        order_currency = self._normalize_currency(order.currency, fallback="USD")
+
         # Build new items list with snapshots
         modified_items: List[OrderItem] = []
         subtotal = 0.0
 
         for item in new_items:
             order_item, line_subtotal = await self._build_order_item_snapshot(
-                item, str(order.branchId)
+                item=item,
+                branch_id=str(order.branchId),
+                order_currency=order_currency,
+                exchange_rate=exchange_rate,
             )
 
             # Check if this item was modified
@@ -489,6 +872,8 @@ class OrderService:
                 or original_item.quantity != order_item.quantity
                 or original_item.finalPrice != order_item.finalPrice
                 or original_item.name != order_item.name
+                or (original_item.comboSelections or [])
+                != (order_item.comboSelections or [])
             )
 
             order_item.wasModifiedByStore = was_modified
@@ -536,7 +921,7 @@ class OrderService:
             order_id,
             OrderStatus.ACCEPTED,
             OrderActor.CUSTOMER,
-            "Cliente aceptó las modificaciones",
+            "Cliente aceptÃ³ las modificaciones",
         )
 
     async def reject_modifications(self, order_id: str, user_id: str) -> Order:
@@ -557,7 +942,7 @@ class OrderService:
             order_id,
             OrderStatus.CANCELLED,
             OrderActor.CUSTOMER,
-            "Cliente rechazó las modificaciones",
+            "Cliente rechazÃ³ las modificaciones",
         )
 
     async def cancel_order(
@@ -597,7 +982,7 @@ class OrderService:
             raise ValueError("Pedido no encontrado")
 
         if order.status != OrderStatus.READY_FOR_PICKUP:
-            raise ValueError("El pedido no está listo para recoger")
+            raise ValueError("El pedido no estÃ¡ listo para recoger")
 
         if order.deliveryPersonId:
             raise ValueError("El pedido ya tiene un repartidor asignado")
@@ -700,7 +1085,7 @@ class OrderService:
     ) -> Order:
         """Rate a delivered order."""
         if rating < 1 or rating > 5:
-            raise ValueError("La calificación debe ser entre 1 y 5")
+            raise ValueError("La calificaciÃ³n debe ser entre 1 y 5")
 
         order = await self.orders_repo.get_by_id(order_id)
         if not order:
@@ -885,32 +1270,32 @@ class OrderService:
             # Status-specific messages
             status_messages = {
                 OrderStatus.ACCEPTED: {
-                    "title": "¡Pedido aceptado! 🎉",
-                    "body": f"Tu pedido #{order.orderNumber} ha sido aceptado y se está preparando"
+                    "title": "Â¡Pedido aceptado! ðŸŽ‰",
+                    "body": f"Tu pedido #{order.orderNumber} ha sido aceptado y se estÃ¡ preparando"
                 },
                 OrderStatus.PREPARING: {
-                    "title": "Preparando tu pedido 👨‍🍳",
+                    "title": "Preparando tu pedido ðŸ‘¨â€ðŸ³",
                     "body": f"Estamos preparando tu pedido #{order.orderNumber}"
                 },
                 OrderStatus.READY_FOR_PICKUP: {
-                    "title": "¡Pedido listo! 📦",
-                    "body": f"Tu pedido #{order.orderNumber} está listo para ser recogido"
+                    "title": "Â¡Pedido listo! ðŸ“¦",
+                    "body": f"Tu pedido #{order.orderNumber} estÃ¡ listo para ser recogido"
                 },
                 OrderStatus.ON_THE_WAY: {
-                    "title": "¡En camino! 🚗",
-                    "body": f"Tu pedido #{order.orderNumber} está en camino"
+                    "title": "Â¡En camino! ðŸš—",
+                    "body": f"Tu pedido #{order.orderNumber} estÃ¡ en camino"
                 },
                 OrderStatus.DELIVERED: {
-                    "title": "¡Pedido entregado! ✅",
-                    "body": f"Tu pedido #{order.orderNumber} ha sido entregado. ¡Disfrútalo!"
+                    "title": "Â¡Pedido entregado! âœ…",
+                    "body": f"Tu pedido #{order.orderNumber} ha sido entregado. Â¡DisfrÃºtalo!"
                 },
                 OrderStatus.CANCELLED: {
-                    "title": "Pedido cancelado ❌",
+                    "title": "Pedido cancelado âŒ",
                     "body": f"Tu pedido #{order.orderNumber} ha sido cancelado"
                 },
                 OrderStatus.MODIFIED_BY_STORE: {
-                    "title": "Pedido modificado ⚠️",
-                    "body": f"La tienda modificó tu pedido #{order.orderNumber}. Por favor revísalo"
+                    "title": "Pedido modificado âš ï¸",
+                    "body": f"La tienda modificÃ³ tu pedido #{order.orderNumber}. Por favor revÃ­salo"
                 },
             }
 
@@ -983,7 +1368,7 @@ class OrderService:
                 return
 
             # Notification message
-            title = "¡Nuevo pedido! 🔔"
+            title = "Â¡Nuevo pedido! ðŸ””"
             body = f"Pedido #{order.orderNumber} - ${order.total:.2f} - {len(order.items)} items"
 
             # Additional data payload
@@ -1068,11 +1453,11 @@ class OrderService:
             # Status-specific messages for business
             status_messages = {
                 OrderStatus.CANCELLED: {
-                    "title": "Pedido cancelado ❌",
+                    "title": "Pedido cancelado âŒ",
                     "body": f"Pedido #{order.orderNumber} ha sido cancelado"
                 },
                 OrderStatus.DELIVERED: {
-                    "title": "Pedido entregado ✅",
+                    "title": "Pedido entregado âœ…",
                     "body": f"Pedido #{order.orderNumber} fue entregado exitosamente"
                 },
             }
@@ -1120,6 +1505,4 @@ class OrderService:
             print(f"[PUSH BUSINESS] Failed to send status update: {e}")
             import traceback
             traceback.print_exc()
-
-
 order_service = OrderService()

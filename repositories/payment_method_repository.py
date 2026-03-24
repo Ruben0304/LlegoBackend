@@ -53,6 +53,18 @@ class PaymentMethodRepository:
         payment_methods = await cursor.to_list(length=None)
         return [PaymentMethod(**self._convert_id(pm)) for pm in payment_methods]
 
+    async def get_by_code(self, code: str) -> Optional[PaymentMethod]:
+        """Get payment method by unique code (case-insensitive)."""
+        db = get_database()
+        payment_method = await db[self.collection_name].find_one(
+            {"code": {"$regex": f"^{code}$", "$options": "i"}}
+        )
+        return (
+            PaymentMethod(**self._convert_id(payment_method))
+            if payment_method
+            else None
+        )
+
     @staticmethod
     def _convert_id(doc: Dict[str, Any]) -> Dict[str, Any]:
         if doc and "_id" in doc:

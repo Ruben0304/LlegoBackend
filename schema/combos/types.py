@@ -179,29 +179,31 @@ class ComboType:
                 if product:
                     total += product.price + default_option.priceAdjustment
 
-        return total
+        return round(total, 2)
 
     @strawberry.field(description="Final price with discount applied")
     async def final_price(self, info: Info) -> float:
         """Calcula el precio final aplicando el descuento."""
         base = await self.base_price(info)
+        discount_value = float(self.discountValue or 0.0)
 
         if self.discountType == DiscountType.PERCENTAGE:
             # Descuento en porcentaje
-            return base * (1 - self.discountValue / 100)
+            percentage = min(max(discount_value, 0.0), 100.0)
+            return round(max(0.0, base * (1 - percentage / 100)), 2)
         elif self.discountType == DiscountType.FIXED:
             # Descuento en cantidad fija
-            return max(0, base - self.discountValue)
+            return round(max(0.0, base - max(0.0, discount_value)), 2)
         else:
             # Sin descuento
-            return base
+            return round(base, 2)
 
     @strawberry.field(description="Amount saved with discount")
     async def savings(self, info: Info) -> float:
         """Calcula el ahorro total del descuento."""
         base = await self.base_price(info)
         final = await self.final_price(info)
-        return max(0, base - final)
+        return round(max(0.0, base - final), 2)
 
     @strawberry.field(description="Branch associated with this combo")
     async def branch(

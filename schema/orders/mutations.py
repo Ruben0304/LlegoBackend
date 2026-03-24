@@ -63,6 +63,24 @@ class OrderMutation:
                     {
                         "itemType": i.itemType.value,
                         "productId": i.productId,
+                        "comboId": i.comboId,
+                        "comboSelections": [
+                            {
+                                "slotId": selection.slotId,
+                                "selectedOptions": [
+                                    {
+                                        "productId": selected.productId,
+                                        "quantity": selected.quantity,
+                                        "modifiers": [
+                                            {"name": modifier.name}
+                                            for modifier in selected.modifiers
+                                        ],
+                                    }
+                                    for selected in selection.selectedOptions
+                                ],
+                            }
+                            for selection in i.comboSelections
+                        ],
                         "showcaseId": i.showcaseId,
                         "description": i.description,
                         "quantity": i.quantity,
@@ -229,6 +247,24 @@ class OrderMutation:
                     {
                         "itemType": i.itemType.value,
                         "productId": i.productId,
+                        "comboId": i.comboId,
+                        "comboSelections": [
+                            {
+                                "slotId": selection.slotId,
+                                "selectedOptions": [
+                                    {
+                                        "productId": selected.productId,
+                                        "quantity": selected.quantity,
+                                        "modifiers": [
+                                            {"name": modifier.name}
+                                            for modifier in selected.modifiers
+                                        ],
+                                    }
+                                    for selected in selection.selectedOptions
+                                ],
+                            }
+                            for selection in i.comboSelections
+                        ],
                         "showcaseId": i.showcaseId,
                         "description": i.description,
                         "quantity": i.quantity,

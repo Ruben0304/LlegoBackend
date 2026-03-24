@@ -21,7 +21,32 @@ class AddressTypeInput(Enum):
 @strawberry.enum
 class OrderItemTypeInput(Enum):
     PRODUCT = "product"
+    COMBO = "combo"
     SHOWCASE = "showcase"
+
+
+@strawberry.input
+class OrderComboModifierInput:
+    """Selected modifier name for a combo option."""
+
+    name: str
+
+
+@strawberry.input
+class OrderComboSelectedOptionInput:
+    """Selected option within a combo slot."""
+
+    productId: str
+    quantity: int = 1
+    modifiers: List[OrderComboModifierInput] = strawberry.field(default_factory=list)
+
+
+@strawberry.input
+class OrderComboSlotSelectionInput:
+    """Customer selections for one combo slot."""
+
+    slotId: str
+    selectedOptions: List[OrderComboSelectedOptionInput]
 
 
 @strawberry.input
@@ -29,6 +54,10 @@ class OrderItemInput:
     quantity: int
     itemType: OrderItemTypeInput = OrderItemTypeInput.PRODUCT
     productId: Optional[str] = None
+    comboId: Optional[str] = None
+    comboSelections: List[OrderComboSlotSelectionInput] = strawberry.field(
+        default_factory=list
+    )
     showcaseId: Optional[str] = None
     description: Optional[str] = None
 
