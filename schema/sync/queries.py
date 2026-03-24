@@ -51,7 +51,7 @@ class SyncQuery:
                 continue
 
             # Get branches for this business
-            branches = await branches_repo.get_by_business_id(str(business.id))
+            branches = await branches_repo.get_by_business(str(business.id))
 
             # Convert branches to sync type (excluding sensitive data)
             branch_sync_list = []
@@ -229,7 +229,7 @@ class SyncQuery:
                 all_businesses = await businesses_repo.get_all()
                 branches = []
                 for business in all_businesses:
-                    branch_list = await branches_repo.get_by_business_id(
+                    branch_list = await branches_repo.get_by_business(
                         str(business.id)
                     )
                     branches.extend(branch_list)
