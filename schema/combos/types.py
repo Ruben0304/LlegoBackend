@@ -74,6 +74,7 @@ class ComboSlotType:
     options: List[ComboOptionType]
     minSelections: int
     maxSelections: int
+    isFree: bool
     displayOrder: int
 
 
@@ -186,6 +187,8 @@ class ComboType:
         total = 0.0
 
         for slot in self.slots:
+            if getattr(slot, "isFree", False):
+                continue
             # Tomar la opción por defecto o la primera
             default_option = next(
                 (opt for opt in slot.options if opt.isDefault),
@@ -238,6 +241,8 @@ class ComboType:
         total = 0.0
 
         for slot in self.slots:
+            if getattr(slot, "isFree", False):
+                continue
             # Determinar cuántos productos seleccionar (mínimo requerido)
             num_selections = slot.minSelections
 
@@ -346,6 +351,7 @@ def combo_to_type(combo: "Combo") -> ComboType:
                 options=options,
                 minSelections=slot.minSelections,
                 maxSelections=slot.maxSelections,
+                isFree=bool(getattr(slot, "isFree", False)),
                 displayOrder=slot.displayOrder,
             )
         )

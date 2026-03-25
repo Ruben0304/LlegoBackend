@@ -777,6 +777,7 @@ class ComboSlot(BaseModel):
     # Reglas de selección
     minSelections: int = 1  # Mínimo a elegir
     maxSelections: int = 1  # Máximo a elegir
+    isFree: bool = False  # Si es gratis, no suma al precio del combo
 
     displayOrder: int = 0  # Orden de visualización
 

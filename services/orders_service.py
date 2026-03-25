@@ -185,6 +185,7 @@ class OrderService:
 
         for slot in combo_slots:
             slot_id = str(slot.id)
+            slot_is_free = bool(getattr(slot, "isFree", False))
             provided_selection = selection_map.get(slot_id)
 
             if provided_selection:
@@ -250,20 +251,24 @@ class OrderService:
                     )
                 add_preview_product(product)
 
-                product_price = self._convert_amount(
-                    amount=product.price,
-                    from_currency=self._normalize_currency(
-                        getattr(product, "currency", None), fallback=order_currency
-                    ),
-                    to_currency=order_currency,
-                    exchange_rate=exchange_rate,
-                )
-                option_adjustment = self._convert_amount(
-                    amount=combo_option.priceAdjustment,
-                    from_currency=combo_currency,
-                    to_currency=order_currency,
-                    exchange_rate=exchange_rate,
-                )
+                if slot_is_free:
+                    product_price = 0.0
+                    option_adjustment = 0.0
+                else:
+                    product_price = self._convert_amount(
+                        amount=product.price,
+                        from_currency=self._normalize_currency(
+                            getattr(product, "currency", None), fallback=order_currency
+                        ),
+                        to_currency=order_currency,
+                        exchange_rate=exchange_rate,
+                    )
+                    option_adjustment = self._convert_amount(
+                        amount=combo_option.priceAdjustment,
+                        from_currency=combo_currency,
+                        to_currency=order_currency,
+                        exchange_rate=exchange_rate,
+                    )
 
                 modifiers_input = selected.get("modifiers") or []
                 available_modifiers = {
@@ -285,12 +290,15 @@ class OrderService:
                             f"Modifier '{mod_name}' no permitido para '{product.name}'"
                         )
 
-                    mod_adjustment = self._convert_amount(
-                        amount=matched_modifier.priceAdjustment,
-                        from_currency=combo_currency,
-                        to_currency=order_currency,
-                        exchange_rate=exchange_rate,
-                    )
+                    if slot_is_free:
+                        mod_adjustment = 0.0
+                    else:
+                        mod_adjustment = self._convert_amount(
+                            amount=matched_modifier.priceAdjustment,
+                            from_currency=combo_currency,
+                            to_currency=order_currency,
+                            exchange_rate=exchange_rate,
+                        )
                     modifiers_total += mod_adjustment
                     modifier_snapshots.append(
                         {

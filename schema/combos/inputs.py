@@ -41,6 +41,7 @@ class ComboSlotInput:
     options: List[ComboOptionInput]
     minSelections: int = 1
     maxSelections: int = 1
+    isFree: bool = False
     displayOrder: int = 0
 
 

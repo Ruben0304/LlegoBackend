@@ -148,6 +148,7 @@ class ComboMutation:
                     "options": prepared_options,
                     "minSelections": min_sel,
                     "maxSelections": max_sel,
+                    "isFree": bool(getattr(slot, "isFree", False)),
                     "displayOrder": int(slot.displayOrder),
                 }
             )
