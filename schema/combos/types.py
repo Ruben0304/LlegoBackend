@@ -177,60 +177,17 @@ class ComboType:
 
         return products
 
-    @strawberry.field(
-        description="Base price with default selections (before discount)"
-    )
-    async def base_price(self, info: Info) -> float:
-        """Calcula el precio base sumando productos por defecto y sus ajustes."""
-        from repositories import products_repo
-
-        total = 0.0
-
-        for slot in self.slots:
-            if getattr(slot, "isFree", False):
-                continue
-            # Tomar la opción por defecto o la primera
-            default_option = next(
-                (opt for opt in slot.options if opt.isDefault),
-                slot.options[0] if slot.options else None,
-            )
-
-            if default_option:
-                # Obtener precio del producto
-                product = await products_repo.get_by_id(default_option.productId)
-                if product:
-                    total += product.price + default_option.priceAdjustment
-
-        return round(total, 2)
-
     @strawberry.field(description="Final price with discount applied")
     async def final_price(self, info: Info) -> float:
-        """Calcula el precio final aplicando el descuento."""
-        base = await self.base_price(info)
-        discount_value = float(self.discountValue or 0.0)
-
-        if self.discountType == DiscountType.PERCENTAGE:
-            # Descuento en porcentaje
-            percentage = min(max(discount_value, 0.0), 100.0)
-            return round(max(0.0, base * (1 - percentage / 100)), 2)
-        elif self.discountType == DiscountType.FIXED:
-            # Descuento en cantidad fija
-            return round(max(0.0, base - max(0.0, discount_value)), 2)
-        else:
-            # Sin descuento
-            return round(base, 2)
+        """Alias del precio final mínimo válido (usar para catálogo)."""
+        return await self.starting_final_price(info)
 
     @strawberry.field(description="Amount saved with discount")
     async def savings(self, info: Info) -> float:
-        """Calcula el ahorro total del descuento."""
-        base = await self.base_price(info)
-        final = await self.final_price(info)
-        return round(max(0.0, base - final), 2)
+        """Alias del ahorro mínimo válido (usar para catálogo)."""
+        return await self.starting_savings(info)
 
-    @strawberry.field(
-        description="Minimum valid base price to build this combo (before discount)"
-    )
-    async def starting_base_price(self, info: Info) -> float:
+    async def _compute_starting_base_price(self, info: Info) -> float:
         """
         Calcula el precio base mínimo válido para armar el combo.
         Respeta minSelections y maxSelections de cada slot.
@@ -257,16 +214,6 @@ class ComboType:
                 if product:
                     # Precio del producto + ajuste de precio de la opción
                     option_price = product.price + option.priceAdjustment
-                    
-                    # Agregar modifiers obligatorios si existen
-                    mandatory_modifiers_price = sum(
-                        mod.priceAdjustment
-                        for mod in option.availableModifiers
-                        # Asumimos que modifiers con priceAdjustment >= 0 son opcionales
-                        # Los obligatorios tendrían que estar marcados explícitamente
-                        # Por ahora, no incluimos modifiers en el "desde" a menos que sean default
-                    )
-                    
                     option_prices.append(option_price)
 
             # Ordenar por precio y tomar las más baratas según minSelections
@@ -284,7 +231,7 @@ class ComboType:
         Calcula el precio final mínimo válido después de aplicar el descuento.
         Este es el precio que debe mostrarse en catálogo como 'Desde $X'.
         """
-        base = await self.starting_base_price(info)
+        base = await self._compute_starting_base_price(info)
         discount_value = float(self.discountValue or 0.0)
 
         if self.discountType == DiscountType.PERCENTAGE:
@@ -296,14 +243,14 @@ class ComboType:
             return round(base, 2)
 
     @strawberry.field(
-        description="Minimum savings amount (startingBasePrice - startingFinalPrice)"
+        description="Minimum savings amount (minimum base total - startingFinalPrice)"
     )
     async def starting_savings(self, info: Info) -> float:
         """
         Calcula el ahorro mínimo del combo.
         Diferencia entre el precio base mínimo y el precio final mínimo.
         """
-        base = await self.starting_base_price(info)
+        base = await self._compute_starting_base_price(info)
         final = await self.starting_final_price(info)
         return round(max(0.0, base - final), 2)
 
