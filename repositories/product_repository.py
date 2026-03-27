@@ -108,6 +108,29 @@ class ProductRepository:
             print(f"Error fetching product {product_id} from MongoDB: {e}")
             return None
 
+    async def has_other_products_with_image(
+        self,
+        image_path: str,
+        exclude_product_id: Optional[str] = None,
+    ) -> bool:
+        """Check whether another product references the same image path."""
+        if not image_path:
+            return False
+
+        try:
+            db = get_database()
+            query: Dict[str, Any] = {"image": image_path}
+
+            if exclude_product_id:
+                query["_id"] = {"$ne": self._to_object_id(exclude_product_id)}
+
+            doc = await db[self.mongo_collection_name].find_one(query, {"_id": 1})
+            return doc is not None
+        except Exception as e:
+            print(f"Error checking shared product image {image_path}: {e}")
+            # Be conservative: if we cannot verify, assume it's shared.
+            return True
+
     async def get_by_ids(self, product_ids: List[str]) -> List[Product]:
         """Get products by IDs from MongoDB."""
         if not product_ids:

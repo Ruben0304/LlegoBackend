@@ -16,6 +16,22 @@ from services.access_checker import access_checker
 from services.qdrant_indexing_service import qdrant_indexing_service
 
 
+async def _delete_image_if_unreferenced(
+    image_path: Optional[str],
+    exclude_product_id: Optional[str] = None,
+) -> None:
+    """Delete product image only when no other product still references it."""
+    if not image_path:
+        return
+
+    is_shared = await products_repo.has_other_products_with_image(
+        image_path=image_path,
+        exclude_product_id=exclude_product_id,
+    )
+    if not is_shared:
+        await delete_file(image_path)
+
+
 @strawberry.type
 class ProductMutation:
     @strawberry.mutation(description="Crear un nuevo producto")
@@ -207,10 +223,9 @@ class ProductMutation:
             updates["categoryId"] = input.categoryId
         if input.variantListIds is not None:
             updates["variantListIds"] = [ObjectId(vid) for vid in input.variantListIds]
-        if input.image is not None:
-            # Delete old image if exists
-            if product.image:
-                await delete_file(product.image)
+        old_image_path = product.image
+        image_changed = input.image is not None and input.image != product.image
+        if image_changed:
             updates["image"] = input.image
 
         if not updates:
@@ -220,6 +235,13 @@ class ProductMutation:
         updated_product = await products_repo.update(product_id, updates)
         if not updated_product:
             raise Exception("Error al actualizar el producto")
+
+        # Delete previous image only if it is no longer referenced.
+        if image_changed and old_image_path:
+            await _delete_image_if_unreferenced(
+                image_path=old_image_path,
+                exclude_product_id=product_id,
+            )
 
         # Re-index in Qdrant if name or description changed
         if "name" in updates or "description" in updates:
@@ -248,14 +270,12 @@ class ProductMutation:
         # Verify user has access to the branch
         await access_checker.require_branch_access(user_id, product.branchId)
 
-        # Delete image from S3
-        if product.image:
-            from utils.s3 import delete_file
-            await delete_file(product.image)
-
         # Delete product
         success = await products_repo.delete(product_id)
         if not success:
             raise Exception("Error al eliminar el producto")
+
+        # Delete image from S3 only if no other product still references it.
+        await _delete_image_if_unreferenced(image_path=product.image)
 
         return True
