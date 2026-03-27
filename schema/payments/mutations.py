@@ -24,6 +24,7 @@ from .types import (
     PaymentType,
     QvaPayPaymentResult,
     RetryCashKycPayload,
+    StartCashKycByAccountInput,
     StartCashKycInput,
     StartCashKycPayload,
     TronDealerPaymentResult,
@@ -421,6 +422,38 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
         try:
             payload = await payment_service.start_cash_kyc_evaluation(
                 payment_attempt_id=input.paymentAttemptId,
+                user_id=user_id,
+                identity_document_front_ref=input.identityDocumentFrontRef,
+                selfie_live_ref=input.selfieLiveRef,
+                device_context={
+                    "device_id_hash": input.deviceContext.deviceIdHash,
+                    "ip_hash": input.deviceContext.ipHash,
+                    "app_version": input.deviceContext.appVersion,
+                    "os": input.deviceContext.os,
+                    "geo_approx": {
+                        "lat": input.deviceContext.latitude,
+                        "lng": input.deviceContext.longitude,
+                    },
+                },
+            )
+            return StartCashKycPayload(**payload)
+        except ValueError as e:
+            raise Exception(str(e))
+
+    @strawberry.mutation(
+        description="Inicia evaluación KYC de efectivo desde cuenta/perfil (sin paymentAttemptId)"
+    )
+    async def start_cash_kyc_evaluation_by_account(
+        self, info: Info, input: StartCashKycByAccountInput, jwt: str
+    ) -> StartCashKycPayload:
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+        try:
+            payload = await payment_service.start_cash_kyc_evaluation_by_account(
+                merchant_id=input.merchantId,
+                branch_id=input.branchId,
                 user_id=user_id,
                 identity_document_front_ref=input.identityDocumentFrontRef,
                 selfie_live_ref=input.selfieLiveRef,

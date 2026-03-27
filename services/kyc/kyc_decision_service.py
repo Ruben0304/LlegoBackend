@@ -28,9 +28,9 @@ class KycDecisionService:
 
     @staticmethod
     def build_idempotency_key(
-        payment_attempt_id: str, evidence_hash: str, policy_version: str
+        scope_key: str, evidence_hash: str, policy_version: str
     ) -> str:
-        raw = f"{payment_attempt_id}:{evidence_hash}:{policy_version}"
+        raw = f"{scope_key}:{evidence_hash}:{policy_version}"
         return hashlib.sha256(raw.encode()).hexdigest()
 
     async def get_reusable_approved(
@@ -46,16 +46,17 @@ class KycDecisionService:
             policy_version=policy_version,
         )
 
-    async def evaluate_cash_kyc(
+    async def _evaluate(
         self,
         *,
-        payment_attempt_id: str,
-        order_id: str,
+        verification_source: str,
+        payment_attempt_id: Optional[str],
+        order_id: Optional[str],
         customer_id: str,
         merchant_id: str,
-        branch_id: str,
-        amount: float,
-        currency: str,
+        branch_id: Optional[str],
+        amount: Optional[float],
+        currency: Optional[str],
         policy_version: str,
         min_confidence: float,
         ttl_days: int,
@@ -66,12 +67,17 @@ class KycDecisionService:
         request_id = str(uuid4())
         correlation_id = str(uuid4())
         evidence_hash = self.build_evidence_hash(evidence_refs)
+        scope_key = (
+            payment_attempt_id
+            or f"account:{customer_id}:{merchant_id}:{verification_source}"
+        )
         idempotency_key = self.build_idempotency_key(
-            payment_attempt_id, evidence_hash, policy_version
+            scope_key, evidence_hash, policy_version
         )
 
         verification = KycVerification(
             _id=str(ObjectId()),
+            verificationSource=verification_source,
             paymentAttemptId=payment_attempt_id,
             orderId=order_id,
             customerId=customer_id,
@@ -101,8 +107,8 @@ class KycDecisionService:
             "transaction": {
                 "payment_attempt_id": payment_attempt_id,
                 "order_id": order_id,
-                "amount": amount,
-                "currency": currency,
+                "amount": amount if amount is not None else 0.0,
+                "currency": currency or "unknown",
                 "timestamp": now.isoformat(),
             },
             "evidence": evidence_refs,
@@ -150,6 +156,66 @@ class KycDecisionService:
             "expires_at": expires_at,
             "provider_error": provider_result.get("error"),
         }
+
+    async def evaluate_cash_kyc(
+        self,
+        *,
+        payment_attempt_id: str,
+        order_id: str,
+        customer_id: str,
+        merchant_id: str,
+        branch_id: str,
+        amount: float,
+        currency: str,
+        policy_version: str,
+        min_confidence: float,
+        ttl_days: int,
+        evidence_refs: List[Dict[str, str]],
+        device_context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return await self._evaluate(
+            verification_source="checkout",
+            payment_attempt_id=payment_attempt_id,
+            order_id=order_id,
+            customer_id=customer_id,
+            merchant_id=merchant_id,
+            branch_id=branch_id,
+            amount=amount,
+            currency=currency,
+            policy_version=policy_version,
+            min_confidence=min_confidence,
+            ttl_days=ttl_days,
+            evidence_refs=evidence_refs,
+            device_context=device_context,
+        )
+
+    async def evaluate_cash_kyc_by_account(
+        self,
+        *,
+        customer_id: str,
+        merchant_id: str,
+        branch_id: Optional[str],
+        policy_version: str,
+        min_confidence: float,
+        ttl_days: int,
+        evidence_refs: List[Dict[str, str]],
+        device_context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return await self._evaluate(
+            verification_source="account",
+            payment_attempt_id=None,
+            order_id=None,
+            customer_id=customer_id,
+            merchant_id=merchant_id,
+            branch_id=branch_id,
+            amount=None,
+            currency=None,
+            policy_version=policy_version,
+            min_confidence=min_confidence,
+            ttl_days=ttl_days,
+            evidence_refs=evidence_refs,
+            device_context=device_context,
+        )
 
 
 kyc_decision_service = KycDecisionService()

@@ -80,6 +80,22 @@ class KycVerificationRepository:
         doc = await self._collection().find_one(query, sort=[("approvedAt", -1)])
         return self._doc_to_model(doc) if doc else None
 
+    async def get_latest_by_customer_merchant(
+        self,
+        *,
+        customer_id: str,
+        merchant_id: str,
+        policy_version: Optional[str] = None,
+    ) -> Optional[KycVerification]:
+        query = {
+            "customerId": self._to_object_id(customer_id),
+            "merchantId": self._to_object_id(merchant_id),
+        }
+        if policy_version:
+            query["policyVersion"] = policy_version
+        doc = await self._collection().find_one(query, sort=[("createdAt", -1)])
+        return self._doc_to_model(doc) if doc else None
+
     async def update_result(
         self,
         verification_id: str,
@@ -163,6 +179,10 @@ async def create_kyc_indexes():
     await verifications.create_index(
         [("customerId", 1), ("merchantId", 1), ("status", 1), ("expiresAt", -1)]
     )
+    await verifications.create_index(
+        [("customerId", 1), ("merchantId", 1), ("policyVersion", 1), ("createdAt", -1)]
+    )
+    await verifications.create_index([("verificationSource", 1), ("createdAt", -1)])
     await verifications.create_index("correlationId")
 
     await notifications.create_index(

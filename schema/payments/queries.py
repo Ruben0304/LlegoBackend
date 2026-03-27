@@ -8,6 +8,7 @@ from strawberry.types import Info
 from repositories import branches_repo, payment_methods_repo
 from repositories.payments_attempt_repository import payment_attempts_repo
 from schema.payments.types import (
+    CashKycAccountStatusResult,
     CashKycPolicyResult,
     CashKycStatusResult,
     PaymentAttemptType,
@@ -207,5 +208,53 @@ class PaymentMethodQuery:
                 paymentAttemptId, user_id
             )
             return CashKycStatusResult(**status)
+        except ValueError as e:
+            raise Exception(str(e))
+
+    @strawberry.field(
+        description="Obtiene estado KYC reusable por cuenta para un merchant"
+    )
+    async def cash_kyc_status_by_account(
+        self,
+        info: Info,
+        merchantId: str,
+        jwt: str,
+        branchId: Optional[str] = None,
+    ) -> CashKycAccountStatusResult:
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+        try:
+            status = await payment_service.get_cash_kyc_status_by_account(
+                merchant_id=merchantId,
+                user_id=user_id,
+                branch_id=branchId,
+            )
+            return CashKycAccountStatusResult(**status)
+        except ValueError as e:
+            raise Exception(str(e))
+
+    @strawberry.field(
+        description="Obtiene política KYC de efectivo por merchant/branch sin requerir orden"
+    )
+    async def cash_kyc_policy_by_merchant(
+        self,
+        info: Info,
+        merchantId: str,
+        jwt: str,
+        branchId: Optional[str] = None,
+    ) -> CashKycPolicyResult:
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+        try:
+            policy = await payment_service.get_cash_kyc_policy_by_merchant(
+                merchant_id=merchantId,
+                user_id=user_id,
+                branch_id=branchId,
+            )
+            return CashKycPolicyResult(**policy)
         except ValueError as e:
             raise Exception(str(e))

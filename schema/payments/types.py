@@ -212,6 +212,20 @@ class CashKycStatusResult:
     expiresAt: Optional[datetime]
 
 
+@strawberry.type
+class CashKycAccountStatusResult:
+    merchantId: str
+    branchId: Optional[str]
+    verificationId: Optional[str]
+    kycEvalStatus: str
+    cashCoverageStatus: str
+    allowCash: bool
+    appCoversCash: bool
+    reasonCodes: List[str]
+    nextAction: Optional[str]
+    expiresAt: Optional[datetime]
+
+
 @strawberry.input
 class DeviceContextInput:
     deviceIdHash: str
@@ -225,6 +239,15 @@ class DeviceContextInput:
 @strawberry.input
 class StartCashKycInput:
     paymentAttemptId: str
+    identityDocumentFrontRef: str
+    selfieLiveRef: str
+    deviceContext: DeviceContextInput
+
+
+@strawberry.input
+class StartCashKycByAccountInput:
+    merchantId: str
+    branchId: Optional[str] = None
     identityDocumentFrontRef: str
     selfieLiveRef: str
     deviceContext: DeviceContextInput

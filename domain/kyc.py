@@ -38,11 +38,12 @@ class CashCoverageStatus(str, Enum):
 
 class KycVerification(BaseModel):
     id: PyObjectId = Field(alias="_id")
-    paymentAttemptId: PyObjectId
-    orderId: PyObjectId
+    verificationSource: str = "checkout"
+    paymentAttemptId: Optional[PyObjectId] = None
+    orderId: Optional[PyObjectId] = None
     customerId: PyObjectId
     merchantId: PyObjectId
-    branchId: PyObjectId
+    branchId: Optional[PyObjectId] = None
     policyVersion: str
     minConfidence: float
     evidenceRefs: List[Dict[str, str]]

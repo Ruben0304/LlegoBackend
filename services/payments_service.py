@@ -3,7 +3,7 @@
 import logging
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import stripe
 from bson import ObjectId
@@ -79,6 +79,49 @@ class PaymentService:
         """Get branch by ID using the branch repository."""
         branch = await branches_repo.get_by_id(branch_id)
         return branch.model_dump() if branch else None
+
+    async def _resolve_cash_kyc_policy_context(
+        self,
+        *,
+        merchant_id: str,
+        branch_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Resolve branch-scoped cash KYC policy for a merchant."""
+        branch_doc = None
+        if branch_id:
+            branch_doc = await self._get_branch(branch_id)
+            if not branch_doc:
+                raise ValueError("Sucursal no encontrada")
+            if str(branch_doc.get("businessId")) != merchant_id:
+                raise ValueError("Sucursal no pertenece al merchant indicado")
+        else:
+            branches = await branches_repo.get_by_business(merchant_id)
+            if branches:
+                # Keep deterministic behavior for profile flow when branch is omitted.
+                branch_doc = branches[0].model_dump()
+
+        branch_doc = branch_doc or {}
+        required = bool(
+            settings.cash_kyc_feature_enabled
+            and branch_doc.get("cashKycEnabled", False)
+        )
+        return {
+            "merchantId": merchant_id,
+            "branchId": str(branch_doc.get("_id") or branch_doc.get("id"))
+            if branch_doc
+            else None,
+            "required": required,
+            "policyVersion": branch_doc.get("cashKycPolicyVersion", "cash-kyc-v1"),
+            "minConfidence": float(
+                branch_doc.get(
+                    "cashKycMinConfidence", settings.cash_kyc_default_min_confidence
+                )
+            ),
+            "ttlDays": int(
+                branch_doc.get("cashKycTtlDays", settings.cash_kyc_default_ttl_days)
+            ),
+            "branchDoc": branch_doc,
+        }
 
     async def _get_user(self, user_id: str):
         """Get user by ID using the user repository."""
@@ -332,6 +375,34 @@ class PaymentService:
             "appCoversCashNow": False,
         }
 
+    async def get_cash_kyc_policy_by_merchant(
+        self,
+        *,
+        merchant_id: str,
+        user_id: str,
+        branch_id: Optional[str] = None,
+    ) -> dict:
+        """Return cash KYC policy for a merchant/branch without requiring an order."""
+        user = await self._get_user(user_id)
+        if not user:
+            raise ValueError("Usuario no encontrado")
+
+        business = await businesses_repo.get_by_id(merchant_id)
+        if not business:
+            raise ValueError("Merchant no encontrado")
+
+        ctx = await self._resolve_cash_kyc_policy_context(
+            merchant_id=merchant_id, branch_id=branch_id
+        )
+        return {
+            "kycRequired": ctx["required"],
+            "policyVersion": ctx["policyVersion"],
+            "minConfidence": ctx["minConfidence"],
+            "ttlDays": ctx["ttlDays"],
+            "allowCashNow": not ctx["required"],
+            "appCoversCashNow": False,
+        }
+
     async def get_cash_kyc_status(self, payment_attempt_id: str, user_id: str) -> dict:
         """Get KYC status and effective cash/covers flags for an attempt."""
         _, kyc_verifications_repo, _, _ = self._get_kyc_dependencies()
@@ -359,6 +430,73 @@ class PaymentService:
             "reasonCodes": verification.reasonCodes if verification else [],
             "nextAction": "continue_cash_flow" if allow_cash else "start_kyc",
             "expiresAt": verification.expiresAt if verification else None,
+        }
+
+    async def get_cash_kyc_status_by_account(
+        self,
+        *,
+        merchant_id: str,
+        user_id: str,
+        branch_id: Optional[str] = None,
+    ) -> dict:
+        """Get KYC status for a user scoped by merchant, independent from checkout."""
+        _, kyc_verifications_repo, _, _ = self._get_kyc_dependencies()
+        business = await businesses_repo.get_by_id(merchant_id)
+        if not business:
+            raise ValueError("Merchant no encontrado")
+        ctx = await self._resolve_cash_kyc_policy_context(
+            merchant_id=merchant_id, branch_id=branch_id
+        )
+        if not ctx["required"]:
+            return {
+                "merchantId": merchant_id,
+                "branchId": ctx["branchId"],
+                "verificationId": None,
+                "kycEvalStatus": "not_required",
+                "cashCoverageStatus": "eligible_uncovered",
+                "allowCash": True,
+                "appCoversCash": False,
+                "reasonCodes": [],
+                "nextAction": "continue_cash_uncovered",
+                "expiresAt": None,
+            }
+
+        reusable = await kyc_verifications_repo.get_reusable_approved(
+            customer_id=user_id,
+            merchant_id=merchant_id,
+            policy_version=ctx["policyVersion"],
+        )
+        if reusable:
+            return {
+                "merchantId": merchant_id,
+                "branchId": ctx["branchId"],
+                "verificationId": str(reusable.id),
+                "kycEvalStatus": "approved",
+                "cashCoverageStatus": "eligible_covered",
+                "allowCash": True,
+                "appCoversCash": True,
+                "reasonCodes": reusable.reasonCodes or [],
+                "nextAction": "continue_cash_flow",
+                "expiresAt": reusable.expiresAt,
+            }
+
+        latest = await kyc_verifications_repo.get_latest_by_customer_merchant(
+            customer_id=user_id,
+            merchant_id=merchant_id,
+            policy_version=ctx["policyVersion"],
+        )
+        latest_status = latest.status if latest else "pending_evidence"
+        return {
+            "merchantId": merchant_id,
+            "branchId": ctx["branchId"],
+            "verificationId": str(latest.id) if latest else None,
+            "kycEvalStatus": latest_status,
+            "cashCoverageStatus": "blocked",
+            "allowCash": False,
+            "appCoversCash": False,
+            "reasonCodes": latest.reasonCodes if latest else [],
+            "nextAction": "start_kyc" if not latest else "retry_or_provide_evidence",
+            "expiresAt": latest.expiresAt if latest else None,
         }
 
     async def start_cash_kyc_evaluation(
@@ -485,6 +623,100 @@ class PaymentService:
             "reasonCodes": result.get("reason_codes", []),
         }
 
+    async def start_cash_kyc_evaluation_by_account(
+        self,
+        *,
+        merchant_id: str,
+        user_id: str,
+        branch_id: Optional[str],
+        identity_document_front_ref: str,
+        selfie_live_ref: str,
+        device_context: dict,
+    ) -> dict:
+        """Start KYC evaluation from account/profile flow without payment attempt."""
+        (
+            kyc_decision_service,
+            _kyc_verifications_repo,
+            kyc_audit_events_repo,
+            kyc_notification_service,
+        ) = self._get_kyc_dependencies()
+
+        business = await businesses_repo.get_by_id(merchant_id)
+        if not business:
+            raise ValueError("Merchant no encontrado")
+
+        ctx = await self._resolve_cash_kyc_policy_context(
+            merchant_id=merchant_id, branch_id=branch_id
+        )
+        if not ctx["required"]:
+            return {
+                "verificationId": "",
+                "kycEvalStatus": "not_required",
+                "cashCoverageStatus": "eligible_uncovered",
+                "allowCash": True,
+                "appCoversCash": False,
+                "nextAction": "continue_cash_uncovered",
+                "correlationId": "",
+                "reasonCodes": [],
+            }
+
+        evidence_refs = [
+            {"type": "identity_document_front", "ref": identity_document_front_ref},
+            {"type": "selfie_live", "ref": selfie_live_ref},
+        ]
+        result = await kyc_decision_service.evaluate_cash_kyc_by_account(
+            customer_id=user_id,
+            merchant_id=merchant_id,
+            branch_id=ctx["branchId"],
+            policy_version=ctx["policyVersion"],
+            min_confidence=ctx["minConfidence"],
+            ttl_days=ctx["ttlDays"],
+            evidence_refs=evidence_refs,
+            device_context=device_context,
+        )
+
+        await kyc_audit_events_repo.append(
+            entity_type="kyc_verification",
+            entity_id=result["verification_id"],
+            event_type="kyc_evaluated",
+            actor_type="customer",
+            actor_id=user_id,
+            payload={
+                "source": "account",
+                "merchantId": merchant_id,
+                "branchId": ctx["branchId"],
+                "kycEvalStatus": result["kyc_eval_status"],
+                "cashCoverageStatus": result["cash_coverage_status"],
+            },
+        )
+
+        if ctx["branchId"]:
+            await kyc_notification_service.notify_merchant(
+                kyc_verification_id=result["verification_id"],
+                branch_id=ctx["branchId"],
+                event_type="kyc_evaluated_account",
+                title="Actualización KYC desde perfil",
+                body=f"Estado KYC: {result['kyc_eval_status']}",
+                data={
+                    "type": "cash_kyc_status_account",
+                    "merchant_id": merchant_id,
+                    "verification_id": result["verification_id"],
+                    "kyc_eval_status": result["kyc_eval_status"],
+                },
+            )
+
+        return {
+            "verificationId": result["verification_id"],
+            "kycEvalStatus": result["kyc_eval_status"],
+            "cashCoverageStatus": result["cash_coverage_status"],
+            "allowCash": result["cash_coverage_status"]
+            in {"eligible_covered", "eligible_uncovered"},
+            "appCoversCash": result["cash_coverage_status"] == "eligible_covered",
+            "nextAction": result["next_action"],
+            "correlationId": result["correlation_id"],
+            "reasonCodes": result.get("reason_codes", []),
+        }
+
     async def retry_cash_kyc_evaluation(
         self, verification_id: str, user_id: str
     ) -> dict:
@@ -492,6 +724,8 @@ class PaymentService:
         verification = await kyc_verifications_repo.get_by_id(verification_id)
         if not verification:
             raise ValueError("Verificación KYC no encontrada")
+        if not verification.paymentAttemptId:
+            raise ValueError("RETRY_NOT_SUPPORTED_FOR_ACCOUNT_VERIFICATION")
         attempt = await self.payment_attempts_repo.get_by_id(
             str(verification.paymentAttemptId)
         )
@@ -581,19 +815,20 @@ class PaymentService:
             evaluated_at=datetime.utcnow(),
             expires_at=expires_at,
         )
-        await self.payment_attempts_repo.update_kyc_state(
-            str(verification.paymentAttemptId),
-            kyc_required=True,
-            kyc_eval_status=kyc_status,
-            cash_coverage_status=coverage_status,
-            latest_kyc_verification_id=verification_id,
-        )
-        await self.payment_attempts_repo.update_status(
-            str(verification.paymentAttemptId),
-            PaymentAttemptStatus.AWAITING_DELIVERY
-            if decision == "approve"
-            else PaymentAttemptStatus.AWAITING_KYC,
-        )
+        if verification.paymentAttemptId:
+            await self.payment_attempts_repo.update_kyc_state(
+                str(verification.paymentAttemptId),
+                kyc_required=True,
+                kyc_eval_status=kyc_status,
+                cash_coverage_status=coverage_status,
+                latest_kyc_verification_id=verification_id,
+            )
+            await self.payment_attempts_repo.update_status(
+                str(verification.paymentAttemptId),
+                PaymentAttemptStatus.AWAITING_DELIVERY
+                if decision == "approve"
+                else PaymentAttemptStatus.AWAITING_KYC,
+            )
         await kyc_audit_events_repo.append(
             entity_type="kyc_verification",
             entity_id=verification_id,
