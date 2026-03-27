@@ -104,6 +104,11 @@ class BranchType:
     acceptsZelle: bool = False
     qvapayUsername: Optional[str] = None
     zelleEmail: Optional[str] = None
+    cashKycEnabled: bool = False
+    cashKycPolicyVersion: str = "cash-kyc-v1"
+    cashKycMinConfidence: float = 0.85
+    cashKycTtlDays: int = 30
+    forceReverify: bool = False
     createdAt: datetime
     wallet: WalletBalanceType
     walletStatus: str = "active"
@@ -163,14 +168,18 @@ class BranchType:
             return []
 
         payment_methods = await payment_methods_repo.get_by_ids(self.paymentMethodIds)
-        return [
-            PaymentMethodType(**to_strawberry_dict(pm)) for pm in payment_methods
-        ]
+        return [PaymentMethodType(**to_strawberry_dict(pm)) for pm in payment_methods]
 
-    @strawberry.field(description="Product categories applicable to this branch based on its tipos")
+    @strawberry.field(
+        description="Product categories applicable to this branch based on its tipos"
+    )
     async def applicable_categories(
         self, info: Info
-    ) -> List[Annotated["ProductCategoryType", strawberry.lazy("schema.product_categories.types")]]:
+    ) -> List[
+        Annotated[
+            "ProductCategoryType", strawberry.lazy("schema.product_categories.types")
+        ]
+    ]:
         """Get all product categories that match this branch's tipos in a single query."""
         from repositories import product_categories_repo
         from schema.product_categories.types import ProductCategoryType
@@ -225,6 +234,11 @@ class NearbyBranchType:
     acceptsZelle: bool = False
     qvapayUsername: Optional[str] = None
     zelleEmail: Optional[str] = None
+    cashKycEnabled: bool = False
+    cashKycPolicyVersion: str = "cash-kyc-v1"
+    cashKycMinConfidence: float = 0.85
+    cashKycTtlDays: int = 30
+    forceReverify: bool = False
     createdAt: datetime
     distance_m: float
     wallet: WalletBalanceType
@@ -289,14 +303,18 @@ class NearbyBranchType:
             return []
 
         payment_methods = await payment_methods_repo.get_by_ids(self.paymentMethodIds)
-        return [
-            PaymentMethodType(**to_strawberry_dict(pm)) for pm in payment_methods
-        ]
+        return [PaymentMethodType(**to_strawberry_dict(pm)) for pm in payment_methods]
 
-    @strawberry.field(description="Product categories applicable to this branch based on its tipos")
+    @strawberry.field(
+        description="Product categories applicable to this branch based on its tipos"
+    )
     async def applicable_categories(
         self, info: Info
-    ) -> List[Annotated["ProductCategoryType", strawberry.lazy("schema.product_categories.types")]]:
+    ) -> List[
+        Annotated[
+            "ProductCategoryType", strawberry.lazy("schema.product_categories.types")
+        ]
+    ]:
         """Get all product categories that match this branch's tipos in a single query."""
         from repositories import product_categories_repo
         from schema.product_categories.types import ProductCategoryType
@@ -418,14 +436,18 @@ class ScoredBranchType:
             return []
 
         payment_methods = await payment_methods_repo.get_by_ids(self.paymentMethodIds)
-        return [
-            PaymentMethodType(**to_strawberry_dict(pm)) for pm in payment_methods
-        ]
+        return [PaymentMethodType(**to_strawberry_dict(pm)) for pm in payment_methods]
 
-    @strawberry.field(description="Product categories applicable to this branch based on its tipos")
+    @strawberry.field(
+        description="Product categories applicable to this branch based on its tipos"
+    )
     async def applicable_categories(
         self, info: Info
-    ) -> List[Annotated["ProductCategoryType", strawberry.lazy("schema.product_categories.types")]]:
+    ) -> List[
+        Annotated[
+            "ProductCategoryType", strawberry.lazy("schema.product_categories.types")
+        ]
+    ]:
         """Get all product categories that match this branch's tipos in a single query."""
         from repositories import product_categories_repo
         from schema.product_categories.types import ProductCategoryType

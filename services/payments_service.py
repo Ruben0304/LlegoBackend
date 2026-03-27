@@ -1,16 +1,26 @@
 """Payment service for handling payment processing logic."""
-from decimal import Decimal
-from datetime import datetime, timedelta
-from typing import Optional, Tuple
-from bson import ObjectId
-import stripe
-import logging
 
-from core.config import settings
+import logging
+from datetime import datetime, timedelta
+from decimal import Decimal
+from typing import Optional, Tuple
+
+import stripe
+from bson import ObjectId
+
 from clients.mongodb_client import get_database
+from core.config import settings
 from domain.payments import PaymentAttempt, PaymentAttemptStatus
+from repositories import (
+    branches_repo,
+    businesses_repo,
+    kyc_audit_events_repo,
+    kyc_verifications_repo,
+    users_repo,
+)
 from repositories.payments_attempt_repository import PaymentAttemptRepository
-from repositories import branches_repo, users_repo, businesses_repo
+from services.kyc.kyc_decision_service import kyc_decision_service
+from services.kyc.kyc_notification_service import kyc_notification_service
 from services.shortcut_transfer_service import shortcut_transfer_service
 
 logger = logging.getLogger(__name__)
@@ -47,7 +57,9 @@ class PaymentService:
         """Get payment method by ID."""
         db = get_database()
         try:
-            doc = await db.payment_methods.find_one({"_id": ObjectId(payment_method_id)})
+            doc = await db.payment_methods.find_one(
+                {"_id": ObjectId(payment_method_id)}
+            )
         except Exception:
             doc = await db.payment_methods.find_one({"_id": payment_method_id})
         return doc
@@ -81,10 +93,7 @@ class PaymentService:
         return doc
 
     def _calculate_amounts(
-        self,
-        order: dict,
-        payment_method: dict,
-        include_delivery: bool = True
+        self, order: dict, payment_method: dict, include_delivery: bool = True
     ) -> Tuple[float, float, float, float, str]:
         """
         Calculate payment amounts.
@@ -152,7 +161,9 @@ class PaymentService:
         # Solo permitir pago después de que negocio acepte
         payable_statuses = ["accepted", "modified_by_store"]
         if order.get("status") not in payable_statuses:
-            raise ValueError(f"El pedido no está en un estado que permita pago: {order.get('status')}")
+            raise ValueError(
+                f"El pedido no está en un estado que permita pago: {order.get('status')}"
+            )
 
         # Check if there's already an active payment attempt
         existing = await self.payment_attempts_repo.get_active_by_order_id(order_id)
@@ -217,8 +228,11 @@ class PaymentService:
             payment_attempt.status = PaymentAttemptStatus.AWAITING_PROOF
 
         elif method_type == "cash":
-            # Cash on delivery - wait for delivery confirmation
-            payment_attempt.status = PaymentAttemptStatus.AWAITING_DELIVERY
+            payment_attempt = await self._apply_cash_kyc_policy(
+                payment_attempt=payment_attempt,
+                order=order,
+                user_id=user_id,
+            )
 
         else:
             raise ValueError(f"Método de pago no soportado: {method_type}")
@@ -231,12 +245,355 @@ class PaymentService:
 
         return payment_attempt
 
+    async def _apply_cash_kyc_policy(
+        self,
+        *,
+        payment_attempt: PaymentAttempt,
+        order: dict,
+        user_id: str,
+    ) -> PaymentAttempt:
+        """Apply cash KYC policy with safe defaults and backward compatibility."""
+        branch = await self._get_branch(order.get("branchId"))
+        if not settings.cash_kyc_feature_enabled:
+            payment_attempt.status = PaymentAttemptStatus.AWAITING_DELIVERY
+            payment_attempt.kycRequired = False
+            payment_attempt.kycEvalStatus = "not_required"
+            payment_attempt.cashCoverageStatus = "eligible_uncovered"
+            return payment_attempt
+
+        cash_kyc_enabled = bool((branch or {}).get("cashKycEnabled", False))
+        policy_version = (branch or {}).get("cashKycPolicyVersion", "cash-kyc-v1")
+
+        if not cash_kyc_enabled:
+            payment_attempt.status = PaymentAttemptStatus.AWAITING_DELIVERY
+            payment_attempt.kycRequired = False
+            payment_attempt.kycEvalStatus = "not_required"
+            payment_attempt.cashCoverageStatus = "eligible_uncovered"
+            return payment_attempt
+
+        merchant_id = str((branch or {}).get("businessId"))
+        reusable = await kyc_decision_service.get_reusable_approved(
+            customer_id=user_id,
+            merchant_id=merchant_id,
+            policy_version=policy_version,
+        )
+        if reusable:
+            payment_attempt.status = PaymentAttemptStatus.AWAITING_DELIVERY
+            payment_attempt.kycRequired = True
+            payment_attempt.kycEvalStatus = "approved"
+            payment_attempt.cashCoverageStatus = "eligible_covered"
+            payment_attempt.latestKycVerificationId = reusable.id
+            payment_attempt.kycDecisionAt = datetime.utcnow()
+            return payment_attempt
+
+        payment_attempt.status = PaymentAttemptStatus.AWAITING_KYC
+        payment_attempt.kycRequired = True
+        payment_attempt.kycEvalStatus = "pending_evidence"
+        payment_attempt.cashCoverageStatus = "blocked"
+        payment_attempt.kycDecisionAt = datetime.utcnow()
+        return payment_attempt
+
+    async def get_cash_kyc_policy(self, order_id: str, user_id: str) -> dict:
+        """Return cash KYC policy for a given order and authenticated customer."""
+        order = await self._get_order(order_id)
+        if not order:
+            raise ValueError("Pedido no encontrado")
+        if order.get("customerId") != user_id:
+            raise ValueError("No autorizado")
+
+        branch = await self._get_branch(order.get("branchId")) or {}
+        required = bool(
+            settings.cash_kyc_feature_enabled and branch.get("cashKycEnabled", False)
+        )
+        min_conf = float(
+            branch.get("cashKycMinConfidence", settings.cash_kyc_default_min_confidence)
+        )
+        ttl_days = int(branch.get("cashKycTtlDays", settings.cash_kyc_default_ttl_days))
+        policy_version = branch.get("cashKycPolicyVersion", "cash-kyc-v1")
+
+        return {
+            "kycRequired": required,
+            "policyVersion": policy_version,
+            "minConfidence": min_conf,
+            "ttlDays": ttl_days,
+            "allowCashNow": not required,
+            "appCoversCashNow": False,
+        }
+
+    async def get_cash_kyc_status(self, payment_attempt_id: str, user_id: str) -> dict:
+        """Get KYC status and effective cash/covers flags for an attempt."""
+        attempt = await self.get_payment_attempt(payment_attempt_id, user_id)
+        verification = None
+        if attempt.latestKycVerificationId:
+            verification = await kyc_verifications_repo.get_by_id(
+                str(attempt.latestKycVerificationId)
+            )
+
+        allow_cash = attempt.cashCoverageStatus in {
+            "eligible_covered",
+            "eligible_uncovered",
+        }
+        app_covers = attempt.cashCoverageStatus == "eligible_covered"
+        return {
+            "paymentAttemptId": str(attempt.id),
+            "verificationId": str(attempt.latestKycVerificationId)
+            if attempt.latestKycVerificationId
+            else None,
+            "kycEvalStatus": attempt.kycEvalStatus,
+            "cashCoverageStatus": attempt.cashCoverageStatus,
+            "allowCash": allow_cash,
+            "appCoversCash": app_covers,
+            "reasonCodes": verification.reasonCodes if verification else [],
+            "nextAction": "continue_cash_flow" if allow_cash else "start_kyc",
+            "expiresAt": verification.expiresAt if verification else None,
+        }
+
+    async def start_cash_kyc_evaluation(
+        self,
+        *,
+        payment_attempt_id: str,
+        user_id: str,
+        identity_document_front_ref: str,
+        selfie_live_ref: str,
+        device_context: dict,
+    ) -> dict:
+        """Start KYC evaluation for a cash payment attempt."""
+        attempt = await self.payment_attempts_repo.get_by_id(payment_attempt_id)
+        if not attempt:
+            raise ValueError("Intento de pago no encontrado")
+        order = await self._get_order(attempt.orderId)
+        if not order or order.get("customerId") != user_id:
+            raise ValueError("No autorizado")
+        if attempt.status not in {
+            PaymentAttemptStatus.AWAITING_KYC,
+            PaymentAttemptStatus.AWAITING_DELIVERY,
+        }:
+            raise ValueError(f"Estado no válido para KYC: {attempt.status}")
+
+        branch = await self._get_branch(order.get("branchId")) or {}
+        if not bool(branch.get("cashKycEnabled", False)):
+            return {
+                "verificationId": "",
+                "kycEvalStatus": "not_required",
+                "cashCoverageStatus": "eligible_uncovered",
+                "allowCash": True,
+                "appCoversCash": False,
+                "nextAction": "continue_cash_uncovered",
+                "correlationId": "",
+                "reasonCodes": [],
+            }
+
+        evidence_refs = [
+            {"type": "identity_document_front", "ref": identity_document_front_ref},
+            {"type": "selfie_live", "ref": selfie_live_ref},
+        ]
+        result = await kyc_decision_service.evaluate_cash_kyc(
+            payment_attempt_id=str(attempt.id),
+            order_id=str(attempt.orderId),
+            customer_id=user_id,
+            merchant_id=str(branch.get("businessId")),
+            branch_id=str(
+                branch.get("_id") or branch.get("id") or order.get("branchId")
+            ),
+            amount=attempt.totalAmount,
+            currency=attempt.currency,
+            policy_version=branch.get("cashKycPolicyVersion", "cash-kyc-v1"),
+            min_confidence=float(
+                branch.get(
+                    "cashKycMinConfidence", settings.cash_kyc_default_min_confidence
+                )
+            ),
+            ttl_days=int(
+                branch.get("cashKycTtlDays", settings.cash_kyc_default_ttl_days)
+            ),
+            evidence_refs=evidence_refs,
+            device_context=device_context,
+        )
+
+        new_attempt_status = (
+            PaymentAttemptStatus.AWAITING_DELIVERY
+            if result["kyc_eval_status"] == "approved"
+            else PaymentAttemptStatus.AWAITING_KYC
+        )
+        await self.payment_attempts_repo.update_status(
+            payment_attempt_id,
+            new_attempt_status,
+        )
+        await self.payment_attempts_repo.update_kyc_state(
+            payment_attempt_id,
+            kyc_required=True,
+            kyc_eval_status=result["kyc_eval_status"],
+            cash_coverage_status=result["cash_coverage_status"],
+            latest_kyc_verification_id=result["verification_id"],
+            kyc_failure_code=result.get("provider_error"),
+        )
+
+        await kyc_audit_events_repo.append(
+            entity_type="kyc_verification",
+            entity_id=result["verification_id"],
+            event_type="kyc_evaluated",
+            actor_type="customer",
+            actor_id=user_id,
+            payload={
+                "kycEvalStatus": result["kyc_eval_status"],
+                "cashCoverageStatus": result["cash_coverage_status"],
+            },
+        )
+
+        await kyc_notification_service.notify_merchant(
+            kyc_verification_id=result["verification_id"],
+            branch_id=str(order.get("branchId")),
+            event_type="kyc_evaluated",
+            title="Actualización KYC pago en efectivo",
+            body=f"Estado KYC: {result['kyc_eval_status']}",
+            data={
+                "type": "cash_kyc_status",
+                "payment_attempt_id": str(attempt.id),
+                "verification_id": result["verification_id"],
+                "kyc_eval_status": result["kyc_eval_status"],
+            },
+        )
+
+        return {
+            "verificationId": result["verification_id"],
+            "kycEvalStatus": result["kyc_eval_status"],
+            "cashCoverageStatus": result["cash_coverage_status"],
+            "allowCash": result["cash_coverage_status"]
+            in {"eligible_covered", "eligible_uncovered"},
+            "appCoversCash": result["cash_coverage_status"] == "eligible_covered",
+            "nextAction": result["next_action"],
+            "correlationId": result["correlation_id"],
+            "reasonCodes": result.get("reason_codes", []),
+        }
+
+    async def retry_cash_kyc_evaluation(
+        self, verification_id: str, user_id: str
+    ) -> dict:
+        verification = await kyc_verifications_repo.get_by_id(verification_id)
+        if not verification:
+            raise ValueError("Verificación KYC no encontrada")
+        attempt = await self.payment_attempts_repo.get_by_id(
+            str(verification.paymentAttemptId)
+        )
+        if not attempt:
+            raise ValueError("Intento de pago no encontrado")
+        order = await self._get_order(attempt.orderId)
+        if not order or order.get("customerId") != user_id:
+            raise ValueError("No autorizado")
+
+        if verification.retryCount >= settings.cash_kyc_max_auto_retries:
+            raise ValueError("MAX_RETRIES_REACHED")
+
+        await kyc_verifications_repo.increment_retry(verification_id, "MANUAL_RETRY")
+        if not verification.evidenceRefs or len(verification.evidenceRefs) < 2:
+            raise ValueError("EVIDENCE_MISSING")
+        identity_ref = None
+        selfie_ref = None
+        for item in verification.evidenceRefs:
+            if item.get("type") == "identity_document_front":
+                identity_ref = item.get("ref")
+            elif item.get("type") == "selfie_live":
+                selfie_ref = item.get("ref")
+        if not identity_ref or not selfie_ref:
+            raise ValueError("EVIDENCE_MISSING")
+
+        return await self.start_cash_kyc_evaluation(
+            payment_attempt_id=str(attempt.id),
+            user_id=user_id,
+            identity_document_front_ref=identity_ref,
+            selfie_live_ref=selfie_ref,
+            device_context={},
+        )
+
+    async def override_cash_kyc_decision(
+        self,
+        *,
+        verification_id: str,
+        actor_id: str,
+        actor_role: str,
+        decision: str,
+        reason: str,
+    ) -> dict:
+        if actor_role not in {"admin", "risk_admin"}:
+            raise ValueError("No autorizado para override KYC")
+
+        verification = await kyc_verifications_repo.get_by_id(verification_id)
+        if not verification:
+            raise ValueError("Verificación KYC no encontrada")
+
+        if decision == "force_reevaluation":
+            await kyc_verifications_repo.increment_retry(
+                verification_id, "FORCE_REEVALUATION"
+            )
+            return {
+                "verificationId": verification_id,
+                "kycEvalStatus": "submitted",
+                "cashCoverageStatus": "blocked",
+                "allowCash": False,
+                "appCoversCash": False,
+                "reason": reason,
+            }
+
+        status_map = {
+            "approve": ("approved", "eligible_covered"),
+            "reject": ("rejected", "blocked"),
+        }
+        if decision not in status_map:
+            raise ValueError("Decisión inválida")
+
+        kyc_status, coverage_status = status_map[decision]
+        expires_at = (
+            datetime.utcnow() + timedelta(days=settings.cash_kyc_default_ttl_days)
+            if decision == "approve"
+            else None
+        )
+        await kyc_verifications_repo.update_result(
+            verification_id=verification_id,
+            status=kyc_status,
+            verdict="valid" if decision == "approve" else "invalid",
+            confidence_score=1.0 if decision == "approve" else 0.0,
+            reason_codes=["MANUAL_OVERRIDE"],
+            extracted_signals={"reason": reason},
+            model_version="manual_override",
+            evaluated_at=datetime.utcnow(),
+            expires_at=expires_at,
+        )
+        await self.payment_attempts_repo.update_kyc_state(
+            str(verification.paymentAttemptId),
+            kyc_required=True,
+            kyc_eval_status=kyc_status,
+            cash_coverage_status=coverage_status,
+            latest_kyc_verification_id=verification_id,
+        )
+        await self.payment_attempts_repo.update_status(
+            str(verification.paymentAttemptId),
+            PaymentAttemptStatus.AWAITING_DELIVERY
+            if decision == "approve"
+            else PaymentAttemptStatus.AWAITING_KYC,
+        )
+        await kyc_audit_events_repo.append(
+            entity_type="kyc_verification",
+            entity_id=verification_id,
+            event_type="kyc_override",
+            actor_type=actor_role,
+            actor_id=actor_id,
+            payload={"decision": decision, "reason": reason},
+        )
+        return {
+            "verificationId": verification_id,
+            "kycEvalStatus": kyc_status,
+            "cashCoverageStatus": coverage_status,
+            "allowCash": coverage_status in {"eligible_covered", "eligible_uncovered"},
+            "appCoversCash": coverage_status == "eligible_covered",
+            "reason": reason,
+        }
+
     async def _process_wallet_payment(
         self,
         payment_attempt: PaymentAttempt,
         order: dict,
         payment_method: dict,
-        user_id: str
+        user_id: str,
     ) -> PaymentAttempt:
         """Process an immediate wallet payment."""
         db = get_database()
@@ -276,21 +633,23 @@ class PaymentService:
         result = await db.users.update_one(
             {
                 "_id": user_id_obj,
-                f"wallet.{currency}": {"$gte": payment_attempt.totalAmount}
+                f"wallet.{currency}": {"$gte": payment_attempt.totalAmount},
             },
-            {"$inc": {f"wallet.{currency}": -payment_attempt.totalAmount}}
+            {"$inc": {f"wallet.{currency}": -payment_attempt.totalAmount}},
         )
 
         if result.modified_count == 0:
             payment_attempt.status = PaymentAttemptStatus.FAILED
-            payment_attempt.failedReason = "Saldo insuficiente o modificación concurrente"
+            payment_attempt.failedReason = (
+                "Saldo insuficiente o modificación concurrente"
+            )
             return payment_attempt
 
         # Credit branch wallet
         branch_id = order.get("branchId")
         await db.branches.update_one(
             {"_id": self._to_object_id(branch_id)},
-            {"$inc": {f"wallet.{currency}": amount_to_business}}
+            {"$inc": {f"wallet.{currency}": amount_to_business}},
         )
 
         # Credit platform wallet (commission)
@@ -300,9 +659,11 @@ class PaymentService:
                 {
                     "$inc": {
                         f"wallet.{currency}": commission,
-                        "totalCommissionsCollected": commission if currency == "usd" else 0,
+                        "totalCommissionsCollected": commission
+                        if currency == "usd"
+                        else 0,
                     }
-                }
+                },
             )
 
         # Create transaction records
@@ -377,8 +738,7 @@ class PaymentService:
 
         # Update platform stats
         await db.platform.update_one(
-            {"_id": "platform"},
-            {"$inc": {"totalOrdersProcessed": 1}}
+            {"_id": "platform"}, {"$inc": {"totalOrdersProcessed": 1}}
         )
 
         # Update payment attempt
@@ -386,7 +746,9 @@ class PaymentService:
         payment_attempt.completedAt = now
         payment_attempt.walletTransactionId = str(user_tx_id)
         payment_attempt.businessWalletTransactionId = str(business_tx_id)
-        payment_attempt.commissionTransactionId = str(commission_tx_id) if commission > 0 else None
+        payment_attempt.commissionTransactionId = (
+            str(commission_tx_id) if commission > 0 else None
+        )
 
         # Update order payment status
         await self._complete_order_payment(str(order.get("_id")), payment_attempt.id)
@@ -398,7 +760,7 @@ class PaymentService:
         payment_attempt: PaymentAttempt,
         order: dict,
         payment_method: dict,
-        user_id: str
+        user_id: str,
     ) -> PaymentAttempt:
         """Create a Stripe Payment Intent."""
         try:
@@ -423,7 +785,9 @@ class PaymentService:
             payment_attempt.stripeClientSecret = intent.client_secret
             payment_attempt.status = PaymentAttemptStatus.PROCESSING
 
-            logger.info(f"Created Stripe Payment Intent: {intent.id} for order {order.get('_id')}")
+            logger.info(
+                f"Created Stripe Payment Intent: {intent.id} for order {order.get('_id')}"
+            )
 
         except stripe.error.StripeError as e:
             logger.error(f"Stripe error: {e}")
@@ -433,10 +797,7 @@ class PaymentService:
         return payment_attempt
 
     async def confirm_payment_sent(
-        self,
-        payment_attempt_id: str,
-        user_id: str,
-        proof_url: str
+        self, payment_attempt_id: str, user_id: str, proof_url: str
     ) -> PaymentAttempt:
         """
         Customer confirms they sent the payment (for manual methods).
@@ -460,8 +821,7 @@ class PaymentService:
 
         # Update attempt
         updated = await self.payment_attempts_repo.set_proof(
-            payment_attempt_id,
-            proof_url
+            payment_attempt_id, proof_url
         )
 
         # TODO: Notify business
@@ -469,9 +829,7 @@ class PaymentService:
         return updated
 
     async def confirm_payment_received(
-        self,
-        payment_attempt_id: str,
-        user_id: str
+        self, payment_attempt_id: str, user_id: str
     ) -> PaymentAttempt:
         """
         Business confirms they received the payment.
@@ -519,9 +877,7 @@ class PaymentService:
         return updated
 
     async def confirm_cash_received(
-        self,
-        payment_attempt_id: str,
-        delivery_person_id: str
+        self, payment_attempt_id: str, delivery_person_id: str
     ) -> PaymentAttempt:
         """
         Delivery person confirms they received cash payment.
@@ -535,7 +891,9 @@ class PaymentService:
             raise ValueError("Intento de pago no encontrado")
 
         if attempt.status != PaymentAttemptStatus.AWAITING_DELIVERY:
-            raise ValueError(f"Estado no válido para confirmar efectivo: {attempt.status}")
+            raise ValueError(
+                f"Estado no válido para confirmar efectivo: {attempt.status}"
+            )
 
         order = await self._get_order(attempt.orderId)
         if not order:
@@ -547,8 +905,7 @@ class PaymentService:
 
         # Confirm cash received
         updated = await self.payment_attempts_repo.confirm_delivery_cash(
-            payment_attempt_id,
-            delivery_person_id
+            payment_attempt_id, delivery_person_id
         )
 
         # For cash payments, we need to credit the business wallet
@@ -561,9 +918,7 @@ class PaymentService:
         return updated
 
     async def _process_cash_payment_completion(
-        self,
-        attempt: PaymentAttempt,
-        order: dict
+        self, attempt: PaymentAttempt, order: dict
     ):
         """Process the wallet transactions for a completed cash payment."""
         db = get_database()
@@ -621,10 +976,7 @@ class PaymentService:
             await db.wallet_transactions.insert_one(commission_tx)
 
     async def dispute_payment(
-        self,
-        payment_attempt_id: str,
-        user_id: str,
-        reason: str
+        self, payment_attempt_id: str, user_id: str, reason: str
     ) -> PaymentAttempt:
         """
         Business disputes that they didn't receive the payment.
@@ -654,10 +1006,7 @@ class PaymentService:
         return await self.payment_attempts_repo.dispute(payment_attempt_id, reason)
 
     async def request_refund(
-        self,
-        payment_attempt_id: str,
-        user_id: str,
-        reason: str
+        self, payment_attempt_id: str, user_id: str, reason: str
     ) -> PaymentAttempt:
         """
         Customer requests a refund.
@@ -681,14 +1030,16 @@ class PaymentService:
         # Check order status - can't refund if already delivered
         non_refundable_statuses = ["delivered", "on_the_way"]
         if order.get("status") in non_refundable_statuses:
-            raise ValueError("No se puede reembolsar un pedido ya entregado o en camino")
+            raise ValueError(
+                "No se puede reembolsar un pedido ya entregado o en camino"
+            )
 
-        return await self.payment_attempts_repo.request_refund(payment_attempt_id, reason)
+        return await self.payment_attempts_repo.request_refund(
+            payment_attempt_id, reason
+        )
 
     async def process_refund(
-        self,
-        payment_attempt_id: str,
-        admin_user_id: str
+        self, payment_attempt_id: str, admin_user_id: str
     ) -> PaymentAttempt:
         """
         Process an approved refund (admin action).
@@ -722,7 +1073,9 @@ class PaymentService:
         now = datetime.utcnow()
 
         currency = attempt.currency
-        refund_amount = attempt.subtotal + attempt.deliveryFee  # Refund without commission
+        refund_amount = (
+            attempt.subtotal + attempt.deliveryFee
+        )  # Refund without commission
 
         # Debit from business wallet
         try:
@@ -731,11 +1084,8 @@ class PaymentService:
             branch_id = order.get("branchId")
 
         result = await db.branches.update_one(
-            {
-                "_id": branch_id,
-                f"wallet.{currency}": {"$gte": refund_amount}
-            },
-            {"$inc": {f"wallet.{currency}": -refund_amount}}
+            {"_id": branch_id, f"wallet.{currency}": {"$gte": refund_amount}},
+            {"$inc": {f"wallet.{currency}": -refund_amount}},
         )
 
         if result.modified_count == 0:
@@ -748,8 +1098,7 @@ class PaymentService:
             user_id = order.get("customerId")
 
         await db.users.update_one(
-            {"_id": user_id},
-            {"$inc": {f"wallet.{currency}": refund_amount}}
+            {"_id": user_id}, {"$inc": {f"wallet.{currency}": refund_amount}}
         )
 
         # Create refund transaction
@@ -777,9 +1126,7 @@ class PaymentService:
 
         # Update payment attempt
         return await self.payment_attempts_repo.complete_refund(
-            attempt.id,
-            refund_amount,
-            str(refund_tx_id)
+            attempt.id, refund_amount, str(refund_tx_id)
         )
 
     async def _process_stripe_refund(self, attempt: PaymentAttempt) -> PaymentAttempt:
@@ -798,9 +1145,7 @@ class PaymentService:
             logger.info(f"Stripe refund created: {refund.id}")
 
             return await self.payment_attempts_repo.complete_refund(
-                attempt.id,
-                attempt.totalAmount,
-                refund.id
+                attempt.id, attempt.totalAmount, refund.id
             )
 
         except stripe.error.StripeError as e:
@@ -808,9 +1153,7 @@ class PaymentService:
             raise ValueError(f"Error de Stripe: {str(e)}")
 
     async def handle_stripe_webhook(
-        self,
-        payment_intent_id: str,
-        event_type: str
+        self, payment_intent_id: str, event_type: str
     ) -> Optional[PaymentAttempt]:
         """
         Handle Stripe webhook for order payments.
@@ -853,9 +1196,7 @@ class PaymentService:
         return attempt
 
     async def _process_stripe_payment_completion(
-        self,
-        attempt: PaymentAttempt,
-        order: dict
+        self, attempt: PaymentAttempt, order: dict
     ):
         """Process wallet credits after successful Stripe payment."""
         db = get_database()
@@ -869,7 +1210,7 @@ class PaymentService:
         branch_id = order.get("branchId")
         await db.branches.update_one(
             {"_id": self._to_object_id(branch_id)},
-            {"$inc": {f"wallet.{currency}": amount_to_business}}
+            {"$inc": {f"wallet.{currency}": amount_to_business}},
         )
 
         # Credit platform commission
@@ -879,9 +1220,11 @@ class PaymentService:
                 {
                     "$inc": {
                         f"wallet.{currency}": commission,
-                        "totalCommissionsCollected": commission if currency == "usd" else 0,
+                        "totalCommissionsCollected": commission
+                        if currency == "usd"
+                        else 0,
                     }
-                }
+                },
             )
 
         # Create transaction records
@@ -929,8 +1272,7 @@ class PaymentService:
 
         # Update platform stats
         await db.platform.update_one(
-            {"_id": "platform"},
-            {"$inc": {"totalOrdersProcessed": 1}}
+            {"_id": "platform"}, {"$inc": {"totalOrdersProcessed": 1}}
         )
 
     async def _update_order_payment_attempt(self, order_id: str, attempt_id: str):
@@ -948,7 +1290,7 @@ class PaymentService:
                     "currentPaymentAttemptId": attempt_id,
                     "updatedAt": datetime.utcnow(),
                 }
-            }
+            },
         )
 
     async def _complete_order_payment(self, order_id: str, attempt_id: str):
@@ -969,7 +1311,7 @@ class PaymentService:
                     "status": "pending_acceptance",  # Move to next status
                     "updatedAt": datetime.utcnow(),
                 }
-            }
+            },
         )
 
     async def confirm_transfer_by_shortcut(
@@ -1002,7 +1344,9 @@ class PaymentService:
             raise ValueError("No autorizado")
 
         if attempt.status != PaymentAttemptStatus.AWAITING_PROOF:
-            raise ValueError(f"El pago no está en espera de comprobante: {attempt.status}")
+            raise ValueError(
+                f"El pago no está en espera de comprobante: {attempt.status}"
+            )
 
         # Only allowed for transfer payments where the user indicated SMS will be sent
         if not attempt.sendsSmsNotification:
@@ -1022,7 +1366,9 @@ class PaymentService:
 
         if not transfers:
             if transfer_id:
-                raise ValueError("No se encontró una transferencia pendiente con ese ID")
+                raise ValueError(
+                    "No se encontró una transferencia pendiente con ese ID"
+                )
             raise ValueError("phone_not_found")
 
         matched = transfers[0]
@@ -1041,9 +1387,7 @@ class PaymentService:
         return updated
 
     async def cancel_payment(
-        self,
-        payment_attempt_id: str,
-        user_id: str
+        self, payment_attempt_id: str, user_id: str
     ) -> PaymentAttempt:
         """Cancel a pending payment attempt."""
         attempt = await self.payment_attempts_repo.get_by_id(payment_attempt_id)
@@ -1059,9 +1403,12 @@ class PaymentService:
             PaymentAttemptStatus.PENDING,
             PaymentAttemptStatus.AWAITING_PROOF,
             PaymentAttemptStatus.PROCESSING,
+            PaymentAttemptStatus.AWAITING_KYC,
         ]
         if attempt.status not in cancellable_statuses:
-            raise ValueError(f"No se puede cancelar un pago en estado: {attempt.status}")
+            raise ValueError(
+                f"No se puede cancelar un pago en estado: {attempt.status}"
+            )
 
         # If Stripe, cancel the Payment Intent
         if attempt.stripePaymentIntentId:
@@ -1076,9 +1423,7 @@ class PaymentService:
         )
 
     async def get_payment_attempt(
-        self,
-        payment_attempt_id: str,
-        user_id: str
+        self, payment_attempt_id: str, user_id: str
     ) -> PaymentAttempt:
         """Get a payment attempt with authorization check."""
         attempt = await self.payment_attempts_repo.get_by_id(payment_attempt_id)
@@ -1123,4 +1468,6 @@ class PaymentService:
             logger.info(f"Expired payment attempt: {attempt.id}")
 
         return count
+
+
 payment_service = PaymentService()

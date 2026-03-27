@@ -8,6 +8,8 @@ from strawberry.types import Info
 from repositories import branches_repo, payment_methods_repo
 from repositories.payments_attempt_repository import payment_attempts_repo
 from schema.payments.types import (
+    CashKycPolicyResult,
+    CashKycStatusResult,
     PaymentAttemptType,
     PaymentMethodType,
     payment_attempt_to_type,
@@ -175,3 +177,35 @@ class PaymentMethodQuery:
 
         attempt = await payment_attempts_repo.get_active_by_order_id(orderId)
         return payment_attempt_to_type(attempt) if attempt else None
+
+    @strawberry.field(description="Obtiene la política KYC de efectivo para una orden")
+    async def cash_kyc_policy(
+        self, info: Info, orderId: str, jwt: str
+    ) -> CashKycPolicyResult:
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+        try:
+            policy = await payment_service.get_cash_kyc_policy(orderId, user_id)
+            return CashKycPolicyResult(**policy)
+        except ValueError as e:
+            raise Exception(str(e))
+
+    @strawberry.field(
+        description="Obtiene el estado KYC de un intento de pago en efectivo"
+    )
+    async def cash_kyc_status(
+        self, info: Info, paymentAttemptId: str, jwt: str
+    ) -> CashKycStatusResult:
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+        try:
+            status = await payment_service.get_cash_kyc_status(
+                paymentAttemptId, user_id
+            )
+            return CashKycStatusResult(**status)
+        except ValueError as e:
+            raise Exception(str(e))

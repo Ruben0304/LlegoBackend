@@ -58,7 +58,9 @@ class BranchMutation:
         if len(payment_methods) != len(input.paymentMethodIds):
             raise Exception("Uno o más métodos de pago no existen")
 
-        accepted_currency = input.acceptedCurrency.value if input.acceptedCurrency else None
+        accepted_currency = (
+            input.acceptedCurrency.value if input.acceptedCurrency else None
+        )
 
         if input.exchangeRate is not None:
             if input.exchangeRate <= 0:
@@ -98,6 +100,10 @@ class BranchMutation:
             if input.qrPayments
             else [],
             phones=[p.__dict__ for p in input.phones] if input.phones else [],
+            cashKycEnabled=input.cashKycEnabled,
+            cashKycPolicyVersion=input.cashKycPolicyVersion,
+            cashKycMinConfidence=input.cashKycMinConfidence,
+            cashKycTtlDays=input.cashKycTtlDays,
             createdAt=datetime.now(),
         )
 
@@ -199,6 +205,7 @@ class BranchMutation:
             # If disabling app delivery, unlink all delivery persons from this branch
             if not input.useAppMessaging and branch.useAppMessaging:
                 from repositories.orders_repository import delivery_persons_repo
+
                 await delivery_persons_repo.unlink_all_from_branch(branch_id)
         if input.vehicles is not None:
             updates["vehicles"] = [v.value for v in input.vehicles]
@@ -234,6 +241,20 @@ class BranchMutation:
             updates["qvapayUsername"] = input.qvapayUsername
         if input.zelleEmail is not None:
             updates["zelleEmail"] = input.zelleEmail
+        if input.cashKycEnabled is not None:
+            updates["cashKycEnabled"] = input.cashKycEnabled
+        if input.cashKycPolicyVersion is not None:
+            updates["cashKycPolicyVersion"] = input.cashKycPolicyVersion
+        if input.cashKycMinConfidence is not None:
+            if input.cashKycMinConfidence < 0 or input.cashKycMinConfidence > 1:
+                raise Exception("cashKycMinConfidence debe estar entre 0 y 1")
+            updates["cashKycMinConfidence"] = input.cashKycMinConfidence
+        if input.cashKycTtlDays is not None:
+            if input.cashKycTtlDays <= 0:
+                raise Exception("cashKycTtlDays debe ser mayor que 0")
+            updates["cashKycTtlDays"] = input.cashKycTtlDays
+        if input.forceReverify is not None:
+            updates["forceReverify"] = input.forceReverify
 
         # Handle coordinates update - save to MongoDB stores_location
         if input.coordinates is not None:
@@ -252,7 +273,9 @@ class BranchMutation:
 
         # Handle isActive change - sync active status to stores_location
         if input.isActive is not None:
-            await store_locations_repo.set_active(store_id=branch_id, active=input.isActive)
+            await store_locations_repo.set_active(
+                store_id=branch_id, active=input.isActive
+            )
 
         if not updates:
             raise Exception("No hay campos para actualizar")

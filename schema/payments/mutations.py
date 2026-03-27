@@ -18,9 +18,14 @@ from utils.serialization import to_strawberry_dict
 
 from .types import (
     InitiatePaymentResult,
+    OverrideCashKycInput,
+    OverrideCashKycPayload,
     PaymentAttemptType,
     PaymentType,
     QvaPayPaymentResult,
+    RetryCashKycPayload,
+    StartCashKycInput,
+    StartCashKycPayload,
     TronDealerPaymentResult,
     payment_attempt_to_type,
 )
@@ -405,6 +410,82 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
         except ValueError as e:
             raise Exception(str(e))
 
+    @strawberry.mutation(description="Inicia evaluación KYC para pago en efectivo")
+    async def start_cash_kyc_evaluation(
+        self, info: Info, input: StartCashKycInput, jwt: str
+    ) -> StartCashKycPayload:
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+        try:
+            payload = await payment_service.start_cash_kyc_evaluation(
+                payment_attempt_id=input.paymentAttemptId,
+                user_id=user_id,
+                identity_document_front_ref=input.identityDocumentFrontRef,
+                selfie_live_ref=input.selfieLiveRef,
+                device_context={
+                    "device_id_hash": input.deviceContext.deviceIdHash,
+                    "ip_hash": input.deviceContext.ipHash,
+                    "app_version": input.deviceContext.appVersion,
+                    "os": input.deviceContext.os,
+                    "geo_approx": {
+                        "lat": input.deviceContext.latitude,
+                        "lng": input.deviceContext.longitude,
+                    },
+                },
+            )
+            return StartCashKycPayload(**payload)
+        except ValueError as e:
+            raise Exception(str(e))
+
+    @strawberry.mutation(description="Reintenta evaluación KYC en efectivo")
+    async def retry_cash_kyc_evaluation(
+        self, info: Info, verificationId: str, jwt: str
+    ) -> RetryCashKycPayload:
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+        try:
+            payload = await payment_service.retry_cash_kyc_evaluation(
+                verification_id=verificationId,
+                user_id=user_id,
+            )
+            return RetryCashKycPayload(
+                verificationId=payload["verificationId"],
+                kycEvalStatus=payload["kycEvalStatus"],
+                cashCoverageStatus=payload["cashCoverageStatus"],
+                allowCash=payload["allowCash"],
+                appCoversCash=payload["appCoversCash"],
+                nextAction=payload["nextAction"],
+            )
+        except ValueError as e:
+            raise Exception(str(e))
+
+    @strawberry.mutation(
+        description="Override operativo de decisión KYC (admin/risk_admin)"
+    )
+    async def override_cash_kyc_decision(
+        self, info: Info, input: OverrideCashKycInput, jwt: str
+    ) -> OverrideCashKycPayload:
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        user_role = info.context.get("user_role")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+        try:
+            payload = await payment_service.override_cash_kyc_decision(
+                verification_id=input.verificationId,
+                actor_id=user_id,
+                actor_role=user_role,
+                decision=input.decision.value,
+                reason=input.reason,
+            )
+            return OverrideCashKycPayload(**payload)
+        except ValueError as e:
+            raise Exception(str(e))
+
     # ============================================
     # QvaPay Payment Mutations
     # ============================================
@@ -428,8 +509,8 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
             raise Exception("Usuario no autenticado")
 
         from repositories import branches_repo, orders_repo
-        from repositories.qvapay_repository import qvapay_invoices_repo
         from repositories.payout_repository import payouts_repo
+        from repositories.qvapay_repository import qvapay_invoices_repo
         from services.payments.qvapay_service import QvaPayService
 
         order = await orders_repo.get_by_id(orderId)
@@ -489,8 +570,8 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
             raise Exception("Usuario no autenticado")
 
         from repositories import branches_repo, orders_repo
-        from repositories.trondealer_repository import trondealer_wallets_repo
         from repositories.payout_repository import payouts_repo
+        from repositories.trondealer_repository import trondealer_wallets_repo
         from services.payments.trondealer_service import TronDealerService
 
         order = await orders_repo.get_by_id(orderId)

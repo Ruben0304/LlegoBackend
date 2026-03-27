@@ -20,6 +20,15 @@ from .draft_order_repository import DraftOrderRepository
 from .error_log_repository import ErrorLogRepository, error_log_repo
 from .favorites_cart_repository import FavoritesCartRepository
 from .feedback_repository import FeedbackRepository
+from .kyc_audit_event_repository import KycAuditEventRepository, kyc_audit_events_repo
+from .kyc_notification_log_repository import (
+    KycNotificationLogRepository,
+    kyc_notification_logs_repo,
+)
+from .kyc_verification_repository import (
+    KycVerificationRepository,
+    kyc_verifications_repo,
+)
 from .orders_repository import (
     BranchDeliveryRequestRepository,
     DeliveryPersonRepository,
@@ -33,21 +42,21 @@ from .orders_repository import (
 from .payment_method_repository import PaymentMethodRepository
 from .payment_repository import PaymentRepository
 from .payments_attempt_repository import PaymentAttemptRepository, payment_attempts_repo
+from .payout_repository import PayoutRepository, payouts_repo
 from .platform_repository import PlatformRepository, platform_repo
 from .product_category_repository import ProductCategoryRepository
 from .product_repository import ProductRepository
+from .qvapay_repository import QvaPayRepository, qvapay_invoices_repo
 from .searches_repository import SearchesRepository
 from .showcase_repository import ShowcaseRepository, showcases_repo
 from .store_location_repository import StoreLocationRepository, store_locations_repo
 from .survey_repository import SurveyRepository
 from .survey_response_repository import SurveyResponseRepository
+from .trondealer_repository import TronDealerRepository, trondealer_wallets_repo
 from .tutorial_repository import TutorialRepository
 from .user_repository import UserRepository
 from .variant_list_repository import VariantListRepository, variant_lists_repo
 from .wallet_repository import WalletTransactionRepository
-from .qvapay_repository import QvaPayRepository, qvapay_invoices_repo
-from .trondealer_repository import TronDealerRepository, trondealer_wallets_repo
-from .payout_repository import PayoutRepository, payouts_repo
 
 # Repository instances
 users_repo = UserRepository()
@@ -162,4 +171,10 @@ __all__ = [
     "trondealer_wallets_repo",
     "PayoutRepository",
     "payouts_repo",
+    "KycVerificationRepository",
+    "KycNotificationLogRepository",
+    "KycAuditEventRepository",
+    "kyc_verifications_repo",
+    "kyc_notification_logs_repo",
+    "kyc_audit_events_repo",
 ]

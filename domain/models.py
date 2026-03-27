@@ -39,12 +39,12 @@ class TransferPhone(BaseModel):
 class SavedAddress(BaseModel):
     """A saved delivery address stored in the user's profile."""
 
-    id: str                                # UUID generated at creation
-    label: str                             # Alias visible (ej: "Casa", "Trabajo")
+    id: str  # UUID generated at creation
+    label: str  # Alias visible (ej: "Casa", "Trabajo")
     street: str
     city: Optional[str] = None
     reference: Optional[str] = None
-    addressType: str = "house"             # "house" | "apartment" | "office" | "other"
+    addressType: str = "house"  # "house" | "apartment" | "office" | "other"
     buildingName: Optional[str] = None
     floor: Optional[str] = None
     apartment: Optional[str] = None
@@ -125,7 +125,9 @@ class Branch(BaseModel):
     coverImage: Optional[str] = None
     socialMedia: Optional[Dict[str, str]] = None
     tipos: List[str] = []  # ["restaurante", "dulceria", "tienda", "perfumeria"]
-    paymentMethodIds: List[Union[PyObjectId, str]] = []  # IDs de métodos de pago aceptados
+    paymentMethodIds: List[
+        Union[PyObjectId, str]
+    ] = []  # IDs de métodos de pago aceptados
     wallet: Dict[str, float] = Field(
         default_factory=lambda: {"local": 0.00, "usd": 0.00}
     )
@@ -146,9 +148,14 @@ class Branch(BaseModel):
 
     # QvaPay / Zelle (TronDealer) acceptance
     acceptsQvapay: bool = False
-    acceptsZelle: bool = False          # enables TronDealer (USDT/Zelle) payments
-    qvapayUsername: Optional[str] = None   # QvaPay username for manual resend
-    zelleEmail: Optional[str] = None       # Zelle email shown to customer
+    acceptsZelle: bool = False  # enables TronDealer (USDT/Zelle) payments
+    qvapayUsername: Optional[str] = None  # QvaPay username for manual resend
+    zelleEmail: Optional[str] = None  # Zelle email shown to customer
+    cashKycEnabled: bool = False
+    cashKycPolicyVersion: str = "cash-kyc-v1"
+    cashKycMinConfidence: float = 0.85
+    cashKycTtlDays: int = 30
+    forceReverify: bool = False
 
     createdAt: datetime
 

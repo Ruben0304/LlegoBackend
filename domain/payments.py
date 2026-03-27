@@ -1,9 +1,11 @@
 """Payment attempt models and enums."""
-from pydantic import BaseModel, Field
-from typing import Optional, Union
+
 from datetime import datetime
 from enum import Enum
+from typing import Optional, Union
+
 from bson import ObjectId
+from pydantic import BaseModel, Field
 
 from .py_object_id import PyObjectId
 
@@ -20,7 +22,10 @@ class PaymentAttemptStatus(str, Enum):
     AWAITING_BUSINESS = "awaiting_business"  # Waiting for business confirmation
 
     # Cash payment states
-    AWAITING_DELIVERY = "awaiting_delivery"  # Cash payment, waiting for delivery confirmation
+    AWAITING_DELIVERY = (
+        "awaiting_delivery"  # Cash payment, waiting for delivery confirmation
+    )
+    AWAITING_KYC = "awaiting_kyc"  # Cash payment requires KYC evaluation
 
     # Final states
     COMPLETED = "completed"  # Payment successful
@@ -67,7 +72,9 @@ class PaymentAttempt(BaseModel):
     stripeClientSecret: Optional[str] = None
 
     # Manual payment fields (transfers, etc.)
-    sendsSmsNotification: bool = False  # User indicated their transfer will send an SMS (Transfermóvil, etc.)
+    sendsSmsNotification: bool = (
+        False  # User indicated their transfer will send an SMS (Transfermóvil, etc.)
+    )
     proofUrl: Optional[str] = None  # Receipt/proof uploaded by customer
     customerConfirmedAt: Optional[datetime] = None
     businessConfirmedAt: Optional[datetime] = None
@@ -76,6 +83,12 @@ class PaymentAttempt(BaseModel):
     # Cash payment fields
     deliveryPersonConfirmedAt: Optional[datetime] = None
     deliveryPersonId: Optional[PyObjectId] = None
+    kycRequired: bool = False
+    kycEvalStatus: str = "not_required"
+    cashCoverageStatus: str = "eligible_uncovered"
+    latestKycVerificationId: Optional[PyObjectId] = None
+    kycDecisionAt: Optional[datetime] = None
+    kycFailureCode: Optional[str] = None
 
     # Wallet transaction reference
     walletTransactionId: Optional[str] = None  # For wallet payments

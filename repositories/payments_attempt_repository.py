@@ -1,6 +1,8 @@
 """Payment attempt repository for database operations."""
-from typing import List, Optional
+
 from datetime import datetime
+from typing import List, Optional
+
 from bson import ObjectId
 
 from clients.mongodb_client import get_database
@@ -37,6 +39,10 @@ class PaymentAttemptRepository:
         doc["paymentMethodId"] = self._to_object_id(doc["paymentMethodId"])
         if doc.get("deliveryPersonId") is not None:
             doc["deliveryPersonId"] = self._to_object_id(doc["deliveryPersonId"])
+        if doc.get("latestKycVerificationId") is not None:
+            doc["latestKycVerificationId"] = self._to_object_id(
+                doc["latestKycVerificationId"]
+            )
         await collection.insert_one(doc)
         return payment_attempt
 
@@ -52,7 +58,9 @@ class PaymentAttemptRepository:
     async def get_by_order_id(self, order_id: str) -> List[PaymentAttempt]:
         """Get all payment attempts for an order."""
         collection = self._get_collection()
-        cursor = collection.find({"orderId": self._to_object_id(order_id)}).sort("createdAt", -1)
+        cursor = collection.find({"orderId": self._to_object_id(order_id)}).sort(
+            "createdAt", -1
+        )
         return [self._doc_to_payment_attempt(doc) async for doc in cursor]
 
     async def get_active_by_order_id(self, order_id: str) -> Optional[PaymentAttempt]:
@@ -65,15 +73,16 @@ class PaymentAttemptRepository:
             PaymentAttemptStatus.CANCELLED.value,
             PaymentAttemptStatus.REFUNDED.value,
         ]
-        doc = await collection.find_one({
-            "orderId": self._to_object_id(order_id),
-            "status": {"$nin": final_statuses}
-        })
+        doc = await collection.find_one(
+            {
+                "orderId": self._to_object_id(order_id),
+                "status": {"$nin": final_statuses},
+            }
+        )
         return self._doc_to_payment_attempt(doc) if doc else None
 
     async def get_by_stripe_payment_intent(
-        self,
-        payment_intent_id: str
+        self, payment_intent_id: str
     ) -> Optional[PaymentAttempt]:
         """Get payment attempt by Stripe Payment Intent ID."""
         collection = self._get_collection()
@@ -81,10 +90,7 @@ class PaymentAttemptRepository:
         return self._doc_to_payment_attempt(doc) if doc else None
 
     async def update_status(
-        self,
-        attempt_id: str,
-        status: PaymentAttemptStatus,
-        **extra_fields
+        self, attempt_id: str, status: PaymentAttemptStatus, **extra_fields
     ) -> Optional[PaymentAttempt]:
         """Update payment attempt status and optional extra fields."""
         collection = self._get_collection()
@@ -116,9 +122,7 @@ class PaymentAttemptRepository:
         return self._doc_to_payment_attempt(result) if result else None
 
     async def set_proof(
-        self,
-        attempt_id: str,
-        proof_url: str
+        self, attempt_id: str, proof_url: str
     ) -> Optional[PaymentAttempt]:
         """Set proof URL and mark customer confirmed."""
         return await self.update_status(
@@ -129,8 +133,7 @@ class PaymentAttemptRepository:
         )
 
     async def confirm_business_received(
-        self,
-        attempt_id: str
+        self, attempt_id: str
     ) -> Optional[PaymentAttempt]:
         """Mark that business confirmed payment received."""
         return await self.update_status(
@@ -140,9 +143,7 @@ class PaymentAttemptRepository:
         )
 
     async def confirm_delivery_cash(
-        self,
-        attempt_id: str,
-        delivery_person_id: str
+        self, attempt_id: str, delivery_person_id: str
     ) -> Optional[PaymentAttempt]:
         """Mark that delivery person confirmed cash received."""
         return await self.update_status(
@@ -152,11 +153,7 @@ class PaymentAttemptRepository:
             deliveryPersonId=delivery_person_id,
         )
 
-    async def dispute(
-        self,
-        attempt_id: str,
-        reason: str
-    ) -> Optional[PaymentAttempt]:
+    async def dispute(self, attempt_id: str, reason: str) -> Optional[PaymentAttempt]:
         """Mark payment as disputed."""
         return await self.update_status(
             attempt_id,
@@ -165,9 +162,7 @@ class PaymentAttemptRepository:
         )
 
     async def request_refund(
-        self,
-        attempt_id: str,
-        reason: str
+        self, attempt_id: str, reason: str
     ) -> Optional[PaymentAttempt]:
         """Mark payment as refund requested."""
         return await self.update_status(
@@ -178,10 +173,7 @@ class PaymentAttemptRepository:
         )
 
     async def complete_refund(
-        self,
-        attempt_id: str,
-        refund_amount: float,
-        transaction_id: str
+        self, attempt_id: str, refund_amount: float, transaction_id: str
     ) -> Optional[PaymentAttempt]:
         """Mark refund as completed."""
         return await self.update_status(
@@ -197,7 +189,7 @@ class PaymentAttemptRepository:
         attempt_id: str,
         wallet_transaction_id: str,
         business_wallet_transaction_id: str,
-        commission_transaction_id: str
+        commission_transaction_id: str,
     ) -> Optional[PaymentAttempt]:
         """Set wallet transaction IDs after successful wallet payment."""
         collection = self._get_collection()
@@ -230,25 +222,66 @@ class PaymentAttemptRepository:
 
         return self._doc_to_payment_attempt(result) if result else None
 
+    async def update_kyc_state(
+        self,
+        attempt_id: str,
+        *,
+        kyc_required: bool,
+        kyc_eval_status: str,
+        cash_coverage_status: str,
+        latest_kyc_verification_id: Optional[str] = None,
+        kyc_failure_code: Optional[str] = None,
+    ) -> Optional[PaymentAttempt]:
+        """Update KYC and coverage fields for a payment attempt."""
+        update_data = {
+            "kycRequired": kyc_required,
+            "kycEvalStatus": kyc_eval_status,
+            "cashCoverageStatus": cash_coverage_status,
+            "kycDecisionAt": datetime.utcnow(),
+            "kycFailureCode": kyc_failure_code,
+            "updatedAt": datetime.utcnow(),
+        }
+        if latest_kyc_verification_id is not None:
+            update_data["latestKycVerificationId"] = self._to_object_id(
+                latest_kyc_verification_id
+            )
+
+        collection = self._get_collection()
+        try:
+            result = await collection.find_one_and_update(
+                {"_id": ObjectId(attempt_id)},
+                {"$set": update_data},
+                return_document=True,
+            )
+        except Exception:
+            result = await collection.find_one_and_update(
+                {"_id": attempt_id},
+                {"$set": update_data},
+                return_document=True,
+            )
+        return self._doc_to_payment_attempt(result) if result else None
+
     async def get_expired(self) -> List[PaymentAttempt]:
         """Get all expired payment attempts that need to be marked as expired."""
         collection = self._get_collection()
         now = datetime.utcnow()
-        cursor = collection.find({
-            "status": {"$in": [
-                PaymentAttemptStatus.PENDING.value,
-                PaymentAttemptStatus.AWAITING_PROOF.value,
-                PaymentAttemptStatus.AWAITING_BUSINESS.value,
-            ]},
-            "expiresAt": {"$lte": now, "$ne": None},
-        })
+        cursor = collection.find(
+            {
+                "status": {
+                    "$in": [
+                        PaymentAttemptStatus.PENDING.value,
+                        PaymentAttemptStatus.AWAITING_PROOF.value,
+                        PaymentAttemptStatus.AWAITING_BUSINESS.value,
+                        PaymentAttemptStatus.AWAITING_KYC.value,
+                    ]
+                },
+                "expiresAt": {"$lte": now, "$ne": None},
+            }
+        )
         return [self._doc_to_payment_attempt(doc) async for doc in cursor]
 
     async def get_by_customer(
-        self,
-        customer_id: str,
-        limit: int = 20,
-        offset: int = 0
+        self, customer_id: str, limit: int = 20, offset: int = 0
     ) -> List[PaymentAttempt]:
         """Get payment attempts for a customer (via orders)."""
         # This requires a join with orders collection
@@ -258,14 +291,15 @@ class PaymentAttemptRepository:
 
         # Get customer's order IDs
         order_ids = await orders_collection.distinct(
-            "_id",
-            {"customerId": self._to_object_id(customer_id)}
+            "_id", {"customerId": self._to_object_id(customer_id)}
         )
         collection = self._get_collection()
-        cursor = collection.find({"orderId": {"$in": order_ids}}) \
-            .sort("createdAt", -1) \
-            .skip(offset) \
+        cursor = (
+            collection.find({"orderId": {"$in": order_ids}})
+            .sort("createdAt", -1)
+            .skip(offset)
             .limit(limit)
+        )
 
         return [self._doc_to_payment_attempt(doc) async for doc in cursor]
 
@@ -279,8 +313,11 @@ async def create_payment_indexes():
     await collection.create_index("stripePaymentIntentId", sparse=True)
     await collection.create_index([("status", 1), ("expiresAt", 1)])
     await collection.create_index("createdAt")
+    await collection.create_index([("kycEvalStatus", 1), ("createdAt", -1)])
+    await collection.create_index("latestKycVerificationId", sparse=True)
 
     print("✓ Payment attempt indexes created")
+
 
 # Repository instance
 payment_attempts_repo = PaymentAttemptRepository()
