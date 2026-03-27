@@ -43,6 +43,43 @@ from .types import (
 from .utils import branch_to_dict
 
 
+def _to_scored_branch_data(branch_data: dict) -> dict:
+    """Return only fields supported by ScoredBranchType."""
+    allowed_fields = {
+        "id",
+        "businessId",
+        "name",
+        "address",
+        "coordinates",
+        "phone",
+        "schedule",
+        "managerIds",
+        "isActive",
+        "status",
+        "avatar",
+        "coverImage",
+        "socialMedia",
+        "tipos",
+        "paymentMethodIds",
+        "useAppMessaging",
+        "vehicles",
+        "accounts",
+        "qrPayments",
+        "phones",
+        "deliveryRadius",
+        "acceptedCurrency",
+        "exchangeRate",
+        "acceptsQvapay",
+        "acceptsZelle",
+        "qvapayUsername",
+        "zelleEmail",
+        "createdAt",
+        "wallet",
+        "walletStatus",
+    }
+    return {key: value for key, value in branch_data.items() if key in allowed_fields}
+
+
 @strawberry.type
 class BranchQuery:
     @strawberry.field(
@@ -115,7 +152,7 @@ class BranchQuery:
                 for item in scored_items:
                     branch = branch_map.get(item.id)
                     if branch:
-                        branch_data = branch_to_dict(branch)
+                        branch_data = _to_scored_branch_data(branch_to_dict(branch))
                         scored_branches.append(
                             ScoredBranchType(
                                 **branch_data,
@@ -127,7 +164,7 @@ class BranchQuery:
         if not scored_branches:
             scored_branches = [
                 ScoredBranchType(
-                    **branch_to_dict(b),
+                    **_to_scored_branch_data(branch_to_dict(b)),
                     score=0.0,
                     distance_m=None,
                 )
@@ -269,7 +306,7 @@ class BranchQuery:
                 for item in scored_items:
                     branch = branch_map.get(item.id)
                     if branch:
-                        branch_data = branch_to_dict(branch)
+                        branch_data = _to_scored_branch_data(branch_to_dict(branch))
                         scored_branches.append(
                             ScoredBranchType(
                                 **branch_data,
@@ -281,7 +318,7 @@ class BranchQuery:
         if not scored_branches:
             scored_branches = [
                 ScoredBranchType(
-                    **branch_to_dict(b),
+                    **_to_scored_branch_data(branch_to_dict(b)),
                     score=0.0,
                     distance_m=None,
                 )
