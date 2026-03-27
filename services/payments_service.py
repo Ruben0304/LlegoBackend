@@ -14,13 +14,9 @@ from domain.payments import PaymentAttempt, PaymentAttemptStatus
 from repositories import (
     branches_repo,
     businesses_repo,
-    kyc_audit_events_repo,
-    kyc_verifications_repo,
     users_repo,
 )
 from repositories.payments_attempt_repository import PaymentAttemptRepository
-from services.kyc.kyc_decision_service import kyc_decision_service
-from services.kyc.kyc_notification_service import kyc_notification_service
 from services.shortcut_transfer_service import shortcut_transfer_service
 
 logger = logging.getLogger(__name__)
@@ -34,6 +30,21 @@ class PaymentService:
 
     def __init__(self):
         self.payment_attempts_repo = PaymentAttemptRepository()
+
+    @staticmethod
+    def _get_kyc_dependencies():
+        """Lazy-load KYC modules to avoid hard startup dependency."""
+        from repositories.kyc_audit_event_repository import kyc_audit_events_repo
+        from repositories.kyc_verification_repository import kyc_verifications_repo
+        from services.kyc.kyc_decision_service import kyc_decision_service
+        from services.kyc.kyc_notification_service import kyc_notification_service
+
+        return (
+            kyc_decision_service,
+            kyc_verifications_repo,
+            kyc_audit_events_repo,
+            kyc_notification_service,
+        )
 
     @staticmethod
     def _to_object_id(value: Optional[str]):
@@ -253,6 +264,7 @@ class PaymentService:
         user_id: str,
     ) -> PaymentAttempt:
         """Apply cash KYC policy with safe defaults and backward compatibility."""
+        kyc_decision_service, _, _, _ = self._get_kyc_dependencies()
         branch = await self._get_branch(order.get("branchId"))
         if not settings.cash_kyc_feature_enabled:
             payment_attempt.status = PaymentAttemptStatus.AWAITING_DELIVERY
@@ -322,6 +334,7 @@ class PaymentService:
 
     async def get_cash_kyc_status(self, payment_attempt_id: str, user_id: str) -> dict:
         """Get KYC status and effective cash/covers flags for an attempt."""
+        _, kyc_verifications_repo, _, _ = self._get_kyc_dependencies()
         attempt = await self.get_payment_attempt(payment_attempt_id, user_id)
         verification = None
         if attempt.latestKycVerificationId:
@@ -358,6 +371,12 @@ class PaymentService:
         device_context: dict,
     ) -> dict:
         """Start KYC evaluation for a cash payment attempt."""
+        (
+            kyc_decision_service,
+            _kyc_verifications_repo,
+            kyc_audit_events_repo,
+            kyc_notification_service,
+        ) = self._get_kyc_dependencies()
         attempt = await self.payment_attempts_repo.get_by_id(payment_attempt_id)
         if not attempt:
             raise ValueError("Intento de pago no encontrado")
@@ -469,6 +488,7 @@ class PaymentService:
     async def retry_cash_kyc_evaluation(
         self, verification_id: str, user_id: str
     ) -> dict:
+        _, kyc_verifications_repo, _, _ = self._get_kyc_dependencies()
         verification = await kyc_verifications_repo.get_by_id(verification_id)
         if not verification:
             raise ValueError("Verificación KYC no encontrada")
@@ -514,6 +534,9 @@ class PaymentService:
         decision: str,
         reason: str,
     ) -> dict:
+        _, kyc_verifications_repo, kyc_audit_events_repo, _ = (
+            self._get_kyc_dependencies()
+        )
         if actor_role not in {"admin", "risk_admin"}:
             raise ValueError("No autorizado para override KYC")
 

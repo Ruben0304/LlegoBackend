@@ -20,15 +20,6 @@ from .draft_order_repository import DraftOrderRepository
 from .error_log_repository import ErrorLogRepository, error_log_repo
 from .favorites_cart_repository import FavoritesCartRepository
 from .feedback_repository import FeedbackRepository
-from .kyc_audit_event_repository import KycAuditEventRepository, kyc_audit_events_repo
-from .kyc_notification_log_repository import (
-    KycNotificationLogRepository,
-    kyc_notification_logs_repo,
-)
-from .kyc_verification_repository import (
-    KycVerificationRepository,
-    kyc_verifications_repo,
-)
 from .orders_repository import (
     BranchDeliveryRequestRepository,
     DeliveryPersonRepository,
@@ -171,10 +162,4 @@ __all__ = [
     "trondealer_wallets_repo",
     "PayoutRepository",
     "payouts_repo",
-    "KycVerificationRepository",
-    "KycNotificationLogRepository",
-    "KycAuditEventRepository",
-    "kyc_verifications_repo",
-    "kyc_notification_logs_repo",
-    "kyc_audit_events_repo",
 ]
