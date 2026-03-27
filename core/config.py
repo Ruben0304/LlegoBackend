@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     cash_kyc_default_min_confidence: float = 0.85
     cash_kyc_default_ttl_days: int = 30
     cash_kyc_max_auto_retries: int = 4
+    cash_kyc_global_policy_version: str = "global-kyc-v1"
 
     # DeepSeek API Configuration (used by AI chat RAG pipeline)
     deepseek_api_key: str = ""

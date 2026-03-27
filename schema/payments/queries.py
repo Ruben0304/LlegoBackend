@@ -11,6 +11,7 @@ from schema.payments.types import (
     CashKycAccountStatusResult,
     CashKycPolicyResult,
     CashKycStatusResult,
+    GlobalCashKycStatusResult,
     PaymentAttemptType,
     PaymentMethodType,
     payment_attempt_to_type,
@@ -256,5 +257,23 @@ class PaymentMethodQuery:
                 branch_id=branchId,
             )
             return CashKycPolicyResult(**policy)
+        except ValueError as e:
+            raise Exception(str(e))
+
+    @strawberry.field(
+        description="Obtiene estado global KYC de la cuenta del usuario para cash"
+    )
+    async def global_cash_kyc_status(
+        self,
+        info: Info,
+        jwt: str,
+    ) -> GlobalCashKycStatusResult:
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+        try:
+            status = await payment_service.get_global_cash_kyc_status(user_id=user_id)
+            return GlobalCashKycStatusResult(**status)
         except ValueError as e:
             raise Exception(str(e))

@@ -27,6 +27,7 @@ from .types import (
     StartCashKycByAccountInput,
     StartCashKycInput,
     StartCashKycPayload,
+    StartGlobalCashKycInput,
     TronDealerPaymentResult,
     payment_attempt_to_type,
 )
@@ -457,6 +458,36 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
                 user_id=user_id,
                 identity_document_front_ref=input.identityDocumentFrontRef,
                 selfie_live_ref=input.selfieLiveRef,
+                device_context={
+                    "device_id_hash": input.deviceContext.deviceIdHash,
+                    "ip_hash": input.deviceContext.ipHash,
+                    "app_version": input.deviceContext.appVersion,
+                    "os": input.deviceContext.os,
+                    "geo_approx": {
+                        "lat": input.deviceContext.latitude,
+                        "lng": input.deviceContext.longitude,
+                    },
+                },
+            )
+            return StartCashKycPayload(**payload)
+        except ValueError as e:
+            raise Exception(str(e))
+
+    @strawberry.mutation(
+        description="Inicia evaluación KYC global de cuenta para pagos en efectivo"
+    )
+    async def start_global_cash_kyc_evaluation(
+        self, info: Info, input: StartGlobalCashKycInput, jwt: str
+    ) -> StartCashKycPayload:
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+        try:
+            payload = await payment_service.start_global_cash_kyc_evaluation(
+                user_id=user_id,
+                identity_document_front_ref=input.identityDocumentFrontRef,
+                selfie_with_id_ref=input.selfieWithIdRef,
                 device_context={
                     "device_id_hash": input.deviceContext.deviceIdHash,
                     "ip_hash": input.deviceContext.ipHash,

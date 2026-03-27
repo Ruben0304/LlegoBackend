@@ -1,6 +1,7 @@
 """Payment service for handling payment processing logic."""
 
 import logging
+import mimetypes
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any, Dict, Optional, Tuple
@@ -9,6 +10,7 @@ import stripe
 from bson import ObjectId
 
 from clients.mongodb_client import get_database
+from clients.s3_client import get_s3_client
 from core.config import settings
 from domain.payments import PaymentAttempt, PaymentAttemptStatus
 from repositories import (
@@ -326,18 +328,15 @@ class PaymentService:
             payment_attempt.cashCoverageStatus = "eligible_uncovered"
             return payment_attempt
 
-        merchant_id = str((branch or {}).get("businessId"))
-        reusable = await kyc_decision_service.get_reusable_approved(
-            customer_id=user_id,
-            merchant_id=merchant_id,
-            policy_version=policy_version,
+        global_approved = await kyc_decision_service.get_global_approved(
+            customer_id=user_id
         )
-        if reusable:
+        if global_approved:
             payment_attempt.status = PaymentAttemptStatus.AWAITING_DELIVERY
             payment_attempt.kycRequired = True
             payment_attempt.kycEvalStatus = "approved"
             payment_attempt.cashCoverageStatus = "eligible_covered"
-            payment_attempt.latestKycVerificationId = reusable.id
+            payment_attempt.latestKycVerificationId = global_approved.id
             payment_attempt.kycDecisionAt = datetime.utcnow()
             return payment_attempt
 
@@ -374,6 +373,27 @@ class PaymentService:
             "allowCashNow": not required,
             "appCoversCashNow": False,
         }
+
+    @staticmethod
+    def _normalize_s3_key(ref: str) -> str:
+        if ref.startswith("s3://"):
+            without_scheme = ref[len("s3://") :]
+            if "/" in without_scheme:
+                return without_scheme.split("/", 1)[1]
+            return without_scheme
+        return ref.lstrip("/")
+
+    @staticmethod
+    def _guess_mime_from_ref(ref: str) -> str:
+        guessed, _ = mimetypes.guess_type(ref)
+        return guessed or "image/jpeg"
+
+    def _load_s3_bytes_from_ref(self, ref: str) -> bytes:
+        key = self._normalize_s3_key(ref)
+        s3 = get_s3_client()
+        obj = s3.get_object(Bucket=settings.s3_bucket_name, Key=key)
+        body = obj.get("Body")
+        return body.read() if body else b""
 
     async def get_cash_kyc_policy_by_merchant(
         self,
@@ -441,54 +461,63 @@ class PaymentService:
     ) -> dict:
         """Get KYC status for a user scoped by merchant, independent from checkout."""
         _, kyc_verifications_repo, _, _ = self._get_kyc_dependencies()
-        business = await businesses_repo.get_by_id(merchant_id)
-        if not business:
-            raise ValueError("Merchant no encontrado")
-        ctx = await self._resolve_cash_kyc_policy_context(
-            merchant_id=merchant_id, branch_id=branch_id
-        )
-        if not ctx["required"]:
-            return {
-                "merchantId": merchant_id,
-                "branchId": ctx["branchId"],
-                "verificationId": None,
-                "kycEvalStatus": "not_required",
-                "cashCoverageStatus": "eligible_uncovered",
-                "allowCash": True,
-                "appCoversCash": False,
-                "reasonCodes": [],
-                "nextAction": "continue_cash_uncovered",
-                "expiresAt": None,
-            }
-
-        reusable = await kyc_verifications_repo.get_reusable_approved(
+        global_approved = await kyc_verifications_repo.get_global_approved(
             customer_id=user_id,
-            merchant_id=merchant_id,
-            policy_version=ctx["policyVersion"],
         )
-        if reusable:
+        if global_approved:
             return {
                 "merchantId": merchant_id,
-                "branchId": ctx["branchId"],
-                "verificationId": str(reusable.id),
+                "branchId": branch_id,
+                "verificationId": str(global_approved.id),
                 "kycEvalStatus": "approved",
                 "cashCoverageStatus": "eligible_covered",
                 "allowCash": True,
                 "appCoversCash": True,
-                "reasonCodes": reusable.reasonCodes or [],
+                "reasonCodes": global_approved.reasonCodes or [],
                 "nextAction": "continue_cash_flow",
-                "expiresAt": reusable.expiresAt,
+                "expiresAt": global_approved.expiresAt,
             }
 
-        latest = await kyc_verifications_repo.get_latest_by_customer_merchant(
+        latest = await kyc_verifications_repo.get_latest_global_by_customer(
             customer_id=user_id,
-            merchant_id=merchant_id,
-            policy_version=ctx["policyVersion"],
         )
         latest_status = latest.status if latest else "pending_evidence"
         return {
             "merchantId": merchant_id,
-            "branchId": ctx["branchId"],
+            "branchId": branch_id,
+            "verificationId": str(latest.id) if latest else None,
+            "kycEvalStatus": latest_status,
+            "cashCoverageStatus": "blocked",
+            "allowCash": False,
+            "appCoversCash": False,
+            "reasonCodes": latest.reasonCodes if latest else [],
+            "nextAction": "start_kyc" if not latest else "retry_or_provide_evidence",
+            "expiresAt": latest.expiresAt if latest else None,
+        }
+
+    async def get_global_cash_kyc_status(self, *, user_id: str) -> dict:
+        """Get global account KYC status (merchant-independent)."""
+        _, kyc_verifications_repo, _, _ = self._get_kyc_dependencies()
+        global_approved = await kyc_verifications_repo.get_global_approved(
+            customer_id=user_id
+        )
+        if global_approved:
+            return {
+                "verificationId": str(global_approved.id),
+                "kycEvalStatus": "approved",
+                "cashCoverageStatus": "eligible_covered",
+                "allowCash": True,
+                "appCoversCash": True,
+                "reasonCodes": global_approved.reasonCodes or [],
+                "nextAction": "continue_cash_flow",
+                "expiresAt": global_approved.expiresAt,
+            }
+
+        latest = await kyc_verifications_repo.get_latest_global_by_customer(
+            customer_id=user_id
+        )
+        latest_status = latest.status if latest else "pending_evidence"
+        return {
             "verificationId": str(latest.id) if latest else None,
             "kycEvalStatus": latest_status,
             "cashCoverageStatus": "blocked",
@@ -544,27 +573,27 @@ class PaymentService:
             {"type": "identity_document_front", "ref": identity_document_front_ref},
             {"type": "selfie_live", "ref": selfie_live_ref},
         ]
-        result = await kyc_decision_service.evaluate_cash_kyc(
-            payment_attempt_id=str(attempt.id),
-            order_id=str(attempt.orderId),
+
+        identity_document_front_bytes = self._load_s3_bytes_from_ref(
+            identity_document_front_ref
+        )
+        selfie_with_id_bytes = self._load_s3_bytes_from_ref(selfie_live_ref)
+        if not identity_document_front_bytes or not selfie_with_id_bytes:
+            raise ValueError("EVIDENCE_NOT_FOUND")
+
+        result = await kyc_decision_service.evaluate_global_cash_kyc_with_images(
             customer_id=user_id,
-            merchant_id=str(branch.get("businessId")),
-            branch_id=str(
-                branch.get("_id") or branch.get("id") or order.get("branchId")
-            ),
-            amount=attempt.totalAmount,
-            currency=attempt.currency,
-            policy_version=branch.get("cashKycPolicyVersion", "cash-kyc-v1"),
-            min_confidence=float(
-                branch.get(
-                    "cashKycMinConfidence", settings.cash_kyc_default_min_confidence
-                )
-            ),
-            ttl_days=int(
-                branch.get("cashKycTtlDays", settings.cash_kyc_default_ttl_days)
-            ),
+            policy_version=settings.cash_kyc_global_policy_version,
+            min_confidence=settings.cash_kyc_default_min_confidence,
+            ttl_days=settings.cash_kyc_default_ttl_days,
             evidence_refs=evidence_refs,
             device_context=device_context,
+            selfie_with_id_bytes=selfie_with_id_bytes,
+            selfie_with_id_mime_type=self._guess_mime_from_ref(selfie_live_ref),
+            identity_document_front_bytes=identity_document_front_bytes,
+            identity_document_front_mime_type=self._guess_mime_from_ref(
+                identity_document_front_ref
+            ),
         )
 
         new_attempt_status = (
@@ -638,41 +667,34 @@ class PaymentService:
             kyc_decision_service,
             _kyc_verifications_repo,
             kyc_audit_events_repo,
-            kyc_notification_service,
+            _kyc_notification_service,
         ) = self._get_kyc_dependencies()
-
-        business = await businesses_repo.get_by_id(merchant_id)
-        if not business:
-            raise ValueError("Merchant no encontrado")
-
-        ctx = await self._resolve_cash_kyc_policy_context(
-            merchant_id=merchant_id, branch_id=branch_id
-        )
-        if not ctx["required"]:
-            return {
-                "verificationId": "",
-                "kycEvalStatus": "not_required",
-                "cashCoverageStatus": "eligible_uncovered",
-                "allowCash": True,
-                "appCoversCash": False,
-                "nextAction": "continue_cash_uncovered",
-                "correlationId": "",
-                "reasonCodes": [],
-            }
 
         evidence_refs = [
             {"type": "identity_document_front", "ref": identity_document_front_ref},
             {"type": "selfie_live", "ref": selfie_live_ref},
         ]
-        result = await kyc_decision_service.evaluate_cash_kyc_by_account(
+
+        identity_document_front_bytes = self._load_s3_bytes_from_ref(
+            identity_document_front_ref
+        )
+        selfie_with_id_bytes = self._load_s3_bytes_from_ref(selfie_live_ref)
+        if not identity_document_front_bytes or not selfie_with_id_bytes:
+            raise ValueError("EVIDENCE_NOT_FOUND")
+
+        result = await kyc_decision_service.evaluate_global_cash_kyc_with_images(
             customer_id=user_id,
-            merchant_id=merchant_id,
-            branch_id=ctx["branchId"],
-            policy_version=ctx["policyVersion"],
-            min_confidence=ctx["minConfidence"],
-            ttl_days=ctx["ttlDays"],
+            policy_version=settings.cash_kyc_global_policy_version,
+            min_confidence=settings.cash_kyc_default_min_confidence,
+            ttl_days=settings.cash_kyc_default_ttl_days,
             evidence_refs=evidence_refs,
             device_context=device_context,
+            selfie_with_id_bytes=selfie_with_id_bytes,
+            selfie_with_id_mime_type=self._guess_mime_from_ref(selfie_live_ref),
+            identity_document_front_bytes=identity_document_front_bytes,
+            identity_document_front_mime_type=self._guess_mime_from_ref(
+                identity_document_front_ref
+            ),
         )
 
         await kyc_audit_events_repo.append(
@@ -682,28 +704,13 @@ class PaymentService:
             actor_type="customer",
             actor_id=user_id,
             payload={
-                "source": "account",
+                "source": "global_account",
                 "merchantId": merchant_id,
-                "branchId": ctx["branchId"],
+                "branchId": branch_id,
                 "kycEvalStatus": result["kyc_eval_status"],
                 "cashCoverageStatus": result["cash_coverage_status"],
             },
         )
-
-        if ctx["branchId"]:
-            await kyc_notification_service.notify_merchant(
-                kyc_verification_id=result["verification_id"],
-                branch_id=ctx["branchId"],
-                event_type="kyc_evaluated_account",
-                title="Actualización KYC desde perfil",
-                body=f"Estado KYC: {result['kyc_eval_status']}",
-                data={
-                    "type": "cash_kyc_status_account",
-                    "merchant_id": merchant_id,
-                    "verification_id": result["verification_id"],
-                    "kyc_eval_status": result["kyc_eval_status"],
-                },
-            )
 
         return {
             "verificationId": result["verification_id"],
@@ -716,6 +723,24 @@ class PaymentService:
             "correlationId": result["correlation_id"],
             "reasonCodes": result.get("reason_codes", []),
         }
+
+    async def start_global_cash_kyc_evaluation(
+        self,
+        *,
+        user_id: str,
+        identity_document_front_ref: str,
+        selfie_with_id_ref: str,
+        device_context: dict,
+    ) -> dict:
+        """Merchant-independent global account KYC evaluation."""
+        return await self.start_cash_kyc_evaluation_by_account(
+            merchant_id="global",
+            user_id=user_id,
+            branch_id=None,
+            identity_document_front_ref=identity_document_front_ref,
+            selfie_live_ref=selfie_with_id_ref,
+            device_context=device_context,
+        )
 
     async def retry_cash_kyc_evaluation(
         self, verification_id: str, user_id: str

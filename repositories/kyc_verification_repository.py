@@ -70,6 +70,7 @@ class KycVerificationRepository:
     ) -> Optional[KycVerification]:
         now = now or datetime.utcnow()
         query = {
+            "kycScope": "merchant_scoped",
             "customerId": self._to_object_id(customer_id),
             "merchantId": self._to_object_id(merchant_id),
             "policyVersion": policy_version,
@@ -93,6 +94,35 @@ class KycVerificationRepository:
         }
         if policy_version:
             query["policyVersion"] = policy_version
+        doc = await self._collection().find_one(query, sort=[("createdAt", -1)])
+        return self._doc_to_model(doc) if doc else None
+
+    async def get_global_approved(
+        self,
+        *,
+        customer_id: str,
+        now: Optional[datetime] = None,
+    ) -> Optional[KycVerification]:
+        now = now or datetime.utcnow()
+        query = {
+            "kycScope": "global_account",
+            "customerId": self._to_object_id(customer_id),
+            "status": "approved",
+            "forceReverify": {"$ne": True},
+            "expiresAt": {"$gt": now},
+        }
+        doc = await self._collection().find_one(query, sort=[("approvedAt", -1)])
+        return self._doc_to_model(doc) if doc else None
+
+    async def get_latest_global_by_customer(
+        self,
+        *,
+        customer_id: str,
+    ) -> Optional[KycVerification]:
+        query = {
+            "kycScope": "global_account",
+            "customerId": self._to_object_id(customer_id),
+        }
         doc = await self._collection().find_one(query, sort=[("createdAt", -1)])
         return self._doc_to_model(doc) if doc else None
 
@@ -183,6 +213,9 @@ async def create_kyc_indexes():
         [("customerId", 1), ("merchantId", 1), ("policyVersion", 1), ("createdAt", -1)]
     )
     await verifications.create_index([("verificationSource", 1), ("createdAt", -1)])
+    await verifications.create_index(
+        [("kycScope", 1), ("customerId", 1), ("status", 1), ("expiresAt", -1)]
+    )
     await verifications.create_index("correlationId")
 
     await notifications.create_index(

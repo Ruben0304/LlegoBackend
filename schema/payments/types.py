@@ -253,6 +253,13 @@ class StartCashKycByAccountInput:
     deviceContext: DeviceContextInput
 
 
+@strawberry.input
+class StartGlobalCashKycInput:
+    identityDocumentFrontRef: str
+    selfieWithIdRef: str
+    deviceContext: DeviceContextInput
+
+
 @strawberry.type
 class StartCashKycPayload:
     verificationId: str
@@ -263,6 +270,18 @@ class StartCashKycPayload:
     nextAction: str
     correlationId: str
     reasonCodes: List[str]
+
+
+@strawberry.type
+class GlobalCashKycStatusResult:
+    verificationId: Optional[str]
+    kycEvalStatus: str
+    cashCoverageStatus: str
+    allowCash: bool
+    appCoversCash: bool
+    reasonCodes: List[str]
+    nextAction: Optional[str]
+    expiresAt: Optional[datetime]
 
 
 @strawberry.type

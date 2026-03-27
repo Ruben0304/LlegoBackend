@@ -77,12 +77,16 @@ def _set_kyc_deps(
     notification_service=None,
 ):
     decision_service = decision_service or SimpleNamespace(
+        get_global_approved=AsyncMock(return_value=None),
         get_reusable_approved=AsyncMock(return_value=None),
         evaluate_cash_kyc=AsyncMock(),
         evaluate_cash_kyc_by_account=AsyncMock(),
+        evaluate_global_cash_kyc_with_images=AsyncMock(),
     )
     verifications_repo = verifications_repo or SimpleNamespace(
         get_by_id=AsyncMock(return_value=None),
+        get_global_approved=AsyncMock(return_value=None),
+        get_latest_global_by_customer=AsyncMock(return_value=None),
         increment_retry=AsyncMock(),
         update_result=AsyncMock(),
     )
@@ -111,6 +115,11 @@ def patch_payment_repo_ops(monkeypatch):
         AsyncMock(return_value=None),
     )
     monkeypatch.setattr(payment_service, "_update_order_payment_attempt", AsyncMock())
+    monkeypatch.setattr(
+        payment_service,
+        "_load_s3_bytes_from_ref",
+        lambda _ref: b"fake-image-bytes",
+    )
 
 
 def test_cash_with_kyc_off_allows_cash_uncovered(monkeypatch, patch_payment_repo_ops):
@@ -150,10 +159,14 @@ def test_cash_with_kyc_on_and_reusable_approved(monkeypatch, patch_payment_repo_
     _set_kyc_deps(
         monkeypatch,
         decision_service=SimpleNamespace(
+            get_global_approved=AsyncMock(
+                return_value=SimpleNamespace(id="kyc-reuse-1")
+            ),
             get_reusable_approved=AsyncMock(
                 return_value=SimpleNamespace(id="kyc-reuse-1")
             ),
             evaluate_cash_kyc=AsyncMock(),
+            evaluate_global_cash_kyc_with_images=AsyncMock(),
         ),
     )
     monkeypatch.setattr(
@@ -202,8 +215,10 @@ def test_cash_with_kyc_on_rejected(monkeypatch):
     _set_kyc_deps(
         monkeypatch,
         decision_service=SimpleNamespace(
+            get_global_approved=AsyncMock(return_value=None),
             get_reusable_approved=AsyncMock(return_value=None),
-            evaluate_cash_kyc=AsyncMock(
+            evaluate_cash_kyc=AsyncMock(),
+            evaluate_global_cash_kyc_with_images=AsyncMock(
                 return_value={
                     "verification_id": "kyc1",
                     "kyc_eval_status": "rejected",
@@ -240,6 +255,9 @@ def test_cash_with_kyc_on_rejected(monkeypatch):
     monkeypatch.setattr(
         payment_service.payment_attempts_repo, "update_kyc_state", AsyncMock()
     )
+    monkeypatch.setattr(
+        payment_service, "_load_s3_bytes_from_ref", lambda _ref: b"fake-image-bytes"
+    )
 
     payload = asyncio.run(
         payment_service.start_cash_kyc_evaluation(
@@ -265,8 +283,10 @@ def test_cash_with_kyc_on_provider_error_fail_closed(monkeypatch):
     _set_kyc_deps(
         monkeypatch,
         decision_service=SimpleNamespace(
+            get_global_approved=AsyncMock(return_value=None),
             get_reusable_approved=AsyncMock(return_value=None),
-            evaluate_cash_kyc=AsyncMock(
+            evaluate_cash_kyc=AsyncMock(),
+            evaluate_global_cash_kyc_with_images=AsyncMock(
                 return_value={
                     "verification_id": "kyc2",
                     "kyc_eval_status": "error",
@@ -303,6 +323,9 @@ def test_cash_with_kyc_on_provider_error_fail_closed(monkeypatch):
     )
     monkeypatch.setattr(
         payment_service.payment_attempts_repo, "update_kyc_state", AsyncMock()
+    )
+    monkeypatch.setattr(
+        payment_service, "_load_s3_bytes_from_ref", lambda _ref: b"fake-image-bytes"
     )
 
     payload = asyncio.run(
@@ -373,30 +396,15 @@ def test_account_status_reuses_approved_verification(monkeypatch):
     _set_kyc_deps(
         monkeypatch,
         verifications_repo=SimpleNamespace(
-            get_reusable_approved=AsyncMock(
+            get_global_approved=AsyncMock(
                 return_value=SimpleNamespace(
                     id="kyc-account-1",
                     reasonCodes=["DOC_VALID"],
                     expiresAt=None,
                 )
             ),
-            get_latest_by_customer_merchant=AsyncMock(return_value=None),
+            get_latest_global_by_customer=AsyncMock(return_value=None),
         ),
-    )
-    monkeypatch.setattr(
-        payment_service,
-        "_resolve_cash_kyc_policy_context",
-        AsyncMock(
-            return_value={
-                "required": True,
-                "branchId": BRANCH_ID,
-                "policyVersion": "cash-kyc-v1",
-            }
-        ),
-    )
-    monkeypatch.setattr(
-        "services.payments_service.businesses_repo.get_by_id",
-        AsyncMock(return_value=SimpleNamespace(id="merchant1")),
     )
 
     status = asyncio.run(
@@ -414,6 +422,7 @@ def test_start_account_kyc_evaluation_success(monkeypatch):
     _set_kyc_deps(
         monkeypatch,
         decision_service=SimpleNamespace(
+            get_global_approved=AsyncMock(return_value=None),
             get_reusable_approved=AsyncMock(return_value=None),
             evaluate_cash_kyc=AsyncMock(),
             evaluate_cash_kyc_by_account=AsyncMock(
@@ -426,24 +435,20 @@ def test_start_account_kyc_evaluation_success(monkeypatch):
                     "reason_codes": ["DOC_VALID"],
                 }
             ),
+            evaluate_global_cash_kyc_with_images=AsyncMock(
+                return_value={
+                    "verification_id": "kyc-account-2",
+                    "kyc_eval_status": "approved",
+                    "cash_coverage_status": "eligible_covered",
+                    "next_action": "continue_cash_flow",
+                    "correlation_id": "corr-account-2",
+                    "reason_codes": ["DOC_VALID"],
+                }
+            ),
         ),
     )
     monkeypatch.setattr(
-        payment_service,
-        "_resolve_cash_kyc_policy_context",
-        AsyncMock(
-            return_value={
-                "required": True,
-                "branchId": BRANCH_ID,
-                "policyVersion": "cash-kyc-v1",
-                "minConfidence": 0.85,
-                "ttlDays": 30,
-            }
-        ),
-    )
-    monkeypatch.setattr(
-        "services.payments_service.businesses_repo.get_by_id",
-        AsyncMock(return_value=SimpleNamespace(id="merchant1")),
+        payment_service, "_load_s3_bytes_from_ref", lambda _ref: b"fake-image-bytes"
     )
 
     payload = asyncio.run(
@@ -459,6 +464,20 @@ def test_start_account_kyc_evaluation_success(monkeypatch):
     assert payload["verificationId"] == "kyc-account-2"
     assert payload["kycEvalStatus"] == "approved"
     assert payload["appCoversCash"] is True
+
+
+def test_global_cash_kyc_status_pending_when_no_verification(monkeypatch):
+    _set_kyc_deps(
+        monkeypatch,
+        verifications_repo=SimpleNamespace(
+            get_global_approved=AsyncMock(return_value=None),
+            get_latest_global_by_customer=AsyncMock(return_value=None),
+        ),
+    )
+
+    status = asyncio.run(payment_service.get_global_cash_kyc_status(user_id="user1"))
+    assert status["kycEvalStatus"] == "pending_evidence"
+    assert status["allowCash"] is False
 
 
 def test_non_cash_flow_regression_transfer_still_awaits_proof(

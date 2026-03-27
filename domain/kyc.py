@@ -36,13 +36,19 @@ class CashCoverageStatus(str, Enum):
     BLOCKED = "blocked"
 
 
+class KycScope(str, Enum):
+    GLOBAL_ACCOUNT = "global_account"
+    MERCHANT_SCOPED = "merchant_scoped"
+
+
 class KycVerification(BaseModel):
     id: PyObjectId = Field(alias="_id")
+    kycScope: str = KycScope.MERCHANT_SCOPED.value
     verificationSource: str = "checkout"
     paymentAttemptId: Optional[PyObjectId] = None
     orderId: Optional[PyObjectId] = None
     customerId: PyObjectId
-    merchantId: PyObjectId
+    merchantId: Optional[PyObjectId] = None
     branchId: Optional[PyObjectId] = None
     policyVersion: str
     minConfidence: float

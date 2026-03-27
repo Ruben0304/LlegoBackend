@@ -9,7 +9,7 @@ from uuid import uuid4
 from bson import ObjectId
 
 from core.config import settings
-from domain.kyc import KycEvalStatus, KycVerification
+from domain.kyc import KycEvalStatus, KycScope, KycVerification
 from repositories.kyc_verification_repository import kyc_verifications_repo
 
 from .decision_mapper import map_kyc_decision
@@ -46,6 +46,13 @@ class KycDecisionService:
             policy_version=policy_version,
         )
 
+    async def get_global_approved(
+        self,
+        *,
+        customer_id: str,
+    ) -> Optional[KycVerification]:
+        return await kyc_verifications_repo.get_global_approved(customer_id=customer_id)
+
     async def _evaluate(
         self,
         *,
@@ -77,6 +84,7 @@ class KycDecisionService:
 
         verification = KycVerification(
             _id=str(ObjectId()),
+            kycScope=KycScope.MERCHANT_SCOPED.value,
             verificationSource=verification_source,
             paymentAttemptId=payment_attempt_id,
             orderId=order_id,
@@ -116,6 +124,113 @@ class KycDecisionService:
         }
 
         provider_result = await gemini_kyc_adapter.evaluate(provider_request)
+        mapped = map_kyc_decision(
+            provider_result.get("verdict", "error"),
+            provider_result.get("confidence_score"),
+        )
+
+        kyc_status = mapped["kyc_eval_status"]
+        expires_at = None
+        if kyc_status == KycEvalStatus.APPROVED.value:
+            expires_at = datetime.utcnow() + timedelta(
+                days=ttl_days or settings.cash_kyc_default_ttl_days
+            )
+
+        updated = await kyc_verifications_repo.update_result(
+            verification_id=str(verification.id),
+            status=kyc_status,
+            verdict=provider_result.get("verdict"),
+            confidence_score=provider_result.get("confidence_score"),
+            reason_codes=provider_result.get("reason_codes"),
+            extracted_signals=provider_result.get("extracted_signals"),
+            model_version=provider_result.get("model_version"),
+            evaluated_at=datetime.utcnow(),
+            expires_at=expires_at,
+            last_error=provider_result.get("error"),
+        )
+
+        return {
+            "verification_id": str(updated.id) if updated else str(verification.id),
+            "correlation_id": correlation_id,
+            "request_id": request_id,
+            "verdict": provider_result.get("verdict", "error"),
+            "confidence_score": provider_result.get("confidence_score", 0.0),
+            "reason_codes": provider_result.get("reason_codes", []),
+            "extracted_signals": provider_result.get("extracted_signals", {}),
+            "model_version": provider_result.get("model_version"),
+            "kyc_eval_status": mapped["kyc_eval_status"],
+            "cash_coverage_status": mapped["cash_coverage_status"],
+            "next_action": mapped["next_action"],
+            "expires_at": expires_at,
+            "provider_error": provider_result.get("error"),
+        }
+
+    async def evaluate_global_cash_kyc_with_images(
+        self,
+        *,
+        customer_id: str,
+        policy_version: str,
+        min_confidence: float,
+        ttl_days: int,
+        evidence_refs: List[Dict[str, str]],
+        device_context: Dict[str, Any],
+        selfie_with_id_bytes: bytes,
+        selfie_with_id_mime_type: str,
+        identity_document_front_bytes: bytes,
+        identity_document_front_mime_type: str,
+    ) -> Dict[str, Any]:
+        now = datetime.now(timezone.utc)
+        request_id = str(uuid4())
+        correlation_id = str(uuid4())
+        evidence_hash = self.build_evidence_hash(evidence_refs)
+        scope_key = f"global:{customer_id}"
+        idempotency_key = self.build_idempotency_key(
+            scope_key, evidence_hash, policy_version
+        )
+
+        verification = KycVerification(
+            _id=str(ObjectId()),
+            kycScope=KycScope.GLOBAL_ACCOUNT.value,
+            verificationSource="account_global",
+            paymentAttemptId=None,
+            orderId=None,
+            customerId=customer_id,
+            merchantId=None,
+            branchId=None,
+            policyVersion=policy_version,
+            minConfidence=min_confidence,
+            evidenceRefs=evidence_refs,
+            evidenceHash=evidence_hash,
+            requestId=request_id,
+            correlationId=correlation_id,
+            idempotencyKey=idempotency_key,
+            status=KycEvalStatus.SUBMITTED.value,
+        )
+        await kyc_verifications_repo.create(verification)
+
+        provider_request = {
+            "request_id": request_id,
+            "correlation_id": correlation_id,
+            "idempotency_key": idempotency_key,
+            "policy_version": policy_version,
+            "subject": {
+                "user_id": customer_id,
+            },
+            "context": {
+                "flow": "global_account_kyc",
+                "timestamp": now.isoformat(),
+            },
+            "evidence": evidence_refs,
+            "device_context": device_context,
+        }
+
+        provider_result = await gemini_kyc_adapter.evaluate_with_images(
+            request_payload=provider_request,
+            selfie_with_id_bytes=selfie_with_id_bytes,
+            selfie_with_id_mime_type=selfie_with_id_mime_type,
+            identity_document_front_bytes=identity_document_front_bytes,
+            identity_document_front_mime_type=identity_document_front_mime_type,
+        )
         mapped = map_kyc_decision(
             provider_result.get("verdict", "error"),
             provider_result.get("confidence_score"),
