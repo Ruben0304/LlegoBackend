@@ -13,6 +13,9 @@ from .py_object_id import PyObjectId
 class OrderStatus(str, Enum):
     """Order status enum."""
 
+    AWAITING_DELIVERY_ACCEPTANCE = (
+        "awaiting_delivery_acceptance"  # Waiting for courier to accept
+    )
     PENDING_PAYMENT = "pending_payment"  # Waiting for payment
     PAYMENT_IN_PROGRESS = "payment_in_progress"  # Payment being processed
     PENDING_ACCEPTANCE = "pending_acceptance"  # Waiting for business to accept
@@ -63,10 +66,10 @@ class VehicleType(str, Enum):
 class AddressType(str, Enum):
     """Type of delivery address location."""
 
-    HOUSE = "house"          # Casa
+    HOUSE = "house"  # Casa
     APARTMENT = "apartment"  # Apartamento / Edificio
-    OFFICE = "office"        # Oficina
-    OTHER = "other"          # Otro
+    OFFICE = "office"  # Oficina
+    OTHER = "other"  # Otro
 
 
 class GeoPoint(BaseModel):
@@ -185,10 +188,12 @@ class DeliveryAddress(BaseModel):
 
     # Delivery instruction fields (Uber Eats / Glovo style)
     addressType: AddressType = AddressType.HOUSE
-    buildingName: Optional[str] = None       # Nombre del edificio/conjunto
-    floor: Optional[str] = None              # Piso (ej: "3", "PB")
-    apartment: Optional[str] = None          # Número de apartamento (ej: "3B")
-    deliveryInstructions: Optional[str] = None  # Instrucciones libres (ej: "Tocar timbre 2 veces")
+    buildingName: Optional[str] = None  # Nombre del edificio/conjunto
+    floor: Optional[str] = None  # Piso (ej: "3", "PB")
+    apartment: Optional[str] = None  # Número de apartamento (ej: "3B")
+    deliveryInstructions: Optional[str] = (
+        None  # Instrucciones libres (ej: "Tocar timbre 2 veces")
+    )
 
 
 class PickupAddress(BaseModel):
@@ -241,7 +246,9 @@ class Order(BaseModel):
     paymentMethod: str
     paymentStatus: PaymentStatus = PaymentStatus.PENDING
     paymentId: Optional[str] = None
-    currentPaymentAttemptId: Optional[PyObjectId] = None  # Current active payment attempt
+    currentPaymentAttemptId: Optional[PyObjectId] = (
+        None  # Current active payment attempt
+    )
     paidAt: Optional[datetime] = None  # When payment was completed
     deliveryFeePaid: float = 0.0  # Delivery fee actually paid (for tracking)
 
@@ -337,8 +344,22 @@ class OrderLocationUpdate(BaseModel):
 # Allowed state transitions
 ALLOWED_TRANSITIONS: Dict[str, List[str]] = {
     OrderStatus.PENDING_ACCEPTANCE.value: [
-        OrderStatus.ACCEPTED.value,
+        OrderStatus.AWAITING_DELIVERY_ACCEPTANCE.value,
         OrderStatus.MODIFIED_BY_STORE.value,
+        OrderStatus.CANCELLED.value,
+    ],
+    OrderStatus.AWAITING_DELIVERY_ACCEPTANCE.value: [
+        OrderStatus.PENDING_PAYMENT.value,
+        OrderStatus.CANCELLED.value,
+    ],
+    OrderStatus.PENDING_PAYMENT.value: [
+        OrderStatus.ACCEPTED.value,
+        OrderStatus.AWAITING_DELIVERY_ACCEPTANCE.value,
+        OrderStatus.CANCELLED.value,
+    ],
+    OrderStatus.PAYMENT_IN_PROGRESS.value: [
+        OrderStatus.PENDING_PAYMENT.value,
+        OrderStatus.ACCEPTED.value,
         OrderStatus.CANCELLED.value,
     ],
     OrderStatus.MODIFIED_BY_STORE.value: [

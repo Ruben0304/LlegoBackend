@@ -8,12 +8,6 @@ import strawberry
 from bson import ObjectId
 from strawberry.types import Info
 
-from repositories.orders_repository import (
-    branch_delivery_requests_repo,
-    delivery_persons_repo,
-    orders_repo,
-)
-from services.orders_service import order_service
 from domain.orders import (
     DeliveryPerson,
     DeliveryRequestStatus,
@@ -21,6 +15,12 @@ from domain.orders import (
     VehicleType,
 )
 from repositories import branches_repo, users_repo
+from repositories.orders_repository import (
+    branch_delivery_requests_repo,
+    delivery_persons_repo,
+    orders_repo,
+)
+from services.orders_service import order_service
 from utils.graphql_auth import apply_optional_jwt, require_auth
 
 from .types import (
@@ -40,6 +40,7 @@ from .types import (
     order_to_type,
 )
 
+
 @strawberry.type
 class DeliveryPersonStatsType:
     totalDeliveries: int
@@ -47,6 +48,7 @@ class DeliveryPersonStatsType:
     totalDistanceKm: float
     avgDurationMin: float
     avgRating: float
+
 
 @strawberry.enum
 class DashboardPeriod(Enum):
@@ -76,6 +78,7 @@ async def _get_or_create_delivery_person(user_id: str) -> DeliveryPerson:
         updatedAt=now,
     )
     return await delivery_persons_repo.create(new_dp)
+
 
 @strawberry.type
 class OrderQuery:
@@ -232,13 +235,28 @@ class OrderQuery:
         delivery_person = await _get_or_create_delivery_person(user_id)
 
         if delivery_person.linkedBranchIds:
-            orders = await orders_repo.get_ready_for_pickup_by_branches(
+            ready_orders = await orders_repo.get_ready_for_pickup_by_branches(
                 delivery_person.linkedBranchIds
             )
+            prepayment_orders = (
+                await orders_repo.get_awaiting_delivery_acceptance_by_branches(
+                    delivery_person.linkedBranchIds
+                )
+            )
         else:
-            orders = await orders_repo.get_ready_for_pickup_nearby(
+            ready_orders = await orders_repo.get_ready_for_pickup_nearby(
                 longitude, latitude, radiusKm
             )
+            prepayment_orders = (
+                await orders_repo.get_awaiting_delivery_acceptance_nearby(
+                    longitude, latitude, radiusKm
+                )
+            )
+
+        orders = sorted(
+            [*prepayment_orders, *ready_orders],
+            key=lambda o: o.createdAt,
+        )
 
         return [order_to_type(o) for o in orders]
 

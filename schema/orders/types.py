@@ -19,6 +19,9 @@ from utils.serialization import to_strawberry_dict
 # Enums
 @strawberry.enum
 class OrderStatusEnum(Enum):
+    AWAITING_DELIVERY_ACCEPTANCE = "awaiting_delivery_acceptance"
+    PENDING_PAYMENT = "pending_payment"
+    PAYMENT_IN_PROGRESS = "payment_in_progress"
     PENDING_ACCEPTANCE = "pending_acceptance"
     MODIFIED_BY_STORE = "modified_by_store"
     ACCEPTED = "accepted"
@@ -101,15 +104,21 @@ class OrderItemType:
         # since orders are relatively immutable after creation
         return generate_presigned_url(self._image_path, expiration=86400)
 
-    @strawberry.field(description="Presigned URL for the very low quality item image (200x200)")
+    @strawberry.field(
+        description="Presigned URL for the very low quality item image (200x200)"
+    )
     def imageUrlMuyBaja(self) -> Optional[str]:
         from utils.s3 import generate_image_variant_url
 
         if not self._image_path:
             return None
-        return generate_image_variant_url(self._image_path, "muy_baja", expiration=86400)
+        return generate_image_variant_url(
+            self._image_path, "muy_baja", expiration=86400
+        )
 
-    @strawberry.field(description="Presigned URL for the low quality item image (720x540)")
+    @strawberry.field(
+        description="Presigned URL for the low quality item image (720x540)"
+    )
     def imageUrlBaja(self) -> Optional[str]:
         from utils.s3 import generate_image_variant_url
 
@@ -117,7 +126,9 @@ class OrderItemType:
             return None
         return generate_image_variant_url(self._image_path, "baja", expiration=86400)
 
-    @strawberry.field(description="Presigned URL for the medium quality item image (1080x1350)")
+    @strawberry.field(
+        description="Presigned URL for the medium quality item image (1080x1350)"
+    )
     def imageUrlMedia(self) -> Optional[str]:
         from utils.s3 import generate_image_variant_url
 
@@ -125,7 +136,9 @@ class OrderItemType:
             return None
         return generate_image_variant_url(self._image_path, "media", expiration=86400)
 
-    @strawberry.field(description="Presigned URL for the high quality item image (1440x1800)")
+    @strawberry.field(
+        description="Presigned URL for the high quality item image (1440x1800)"
+    )
     def imageUrlAlta(self) -> Optional[str]:
         from utils.s3 import generate_image_variant_url
 
@@ -646,25 +659,35 @@ class TopProductType:
         # Use 24-hour expiration for dashboard stats (86400 seconds)
         return generate_presigned_url(self._image_path, expiration=86400)
 
-    @strawberry.field(description="Presigned URL for the very low quality product image (200x200)")
+    @strawberry.field(
+        description="Presigned URL for the very low quality product image (200x200)"
+    )
     def imageUrlMuyBaja(self) -> str:
         from utils.s3 import generate_image_variant_url
 
-        return generate_image_variant_url(self._image_path, "muy_baja", expiration=86400)
+        return generate_image_variant_url(
+            self._image_path, "muy_baja", expiration=86400
+        )
 
-    @strawberry.field(description="Presigned URL for the low quality product image (720x540)")
+    @strawberry.field(
+        description="Presigned URL for the low quality product image (720x540)"
+    )
     def imageUrlBaja(self) -> str:
         from utils.s3 import generate_image_variant_url
 
         return generate_image_variant_url(self._image_path, "baja", expiration=86400)
 
-    @strawberry.field(description="Presigned URL for the medium quality product image (1080x1350)")
+    @strawberry.field(
+        description="Presigned URL for the medium quality product image (1080x1350)"
+    )
     def imageUrlMedia(self) -> str:
         from utils.s3 import generate_image_variant_url
 
         return generate_image_variant_url(self._image_path, "media", expiration=86400)
 
-    @strawberry.field(description="Presigned URL for the high quality product image (1440x1800)")
+    @strawberry.field(
+        description="Presigned URL for the high quality product image (1440x1800)"
+    )
     def imageUrlAlta(self) -> str:
         from utils.s3 import generate_image_variant_url
 
@@ -706,6 +729,7 @@ class DeliveryLocationUpdateType:
 @strawberry.type
 class OrderTrackingStreamPayload:
     """Real-time order tracking payload for WebSocket subscriptions."""
+
     estimatedMinutes: Optional[int] = None
     distanceKm: Optional[float] = None
     deliveryPersonLocation: Optional[CoordinatesType] = None
@@ -737,6 +761,7 @@ class OrderTrackingStreamPayload:
 @strawberry.type
 class OrderSummaryType:
     """Minimal order info for tracking stream."""
+
     id: str
     status: OrderStatusEnum
     estimatedMinutesRemaining: Optional[int] = None

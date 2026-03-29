@@ -23,9 +23,13 @@ from pydantic import BaseModel
 
 from clients.mongodb_client import get_database
 from core.config import settings
-from domain.crypto_payments import PendingPayout, TronDealerWallet, TronDealerWalletStatus
-from repositories.trondealer_repository import TronDealerRepository
+from domain.crypto_payments import (
+    PendingPayout,
+    TronDealerWallet,
+    TronDealerWalletStatus,
+)
 from repositories.payout_repository import PayoutRepository
+from repositories.trondealer_repository import TronDealerRepository
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +43,7 @@ TRONDEALER_API_BASE = "https://trondealer.com/api/v2"
 
 class TronDealerWalletData(BaseModel):
     """Wallet data from TronDealer API v2."""
+
     id: str
     address: str
     label: Optional[str] = None
@@ -51,24 +56,25 @@ class TronDealerCreateWalletResponse(BaseModel):
     Response from POST /api/v2/wallets/assign.
     Based on TronDealer API v2 documentation.
     """
+
     success: bool
     wallet: TronDealerWalletData
-    
+
     # Alias for backward compatibility
     @property
     def address(self) -> str:
         return self.wallet.address
-    
+
     @property
     def wallet_address(self) -> str:
         return self.wallet.address
-    
+
     # Default values for fields not provided by API v2
     @property
     def token(self) -> str:
         """Default token is USDT on BSC."""
         return "USDT"
-    
+
     @property
     def network(self) -> str:
         """TronDealer API v2 uses BSC (BEP20)."""
@@ -84,10 +90,11 @@ class TronDealerWebhookPayload(BaseModel):
     Signature: HMAC-SHA256 of the raw request body with webhook_secret,
     delivered in the X-TronDealer-Signature header.
     """
-    address: str            # wallet that received the deposit
-    amount: str             # string number, e.g. "10.00"
-    token: str              # "USDT" | "USDC" etc.
-    txhash: str             # blockchain tx hash
+
+    address: str  # wallet that received the deposit
+    amount: str  # string number, e.g. "10.00"
+    token: str  # "USDT" | "USDC" etc.
+    txhash: str  # blockchain tx hash
     confirmations: int = 1
 
     class Config:
@@ -228,13 +235,21 @@ class TronDealerService:
 
         # 4. Mark order as PAID (same pattern as payments_service.py)
         db = get_database()
+        order_doc = await db.orders.find_one({"_id": wallet.orderId}, {"status": 1})
+        current_status = (order_doc or {}).get("status")
+        if current_status == "pending_payment":
+            next_status = "accepted"
+        elif current_status in {"accepted", "modified_by_store"}:
+            next_status = "accepted"
+        else:
+            next_status = "pending_acceptance"
         await db.orders.update_one(
             {"_id": wallet.orderId},
             {
                 "$set": {
                     "paymentStatus": "completed",
                     "paidAt": datetime.utcnow(),
-                    "status": "pending_acceptance",
+                    "status": next_status,
                     "updatedAt": datetime.utcnow(),
                 }
             },
@@ -279,7 +294,9 @@ class TronDealerService:
             )
             raise ValueError(f"IP {client_ip} not in TronDealer whitelist.")
 
-    def _verify_signature(self, raw_body: bytes, signature_header: Optional[str]) -> None:
+    def _verify_signature(
+        self, raw_body: bytes, signature_header: Optional[str]
+    ) -> None:
         """
         Verify HMAC-SHA256 signature of the raw request body.
         TronDealer sends the hex digest in X-TronDealer-Signature.
@@ -287,7 +304,9 @@ class TronDealerService:
         """
         secret = settings.trondealer_webhook_secret
         if not secret:
-            logger.debug("TronDealer webhook signature check skipped (no secret configured).")
+            logger.debug(
+                "TronDealer webhook signature check skipped (no secret configured)."
+            )
             return
 
         if not signature_header:

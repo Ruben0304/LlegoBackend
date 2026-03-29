@@ -6,16 +6,6 @@ from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
 
-from repositories import (
-    branches_repo,
-    businesses_repo,
-    combos_repo,
-    payment_methods_repo,
-    products_repo,
-    showcases_repo,
-)
-from services.access_checker import access_checker
-
 from domain.orders import (
     ALLOWED_TRANSITIONS,
     AddressType,
@@ -31,11 +21,20 @@ from domain.orders import (
     PaymentStatus,
     PickupAddress,
 )
+from repositories import (
+    branches_repo,
+    businesses_repo,
+    combos_repo,
+    payment_methods_repo,
+    products_repo,
+    showcases_repo,
+)
 from repositories.orders_repository import (
     DeliveryPersonRepository,
     OrderLocationRepository,
     OrderRepository,
 )
+from services.access_checker import access_checker
 from services.orders_utils import (
     calculate_delivery_fee_h3,
     coords_to_h3,
@@ -97,7 +96,9 @@ class OrderService:
             return value * exchange_rate
         if from_curr == "CUP" and to_curr == "USD":
             return value / exchange_rate
-        raise ValueError(f"ConversiÃ³n de moneda no soportada: {from_curr} -> {to_curr}")
+        raise ValueError(
+            f"ConversiÃ³n de moneda no soportada: {from_curr} -> {to_curr}"
+        )
 
     async def _resolve_payment_method(
         self, payment_method: str
@@ -108,9 +109,13 @@ class OrderService:
 
         payment_method_doc = None
         if len(payment_method_raw) == 24:
-            payment_method_doc = await payment_methods_repo.get_by_id(payment_method_raw)
+            payment_method_doc = await payment_methods_repo.get_by_id(
+                payment_method_raw
+            )
         if not payment_method_doc:
-            payment_method_doc = await payment_methods_repo.get_by_code(payment_method_raw)
+            payment_method_doc = await payment_methods_repo.get_by_code(
+                payment_method_raw
+            )
 
         if payment_method_doc:
             return (
@@ -240,7 +245,9 @@ class OrderService:
                 if not product:
                     product = await products_repo.get_by_id(selected_product_id)
                     if not product:
-                        raise ValueError(f"Producto {selected_product_id} no encontrado")
+                        raise ValueError(
+                            f"Producto {selected_product_id} no encontrado"
+                        )
                     product_cache[selected_product_id] = product
 
                 if not product.availability:
@@ -376,7 +383,9 @@ class OrderService:
             discount_amount = base_unit_total * (discount_value_raw / 100)
         elif discount_type == "fixed":
             if discount_value_raw < 0:
-                raise ValueError(f"El combo '{combo.name}' tiene descuento fijo inválido")
+                raise ValueError(
+                    f"El combo '{combo.name}' tiene descuento fijo inválido"
+                )
             discount_value_snapshot = self._convert_amount(
                 amount=discount_value_raw,
                 from_currency=combo_currency,
@@ -774,7 +783,9 @@ class OrderService:
         # Default messages
         if not message:
             messages = {
+                OrderStatus.AWAITING_DELIVERY_ACCEPTANCE: "Pedido aceptado por tienda, esperando mensajero",
                 OrderStatus.ACCEPTED: "Pedido aceptado por la tienda",
+                OrderStatus.PENDING_PAYMENT: "Mensajero confirmado. Pedido listo para pagar",
                 OrderStatus.PREPARING: "Tu pedido estÃ¡ siendo preparado",
                 OrderStatus.READY_FOR_PICKUP: "Pedido listo para recoger",
                 OrderStatus.ON_THE_WAY: "Tu pedido estÃ¡ en camino",
@@ -846,9 +857,9 @@ class OrderService:
 
         return await self.update_status(
             order_id,
-            OrderStatus.ACCEPTED,
+            OrderStatus.AWAITING_DELIVERY_ACCEPTANCE,
             OrderActor.BUSINESS,
-            f"Pedido aceptado. Tiempo estimado: {estimated_minutes} minutos",
+            f"Pedido aceptado por tienda. Esperando mensajero. Tiempo estimado: {estimated_minutes} minutos",
         )
 
     async def reject_order(self, order_id: str, reason: str, user_id: str) -> Order:
@@ -881,7 +892,12 @@ class OrderService:
         if not order:
             raise ValueError("Pedido no encontrado")
 
-        if order.status not in [OrderStatus.PENDING_ACCEPTANCE, OrderStatus.ACCEPTED]:
+        if order.status not in [
+            OrderStatus.PENDING_ACCEPTANCE,
+            OrderStatus.AWAITING_DELIVERY_ACCEPTANCE,
+            OrderStatus.PENDING_PAYMENT,
+            OrderStatus.ACCEPTED,
+        ]:
             raise ValueError("No se puede modificar el pedido en este estado")
 
         # Verify user has access to the branch
@@ -928,7 +944,8 @@ class OrderService:
                 or original_item.name != order_item.name
                 or (original_item.comboSelections or [])
                 != (order_item.comboSelections or [])
-                or bool(getattr(original_item, "hasGift", False)) != bool(order_item.hasGift)
+                or bool(getattr(original_item, "hasGift", False))
+                != bool(order_item.hasGift)
             )
 
             order_item.wasModifiedByStore = was_modified
@@ -972,9 +989,15 @@ class OrderService:
         if order.status != OrderStatus.MODIFIED_BY_STORE:
             raise ValueError("El pedido no tiene modificaciones pendientes")
 
+        next_status = (
+            OrderStatus.ACCEPTED
+            if order.paymentStatus == PaymentStatus.COMPLETED
+            else OrderStatus.AWAITING_DELIVERY_ACCEPTANCE
+        )
+
         return await self.update_status(
             order_id,
-            OrderStatus.ACCEPTED,
+            next_status,
             OrderActor.CUSTOMER,
             "Cliente aceptÃ³ las modificaciones",
         )
@@ -1013,6 +1036,8 @@ class OrderService:
 
         # Can only cancel in early stages
         cancellable_statuses = [
+            OrderStatus.AWAITING_DELIVERY_ACCEPTANCE,
+            OrderStatus.PENDING_PAYMENT,
             OrderStatus.PENDING_ACCEPTANCE,
             OrderStatus.MODIFIED_BY_STORE,
             OrderStatus.ACCEPTED,
@@ -1039,23 +1064,30 @@ class OrderService:
         if order.status != OrderStatus.READY_FOR_PICKUP:
             raise ValueError("El pedido no estÃ¡ listo para recoger")
 
-        if order.deliveryPersonId:
-            raise ValueError("El pedido ya tiene un repartidor asignado")
-
         # Get delivery person
         delivery_person = await self.delivery_repo.get_by_user_id(user_id)
         if not delivery_person:
             raise ValueError("No eres un repartidor registrado")
 
-        if delivery_person.currentOrderId:
+        if order.deliveryPersonId and not self._ids_equal(
+            order.deliveryPersonId, delivery_person.id
+        ):
+            raise ValueError("El pedido ya tiene un repartidor asignado")
+
+        if delivery_person.currentOrderId and not self._ids_equal(
+            delivery_person.currentOrderId, order_id
+        ):
             raise ValueError("Ya tienes un pedido en curso")
 
-        # Assign delivery person
-        estimated_time = datetime.utcnow() + timedelta(minutes=30)
-        await self.orders_repo.assign_delivery_person(
-            order_id, delivery_person.id, estimated_time
-        )
-        await self.delivery_repo.assign_order(delivery_person.id, order_id)
+        # Assign delivery person if it is not pre-assigned yet
+        if not order.deliveryPersonId:
+            estimated_time = datetime.utcnow() + timedelta(minutes=30)
+            await self.orders_repo.assign_delivery_person(
+                order_id, delivery_person.id, estimated_time
+            )
+
+        if not delivery_person.currentOrderId:
+            await self.delivery_repo.assign_order(delivery_person.id, order_id)
 
         return await self.update_status(
             order_id,
@@ -1064,15 +1096,86 @@ class OrderService:
             f"Repartidor {delivery_person.name} asignado",
         )
 
+    async def accept_order_for_payment(self, order_id: str, user_id: str) -> Order:
+        """Delivery person accepts order before payment is enabled."""
+        order = await self.orders_repo.get_by_id(order_id)
+        if not order:
+            raise ValueError("Pedido no encontrado")
+
+        if order.status != OrderStatus.AWAITING_DELIVERY_ACCEPTANCE:
+            raise ValueError("El pedido no está esperando confirmación del mensajero")
+
+        if order.deliveryPersonId:
+            raise ValueError("El pedido ya fue tomado por otro mensajero")
+
+        delivery_person = await self.delivery_repo.get_by_user_id(user_id)
+        if not delivery_person:
+            raise ValueError("No eres un repartidor registrado")
+
+        reserved_order = await self.orders_repo.set_delivery_person(
+            order_id, delivery_person.id
+        )
+        if not reserved_order:
+            raise ValueError("No se pudo reservar el pedido para este mensajero")
+
+        return await self.update_status(
+            order_id,
+            OrderStatus.PENDING_PAYMENT,
+            OrderActor.DELIVERY,
+            "Mensajero asignado. Esperando pago del cliente",
+        )
+
+    async def reject_order_for_payment(self, order_id: str, user_id: str) -> Order:
+        """Delivery person rejects/relinquishes a pre-payment accepted order."""
+        order = await self.orders_repo.get_by_id(order_id)
+        if not order:
+            raise ValueError("Pedido no encontrado")
+
+        if order.status != OrderStatus.PENDING_PAYMENT:
+            raise ValueError("El pedido no está en estado pendiente de pago")
+
+        delivery_person = await self.delivery_repo.get_by_user_id(user_id)
+        if not delivery_person:
+            raise ValueError("No eres un repartidor registrado")
+
+        if not order.deliveryPersonId or not self._ids_equal(
+            order.deliveryPersonId, delivery_person.id
+        ):
+            raise ValueError("No autorizado para rechazar este pedido")
+
+        cleared_order = await self.orders_repo.clear_delivery_person(order_id)
+        if not cleared_order:
+            raise ValueError("No se pudo liberar el pedido")
+
+        return await self.update_status(
+            order_id,
+            OrderStatus.AWAITING_DELIVERY_ACCEPTANCE,
+            OrderActor.DELIVERY,
+            "Mensajero rechazó el pedido. Esperando otro mensajero",
+        )
+
     async def confirm_pickup(self, order_id: str, user_id: str) -> Order:
         """Confirm order pickup from store (delivery person action)."""
         order = await self.orders_repo.get_by_id(order_id)
         if not order:
             raise ValueError("Pedido no encontrado")
 
+        if order.status != OrderStatus.READY_FOR_PICKUP:
+            raise ValueError("El pedido no está listo para recoger")
+
         delivery_person = await self.delivery_repo.get_by_user_id(user_id)
-        if not delivery_person or not self._ids_equal(delivery_person.id, order.deliveryPersonId):
+        if not delivery_person or not self._ids_equal(
+            delivery_person.id, order.deliveryPersonId
+        ):
             raise ValueError("No autorizado")
+
+        if delivery_person.currentOrderId and not self._ids_equal(
+            delivery_person.currentOrderId, order_id
+        ):
+            raise ValueError("Ya tienes otro pedido en curso")
+
+        if not delivery_person.currentOrderId:
+            await self.delivery_repo.assign_order(delivery_person.id, order_id)
 
         return await self.update_status(
             order_id,
@@ -1088,7 +1191,9 @@ class OrderService:
             raise ValueError("Pedido no encontrado")
 
         delivery_person = await self.delivery_repo.get_by_user_id(user_id)
-        if not delivery_person or not self._ids_equal(delivery_person.id, order.deliveryPersonId):
+        if not delivery_person or not self._ids_equal(
+            delivery_person.id, order.deliveryPersonId
+        ):
             raise ValueError("No autorizado")
 
         # Complete delivery
@@ -1117,7 +1222,10 @@ class OrderService:
             branch = await branches_repo.get_by_id(order.branchId)
             business = await businesses_repo.get_by_id(order.businessId)
             manager_ids = {str(mid) for mid in branch.managerIds}
-            if self._ids_equal(business.ownerId, user_id) or str(user_id) in manager_ids:
+            if (
+                self._ids_equal(business.ownerId, user_id)
+                or str(user_id) in manager_ids
+            ):
                 actor = OrderActor.BUSINESS
             else:
                 raise ValueError("No autorizado para comentar en este pedido")
@@ -1184,7 +1292,9 @@ class OrderService:
             is_authorized = (
                 self._ids_equal(business.ownerId, user_id)
                 or str(user_id) in manager_ids
-                or (delivery_person and self._ids_equal(delivery_person.userId, user_id))
+                or (
+                    delivery_person and self._ids_equal(delivery_person.userId, user_id)
+                )
             )
             if not is_authorized:
                 raise ValueError("No autorizado")
@@ -1245,7 +1355,11 @@ class OrderService:
         try:
             # Import here to avoid circular dependency
             from schema.orders.subscriptions import publish_order_tracking
-            from schema.orders.types import OrderTrackingStreamPayload, OrderStatusEnum, CoordinatesType
+            from schema.orders.types import (
+                CoordinatesType,
+                OrderStatusEnum,
+                OrderTrackingStreamPayload,
+            )
 
             # Get delivery person location if assigned
             delivery_person_location = None
@@ -1253,18 +1367,21 @@ class OrderService:
             estimated_minutes = None
 
             if order.deliveryPersonId:
-                delivery_person = await self.delivery_repo.get_by_id(order.deliveryPersonId)
+                delivery_person = await self.delivery_repo.get_by_id(
+                    order.deliveryPersonId
+                )
                 if delivery_person and delivery_person.currentLocation:
                     delivery_person_location = CoordinatesType(
                         type="Point",
                         coordinates=[
                             delivery_person.currentLocation.coordinates[0],
                             delivery_person.currentLocation.coordinates[1],
-                        ]
+                        ],
                     )
 
                     # Calculate distance and ETA
                     from services.orders_utils import haversine_distance
+
                     distance_km = haversine_distance(
                         (
                             delivery_person.currentLocation.coordinates[0],
@@ -1281,7 +1398,9 @@ class OrderService:
             # Calculate estimated minutes remaining from estimatedDeliveryTime
             estimated_minutes_remaining = None
             if order.estimatedDeliveryTime:
-                remaining = (order.estimatedDeliveryTime - datetime.utcnow()).total_seconds() / 60
+                remaining = (
+                    order.estimatedDeliveryTime - datetime.utcnow()
+                ).total_seconds() / 60
                 estimated_minutes_remaining = max(0, int(remaining))
 
             # Create tracking payload
@@ -1297,7 +1416,9 @@ class OrderService:
             # Publish to subscribers
             await publish_order_tracking(str(order.id), tracking_payload)
 
-            print(f"[ORDER SERVICE] Emitted tracking event for order {order.id}, status: {order.status.value}")
+            print(
+                f"[ORDER SERVICE] Emitted tracking event for order {order.id}, status: {order.status.value}"
+            )
 
             # Send push notifications
             await self._send_order_status_notification(order)  # To customer
@@ -1307,16 +1428,19 @@ class OrderService:
             # Don't fail the main operation if tracking event fails
             print(f"[ORDER SERVICE] Failed to emit tracking event: {e}")
             import traceback
+
             traceback.print_exc()
 
     async def _send_order_status_notification(self, order: Order):
         """Send push notification to customer about order status change."""
         try:
-            from services.push_notification_service import push_service
             from repositories.device_token_repository import device_token_repo
+            from services.push_notification_service import push_service
 
             # Get customer's device tokens
-            device_tokens = await device_token_repo.get_by_user_id(str(order.customerId))
+            device_tokens = await device_token_repo.get_by_user_id(
+                str(order.customerId)
+            )
 
             if not device_tokens:
                 print(f"[PUSH] No device tokens for customer {order.customerId}")
@@ -1326,31 +1450,35 @@ class OrderService:
             status_messages = {
                 OrderStatus.ACCEPTED: {
                     "title": "Â¡Pedido aceptado! ðŸŽ‰",
-                    "body": f"Tu pedido #{order.orderNumber} ha sido aceptado y se estÃ¡ preparando"
+                    "body": f"Tu pedido #{order.orderNumber} ha sido aceptado y se estÃ¡ preparando",
+                },
+                OrderStatus.PENDING_PAYMENT: {
+                    "title": "Mensajero confirmado",
+                    "body": f"Tu pedido #{order.orderNumber} ya puede pagarse",
                 },
                 OrderStatus.PREPARING: {
                     "title": "Preparando tu pedido ðŸ‘¨â€ðŸ³",
-                    "body": f"Estamos preparando tu pedido #{order.orderNumber}"
+                    "body": f"Estamos preparando tu pedido #{order.orderNumber}",
                 },
                 OrderStatus.READY_FOR_PICKUP: {
                     "title": "Â¡Pedido listo! ðŸ“¦",
-                    "body": f"Tu pedido #{order.orderNumber} estÃ¡ listo para ser recogido"
+                    "body": f"Tu pedido #{order.orderNumber} estÃ¡ listo para ser recogido",
                 },
                 OrderStatus.ON_THE_WAY: {
                     "title": "Â¡En camino! ðŸš—",
-                    "body": f"Tu pedido #{order.orderNumber} estÃ¡ en camino"
+                    "body": f"Tu pedido #{order.orderNumber} estÃ¡ en camino",
                 },
                 OrderStatus.DELIVERED: {
                     "title": "Â¡Pedido entregado! âœ…",
-                    "body": f"Tu pedido #{order.orderNumber} ha sido entregado. Â¡DisfrÃºtalo!"
+                    "body": f"Tu pedido #{order.orderNumber} ha sido entregado. Â¡DisfrÃºtalo!",
                 },
                 OrderStatus.CANCELLED: {
                     "title": "Pedido cancelado âŒ",
-                    "body": f"Tu pedido #{order.orderNumber} ha sido cancelado"
+                    "body": f"Tu pedido #{order.orderNumber} ha sido cancelado",
                 },
                 OrderStatus.MODIFIED_BY_STORE: {
                     "title": "Pedido modificado âš ï¸",
-                    "body": f"La tienda modificÃ³ tu pedido #{order.orderNumber}. Por favor revÃ­salo"
+                    "body": f"La tienda modificÃ³ tu pedido #{order.orderNumber}. Por favor revÃ­salo",
                 },
             }
 
@@ -1367,7 +1495,7 @@ class OrderService:
                 "orderId": str(order.id),
                 "orderNumber": order.orderNumber,
                 "status": order.status.value,
-                "type": "order_status_update"
+                "type": "order_status_update",
             }
 
             # Send to iOS devices
@@ -1377,7 +1505,7 @@ class OrderService:
                     title=notification["title"],
                     body=notification["body"],
                     data=data,
-                    platform="IOS"
+                    platform="IOS",
                 )
                 print(f"[PUSH] Sent to {len(ios_tokens)} iOS devices")
 
@@ -1388,7 +1516,7 @@ class OrderService:
                     title=notification["title"],
                     body=notification["body"],
                     data=data,
-                    platform="ANDROID"
+                    platform="ANDROID",
                 )
                 print(f"[PUSH] Sent to {len(android_tokens)} Android devices")
 
@@ -1396,17 +1524,20 @@ class OrderService:
             # Don't fail the main operation if push notification fails
             print(f"[PUSH] Failed to send notification: {e}")
             import traceback
+
             traceback.print_exc()
 
-    async def _send_new_order_notification_to_business(self, order: Order, branch, business):
+    async def _send_new_order_notification_to_business(
+        self, order: Order, branch, business
+    ):
         """Send push notification to business managers/owner when new order arrives."""
         try:
-            from services.push_notification_service import push_service
             from repositories.device_token_repository import device_token_repo
+            from services.push_notification_service import push_service
 
             # Collect user IDs to notify (owner + managers)
             user_ids_to_notify = [str(business.ownerId)]
-            if hasattr(branch, 'managerIds') and branch.managerIds:
+            if hasattr(branch, "managerIds") and branch.managerIds:
                 user_ids_to_notify.extend([str(mid) for mid in branch.managerIds])
 
             # Remove duplicates
@@ -1419,7 +1550,9 @@ class OrderService:
                 all_tokens.extend(tokens)
 
             if not all_tokens:
-                print(f"[PUSH] No device tokens for business {business.id} managers/owner")
+                print(
+                    f"[PUSH] No device tokens for business {business.id} managers/owner"
+                )
                 return
 
             # Notification message
@@ -1433,7 +1566,7 @@ class OrderService:
                 "branchId": str(order.branchId),
                 "total": str(order.total),
                 "status": order.status.value,
-                "type": "new_order"
+                "type": "new_order",
             }
 
             # Group tokens by platform
@@ -1443,13 +1576,11 @@ class OrderService:
             # Send to iOS devices
             if ios_tokens:
                 await push_service.send_to_all(
-                    tokens=ios_tokens,
-                    title=title,
-                    body=body,
-                    data=data,
-                    platform="IOS"
+                    tokens=ios_tokens, title=title, body=body, data=data, platform="IOS"
                 )
-                print(f"[PUSH BUSINESS] New order sent to {len(ios_tokens)} iOS devices")
+                print(
+                    f"[PUSH BUSINESS] New order sent to {len(ios_tokens)} iOS devices"
+                )
 
             # Send to Android devices
             if android_tokens:
@@ -1458,20 +1589,23 @@ class OrderService:
                     title=title,
                     body=body,
                     data=data,
-                    platform="ANDROID"
+                    platform="ANDROID",
                 )
-                print(f"[PUSH BUSINESS] New order sent to {len(android_tokens)} Android devices")
+                print(
+                    f"[PUSH BUSINESS] New order sent to {len(android_tokens)} Android devices"
+                )
 
         except Exception as e:
             print(f"[PUSH BUSINESS] Failed to send new order notification: {e}")
             import traceback
+
             traceback.print_exc()
 
     async def _send_order_status_update_to_business(self, order: Order):
         """Send push notification to business managers/owner about order status updates."""
         try:
-            from services.push_notification_service import push_service
             from repositories.device_token_repository import device_token_repo
+            from services.push_notification_service import push_service
 
             # Only notify business for specific status changes
             business_relevant_statuses = [
@@ -1491,7 +1625,7 @@ class OrderService:
 
             # Collect user IDs to notify
             user_ids_to_notify = [str(business.ownerId)]
-            if hasattr(branch, 'managerIds') and branch.managerIds:
+            if hasattr(branch, "managerIds") and branch.managerIds:
                 user_ids_to_notify.extend([str(mid) for mid in branch.managerIds])
 
             user_ids_to_notify = list(set(user_ids_to_notify))
@@ -1509,11 +1643,11 @@ class OrderService:
             status_messages = {
                 OrderStatus.CANCELLED: {
                     "title": "Pedido cancelado âŒ",
-                    "body": f"Pedido #{order.orderNumber} ha sido cancelado"
+                    "body": f"Pedido #{order.orderNumber} ha sido cancelado",
                 },
                 OrderStatus.DELIVERED: {
                     "title": "Pedido entregado âœ…",
-                    "body": f"Pedido #{order.orderNumber} fue entregado exitosamente"
+                    "body": f"Pedido #{order.orderNumber} fue entregado exitosamente",
                 },
             }
 
@@ -1527,7 +1661,7 @@ class OrderService:
                 "orderNumber": order.orderNumber,
                 "branchId": str(order.branchId),
                 "status": order.status.value,
-                "type": "order_status_update_business"
+                "type": "order_status_update_business",
             }
 
             # Group tokens by platform
@@ -1541,9 +1675,11 @@ class OrderService:
                     title=notification["title"],
                     body=notification["body"],
                     data=data,
-                    platform="IOS"
+                    platform="IOS",
                 )
-                print(f"[PUSH BUSINESS] Status update sent to {len(ios_tokens)} iOS devices")
+                print(
+                    f"[PUSH BUSINESS] Status update sent to {len(ios_tokens)} iOS devices"
+                )
 
             # Send to Android devices
             if android_tokens:
@@ -1552,13 +1688,17 @@ class OrderService:
                     title=notification["title"],
                     body=notification["body"],
                     data=data,
-                    platform="ANDROID"
+                    platform="ANDROID",
                 )
-                print(f"[PUSH BUSINESS] Status update sent to {len(android_tokens)} Android devices")
+                print(
+                    f"[PUSH BUSINESS] Status update sent to {len(android_tokens)} Android devices"
+                )
 
         except Exception as e:
             print(f"[PUSH BUSINESS] Failed to send status update: {e}")
             import traceback
-            traceback.print_exc()
-order_service = OrderService()
 
+            traceback.print_exc()
+
+
+order_service = OrderService()

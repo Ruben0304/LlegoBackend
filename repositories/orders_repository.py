@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional
 from bson import ObjectId
 
 from clients.mongodb_client import get_database
-
 from domain.orders import (
     BranchDeliveryRequest,
     DeliveryPerson,
@@ -53,7 +52,9 @@ class OrderRepository:
         if doc.get("deliveryPersonId") is not None:
             doc["deliveryPersonId"] = self._to_object_id(doc["deliveryPersonId"])
         if doc.get("currentPaymentAttemptId") is not None:
-            doc["currentPaymentAttemptId"] = self._to_object_id(doc["currentPaymentAttemptId"])
+            doc["currentPaymentAttemptId"] = self._to_object_id(
+                doc["currentPaymentAttemptId"]
+            )
         await collection.insert_one(doc)
         return order
 
@@ -120,6 +121,8 @@ class OrderRepository:
             "status": {
                 "$in": [
                     OrderStatus.PENDING_ACCEPTANCE.value,
+                    OrderStatus.AWAITING_DELIVERY_ACCEPTANCE.value,
+                    OrderStatus.PENDING_PAYMENT.value,
                     OrderStatus.MODIFIED_BY_STORE.value,
                 ]
             },
@@ -160,6 +163,43 @@ class OrderRepository:
         collection = self._get_collection()
         query = {
             "status": OrderStatus.READY_FOR_PICKUP.value,
+            "deliveryPersonId": None,
+            "branchId": {"$in": [self._to_object_id(bid) for bid in branch_ids]},
+        }
+        cursor = collection.find(query).sort("createdAt", 1).limit(50)
+        return [self._doc_to_order(doc) async for doc in cursor]
+
+    async def get_awaiting_delivery_acceptance_nearby(
+        self, longitude: float, latitude: float, radius_km: float = 5.0
+    ) -> List[Order]:
+        """Get orders awaiting courier acceptance near a location using H3 index."""
+        import h3
+
+        from services.orders_utils import H3_RESOLUTION, coords_to_h3
+
+        center_h3 = coords_to_h3(latitude, longitude, H3_RESOLUTION)
+        capped_radius = min(radius_km, 100.0)
+        import math
+
+        k = max(1, math.ceil(capped_radius / 1.22))
+        nearby_cells = list(h3.grid_disk(center_h3, k))
+
+        collection = self._get_collection()
+        query = {
+            "status": OrderStatus.AWAITING_DELIVERY_ACCEPTANCE.value,
+            "deliveryPersonId": None,
+            "branchH3": {"$in": nearby_cells},
+        }
+        cursor = collection.find(query).sort("createdAt", 1).limit(50)
+        return [self._doc_to_order(doc) async for doc in cursor]
+
+    async def get_awaiting_delivery_acceptance_by_branches(
+        self, branch_ids: List[str]
+    ) -> List[Order]:
+        """Get orders awaiting courier acceptance for specific linked branches."""
+        collection = self._get_collection()
+        query = {
+            "status": OrderStatus.AWAITING_DELIVERY_ACCEPTANCE.value,
             "deliveryPersonId": None,
             "branchId": {"$in": [self._to_object_id(bid) for bid in branch_ids]},
         }
@@ -263,6 +303,41 @@ class OrderRepository:
         )
         return self._doc_to_order(result) if result else None
 
+    async def set_delivery_person(
+        self, order_id: str, delivery_person_id: str
+    ) -> Optional[Order]:
+        """Set reserved delivery person without delivery assignment timestamps."""
+        collection = self._get_collection()
+        result = await collection.find_one_and_update(
+            {
+                "_id": self._to_object_id(order_id),
+                "deliveryPersonId": None,
+            },
+            {
+                "$set": {
+                    "deliveryPersonId": self._to_object_id(delivery_person_id),
+                    "updatedAt": datetime.utcnow(),
+                }
+            },
+            return_document=True,
+        )
+        return self._doc_to_order(result) if result else None
+
+    async def clear_delivery_person(self, order_id: str) -> Optional[Order]:
+        """Remove reserved delivery person from order."""
+        collection = self._get_collection()
+        result = await collection.find_one_and_update(
+            {"_id": self._to_object_id(order_id)},
+            {
+                "$set": {
+                    "deliveryPersonId": None,
+                    "updatedAt": datetime.utcnow(),
+                }
+            },
+            return_document=True,
+        )
+        return self._doc_to_order(result) if result else None
+
     async def add_comment(
         self, order_id: str, comment: OrderComment
     ) -> Optional[Order]:
@@ -332,7 +407,9 @@ class OrderRepository:
             update["paymentId"] = payment_id
 
         result = await collection.find_one_and_update(
-            {"_id": self._to_object_id(order_id)}, {"$set": update}, return_document=True
+            {"_id": self._to_object_id(order_id)},
+            {"$set": update},
+            return_document=True,
         )
         return self._doc_to_order(result) if result else None
 
@@ -484,7 +561,9 @@ class OrderRepository:
     ) -> List[Order]:
         """Get orders assigned to a delivery person, sorted by most recent."""
         collection = self._get_collection()
-        query: Dict[str, Any] = {"deliveryPersonId": self._to_object_id(delivery_person_id)}
+        query: Dict[str, Any] = {
+            "deliveryPersonId": self._to_object_id(delivery_person_id)
+        }
         if status:
             query["status"] = status
         skip = (page - 1) * page_size
@@ -499,7 +578,12 @@ class OrderRepository:
         """Get aggregated delivery stats for a delivery person."""
         collection = self._get_collection()
         pipeline = [
-            {"$match": {"deliveryPersonId": self._to_object_id(delivery_person_id), "status": "delivered"}},
+            {
+                "$match": {
+                    "deliveryPersonId": self._to_object_id(delivery_person_id),
+                    "status": "delivered",
+                }
+            },
             {
                 "$group": {
                     "_id": None,
@@ -563,7 +647,9 @@ class DeliveryPersonRepository:
         doc["userId"] = self._to_object_id(doc["userId"])
         if doc.get("currentOrderId") is not None:
             doc["currentOrderId"] = self._to_object_id(doc["currentOrderId"])
-        doc["linkedBranchIds"] = [self._to_object_id(bid) for bid in doc.get("linkedBranchIds", [])]
+        doc["linkedBranchIds"] = [
+            self._to_object_id(bid) for bid in doc.get("linkedBranchIds", [])
+        ]
         await collection.insert_one(doc)
         return delivery_person
 
@@ -640,7 +726,12 @@ class DeliveryPersonRepository:
         collection = self._get_collection()
         result = await collection.find_one_and_update(
             {"_id": self._to_object_id(delivery_person_id)},
-            {"$set": {"currentOrderId": self._to_object_id(order_id), "updatedAt": datetime.utcnow()}},
+            {
+                "$set": {
+                    "currentOrderId": self._to_object_id(order_id),
+                    "updatedAt": datetime.utcnow(),
+                }
+            },
             return_document=True,
         )
         return self._doc_to_delivery_person(result) if result else None
@@ -821,7 +912,9 @@ class BranchDeliveryRequestRepository:
         status: Optional[DeliveryRequestStatus] = None,
     ) -> List[BranchDeliveryRequest]:
         collection = self._get_collection()
-        query: Dict[str, Any] = {"deliveryPersonId": self._to_object_id(delivery_person_id)}
+        query: Dict[str, Any] = {
+            "deliveryPersonId": self._to_object_id(delivery_person_id)
+        }
         if status:
             query["status"] = status.value
         cursor = collection.find(query).sort("createdAt", -1)
@@ -901,6 +994,7 @@ async def create_order_indexes():
     await order_locations.create_index("timestamp", expireAfterSeconds=86400)
 
     print("✓ Order indexes created")
+
 
 # Repository instances
 orders_repo = OrderRepository()

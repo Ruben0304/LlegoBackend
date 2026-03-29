@@ -21,8 +21,8 @@ from pydantic import BaseModel
 from clients.mongodb_client import get_database
 from core.config import settings
 from domain.crypto_payments import PendingPayout, QvaPayInvoice, QvaPayInvoiceStatus
-from repositories.qvapay_repository import QvaPayRepository
 from repositories.payout_repository import PayoutRepository
+from repositories.qvapay_repository import QvaPayRepository
 from services.payments.qvapay_transfer_service import qvapay_transfer_service
 
 logger = logging.getLogger(__name__)
@@ -67,6 +67,7 @@ class QvaPayWebhookPayload(BaseModel):
     Webhook payload sent by QvaPay when a transaction changes status.
     Based on real QvaPay v2 webhook data.
     """
+
     transaction_uuid: str
     remote_id: str
     amount: str  # Viene como string, ej: "1" o "10.50"
@@ -74,7 +75,7 @@ class QvaPayWebhookPayload(BaseModel):
     signed: bool  # IMPORTANTE: debe ser true para procesar
     created_at: str  # ISO 8601
     updated_at: str  # ISO 8601
-    
+
     @property
     def amount_float(self) -> float:
         """Convierte amount de string a float."""
@@ -112,7 +113,7 @@ class QvaPayService:
         """
         Create a QvaPay invoice for an order.
         Returns the QvaPay response including the payment URL.
-        
+
         If QVAPAY_TEST_AMOUNT is set to a value > 0, that amount will be used
         instead of the real amount for testing purposes.
         """
@@ -137,12 +138,12 @@ class QvaPayService:
         }
         if webhook_url:
             payload["webhook"] = webhook_url
-        
+
         # Add success and cancel URLs if base URL is configured
         if settings.qvapay_base_url:
             payload["success_url"] = f"{settings.qvapay_base_url}/api/v1/qvapay/success"
             payload["cancel_url"] = f"{settings.qvapay_base_url}/api/v1/qvapay/cancel"
-        
+
         # Add products if provided
         if products:
             payload["products"] = products
@@ -165,7 +166,9 @@ class QvaPayService:
                 response.status_code,
                 response.text,
             )
-            raise RuntimeError(f"QvaPay API error: {response.status_code} {response.text}")
+            raise RuntimeError(
+                f"QvaPay API error: {response.status_code} {response.text}"
+            )
 
         data = response.json()
         invoice_resp = QvaPayCreateInvoiceResponse(**data)
@@ -175,7 +178,9 @@ class QvaPayService:
         expire_at: Optional[datetime] = None
         if invoice_resp.expire_at:
             try:
-                expire_at = datetime.fromisoformat(invoice_resp.expire_at.replace("Z", "+00:00"))
+                expire_at = datetime.fromisoformat(
+                    invoice_resp.expire_at.replace("Z", "+00:00")
+                )
             except ValueError:
                 pass
 
@@ -219,7 +224,7 @@ class QvaPayService:
         """
         # 1. Validate signature (if configured)
         self._verify_signature(payload.transaction_uuid, signature_header)
-        
+
         # 2. CRITICAL: Verify signed field
         if not payload.signed:
             logger.warning(
@@ -241,14 +246,17 @@ class QvaPayService:
         invoice = await self._invoices.mark_completed(payload.transaction_uuid)
         if invoice is None:
             # Already processed or not found
-            existing = await self._invoices.get_by_transaction_uuid(payload.transaction_uuid)
+            existing = await self._invoices.get_by_transaction_uuid(
+                payload.transaction_uuid
+            )
             if existing and existing.status == QvaPayInvoiceStatus.COMPLETED:
                 logger.info(
                     "QvaPay duplicate webhook ignored uuid=%s", payload.transaction_uuid
                 )
                 return False
             logger.warning(
-                "QvaPay webhook: invoice not found for uuid=%s", payload.transaction_uuid
+                "QvaPay webhook: invoice not found for uuid=%s",
+                payload.transaction_uuid,
             )
             return False
 
@@ -264,13 +272,21 @@ class QvaPayService:
 
         # 5. Mark order as PAID (same pattern as payments_service.py)
         db = get_database()
+        order_doc = await db.orders.find_one({"_id": invoice.orderId}, {"status": 1})
+        current_status = (order_doc or {}).get("status")
+        if current_status == "pending_payment":
+            next_status = "accepted"
+        elif current_status in {"accepted", "modified_by_store"}:
+            next_status = "accepted"
+        else:
+            next_status = "pending_acceptance"
         await db.orders.update_one(
             {"_id": invoice.orderId},
             {
                 "$set": {
                     "paymentStatus": "completed",
                     "paidAt": datetime.utcnow(),
-                    "status": "pending_acceptance",
+                    "status": next_status,
                     "updatedAt": datetime.utcnow(),
                 }
             },
@@ -296,10 +312,10 @@ class QvaPayService:
             str(invoice.orderId),
             amount_float,
         )
-        
+
         # 7. Attempt automatic transfer to business QvaPay account
         await self._attempt_auto_transfer(payout, invoice)
-        
+
         return True
 
     async def handle_success_callback(self, transaction_uuid: str) -> dict:
@@ -308,20 +324,20 @@ class QvaPayService:
         Returns dict with 'found' boolean and invoice info.
         """
         invoice = await self._invoices.get_by_transaction_uuid(transaction_uuid)
-        
+
         if not invoice:
             logger.warning(
                 "QvaPay success callback: invoice not found uuid=%s", transaction_uuid
             )
             return {"found": False, "invoice": None}
-        
+
         logger.info(
             "QvaPay success callback order=%s uuid=%s status=%s",
             str(invoice.orderId),
             transaction_uuid,
             invoice.status,
         )
-        
+
         return {
             "found": True,
             "invoice": invoice,
@@ -336,18 +352,18 @@ class QvaPayService:
         Returns dict with 'cancelled' boolean.
         """
         invoice = await self._invoices.get_by_transaction_uuid(transaction_uuid)
-        
+
         if not invoice:
             logger.warning(
                 "QvaPay cancel callback: invoice not found uuid=%s", transaction_uuid
             )
             return {"cancelled": False, "found": False}
-        
+
         # Only cancel if still pending
         if invoice.status == QvaPayInvoiceStatus.PENDING:
             # Mark invoice as cancelled
             await self._invoices.mark_cancelled(transaction_uuid)
-            
+
             # Cancel the order
             db = get_database()
             await db.orders.update_one(
@@ -360,14 +376,14 @@ class QvaPayService:
                     }
                 },
             )
-            
+
             logger.info(
                 "QvaPay payment cancelled order=%s uuid=%s",
                 str(invoice.orderId),
                 transaction_uuid,
             )
             return {"cancelled": True, "found": True, "order_id": str(invoice.orderId)}
-        
+
         logger.info(
             "QvaPay cancel callback ignored — already processed uuid=%s status=%s",
             transaction_uuid,
@@ -394,12 +410,12 @@ class QvaPayService:
                 str(payout.id),
             )
             return
-        
+
         try:
             # Fetch branch to get qvapayUsername
             db = get_database()
             branch = await db.branches.find_one({"_id": invoice.branchId})
-            
+
             if not branch:
                 logger.warning(
                     "Branch not found for auto-transfer payout=%s branch_id=%s",
@@ -407,7 +423,7 @@ class QvaPayService:
                     str(invoice.branchId),
                 )
                 return
-            
+
             qvapay_username = branch.get("qvapayUsername")
             if not qvapay_username:
                 logger.warning(
@@ -416,9 +432,9 @@ class QvaPayService:
                     branch.get("name", "unknown"),
                 )
                 return
-            
+
             business_name = branch.get("name", "Negocio")
-            
+
             # Attempt transfer
             logger.info(
                 "Attempting automatic QvaPay transfer payout=%s to=%s amount=%s",
@@ -426,14 +442,14 @@ class QvaPayService:
                 qvapay_username,
                 payout.amount,
             )
-            
+
             transfer_result = await qvapay_transfer_service.transfer_to_business(
                 amount=payout.amount,
                 qvapay_username=qvapay_username,
                 description=f"Pago por orden {str(payout.orderId)[:8]} - {business_name}",
                 pin=settings.qvapay_platform_pin,
             )
-            
+
             # Mark payout as confirmed with transfer details
             transfer_notes = (
                 f"Transferencia automática QvaPay exitosa\n"
@@ -441,13 +457,13 @@ class QvaPayService:
                 f"Destinatario: {qvapay_username}\n"
                 f"Monto: ${payout.amount:.2f}"
             )
-            
+
             confirmed_payout = await self._payouts.confirm(
                 payout_id=str(payout.id),
                 confirmed_by=str(ObjectId()),  # System user
                 notes=transfer_notes,
             )
-            
+
             if confirmed_payout:
                 logger.info(
                     "QvaPay auto-transfer successful payout=%s transaction=%s to=%s",
@@ -460,7 +476,7 @@ class QvaPayService:
                     "Failed to mark payout as confirmed after successful transfer payout=%s",
                     str(payout.id),
                 )
-                
+
         except Exception as exc:
             # Log error but don't fail the webhook processing
             # Payout remains pending for manual processing
@@ -483,7 +499,9 @@ class QvaPayService:
         """
         secret = settings.qvapay_webhook_secret
         if not secret:
-            logger.debug("QvaPay webhook signature check skipped (no secret configured).")
+            logger.debug(
+                "QvaPay webhook signature check skipped (no secret configured)."
+            )
             return
 
         if not signature_header:

@@ -583,6 +583,12 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
         if str(order.customerId) != user_id:
             raise Exception("No autorizado")
 
+        payable_statuses = {"pending_payment", "accepted", "modified_by_store"}
+        if order.status.value not in payable_statuses:
+            raise Exception(
+                f"El pedido no está en un estado que permita pago: {order.status.value}"
+            )
+
         branch = await branches_repo.get_by_id(str(order.branchId))
         if not branch:
             raise Exception("Sucursal no encontrada")
@@ -643,6 +649,12 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
             raise Exception("Pedido no encontrado")
         if str(order.customerId) != user_id:
             raise Exception("No autorizado")
+
+        payable_statuses = {"pending_payment", "accepted", "modified_by_store"}
+        if order.status.value not in payable_statuses:
+            raise Exception(
+                f"El pedido no está en un estado que permita pago: {order.status.value}"
+            )
 
         branch = await branches_repo.get_by_id(str(order.branchId))
         if not branch:

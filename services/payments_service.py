@@ -215,7 +215,7 @@ class PaymentService:
 
         # Check order status - must be in a payable state
         # Solo permitir pago después de que negocio acepte
-        payable_statuses = ["accepted", "modified_by_store"]
+        payable_statuses = ["pending_payment", "accepted", "modified_by_store"]
         if order.get("status") not in payable_statuses:
             raise ValueError(
                 f"El pedido no está en un estado que permita pago: {order.get('status')}"
@@ -1584,6 +1584,16 @@ class PaymentService:
         except Exception:
             order_id_obj = order_id
 
+        order_doc = await db.orders.find_one({"_id": order_id_obj}, {"status": 1})
+        current_status = (order_doc or {}).get("status")
+        if current_status == "pending_payment":
+            next_status = "accepted"
+        elif current_status in {"accepted", "modified_by_store"}:
+            next_status = "accepted"
+        else:
+            # Backward-compatible fallback for older flows
+            next_status = "pending_acceptance"
+
         await db.orders.update_one(
             {"_id": order_id_obj},
             {
@@ -1591,7 +1601,7 @@ class PaymentService:
                     "paymentStatus": "completed",
                     "paymentId": attempt_id,
                     "paidAt": datetime.utcnow(),
-                    "status": "pending_acceptance",  # Move to next status
+                    "status": next_status,
                     "updatedAt": datetime.utcnow(),
                 }
             },

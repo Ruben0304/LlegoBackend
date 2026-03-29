@@ -7,13 +7,6 @@ import strawberry
 from bson import ObjectId
 from strawberry.types import Info
 
-from repositories.orders_repository import (
-    branch_delivery_requests_repo,
-    delivery_persons_repo,
-    order_locations_repo,
-    orders_repo,
-)
-from services.orders_service import order_service
 from domain.orders import (
     BranchDeliveryRequest,
     DeliveryRequestStatus,
@@ -23,6 +16,13 @@ from domain.orders import (
     OrderStatus,
 )
 from repositories import branches_repo
+from repositories.orders_repository import (
+    branch_delivery_requests_repo,
+    delivery_persons_repo,
+    order_locations_repo,
+    orders_repo,
+)
+from services.orders_service import order_service
 from utils.graphql_auth import apply_optional_jwt, require_auth
 
 from .inputs import (
@@ -42,6 +42,7 @@ from .types import (
     branch_delivery_request_to_type,
     order_to_type,
 )
+
 
 @strawberry.type
 class OrderMutation:
@@ -317,6 +318,34 @@ class OrderMutation:
             raise Exception(str(e))
 
     # Delivery person mutations
+    @strawberry.mutation(
+        description="Aceptar pedido antes del pago para habilitar el cobro"
+    )
+    async def accept_order_for_payment(
+        self, info: Info, orderId: str, jwt: str
+    ) -> OrderType:
+        user_id = require_auth(jwt, info)
+
+        try:
+            order = await order_service.accept_order_for_payment(orderId, user_id)
+            return order_to_type(order)
+        except ValueError as e:
+            raise Exception(str(e))
+
+    @strawberry.mutation(
+        description="Rechazar pedido previo al pago y liberarlo para otro mensajero"
+    )
+    async def reject_order_for_payment(
+        self, info: Info, orderId: str, jwt: str
+    ) -> OrderType:
+        user_id = require_auth(jwt, info)
+
+        try:
+            order = await order_service.reject_order_for_payment(orderId, user_id)
+            return order_to_type(order)
+        except ValueError as e:
+            raise Exception(str(e))
+
     @strawberry.mutation(description="Aceptar pedido para entrega")
     async def accept_delivery(self, info: Info, orderId: str, jwt: str) -> OrderType:
         user_id = require_auth(jwt, info)
