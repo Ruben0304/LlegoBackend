@@ -54,6 +54,19 @@ class GeminiKycAdapter:
             return f"Gemini API error: {message}"
         return str(exc)
 
+    @staticmethod
+    def _build_provider_error_code(provider_error: str) -> str:
+        normalized = (provider_error or "").lower()
+        if "high demand" in normalized or "experiencing high demand" in normalized:
+            return "GEMINI_MODEL_OVERLOADED"
+        if "timed out" in normalized or "timeout" in normalized:
+            return "GEMINI_TIMEOUT"
+        if "api key not configured" in normalized or "api key not valid" in normalized:
+            return "GEMINI_AUTH_ERROR"
+        if "validation failed" in normalized:
+            return "GEMINI_RESPONSE_VALIDATION_ERROR"
+        return "GEMINI_PROVIDER_ERROR"
+
     def _normalize_structured_response(
         self,
         parsed: GeminiKycResponse,
@@ -100,6 +113,7 @@ class GeminiKycAdapter:
                 "request_id": request_payload.get("request_id"),
                 "correlation_id": request_payload.get("correlation_id"),
                 "error": "Gemini API key not configured",
+                "error_code": "GEMINI_AUTH_ERROR",
             }
 
         correlation_id = request_payload.get("correlation_id")
@@ -184,6 +198,7 @@ class GeminiKycAdapter:
             "request_id": request_payload.get("request_id"),
             "correlation_id": request_payload.get("correlation_id"),
             "error": last_error,
+            "error_code": self._build_provider_error_code(last_error),
         }
 
     async def evaluate_with_images(
@@ -214,6 +229,7 @@ class GeminiKycAdapter:
                 "request_id": request_payload.get("request_id"),
                 "correlation_id": request_payload.get("correlation_id"),
                 "error": "Gemini API key not configured",
+                "error_code": "GEMINI_AUTH_ERROR",
             }
 
         system_instruction = (
@@ -284,6 +300,7 @@ class GeminiKycAdapter:
                 "request_id": request_payload.get("request_id"),
                 "correlation_id": request_payload.get("correlation_id"),
                 "error": provider_error,
+                "error_code": self._build_provider_error_code(provider_error),
             }
         except ValidationError as exc:
             provider_error = f"Gemini response validation failed: {exc}"
@@ -304,6 +321,7 @@ class GeminiKycAdapter:
                 "request_id": request_payload.get("request_id"),
                 "correlation_id": request_payload.get("correlation_id"),
                 "error": provider_error,
+                "error_code": self._build_provider_error_code(provider_error),
             }
         except Exception as exc:
             provider_error = self._build_provider_error(exc)
@@ -324,6 +342,7 @@ class GeminiKycAdapter:
                 "request_id": request_payload.get("request_id"),
                 "correlation_id": request_payload.get("correlation_id"),
                 "error": provider_error,
+                "error_code": self._build_provider_error_code(provider_error),
             }
 
 

@@ -271,6 +271,7 @@ class StartCashKycPayload:
     correlationId: str
     reasonCodes: List[str]
     providerError: Optional[str] = None
+    providerErrorCode: Optional[str] = None
 
 
 @strawberry.type

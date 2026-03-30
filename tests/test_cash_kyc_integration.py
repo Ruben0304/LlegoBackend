@@ -630,3 +630,45 @@ def test_gemini_adapter_returns_exact_provider_error(monkeypatch):
     assert result["verdict"] == "error"
     assert result["reason_codes"] == ["PROVIDER_ERROR"]
     assert "too large" in result["error"]
+    assert result["error_code"] == "GEMINI_PROVIDER_ERROR"
+
+
+def test_gemini_adapter_maps_high_demand_error_code(monkeypatch):
+    settings.gemini_api_key = "test"
+    adapter = GeminiKycAdapter()
+
+    class FakeAioModels:
+        async def generate_content(self, *args, **kwargs):
+            raise genai_errors.ServerError(
+                503,
+                {
+                    "error": {
+                        "message": (
+                            "This model is currently experiencing high demand. "
+                            "Spikes in demand are usually temporary. Please try again later."
+                        ),
+                    }
+                },
+            )
+
+    class FakeClient:
+        aio = SimpleNamespace(models=FakeAioModels())
+
+    monkeypatch.setattr(adapter, "_get_client", lambda: FakeClient())
+
+    result = asyncio.run(
+        adapter.evaluate_with_images(
+            request_payload={
+                "request_id": "r4",
+                "correlation_id": "c4",
+                "policy_version": "cash-kyc-v1",
+            },
+            selfie_with_id_bytes=b"img-1",
+            selfie_with_id_mime_type="image/jpeg",
+            identity_document_front_bytes=b"img-2",
+            identity_document_front_mime_type="image/jpeg",
+        )
+    )
+    assert result["verdict"] == "error"
+    assert result["error_code"] == "GEMINI_MODEL_OVERLOADED"
+    assert "high demand" in result["error"]

@@ -651,6 +651,7 @@ class PaymentService:
             "correlationId": result["correlation_id"],
             "reasonCodes": result.get("reason_codes", []),
             "providerError": result.get("provider_error"),
+            "providerErrorCode": result.get("error_code"),
         }
 
     async def start_cash_kyc_evaluation_by_account(
@@ -724,6 +725,7 @@ class PaymentService:
             "correlationId": result["correlation_id"],
             "reasonCodes": result.get("reason_codes", []),
             "providerError": result.get("provider_error"),
+            "providerErrorCode": result.get("error_code"),
         }
 
     async def start_global_cash_kyc_evaluation(
