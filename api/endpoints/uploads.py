@@ -15,7 +15,12 @@ from services.image_processing import (
 )
 from utils.auth import get_current_user_id_from_header
 from utils.rate_limit import RATE_LIMIT_UPLOADS, limiter
-from utils.s3 import generate_presigned_url, upload_file
+from utils.s3 import (
+    AVATAR_IMAGE_VARIANT_KEYS,
+    COVER_IMAGE_VARIANT_KEYS,
+    generate_presigned_url,
+    upload_file,
+)
 
 router = APIRouter(prefix="/upload", tags=["Uploads"])
 
@@ -50,7 +55,7 @@ ALLOWED_VIDEO_TYPES = {
 # Images are resized and compressed after upload, so we can accept larger files
 MAX_FILE_SIZES = {
     "avatar": 10 * 1024 * 1024,  # 10MB - will be resized to 400x400
-    "cover": 10 * 1024 * 1024,  # 10MB - will be resized to 1200x400
+    "cover": 10 * 1024 * 1024,  # 10MB - will be resized to 1920x1080 (16:9)
     "product": 10 * 1024 * 1024,  # 10MB - will be resized to max 1440x1800
     "model3d": 50 * 1024 * 1024,  # 50MB - 3D models can be large
     "video": 100 * 1024 * 1024,  # 100MB - videos can be large
@@ -431,7 +436,7 @@ async def upload_business_avatar(
 ):
     """
     Upload avatar image for a business.
-    Max size: 2MB | Output: 400x400 JPG
+    Max size: 10MB | Output: 400x400 JPG + low/high variants
     """
     if not user_id:
         raise HTTPException(status_code=401, detail="No autorizado")
@@ -449,7 +454,11 @@ async def upload_business_avatar(
 
     try:
         image_path = await upload_file(
-            processed_content, "businesses/avatars", entity_id, extension
+            processed_content,
+            "businesses/avatars",
+            entity_id,
+            extension,
+            thumbnail_variants=AVATAR_IMAGE_VARIANT_KEYS,
         )
     except Exception:
         raise HTTPException(status_code=500, detail="Error subiendo imagen")
@@ -466,7 +475,7 @@ async def upload_branch_avatar(
 ):
     """
     Upload avatar image for a branch.
-    Max size: 2MB | Output: 400x400 JPG
+    Max size: 10MB | Output: 400x400 JPG + low/high variants
     """
     if not user_id:
         raise HTTPException(status_code=401, detail="No autorizado")
@@ -484,7 +493,11 @@ async def upload_branch_avatar(
 
     try:
         image_path = await upload_file(
-            processed_content, "branches/avatars", entity_id, extension
+            processed_content,
+            "branches/avatars",
+            entity_id,
+            extension,
+            thumbnail_variants=AVATAR_IMAGE_VARIANT_KEYS,
         )
     except Exception:
         raise HTTPException(status_code=500, detail="Error subiendo imagen")
@@ -501,7 +514,7 @@ async def upload_branch_cover(
 ):
     """
     Upload cover image for a branch.
-    Max size: 5MB | Output: 1200x400 JPG
+    Max size: 10MB | Output: 1920x1080 JPG (16:9) + low/high variants
     """
     if not user_id:
         raise HTTPException(status_code=401, detail="No autorizado")
@@ -519,7 +532,11 @@ async def upload_branch_cover(
 
     try:
         image_path = await upload_file(
-            processed_content, "branches/covers", entity_id, extension
+            processed_content,
+            "branches/covers",
+            entity_id,
+            extension,
+            thumbnail_variants=COVER_IMAGE_VARIANT_KEYS,
         )
     except Exception:
         raise HTTPException(status_code=500, detail="Error subiendo imagen")

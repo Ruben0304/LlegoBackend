@@ -8,7 +8,7 @@ import strawberry
 from strawberry.types import Info
 
 from schema.wallet.types import WalletBalanceType
-from utils.s3 import generate_presigned_url
+from utils.s3 import generate_image_variant_url_with_fallback, generate_presigned_url
 from utils.serialization import to_strawberry_dict
 
 
@@ -74,6 +74,22 @@ class CoordinatesType:
     coordinates: List[float]
 
 
+async def _resolve_branch_avatar_path(
+    business_id: str, branch_avatar: Optional[str]
+) -> Optional[str]:
+    """Resolve branch avatar with business fallback."""
+    if branch_avatar:
+        return branch_avatar
+
+    from repositories import businesses_repo
+
+    business = await businesses_repo.get_by_id(business_id)
+    if business and business.avatar:
+        return business.avatar
+
+    return None
+
+
 @strawberry.type
 class BranchType:
     id: str
@@ -117,23 +133,53 @@ class BranchType:
         description="Presigned URL for the branch avatar (inherits from business if not set)"
     )
     async def avatar_url(self, info: Info) -> Optional[str]:
-        # Si la sucursal tiene avatar propio, usarlo
-        if self.avatar:
-            return generate_presigned_url(self.avatar)
+        avatar_path = await _resolve_branch_avatar_path(self.businessId, self.avatar)
+        if avatar_path:
+            return generate_presigned_url(avatar_path)
+        return None
 
-        # Si no, intentar heredar del negocio padre
-        from repositories import businesses_repo
+    @strawberry.field(
+        description="Presigned URL for low quality branch avatar (inherits business avatar and falls back to original)"
+    )
+    async def avatar_url_baja(self, info: Info) -> Optional[str]:
+        avatar_path = await _resolve_branch_avatar_path(self.businessId, self.avatar)
+        if avatar_path:
+            return generate_image_variant_url_with_fallback(avatar_path, "avatar_baja")
+        return None
 
-        business = await businesses_repo.get_by_id(self.businessId)
-        if business and business.avatar:
-            return generate_presigned_url(business.avatar)
-
+    @strawberry.field(
+        description="Presigned URL for high quality branch avatar (inherits business avatar and falls back to original)"
+    )
+    async def avatar_url_alta(self, info: Info) -> Optional[str]:
+        avatar_path = await _resolve_branch_avatar_path(self.businessId, self.avatar)
+        if avatar_path:
+            return generate_image_variant_url_with_fallback(avatar_path, "avatar_alta")
         return None
 
     @strawberry.field(description="Presigned URL for the branch cover image")
     def cover_url(self) -> Optional[str]:
         if self.coverImage:
             return generate_presigned_url(self.coverImage)
+        return None
+
+    @strawberry.field(
+        description="Presigned URL for low quality branch cover (with fallback to original)"
+    )
+    def cover_url_baja(self) -> Optional[str]:
+        if self.coverImage:
+            return generate_image_variant_url_with_fallback(
+                self.coverImage, "cover_baja"
+            )
+        return None
+
+    @strawberry.field(
+        description="Presigned URL for high quality branch cover (with fallback to original)"
+    )
+    def cover_url_alta(self) -> Optional[str]:
+        if self.coverImage:
+            return generate_image_variant_url_with_fallback(
+                self.coverImage, "cover_alta"
+            )
         return None
 
     @strawberry.field(description="Products from this branch")
@@ -248,23 +294,53 @@ class NearbyBranchType:
         description="Presigned URL for the branch avatar (inherits from business if not set)"
     )
     async def avatar_url(self, info: Info) -> Optional[str]:
-        # Si la sucursal tiene avatar propio, usarlo
-        if self.avatar:
-            return generate_presigned_url(self.avatar)
+        avatar_path = await _resolve_branch_avatar_path(self.businessId, self.avatar)
+        if avatar_path:
+            return generate_presigned_url(avatar_path)
+        return None
 
-        # Si no, intentar heredar del negocio padre
-        from repositories import businesses_repo
+    @strawberry.field(
+        description="Presigned URL for low quality branch avatar (inherits business avatar and falls back to original)"
+    )
+    async def avatar_url_baja(self, info: Info) -> Optional[str]:
+        avatar_path = await _resolve_branch_avatar_path(self.businessId, self.avatar)
+        if avatar_path:
+            return generate_image_variant_url_with_fallback(avatar_path, "avatar_baja")
+        return None
 
-        business = await businesses_repo.get_by_id(self.businessId)
-        if business and business.avatar:
-            return generate_presigned_url(business.avatar)
-
+    @strawberry.field(
+        description="Presigned URL for high quality branch avatar (inherits business avatar and falls back to original)"
+    )
+    async def avatar_url_alta(self, info: Info) -> Optional[str]:
+        avatar_path = await _resolve_branch_avatar_path(self.businessId, self.avatar)
+        if avatar_path:
+            return generate_image_variant_url_with_fallback(avatar_path, "avatar_alta")
         return None
 
     @strawberry.field(description="Presigned URL for the branch cover image")
     def cover_url(self) -> Optional[str]:
         if self.coverImage:
             return generate_presigned_url(self.coverImage)
+        return None
+
+    @strawberry.field(
+        description="Presigned URL for low quality branch cover (with fallback to original)"
+    )
+    def cover_url_baja(self) -> Optional[str]:
+        if self.coverImage:
+            return generate_image_variant_url_with_fallback(
+                self.coverImage, "cover_baja"
+            )
+        return None
+
+    @strawberry.field(
+        description="Presigned URL for high quality branch cover (with fallback to original)"
+    )
+    def cover_url_alta(self) -> Optional[str]:
+        if self.coverImage:
+            return generate_image_variant_url_with_fallback(
+                self.coverImage, "cover_alta"
+            )
         return None
 
     @strawberry.field(description="Distance in kilometers")
@@ -379,23 +455,53 @@ class ScoredBranchType:
         description="Presigned URL for the branch avatar (inherits from business if not set)"
     )
     async def avatar_url(self, info: Info) -> Optional[str]:
-        # Si la sucursal tiene avatar propio, usarlo
-        if self.avatar:
-            return generate_presigned_url(self.avatar)
+        avatar_path = await _resolve_branch_avatar_path(self.businessId, self.avatar)
+        if avatar_path:
+            return generate_presigned_url(avatar_path)
+        return None
 
-        # Si no, intentar heredar del negocio padre
-        from repositories import businesses_repo
+    @strawberry.field(
+        description="Presigned URL for low quality branch avatar (inherits business avatar and falls back to original)"
+    )
+    async def avatar_url_baja(self, info: Info) -> Optional[str]:
+        avatar_path = await _resolve_branch_avatar_path(self.businessId, self.avatar)
+        if avatar_path:
+            return generate_image_variant_url_with_fallback(avatar_path, "avatar_baja")
+        return None
 
-        business = await businesses_repo.get_by_id(self.businessId)
-        if business and business.avatar:
-            return generate_presigned_url(business.avatar)
-
+    @strawberry.field(
+        description="Presigned URL for high quality branch avatar (inherits business avatar and falls back to original)"
+    )
+    async def avatar_url_alta(self, info: Info) -> Optional[str]:
+        avatar_path = await _resolve_branch_avatar_path(self.businessId, self.avatar)
+        if avatar_path:
+            return generate_image_variant_url_with_fallback(avatar_path, "avatar_alta")
         return None
 
     @strawberry.field(description="Presigned URL for the branch cover image")
     def cover_url(self) -> Optional[str]:
         if self.coverImage:
             return generate_presigned_url(self.coverImage)
+        return None
+
+    @strawberry.field(
+        description="Presigned URL for low quality branch cover (with fallback to original)"
+    )
+    def cover_url_baja(self) -> Optional[str]:
+        if self.coverImage:
+            return generate_image_variant_url_with_fallback(
+                self.coverImage, "cover_baja"
+            )
+        return None
+
+    @strawberry.field(
+        description="Presigned URL for high quality branch cover (with fallback to original)"
+    )
+    def cover_url_alta(self) -> Optional[str]:
+        if self.coverImage:
+            return generate_image_variant_url_with_fallback(
+                self.coverImage, "cover_alta"
+            )
         return None
 
     @strawberry.field(description="Distance in kilometers from user")

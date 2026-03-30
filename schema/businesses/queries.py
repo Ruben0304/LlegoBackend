@@ -10,7 +10,7 @@ from repositories import branches_repo, businesses_repo, searches_repo
 from schema.branches.types import BranchTipo, BranchType, CoordinatesType
 from utils.graphql_auth import apply_optional_jwt
 from utils.serialization import to_strawberry_dict
-from utils.s3 import generate_presigned_url
+from utils.s3 import generate_image_variant_url_with_fallback, generate_presigned_url
 
 from .types import BusinessType
 
@@ -36,6 +36,22 @@ class BusinessWithBranchesType:
     def avatar_url(self) -> Optional[str]:
         if self.avatar:
             return generate_presigned_url(self.avatar)
+        return None
+
+    @strawberry.field(
+        description="Presigned URL for low quality business avatar (with fallback to original)"
+    )
+    def avatar_url_baja(self) -> Optional[str]:
+        if self.avatar:
+            return generate_image_variant_url_with_fallback(self.avatar, "avatar_baja")
+        return None
+
+    @strawberry.field(
+        description="Presigned URL for high quality business avatar (with fallback to original)"
+    )
+    def avatar_url_alta(self) -> Optional[str]:
+        if self.avatar:
+            return generate_image_variant_url_with_fallback(self.avatar, "avatar_alta")
         return None
 
 

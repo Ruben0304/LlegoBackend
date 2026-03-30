@@ -5,18 +5,18 @@ from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from typing import Tuple
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 # Shared thread pool for CPU-bound image processing (avoids blocking the event loop)
 _image_thread_pool = ThreadPoolExecutor(max_workers=4)
 
 # Image size configurations
-IMAGE_SIZES = {
-    "business_avatar": (400, 400),
-    "business_cover": (1200, 400),
-    "branch_avatar": (400, 400),
-    "branch_cover": (1200, 400),
-    "user_avatar": (400, 400),
+IMAGE_CONFIGS = {
+    "business_avatar": {"size": (400, 400), "fit": True},
+    "business_cover": {"size": (1920, 1080), "fit": True},  # 16:9
+    "branch_avatar": {"size": (400, 400), "fit": True},
+    "branch_cover": {"size": (1920, 1080), "fit": True},  # 16:9
+    "user_avatar": {"size": (400, 400), "fit": True},
 }
 
 # JPEG quality for compression (1-100)
@@ -40,8 +40,10 @@ def process_image_for_store(
     """
     img = Image.open(BytesIO(file_content))
 
-    # Get target size
-    target_size = IMAGE_SIZES.get(image_type, (800, 800))
+    # Get target size and strategy
+    config = IMAGE_CONFIGS.get(image_type, {"size": (800, 800), "fit": False})
+    target_size = config["size"]
+    fit_to_target = config["fit"]
 
     # Convert to RGB if needed (for JPEG conversion)
     if convert_to_jpg and img.mode in ("RGBA", "P", "LA"):
@@ -57,21 +59,17 @@ def process_image_for_store(
     elif convert_to_jpg and img.mode != "RGB":
         img = img.convert("RGB")
 
-    # Resize maintaining aspect ratio
-    img.thumbnail(target_size, Image.Resampling.LANCZOS)
-
-    # If image is smaller than target, we keep original size (thumbnail doesn't upscale)
-    # For covers, we might want to ensure minimum width
-    if image_type in ("business_cover", "branch_cover"):
-        # For covers, ensure at least target width by padding if necessary
-        if img.width < target_size[0]:
-            # Create new image with target dimensions
-            new_img = Image.new("RGB", target_size, (255, 255, 255))
-            # Center the original image
-            x = (target_size[0] - img.width) // 2
-            y = (target_size[1] - img.height) // 2
-            new_img.paste(img, (x, y))
-            img = new_img
+    # Resize using center-crop fit for exact dimensions (e.g. avatars/covers).
+    # This avoids white borders and guarantees the expected frontend aspect ratio.
+    if fit_to_target:
+        img = ImageOps.fit(
+            img,
+            target_size,
+            method=Image.Resampling.LANCZOS,
+            centering=(0.5, 0.5),
+        )
+    else:
+        img.thumbnail(target_size, Image.Resampling.LANCZOS)
 
     # Save to bytes
     output = BytesIO()

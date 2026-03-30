@@ -5,8 +5,11 @@ from typing import Iterable, Optional, Union
 from clients.s3_client import get_s3_client
 from core.config import settings
 from utils.cache import (
-    get_cached, invalidate_cache,
-    get_presigned_url_cache_key, set_presigned_url_cached
+    get_cached,
+    invalidate_cache,
+    get_presigned_url_cache_key,
+    set_cached,
+    set_presigned_url_cached,
 )
 
 try:
@@ -22,6 +25,14 @@ WEBP_QUALITY = 75
 DEFAULT_THUMBNAIL_SIZE = 100
 LEGACY_THUMBNAIL_VARIANT = "legacy_thumbnail"
 PRODUCT_IMAGE_VARIANT_KEYS = ("muy_baja", "baja", "media", "alta")
+AVATAR_IMAGE_VARIANT_KEYS = ("avatar_baja", "avatar_alta")
+COVER_IMAGE_VARIANT_KEYS = ("cover_baja", "cover_alta")
+ALL_DERIVED_IMAGE_VARIANT_KEYS = (
+    LEGACY_THUMBNAIL_VARIANT,
+    *PRODUCT_IMAGE_VARIANT_KEYS,
+    *AVATAR_IMAGE_VARIANT_KEYS,
+    *COVER_IMAGE_VARIANT_KEYS,
+)
 SUPPORTED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 IMAGE_VARIANT_DEFINITIONS = {
     LEGACY_THUMBNAIL_VARIANT: {
@@ -59,7 +70,40 @@ IMAGE_VARIANT_DEFINITIONS = {
         "quality": WEBP_QUALITY,
         "fit": True,
     },
+    "avatar_baja": {
+        "suffix": "_avatar_baja",
+        "size": (128, 128),
+        "extension": ".webp",
+        "quality": WEBP_QUALITY,
+        "fit": True,
+    },
+    "avatar_alta": {
+        "suffix": "_avatar_alta",
+        "size": (400, 400),
+        "extension": ".webp",
+        "quality": 82,
+        "fit": True,
+    },
+    "cover_baja": {
+        "suffix": "_cover_baja",
+        "size": (1280, 720),
+        "extension": ".webp",
+        "quality": WEBP_QUALITY,
+        "fit": True,
+    },
+    "cover_alta": {
+        "suffix": "_cover_alta",
+        "size": (1920, 1080),
+        "extension": ".webp",
+        "quality": 82,
+        "fit": True,
+    },
 }
+
+
+def get_s3_exists_cache_key(object_name: str) -> str:
+    """Generate cache key for S3 object existence checks."""
+    return f"cache:s3:exists:{object_name}"
 
 def generate_presigned_url(object_name: str, expiration: int = 3600) -> str:
     """
@@ -233,7 +277,7 @@ def get_image_variant_paths(
     original_path: str, variants: Optional[Iterable[Union[str, int]]] = None
 ) -> list[str]:
     """Get all derived image paths for the given original path."""
-    resolved_variants = variants or PRODUCT_IMAGE_VARIANT_KEYS
+    resolved_variants = variants or ALL_DERIVED_IMAGE_VARIANT_KEYS
     return [get_image_variant_path(original_path, variant) for variant in resolved_variants]
 
 
@@ -242,6 +286,50 @@ def generate_image_variant_url(
 ) -> str:
     """Generate a presigned URL for a specific derived image variant."""
     return generate_presigned_url(get_image_variant_path(object_name, variant), expiration)
+
+
+def _s3_object_exists(object_name: str) -> bool:
+    """Check whether an object exists in S3, with short cache for repeated lookups."""
+    if not object_name:
+        return False
+
+    if object_name.startswith("http"):
+        return True
+
+    cache_key = get_s3_exists_cache_key(object_name)
+    cached = get_cached(cache_key)
+    if isinstance(cached, bool):
+        return cached
+
+    s3_client = get_s3_client()
+    exists = False
+    try:
+        s3_client.head_object(Bucket=settings.s3_bucket_name, Key=object_name)
+        exists = True
+    except Exception:
+        exists = False
+
+    # Keep it short to avoid stale negatives after fresh uploads.
+    set_cached(cache_key, exists, ttl=300)
+    return exists
+
+
+def generate_image_variant_url_with_fallback(
+    object_name: str, variant: Union[str, int], expiration: int = 3600
+) -> str:
+    """
+    Generate variant URL when available; otherwise return original URL.
+
+    This keeps backward compatibility for historical images uploaded before
+    variant generation was introduced for a specific media type.
+    """
+    if not object_name:
+        return ""
+
+    variant_path = get_image_variant_path(object_name, variant)
+    if _s3_object_exists(variant_path):
+        return generate_presigned_url(variant_path, expiration)
+    return generate_presigned_url(object_name, expiration)
 
 
 async def upload_file(
@@ -281,6 +369,7 @@ async def upload_file(
         # Invalidate cache for this object (if it existed before)
         cache_key = get_presigned_url_cache_key(object_name)
         invalidate_cache(cache_key)
+        invalidate_cache(get_s3_exists_cache_key(object_name))
 
         if generate_thumbnails and extension.lower() in SUPPORTED_IMAGE_EXTENSIONS:
             variant_keys = list(thumbnail_variants or [LEGACY_THUMBNAIL_VARIANT])
@@ -296,6 +385,7 @@ async def upload_file(
 
                 variant_cache_key = get_presigned_url_cache_key(variant_name)
                 invalidate_cache(variant_cache_key)
+                invalidate_cache(get_s3_exists_cache_key(variant_name))
 
             print(
                 f"✓ Uploaded original and {len(variant_keys)} derived image(s): {object_name}"
@@ -320,12 +410,14 @@ async def delete_file(object_name: str):
         # Invalidate cache for this presigned URL
         cache_key = get_presigned_url_cache_key(object_name)
         invalidate_cache(cache_key)
+        invalidate_cache(get_s3_exists_cache_key(object_name))
 
         for variant_name in get_image_variant_paths(object_name):
             try:
                 s3_client.delete_object(Bucket=settings.s3_bucket_name, Key=variant_name)
                 variant_cache_key = get_presigned_url_cache_key(variant_name)
                 invalidate_cache(variant_cache_key)
+                invalidate_cache(get_s3_exists_cache_key(variant_name))
             except Exception:
                 pass
 
