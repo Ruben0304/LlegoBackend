@@ -45,6 +45,11 @@ class GeminiKycAdapter:
     async def evaluate(self, request_payload: Dict[str, Any]) -> Dict[str, Any]:
         """Evaluate KYC with retries for transient errors."""
         if not settings.gemini_api_key:
+            logger.warning(
+                "kyc_gemini_missing_api_key correlation_id=%s request_id=%s",
+                request_payload.get("correlation_id"),
+                request_payload.get("request_id"),
+            )
             return {
                 "verdict": "error",
                 "confidence_score": 0.0,
@@ -84,10 +89,19 @@ class GeminiKycAdapter:
                         response=response,
                     )
                 response.raise_for_status()
-                return self._normalize_response(
+                normalized = self._normalize_response(
                     response.json(),
                     request_payload=request_payload,
                 )
+                logger.info(
+                    "kyc_gemini_evaluated correlation_id=%s request_id=%s verdict=%s confidence=%s model=%s",
+                    correlation_id,
+                    request_payload.get("request_id"),
+                    normalized.get("verdict"),
+                    normalized.get("confidence_score"),
+                    normalized.get("model_version"),
+                )
+                return normalized
             except (
                 httpx.TimeoutException,
                 httpx.NetworkError,
@@ -177,6 +191,11 @@ class GeminiKycAdapter:
     ) -> Dict[str, Any]:
         """Evaluate KYC with real image bytes using Gemini multimodal API."""
         if not settings.gemini_api_key:
+            logger.warning(
+                "kyc_gemini_missing_api_key_with_images correlation_id=%s request_id=%s",
+                request_payload.get("correlation_id"),
+                request_payload.get("request_id"),
+            )
             return {
                 "verdict": "error",
                 "confidence_score": 0.0,
@@ -234,7 +253,7 @@ class GeminiKycAdapter:
                 ),
             )
             parsed = GeminiKycVisionResponse.model_validate_json(response.text)
-            return {
+            normalized = {
                 "verdict": (parsed.verdict or "error").lower(),
                 "confidence_score": float(parsed.confidence_score or 0.0),
                 "reason_codes": parsed.reason_codes or [],
@@ -246,6 +265,15 @@ class GeminiKycAdapter:
                 "request_id": request_payload.get("request_id"),
                 "correlation_id": request_payload.get("correlation_id"),
             }
+            logger.info(
+                "kyc_gemini_image_evaluated correlation_id=%s request_id=%s verdict=%s confidence=%s model=%s",
+                request_payload.get("correlation_id"),
+                request_payload.get("request_id"),
+                normalized.get("verdict"),
+                normalized.get("confidence_score"),
+                normalized.get("model_version"),
+            )
+            return normalized
         except Exception as exc:
             logger.warning(
                 "kyc_gemini_image_failed correlation_id=%s error=%s",

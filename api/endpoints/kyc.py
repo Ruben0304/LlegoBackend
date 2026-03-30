@@ -1,5 +1,6 @@
 """REST endpoints for global account KYC with real image uploads."""
 
+import logging
 from io import BytesIO
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
@@ -10,6 +11,7 @@ from utils.rate_limit import RATE_LIMIT_UPLOADS, limiter
 from utils.s3 import upload_file
 
 router = APIRouter(prefix="/kyc", tags=["KYC"])
+logger = logging.getLogger(__name__)
 
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 MAX_KYC_IMAGE_SIZE = 12 * 1024 * 1024  # 12MB per image
@@ -73,6 +75,11 @@ async def evaluate_global_kyc(
     if not user_id:
         raise HTTPException(status_code=401, detail="No autorizado")
 
+    logger.info(
+        "kyc_upload_received user_id=%s endpoint=/kyc/global/evaluate",
+        user_id,
+    )
+
     selfie_bytes = await _validate_image(selfie_with_id)
     doc_bytes = await _validate_image(identity_document_front)
 
@@ -92,6 +99,12 @@ async def evaluate_global_kyc(
     )
 
     try:
+        logger.info(
+            "kyc_evaluation_started user_id=%s selfie_ref=%s doc_ref=%s",
+            user_id,
+            selfie_ref,
+            doc_ref,
+        )
         result = await payment_service.start_cash_kyc_evaluation_by_account(
             merchant_id="global",
             user_id=user_id,
@@ -114,5 +127,35 @@ async def evaluate_global_kyc(
                 "identity_document_front": doc_ref,
             },
         }
+        logger.info(
+            "kyc_evaluation_completed user_id=%s verification_id=%s status=%s coverage=%s next_action=%s reason_codes=%s correlation_id=%s",
+            user_id,
+            result["verificationId"],
+            result["kycEvalStatus"],
+            result["cashCoverageStatus"],
+            result["nextAction"],
+            result["reasonCodes"],
+            result["correlationId"],
+        )
+        return response
     except ValueError as exc:
+        logger.warning(
+            "kyc_evaluation_rejected user_id=%s selfie_ref=%s doc_ref=%s error=%s",
+            user_id,
+            selfie_ref,
+            doc_ref,
+            str(exc),
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception(
+            "kyc_evaluation_failed user_id=%s selfie_ref=%s doc_ref=%s error=%s",
+            user_id,
+            selfie_ref,
+            doc_ref,
+            str(exc),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Error interno procesando la verificación KYC",
+        ) from exc
