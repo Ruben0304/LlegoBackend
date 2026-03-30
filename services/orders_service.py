@@ -1,8 +1,11 @@
 """Order service with business logic."""
 
+import re
+import unicodedata
 import uuid
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 from bson import ObjectId
 
@@ -54,6 +57,178 @@ class OrderService:
     @staticmethod
     def _ids_equal(a, b) -> bool:
         return str(a) == str(b)
+
+    @staticmethod
+    def _normalize_text(value: Any) -> str:
+        normalized = unicodedata.normalize("NFKD", str(value or ""))
+        return "".join(ch for ch in normalized if not unicodedata.combining(ch)).lower()
+
+    @classmethod
+    def _normalize_schedule_day_key(cls, day_key: Any) -> Optional[int]:
+        if isinstance(day_key, int) and 0 <= day_key <= 6:
+            return day_key
+
+        key = cls._normalize_text(day_key)
+        key = re.sub(r"[^a-z0-9]", "", key)
+
+        day_aliases = {
+            "mon": 0,
+            "monday": 0,
+            "lun": 0,
+            "lunes": 0,
+            "tue": 1,
+            "tues": 1,
+            "tuesday": 1,
+            "mar": 1,
+            "martes": 1,
+            "wed": 2,
+            "wednesday": 2,
+            "mie": 2,
+            "mier": 2,
+            "miercoles": 2,
+            "thu": 3,
+            "thur": 3,
+            "thurs": 3,
+            "thursday": 3,
+            "jue": 3,
+            "jueves": 3,
+            "fri": 4,
+            "friday": 4,
+            "vie": 4,
+            "viernes": 4,
+            "sat": 5,
+            "saturday": 5,
+            "sab": 5,
+            "sabado": 5,
+            "sun": 6,
+            "sunday": 6,
+            "dom": 6,
+            "domingo": 6,
+        }
+        if key in day_aliases:
+            return day_aliases[key]
+
+        if key.isdigit():
+            numeric = int(key)
+            if 0 <= numeric <= 6:
+                return numeric
+
+        return None
+
+    @staticmethod
+    def _parse_time_to_minutes(time_value: Any) -> Optional[int]:
+        raw = str(time_value or "").strip()
+        if not re.fullmatch(r"\d{1,2}:\d{2}", raw):
+            return None
+
+        hour_str, minute_str = raw.split(":")
+        hour = int(hour_str)
+        minute = int(minute_str)
+
+        if hour == 24 and minute == 0:
+            return 24 * 60
+        if hour < 0 or hour > 23:
+            return None
+        if minute < 0 or minute > 59:
+            return None
+        return hour * 60 + minute
+
+    @classmethod
+    def _parse_schedule_range(cls, day_range: Any) -> Optional[tuple[int, int]]:
+        if isinstance(day_range, str):
+            if "-" not in day_range:
+                return None
+            start_raw, end_raw = day_range.split("-", 1)
+        elif isinstance(day_range, dict):
+            start_raw = day_range.get("open") or day_range.get("start")
+            end_raw = day_range.get("close") or day_range.get("end")
+        elif isinstance(day_range, (list, tuple)) and len(day_range) == 2:
+            start_raw, end_raw = day_range
+        else:
+            return None
+
+        start = cls._parse_time_to_minutes(start_raw)
+        end = cls._parse_time_to_minutes(end_raw)
+        if start is None or end is None:
+            return None
+        return start, end
+
+    @classmethod
+    def _extract_day_ranges(
+        cls, schedule: Any, target_day: int
+    ) -> List[tuple[int, int]]:
+        if not isinstance(schedule, dict):
+            return []
+
+        parsed_ranges: List[tuple[int, int]] = []
+        for raw_day_key, raw_ranges in schedule.items():
+            normalized_day = cls._normalize_schedule_day_key(raw_day_key)
+            if normalized_day != target_day:
+                continue
+
+            if isinstance(raw_ranges, (str, dict)):
+                raw_ranges = [raw_ranges]
+            if not isinstance(raw_ranges, list):
+                continue
+
+            for day_range in raw_ranges:
+                parsed = cls._parse_schedule_range(day_range)
+                if parsed:
+                    parsed_ranges.append(parsed)
+
+        return parsed_ranges
+
+    @classmethod
+    def _format_schedule_for_day(cls, schedule: Any, target_day: int) -> str:
+        if not isinstance(schedule, dict):
+            return "no configurado"
+
+        raw_values: List[str] = []
+        for raw_day_key, raw_ranges in schedule.items():
+            normalized_day = cls._normalize_schedule_day_key(raw_day_key)
+            if normalized_day != target_day:
+                continue
+
+            if isinstance(raw_ranges, list):
+                raw_values.extend(
+                    [str(item).strip() for item in raw_ranges if str(item).strip()]
+                )
+            elif raw_ranges:
+                raw_values.append(str(raw_ranges).strip())
+
+        if not raw_values:
+            return "cerrado"
+        return ", ".join(raw_values)
+
+    @staticmethod
+    def _get_branch_local_now() -> datetime:
+        try:
+            return datetime.now(ZoneInfo("America/Havana"))
+        except Exception:
+            return datetime.now()
+
+    @classmethod
+    def _is_branch_open_now(cls, schedule: Any, now_local: datetime) -> bool:
+        current_minutes = now_local.hour * 60 + now_local.minute
+        today = now_local.weekday()
+        yesterday = (today - 1) % 7
+
+        # Today's ranges. If a range crosses midnight (start > end),
+        # evaluate only the part that belongs to today (start->24:00).
+        for start, end in cls._extract_day_ranges(schedule, today):
+            if start == 0 and end == 24 * 60:
+                return True
+            if start < end and start <= current_minutes < end:
+                return True
+            if start > end and current_minutes >= start:
+                return True
+
+        # Overnight ranges inherited from yesterday (e.g. 22:00-02:00).
+        for start, end in cls._extract_day_ranges(schedule, yesterday):
+            if start > end and current_minutes < end:
+                return True
+
+        return False
 
     @staticmethod
     def _normalize_currency(currency: Optional[str], fallback: str = "USD") -> str:
@@ -563,6 +738,25 @@ class OrderService:
             raise ValueError("La sucursal no está activa")
         if not items:
             raise ValueError("El pedido debe incluir al menos un ítem")
+
+        branch_now = self._get_branch_local_now()
+        if not self._is_branch_open_now(branch.schedule, branch_now):
+            day_names = [
+                "lunes",
+                "martes",
+                "miercoles",
+                "jueves",
+                "viernes",
+                "sabado",
+                "domingo",
+            ]
+            day_index = branch_now.weekday()
+            today_schedule = self._format_schedule_for_day(branch.schedule, day_index)
+            raise ValueError(
+                "La sucursal esta cerrada en este momento "
+                f"({day_names[day_index]} {branch_now.strftime('%H:%M')}). "
+                f"Horario de hoy: {today_schedule}"
+            )
 
         # 1.5. Resolve payment method and monetary context
         (
