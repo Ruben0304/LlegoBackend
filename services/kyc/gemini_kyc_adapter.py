@@ -9,14 +9,23 @@ from typing import Any, Dict
 
 import httpx
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types as genai_types
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from clients.gemini_client import get_gemini_client
 from core.config import settings
 from services.error_analysis_service import sanitize_sensitive_data
 
 logger = logging.getLogger(__name__)
+
+
+class GeminiKycResponse(BaseModel):
+    verdict: str
+    confidence_score: float
+    reason_codes: list[str] = []
+    extracted_signals: dict[str, Any] = {}
+    model_version: str
 
 
 class GeminiKycAdapter:
@@ -34,6 +43,35 @@ class GeminiKycAdapter:
             "Responde SOLO JSON con: verdict, confidence_score, reason_codes, extracted_signals, model_version."
             f"\nData: {json.dumps(request_payload, ensure_ascii=True)}"
         )
+
+    @staticmethod
+    def _build_provider_error(exc: Exception) -> str:
+        if isinstance(exc, genai_errors.APIError):
+            status = getattr(exc, "status", None)
+            message = getattr(exc, "message", None) or str(exc)
+            if status:
+                return f"Gemini API error {status}: {message}"
+            return f"Gemini API error: {message}"
+        return str(exc)
+
+    def _normalize_structured_response(
+        self,
+        parsed: GeminiKycResponse,
+        *,
+        request_payload: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return {
+            "verdict": (parsed.verdict or "error").lower(),
+            "confidence_score": float(parsed.confidence_score or 0.0),
+            "reason_codes": parsed.reason_codes or [],
+            "extracted_signals": parsed.extracted_signals or {},
+            "provider": "gemini",
+            "model_version": parsed.model_version or self.model,
+            "policy_version": request_payload.get("policy_version"),
+            "evaluated_at": datetime.now(timezone.utc).isoformat(),
+            "request_id": request_payload.get("request_id"),
+            "correlation_id": request_payload.get("correlation_id"),
+        }
 
     @staticmethod
     def _get_client() -> genai.Client:
@@ -64,33 +102,26 @@ class GeminiKycAdapter:
                 "error": "Gemini API key not configured",
             }
 
-        timeout = httpx.Timeout(connect=0.5, read=2.0, write=2.0, pool=2.5)
-        url = f"{self.BASE_URL}/models/{self.model}:generateContent?key={settings.gemini_api_key}"
-        body = {
-            "contents": [
-                {
-                    "parts": [{"text": self._build_prompt(request_payload)}],
-                }
-            ]
-        }
-        headers = {"Content-Type": "application/json"}
         correlation_id = request_payload.get("correlation_id")
+        client = self._get_client()
 
         attempt = 0
+        last_error = "Provider unavailable"
         while True:
             attempt += 1
             try:
-                async with httpx.AsyncClient(timeout=timeout) as client:
-                    response = await client.post(url, headers=headers, json=body)
-                if response.status_code in {429, 500, 502, 503, 504}:
-                    raise httpx.HTTPStatusError(
-                        f"Transient Gemini error {response.status_code}",
-                        request=response.request,
-                        response=response,
-                    )
-                response.raise_for_status()
-                normalized = self._normalize_response(
-                    response.json(),
+                response = await client.aio.models.generate_content(
+                    model=settings.gemini_model,
+                    contents=[genai_types.Part.from_text(text=self._build_prompt(request_payload))],
+                    config=genai_types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_schema=GeminiKycResponse,
+                        temperature=0.1,
+                    ),
+                )
+                parsed = GeminiKycResponse.model_validate_json(response.text)
+                normalized = self._normalize_structured_response(
+                    parsed,
                     request_payload=request_payload,
                 )
                 logger.info(
@@ -102,26 +133,42 @@ class GeminiKycAdapter:
                     normalized.get("model_version"),
                 )
                 return normalized
-            except (
-                httpx.TimeoutException,
-                httpx.NetworkError,
-                httpx.HTTPStatusError,
-            ) as exc:
+            except (genai_errors.ServerError, httpx.TimeoutException, httpx.NetworkError) as exc:
+                last_error = self._build_provider_error(exc)
                 if attempt > self.max_retries:
                     logger.warning(
                         "kyc_gemini_failed correlation_id=%s attempts=%s error=%s",
                         correlation_id,
                         attempt - 1,
-                        sanitize_sensitive_data(str(exc)),
+                        sanitize_sensitive_data(last_error),
                     )
                     break
                 base_delay = [1, 3, 9, 27][min(attempt - 1, 3)]
                 await asyncio.sleep(base_delay + random.uniform(0, 0.5))
+            except (genai_errors.ClientError, genai_errors.APIError) as exc:
+                last_error = self._build_provider_error(exc)
+                logger.warning(
+                    "kyc_gemini_client_error correlation_id=%s request_id=%s error=%s",
+                    correlation_id,
+                    request_payload.get("request_id"),
+                    sanitize_sensitive_data(last_error),
+                )
+                break
+            except ValidationError as exc:
+                last_error = f"Gemini response validation failed: {exc}"
+                logger.warning(
+                    "kyc_gemini_validation_failed correlation_id=%s request_id=%s error=%s",
+                    correlation_id,
+                    request_payload.get("request_id"),
+                    sanitize_sensitive_data(last_error),
+                )
+                break
             except Exception as exc:  # non-transient mapping or payload errors
+                last_error = self._build_provider_error(exc)
                 logger.exception(
                     "kyc_gemini_unexpected correlation_id=%s error=%s",
                     correlation_id,
-                    sanitize_sensitive_data(str(exc)),
+                    sanitize_sensitive_data(last_error),
                 )
                 break
 
@@ -136,48 +183,7 @@ class GeminiKycAdapter:
             "evaluated_at": datetime.now(timezone.utc).isoformat(),
             "request_id": request_payload.get("request_id"),
             "correlation_id": request_payload.get("correlation_id"),
-            "error": "Provider unavailable",
-        }
-
-    def _normalize_response(
-        self,
-        payload: Dict[str, Any],
-        *,
-        request_payload: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """Normalize Gemini response to internal contract."""
-        text = ""
-        candidates = payload.get("candidates") or []
-        if candidates:
-            parts = candidates[0].get("content", {}).get("parts", [])
-            if parts and isinstance(parts[0], dict):
-                text = parts[0].get("text", "")
-
-        parsed = {}
-        if text:
-            try:
-                parsed = json.loads(text)
-            except Exception:
-                parsed = {}
-
-        verdict = (parsed.get("verdict") or "error").lower()
-        confidence = parsed.get("confidence_score")
-        try:
-            confidence_value = float(confidence) if confidence is not None else 0.0
-        except Exception:
-            confidence_value = 0.0
-
-        return {
-            "verdict": verdict,
-            "confidence_score": confidence_value,
-            "reason_codes": parsed.get("reason_codes") or [],
-            "extracted_signals": parsed.get("extracted_signals") or {},
-            "provider": "gemini",
-            "model_version": parsed.get("model_version") or self.model,
-            "policy_version": request_payload.get("policy_version"),
-            "evaluated_at": datetime.now(timezone.utc).isoformat(),
-            "request_id": request_payload.get("request_id"),
-            "correlation_id": request_payload.get("correlation_id"),
+            "error": last_error,
         }
 
     async def evaluate_with_images(
@@ -210,13 +216,6 @@ class GeminiKycAdapter:
                 "error": "Gemini API key not configured",
             }
 
-        class GeminiKycVisionResponse(BaseModel):
-            verdict: str
-            confidence_score: float
-            reason_codes: list[str] = []
-            extracted_signals: dict[str, Any] = {}
-            model_version: str
-
         system_instruction = (
             "Eres un verificador KYC de identidad. "
             "Recibirás dos imágenes: "
@@ -248,23 +247,15 @@ class GeminiKycAdapter:
                 config=genai_types.GenerateContentConfig(
                     system_instruction=system_instruction,
                     response_mime_type="application/json",
-                    response_schema=GeminiKycVisionResponse,
+                    response_schema=GeminiKycResponse,
                     temperature=0.1,
                 ),
             )
-            parsed = GeminiKycVisionResponse.model_validate_json(response.text)
-            normalized = {
-                "verdict": (parsed.verdict or "error").lower(),
-                "confidence_score": float(parsed.confidence_score or 0.0),
-                "reason_codes": parsed.reason_codes or [],
-                "extracted_signals": parsed.extracted_signals or {},
-                "provider": "gemini",
-                "model_version": parsed.model_version or self.model,
-                "policy_version": request_payload.get("policy_version"),
-                "evaluated_at": datetime.now(timezone.utc).isoformat(),
-                "request_id": request_payload.get("request_id"),
-                "correlation_id": request_payload.get("correlation_id"),
-            }
+            parsed = GeminiKycResponse.model_validate_json(response.text)
+            normalized = self._normalize_structured_response(
+                parsed,
+                request_payload=request_payload,
+            )
             logger.info(
                 "kyc_gemini_image_evaluated correlation_id=%s request_id=%s verdict=%s confidence=%s model=%s",
                 request_payload.get("correlation_id"),
@@ -274,11 +265,12 @@ class GeminiKycAdapter:
                 normalized.get("model_version"),
             )
             return normalized
-        except Exception as exc:
+        except (genai_errors.ClientError, genai_errors.ServerError, genai_errors.APIError) as exc:
+            provider_error = self._build_provider_error(exc)
             logger.warning(
-                "kyc_gemini_image_failed correlation_id=%s error=%s",
+                "kyc_gemini_image_api_failed correlation_id=%s error=%s",
                 request_payload.get("correlation_id"),
-                sanitize_sensitive_data(str(exc)),
+                sanitize_sensitive_data(provider_error),
             )
             return {
                 "verdict": "error",
@@ -291,7 +283,47 @@ class GeminiKycAdapter:
                 "evaluated_at": datetime.now(timezone.utc).isoformat(),
                 "request_id": request_payload.get("request_id"),
                 "correlation_id": request_payload.get("correlation_id"),
-                "error": "Provider unavailable",
+                "error": provider_error,
+            }
+        except ValidationError as exc:
+            provider_error = f"Gemini response validation failed: {exc}"
+            logger.warning(
+                "kyc_gemini_image_validation_failed correlation_id=%s error=%s",
+                request_payload.get("correlation_id"),
+                sanitize_sensitive_data(provider_error),
+            )
+            return {
+                "verdict": "error",
+                "confidence_score": 0.0,
+                "reason_codes": ["PROVIDER_ERROR"],
+                "extracted_signals": {},
+                "provider": "gemini",
+                "model_version": self.model,
+                "policy_version": request_payload.get("policy_version"),
+                "evaluated_at": datetime.now(timezone.utc).isoformat(),
+                "request_id": request_payload.get("request_id"),
+                "correlation_id": request_payload.get("correlation_id"),
+                "error": provider_error,
+            }
+        except Exception as exc:
+            provider_error = self._build_provider_error(exc)
+            logger.warning(
+                "kyc_gemini_image_failed correlation_id=%s error=%s",
+                request_payload.get("correlation_id"),
+                sanitize_sensitive_data(provider_error),
+            )
+            return {
+                "verdict": "error",
+                "confidence_score": 0.0,
+                "reason_codes": ["PROVIDER_ERROR"],
+                "extracted_signals": {},
+                "provider": "gemini",
+                "model_version": self.model,
+                "policy_version": request_payload.get("policy_version"),
+                "evaluated_at": datetime.now(timezone.utc).isoformat(),
+                "request_id": request_payload.get("request_id"),
+                "correlation_id": request_payload.get("correlation_id"),
+                "error": provider_error,
             }
 
 

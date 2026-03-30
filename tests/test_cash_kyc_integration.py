@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from google.genai import errors as genai_errors
 
 os.environ.setdefault("MONGODB_URL", "mongodb://localhost:27017")
 os.environ.setdefault("GEMINI_API_KEY", "test-key")
@@ -516,47 +517,33 @@ def test_gemini_adapter_auto_retry_transient(monkeypatch):
     adapter = GeminiKycAdapter()
 
     class FakeResponse:
-        def __init__(self, status_code, payload=None):
-            import httpx
+        text = (
+            '{"verdict":"valid","confidence_score":0.91,'
+            '"reason_codes":["DOC_VALID","FACE_MATCH_HIGH"],'
+            '"extracted_signals":{"face_match_score":0.93,"spoof_risk_score":0.03},'
+            '"model_version":"kyc-model-test-v1"}'
+        )
 
-            self.status_code = status_code
-            self._payload = payload or {}
-            self.request = httpx.Request("POST", "https://example.com")
-
-        def raise_for_status(self):
-            import httpx
-
-            if self.status_code >= 400:
-                raise httpx.HTTPStatusError(
-                    "error", request=self.request, response=self
-                )
-
-        def json(self):
-            return self._payload
-
-    class FakeClient:
+    class FakeAioModels:
         calls = 0
 
-        def __init__(self, *args, **kwargs):
-            pass
+        async def generate_content(self, *args, **kwargs):
+            FakeAioModels.calls += 1
+            if FakeAioModels.calls == 1:
+                raise genai_errors.ServerError(
+                    503,
+                    {"error": {"message": "backend overloaded"}},
+                )
+            return FakeResponse()
 
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return False
-
-        async def post(self, *args, **kwargs):
-            FakeClient.calls += 1
-            if FakeClient.calls == 1:
-                return FakeResponse(429, {})
-            return FakeResponse(200, GEMINI_KYC_RESPONSE_APPROVED)
+    class FakeClient:
+        aio = SimpleNamespace(models=FakeAioModels())
 
     async def _no_sleep(_):
         return None
 
-    monkeypatch.setattr("services.kyc.gemini_kyc_adapter.httpx.AsyncClient", FakeClient)
     monkeypatch.setattr("services.kyc.gemini_kyc_adapter.asyncio.sleep", _no_sleep)
+    monkeypatch.setattr(adapter, "_get_client", lambda: FakeClient())
 
     result = asyncio.run(
         adapter.evaluate(
@@ -569,3 +556,77 @@ def test_gemini_adapter_auto_retry_transient(monkeypatch):
     )
     assert result["verdict"] == "valid"
     assert result["confidence_score"] == 0.91
+
+
+def test_gemini_adapter_structured_text_parsing(monkeypatch):
+    settings.gemini_api_key = "test"
+    adapter = GeminiKycAdapter()
+
+    class FakeResponse:
+        text = (
+            '{"verdict":"valid","confidence_score":0.88,'
+            '"reason_codes":["DOC_VALID"],'
+            '"extracted_signals":{"face_match_score":0.91},'
+            '"model_version":"gemini-kyc-test"}'
+        )
+
+    class FakeAioModels:
+        async def generate_content(self, *args, **kwargs):
+            return FakeResponse()
+
+    class FakeClient:
+        aio = SimpleNamespace(models=FakeAioModels())
+
+    monkeypatch.setattr(adapter, "_get_client", lambda: FakeClient())
+
+    result = asyncio.run(
+        adapter.evaluate(
+            {
+                "request_id": "r2",
+                "correlation_id": "c2",
+                "policy_version": "cash-kyc-v1",
+            }
+        )
+    )
+    assert result["verdict"] == "valid"
+    assert result["confidence_score"] == 0.88
+    assert result["reason_codes"] == ["DOC_VALID"]
+    assert "error" not in result
+
+
+def test_gemini_adapter_returns_exact_provider_error(monkeypatch):
+    settings.gemini_api_key = "test"
+    adapter = GeminiKycAdapter()
+
+    class FakeAioModels:
+        async def generate_content(self, *args, **kwargs):
+            raise genai_errors.ClientError(
+                400,
+                {
+                    "error": {
+                        "message": "The input image is too large.",
+                    }
+                },
+            )
+
+    class FakeClient:
+        aio = SimpleNamespace(models=FakeAioModels())
+
+    monkeypatch.setattr(adapter, "_get_client", lambda: FakeClient())
+
+    result = asyncio.run(
+        adapter.evaluate_with_images(
+            request_payload={
+                "request_id": "r3",
+                "correlation_id": "c3",
+                "policy_version": "cash-kyc-v1",
+            },
+            selfie_with_id_bytes=b"img-1",
+            selfie_with_id_mime_type="image/jpeg",
+            identity_document_front_bytes=b"img-2",
+            identity_document_front_mime_type="image/jpeg",
+        )
+    )
+    assert result["verdict"] == "error"
+    assert result["reason_codes"] == ["PROVIDER_ERROR"]
+    assert "too large" in result["error"]

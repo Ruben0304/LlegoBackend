@@ -122,6 +122,7 @@ async def evaluate_global_kyc(
             "nextAction": result["nextAction"],
             "correlationId": result["correlationId"],
             "reasonCodes": result["reasonCodes"],
+            "providerError": result.get("providerError"),
             "evidenceRefs": {
                 "selfie_with_id": selfie_ref,
                 "identity_document_front": doc_ref,
