@@ -210,6 +210,8 @@ class CashKycStatusResult:
     reasonCodes: List[str]
     nextAction: Optional[str]
     expiresAt: Optional[datetime]
+    providerError: Optional[str] = None
+    providerErrorCode: Optional[str] = None
 
 
 @strawberry.type
@@ -224,6 +226,8 @@ class CashKycAccountStatusResult:
     reasonCodes: List[str]
     nextAction: Optional[str]
     expiresAt: Optional[datetime]
+    providerError: Optional[str] = None
+    providerErrorCode: Optional[str] = None
 
 
 @strawberry.input
@@ -284,6 +288,8 @@ class GlobalCashKycStatusResult:
     reasonCodes: List[str]
     nextAction: Optional[str]
     expiresAt: Optional[datetime]
+    providerError: Optional[str] = None
+    providerErrorCode: Optional[str] = None
 
 
 @strawberry.type

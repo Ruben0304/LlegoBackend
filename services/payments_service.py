@@ -57,6 +57,21 @@ class PaymentService:
         except Exception:
             return value
 
+    @staticmethod
+    def _map_provider_error_code(provider_error: Optional[str]) -> Optional[str]:
+        if not provider_error:
+            return None
+        normalized = provider_error.lower()
+        if "high demand" in normalized or "experiencing high demand" in normalized:
+            return "GEMINI_MODEL_OVERLOADED"
+        if "timed out" in normalized or "timeout" in normalized:
+            return "GEMINI_TIMEOUT"
+        if "api key not configured" in normalized or "api key not valid" in normalized:
+            return "GEMINI_AUTH_ERROR"
+        if "validation failed" in normalized:
+            return "GEMINI_RESPONSE_VALIDATION_ERROR"
+        return "GEMINI_PROVIDER_ERROR"
+
     async def _get_order(self, order_id: str):
         """Get order by ID."""
         db = get_database()
@@ -450,6 +465,10 @@ class PaymentService:
             "reasonCodes": verification.reasonCodes if verification else [],
             "nextAction": "continue_cash_flow" if allow_cash else "start_kyc",
             "expiresAt": verification.expiresAt if verification else None,
+            "providerError": verification.lastError if verification else None,
+            "providerErrorCode": self._map_provider_error_code(
+                verification.lastError if verification else None
+            ),
         }
 
     async def get_cash_kyc_status_by_account(
@@ -465,6 +484,7 @@ class PaymentService:
             customer_id=user_id,
         )
         if global_approved:
+            provider_error = getattr(global_approved, "lastError", None)
             return {
                 "merchantId": merchant_id,
                 "branchId": branch_id,
@@ -476,6 +496,8 @@ class PaymentService:
                 "reasonCodes": global_approved.reasonCodes or [],
                 "nextAction": "continue_cash_flow",
                 "expiresAt": global_approved.expiresAt,
+                "providerError": provider_error,
+                "providerErrorCode": self._map_provider_error_code(provider_error),
             }
 
         latest = await kyc_verifications_repo.get_latest_global_by_customer(
@@ -493,6 +515,10 @@ class PaymentService:
             "reasonCodes": latest.reasonCodes if latest else [],
             "nextAction": "start_kyc" if not latest else "retry_or_provide_evidence",
             "expiresAt": latest.expiresAt if latest else None,
+            "providerError": latest.lastError if latest else None,
+            "providerErrorCode": self._map_provider_error_code(
+                latest.lastError if latest else None
+            ),
         }
 
     async def get_global_cash_kyc_status(self, *, user_id: str) -> dict:
@@ -502,6 +528,7 @@ class PaymentService:
             customer_id=user_id
         )
         if global_approved:
+            provider_error = getattr(global_approved, "lastError", None)
             return {
                 "verificationId": str(global_approved.id),
                 "kycEvalStatus": "approved",
@@ -511,6 +538,8 @@ class PaymentService:
                 "reasonCodes": global_approved.reasonCodes or [],
                 "nextAction": "continue_cash_flow",
                 "expiresAt": global_approved.expiresAt,
+                "providerError": provider_error,
+                "providerErrorCode": self._map_provider_error_code(provider_error),
             }
 
         latest = await kyc_verifications_repo.get_latest_global_by_customer(
@@ -526,6 +555,10 @@ class PaymentService:
             "reasonCodes": latest.reasonCodes if latest else [],
             "nextAction": "start_kyc" if not latest else "retry_or_provide_evidence",
             "expiresAt": latest.expiresAt if latest else None,
+            "providerError": latest.lastError if latest else None,
+            "providerErrorCode": self._map_provider_error_code(
+                latest.lastError if latest else None
+            ),
         }
 
     async def start_cash_kyc_evaluation(
