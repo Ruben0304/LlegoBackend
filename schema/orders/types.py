@@ -578,6 +578,29 @@ class OrderType:
 
 def order_to_type(order) -> OrderType:
     """Convert Order model to OrderType."""
+    fallback_coords = (
+        order.pickupAddress.coordinates.model_dump()
+        if order.pickupAddress and order.pickupAddress.coordinates
+        else {"type": "Point", "coordinates": [0.0, 0.0]}
+    )
+    delivery_address_payload = (
+        order.deliveryAddress.model_dump()
+        if order.deliveryAddress
+        else {
+            "street": order.pickupAddress.street
+            if order.pickupAddress
+            else "Recogida en tienda",
+            "city": None,
+            "reference": "pickup",
+            "coordinates": fallback_coords,
+            "addressType": "other",
+            "buildingName": None,
+            "floor": None,
+            "apartment": None,
+            "deliveryInstructions": None,
+        }
+    )
+
     return OrderType(
         id=str(order.id),
         orderNumber=order.orderNumber,
@@ -615,7 +638,7 @@ def order_to_type(order) -> OrderType:
         ratingComment=order.ratingComment,
         _items=[item.model_dump() for item in order.items],
         _discounts=[d.model_dump() for d in order.discounts],
-        _delivery_address=order.deliveryAddress.model_dump(),
+        _delivery_address=delivery_address_payload,
         _pickup_address=order.pickupAddress.model_dump()
         if order.pickupAddress
         else None,

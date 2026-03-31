@@ -25,6 +25,12 @@ class OrderItemTypeInput(Enum):
     SHOWCASE = "showcase"
 
 
+@strawberry.enum
+class FulfillmentTypeEnum(Enum):
+    DELIVERY = "DELIVERY"
+    PICKUP = "PICKUP"
+
+
 @strawberry.input
 class OrderComboModifierInput:
     """Selected modifier name for a combo option."""
@@ -71,17 +77,27 @@ class DeliveryAddressInput:
     reference: Optional[str] = None
     # Delivery instruction fields (Uber Eats / Glovo style)
     addressType: AddressTypeInput = AddressTypeInput.HOUSE
-    buildingName: Optional[str] = None      # Nombre del edificio/conjunto
-    floor: Optional[str] = None             # Piso (ej: "3", "PB")
-    apartment: Optional[str] = None         # Número de apartamento (ej: "3B")
-    deliveryInstructions: Optional[str] = None  # Instrucciones libres (ej: "Tocar timbre 2 veces")
+    buildingName: Optional[str] = None  # Nombre del edificio/conjunto
+    floor: Optional[str] = None  # Piso (ej: "3", "PB")
+    apartment: Optional[str] = None  # Número de apartamento (ej: "3B")
+    deliveryInstructions: Optional[str] = (
+        None  # Instrucciones libres (ej: "Tocar timbre 2 veces")
+    )
+
+
+@strawberry.input
+class FulfillmentInput:
+    type: FulfillmentTypeEnum
+    pickupBranchId: Optional[str] = None
+    pickupWindowId: Optional[str] = None
 
 
 @strawberry.input
 class CreateOrderInput:
     branchId: str
     items: List[OrderItemInput]
-    deliveryAddress: DeliveryAddressInput
+    fulfillment: Optional[FulfillmentInput] = None
+    deliveryAddress: Optional[DeliveryAddressInput] = None
     paymentMethod: str  # "card" | "transfer" | "cash" | "apple_pay"
     paymentIntentId: Optional[str] = None
     comments: Optional[str] = None

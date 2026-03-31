@@ -5,6 +5,7 @@ from typing import Optional
 
 import strawberry
 from bson import ObjectId
+from graphql import GraphQLError
 from strawberry.types import Info
 
 from domain.orders import (
@@ -22,7 +23,7 @@ from repositories.orders_repository import (
     order_locations_repo,
     orders_repo,
 )
-from services.orders_service import order_service
+from services.orders_service import OrderValidationError, order_service
 from utils.graphql_auth import apply_optional_jwt, require_auth
 
 from .inputs import (
@@ -57,6 +58,30 @@ class OrderMutation:
             raise Exception("Usuario no autenticado")
 
         try:
+            fulfillment_type = "DELIVERY"
+            pickup_branch_id = None
+            pickup_window_id = None
+            if input.fulfillment:
+                fulfillment_type = input.fulfillment.type.value
+                pickup_branch_id = input.fulfillment.pickupBranchId
+                pickup_window_id = input.fulfillment.pickupWindowId
+
+            delivery_address = None
+            if input.deliveryAddress:
+                delivery_address = {
+                    "street": input.deliveryAddress.street,
+                    "city": input.deliveryAddress.city,
+                    "reference": input.deliveryAddress.reference,
+                    "latitude": input.deliveryAddress.latitude,
+                    "longitude": input.deliveryAddress.longitude,
+                    # Delivery instruction fields (Uber Eats / Glovo style)
+                    "addressType": input.deliveryAddress.addressType.value,
+                    "buildingName": input.deliveryAddress.buildingName,
+                    "floor": input.deliveryAddress.floor,
+                    "apartment": input.deliveryAddress.apartment,
+                    "deliveryInstructions": input.deliveryAddress.deliveryInstructions,
+                }
+
             order = await order_service.create_order(
                 customer_id=user_id,
                 branch_id=input.branchId,
@@ -88,25 +113,18 @@ class OrderMutation:
                     }
                     for i in input.items
                 ],
-                delivery_address={
-                    "street": input.deliveryAddress.street,
-                    "city": input.deliveryAddress.city,
-                    "reference": input.deliveryAddress.reference,
-                    "latitude": input.deliveryAddress.latitude,
-                    "longitude": input.deliveryAddress.longitude,
-                    # Delivery instruction fields (Uber Eats / Glovo style)
-                    "addressType": input.deliveryAddress.addressType.value,
-                    "buildingName": input.deliveryAddress.buildingName,
-                    "floor": input.deliveryAddress.floor,
-                    "apartment": input.deliveryAddress.apartment,
-                    "deliveryInstructions": input.deliveryAddress.deliveryInstructions,
-                },
+                delivery_address=delivery_address,
                 payment_method=input.paymentMethod,
                 payment_intent_id=input.paymentIntentId,
                 promo_code=input.promoCode,
                 initial_comment=input.comments,
+                fulfillment_type=fulfillment_type,
+                pickup_branch_id=pickup_branch_id,
+                pickup_window_id=pickup_window_id,
             )
             return order_to_type(order)
+        except OrderValidationError as e:
+            raise GraphQLError(str(e), extensions={"code": e.code})
         except ValueError as e:
             raise Exception(str(e))
 

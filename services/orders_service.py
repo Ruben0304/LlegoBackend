@@ -4,11 +4,12 @@ import re
 import unicodedata
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 from zoneinfo import ZoneInfo
 
 from bson import ObjectId
 
+from core.config import settings
 from domain.orders import (
     ALLOWED_TRANSITIONS,
     AddressType,
@@ -44,6 +45,14 @@ from services.orders_utils import (
     generate_order_number,
     haversine_distance,
 )
+
+
+class OrderValidationError(ValueError):
+    """Business validation error with stable GraphQL error code."""
+
+    def __init__(self, message: str, code: str):
+        super().__init__(message)
+        self.code = code
 
 
 class OrderService:
@@ -231,6 +240,133 @@ class OrderService:
         return False
 
     @staticmethod
+    def _parse_allowlist(raw: str) -> Set[str]:
+        return {entry.strip() for entry in (raw or "").split(",") if entry.strip()}
+
+    @staticmethod
+    def _coerce_bool(value: Any) -> Optional[bool]:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            val = value.strip().lower()
+            if val in {"true", "1", "yes"}:
+                return True
+            if val in {"false", "0", "no"}:
+                return False
+        return None
+
+    def _is_branch_open_for_pickup(self, schedule: Optional[dict]) -> bool:
+        """Best-effort branch schedule validation. On parse ambiguity, allow by default."""
+        if not isinstance(schedule, dict) or not schedule:
+            return True
+
+        now = datetime.utcnow()
+        key_by_weekday = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+        day_key = key_by_weekday[now.weekday()]
+        slots = schedule.get(day_key)
+        if not slots:
+            return True
+
+        current_minutes = now.hour * 60 + now.minute
+        for slot in slots:
+            if not isinstance(slot, str) or "-" not in slot:
+                continue
+            start_raw, end_raw = slot.split("-", 1)
+            try:
+                start_h, start_m = start_raw.strip().split(":")
+                end_h, end_m = end_raw.strip().split(":")
+                start_minutes = int(start_h) * 60 + int(start_m)
+                end_minutes = int(end_h) * 60 + int(end_m)
+            except Exception:
+                continue
+
+            if start_minutes <= current_minutes <= end_minutes:
+                return True
+
+        return False
+
+    def _is_pickup_enabled_for_branch(
+        self, branch: Any, business: Any
+    ) -> tuple[bool, str]:
+        if not settings.pickup_feature_enabled:
+            return False, "PICKUP_NOT_ENABLED"
+
+        branch_pickup_flags = [
+            getattr(branch, "pickupEnabled", None),
+            getattr(branch, "isPickupEnabled", None),
+            getattr(branch, "supportsPickup", None),
+            getattr(branch, "pickupAvailable", None),
+        ]
+        for flag in branch_pickup_flags:
+            coerced = self._coerce_bool(flag)
+            if coerced is False:
+                return False, "PICKUP_NOT_AVAILABLE_FOR_BRANCH"
+
+        allow_branch_ids = self._parse_allowlist(settings.pickup_allowed_branch_ids)
+        if allow_branch_ids and str(branch.id) not in allow_branch_ids:
+            return False, "PICKUP_NOT_AVAILABLE_FOR_BRANCH"
+
+        allow_business_ids = self._parse_allowlist(settings.pickup_allowed_business_ids)
+        if allow_business_ids and str(business.id) not in allow_business_ids:
+            return False, "PICKUP_NOT_AVAILABLE_FOR_BRANCH"
+
+        return True, ""
+
+    def _assert_pickup_item_eligible(self, entity: Any, label: str) -> None:
+        direct_flags = [
+            getattr(entity, "pickupEligible", None),
+            getattr(entity, "isPickupEligible", None),
+            getattr(entity, "pickupEnabled", None),
+            getattr(entity, "isPickupEnabled", None),
+            getattr(entity, "pickupAvailable", None),
+            getattr(entity, "isPickupAvailable", None),
+            getattr(entity, "availableForPickup", None),
+        ]
+        for flag in direct_flags:
+            coerced = self._coerce_bool(flag)
+            if coerced is False:
+                raise OrderValidationError(
+                    f"{label} no es elegible para recogida en tienda",
+                    code="ITEM_NOT_PICKUP_ELIGIBLE",
+                )
+
+        negative_flags = [
+            getattr(entity, "deliveryOnly", None),
+            getattr(entity, "requiresDelivery", None),
+        ]
+        for flag in negative_flags:
+            coerced = self._coerce_bool(flag)
+            if coerced is True:
+                raise OrderValidationError(
+                    f"{label} no es elegible para recogida en tienda",
+                    code="ITEM_NOT_PICKUP_ELIGIBLE",
+                )
+
+    @staticmethod
+    def _resolve_order_destination_coords(
+        order: Any, branch_coords: Optional[List[float]] = None
+    ) -> List[float]:
+        if getattr(order, "deliveryMode", None) == "pickup":
+            if (
+                getattr(order, "pickupAddress", None)
+                and order.pickupAddress.coordinates
+            ):
+                return list(order.pickupAddress.coordinates.coordinates)
+            if branch_coords:
+                return list(branch_coords)
+
+        if (
+            getattr(order, "deliveryAddress", None)
+            and order.deliveryAddress.coordinates
+        ):
+            return list(order.deliveryAddress.coordinates.coordinates)
+
+        if branch_coords:
+            return list(branch_coords)
+
+        return [0.0, 0.0]
+
+    @staticmethod
     def _normalize_currency(currency: Optional[str], fallback: str = "USD") -> str:
         normalized = (currency or "").strip().upper()
         if normalized in {"USD", "CUP"}:
@@ -322,6 +458,7 @@ class OrderService:
         branch_id: str,
         order_currency: str,
         exchange_rate: Optional[float],
+        fulfillment_type: str = "DELIVERY",
     ) -> tuple[list[Any], list[Any], bool, float, float, str, float]:
         """Build validated combo selection snapshot and prices for one combo unit."""
         selection_map: Dict[str, dict] = {}
@@ -430,6 +567,10 @@ class OrderService:
                 if not self._ids_equal(product.branchId, branch_id):
                     raise ValueError(
                         f"Producto {product.name} no pertenece a esta sucursal"
+                    )
+                if fulfillment_type == "PICKUP":
+                    self._assert_pickup_item_eligible(
+                        product, f"Producto {product.name}"
                     )
                 add_preview_product(product)
 
@@ -590,6 +731,7 @@ class OrderService:
         branch_id: str,
         order_currency: str,
         exchange_rate: Optional[float],
+        fulfillment_type: str = "DELIVERY",
     ) -> tuple[OrderItem, float]:
         """Build order item snapshot and line subtotal from raw input."""
         item_type = str(item.get("itemType") or "product").strip().lower()
@@ -611,6 +753,8 @@ class OrderService:
                 raise ValueError(
                     f"Producto {product.name} no pertenece a esta sucursal"
                 )
+            if fulfillment_type == "PICKUP":
+                self._assert_pickup_item_eligible(product, f"Producto {product.name}")
 
             unit_price = self._convert_amount(
                 amount=product.price,
@@ -645,6 +789,8 @@ class OrderService:
                 raise ValueError(f"Combo {combo.name} no disponible")
             if not self._ids_equal(combo.branchId, branch_id):
                 raise ValueError(f"El combo {combo.name} no pertenece a esta sucursal")
+            if fulfillment_type == "PICKUP":
+                self._assert_pickup_item_eligible(combo, f"Combo {combo.name}")
 
             combo_selections_input = item.get("comboSelections") or []
             (
@@ -661,6 +807,7 @@ class OrderService:
                 branch_id=branch_id,
                 order_currency=order_currency,
                 exchange_rate=exchange_rate,
+                fulfillment_type=fulfillment_type,
             )
 
             image_path = combo.image
@@ -702,6 +849,8 @@ class OrderService:
                 raise ValueError(f"La vitrina {showcase.title} no está disponible")
             if not self._ids_equal(showcase.branchId, branch_id):
                 raise ValueError("La vitrina no pertenece a esta sucursal")
+            if fulfillment_type == "PICKUP":
+                self._assert_pickup_item_eligible(showcase, f"Vitrina {showcase.title}")
 
             order_item = OrderItem(
                 itemId=str(showcase.id),
@@ -723,13 +872,47 @@ class OrderService:
         customer_id: str,
         branch_id: str,
         items: List[dict],
-        delivery_address: dict,
+        delivery_address: Optional[dict],
         payment_method: str,
         payment_intent_id: Optional[str] = None,
         promo_code: Optional[str] = None,
         initial_comment: Optional[str] = None,
+        fulfillment_type: Optional[str] = None,
+        pickup_branch_id: Optional[str] = None,
+        pickup_window_id: Optional[str] = None,
     ) -> Order:
         """Create a new order with all validations."""
+        requested_fulfillment = (fulfillment_type or "DELIVERY").strip().upper()
+        if requested_fulfillment not in {"DELIVERY", "PICKUP"}:
+            raise OrderValidationError(
+                "Tipo de fulfillment inválido",
+                code="INVALID_FULFILLMENT_INPUT",
+            )
+        is_pickup = requested_fulfillment == "PICKUP"
+
+        if is_pickup:
+            if delivery_address is not None:
+                raise OrderValidationError(
+                    "deliveryAddress debe ser null para pickup",
+                    code="INVALID_FULFILLMENT_INPUT",
+                )
+            if not pickup_branch_id:
+                raise OrderValidationError(
+                    "pickupBranchId es requerido para pickup",
+                    code="INVALID_FULFILLMENT_INPUT",
+                )
+            if str(pickup_branch_id) != str(branch_id):
+                raise OrderValidationError(
+                    "pickupBranchId debe ser igual a branchId en esta fase",
+                    code="INVALID_FULFILLMENT_INPUT",
+                )
+        else:
+            if not delivery_address:
+                raise OrderValidationError(
+                    "deliveryAddress es requerido para delivery",
+                    code="INVALID_FULFILLMENT_INPUT",
+                )
+
         # 1. Validate branch exists and is active
         branch = await branches_repo.get_by_id(branch_id)
         if not branch:
@@ -739,50 +922,93 @@ class OrderService:
         if not items:
             raise ValueError("El pedido debe incluir al menos un ítem")
 
-        branch_now = self._get_branch_local_now()
-        if not self._is_branch_open_now(branch.schedule, branch_now):
-            day_names = [
-                "lunes",
-                "martes",
-                "miercoles",
-                "jueves",
-                "viernes",
-                "sabado",
-                "domingo",
-            ]
-            day_index = branch_now.weekday()
-            today_schedule = self._format_schedule_for_day(branch.schedule, day_index)
-            raise ValueError(
-                "La sucursal esta cerrada en este momento "
-                f"({day_names[day_index]} {branch_now.strftime('%H:%M')}). "
-                f"Horario de hoy: {today_schedule}"
-            )
-
-        # 1.5. Resolve payment method and monetary context
-        (
-            payment_method_code,
-            payment_method_currency,
-            _payment_method_doc,
-        ) = await self._resolve_payment_method(payment_method)
-        order_currency = self._resolve_order_currency(branch, payment_method_currency)
-        exchange_rate = self._resolve_exchange_rate(branch)
-
+        if not is_pickup:
+            branch_now = self._get_branch_local_now()
+            if not self._is_branch_open_now(branch.schedule, branch_now):
+                day_names = [
+                    "lunes",
+                    "martes",
+                    "miercoles",
+                    "jueves",
+                    "viernes",
+                    "sabado",
+                    "domingo",
+                ]
+                day_index = branch_now.weekday()
+                today_schedule = self._format_schedule_for_day(
+                    branch.schedule, day_index
+                )
+                raise ValueError(
+                    "La sucursal esta cerrada en este momento "
+                    f"({day_names[day_index]} {branch_now.strftime('%H:%M')}). "
+                    f"Horario de hoy: {today_schedule}"
+                )
         # 2. Get business
         business = await businesses_repo.get_by_id(branch.businessId)
         if not business:
             raise ValueError("Negocio no encontrado")
+
+        if is_pickup:
+            pickup_enabled, pickup_error_code = self._is_pickup_enabled_for_branch(
+                branch, business
+            )
+            if not pickup_enabled:
+                raise OrderValidationError(
+                    "Pickup no está habilitado para esta sucursal",
+                    code=pickup_error_code,
+                )
+            if not self._is_branch_open_for_pickup(getattr(branch, "schedule", None)):
+                raise OrderValidationError(
+                    "La sucursal está cerrada para pickup",
+                    code="BRANCH_CLOSED_FOR_PICKUP",
+                )
+
+        # 2.5. Resolve payment method and monetary context
+        (
+            payment_method_code,
+            payment_method_currency,
+            payment_method_doc,
+        ) = await self._resolve_payment_method(payment_method)
+        order_currency = self._resolve_order_currency(branch, payment_method_currency)
+        exchange_rate = self._resolve_exchange_rate(branch)
+
+        if is_pickup and payment_method_doc:
+            payment_pickup_enabled = self._coerce_bool(
+                getattr(payment_method_doc, "pickupEnabled", None)
+            )
+            payment_delivery_only = self._coerce_bool(
+                getattr(payment_method_doc, "deliveryOnly", None)
+            )
+            if payment_pickup_enabled is False or payment_delivery_only is True:
+                raise OrderValidationError(
+                    "Método de pago no permitido para pickup",
+                    code="FULFILLMENT_PAYMENT_METHOD_NOT_ALLOWED",
+                )
 
         # 3. Validate and snapshot items in order currency
         order_items: List[OrderItem] = []
         subtotal = 0.0
 
         for item in items:
-            order_item, line_subtotal = await self._build_order_item_snapshot(
-                item=item,
-                branch_id=branch_id,
-                order_currency=order_currency,
-                exchange_rate=exchange_rate,
-            )
+            try:
+                order_item, line_subtotal = await self._build_order_item_snapshot(
+                    item=item,
+                    branch_id=branch_id,
+                    order_currency=order_currency,
+                    exchange_rate=exchange_rate,
+                    fulfillment_type=requested_fulfillment,
+                )
+            except OrderValidationError:
+                raise
+            except ValueError as e:
+                if is_pickup:
+                    message = str(e)
+                    message_lc = message.lower()
+                    code = "ITEM_NOT_PICKUP_ELIGIBLE"
+                    if "no disponible" in message_lc:
+                        code = "PICKUP_STOCK_UNAVAILABLE"
+                    raise OrderValidationError(message, code=code)
+                raise
             order_items.append(order_item)
             subtotal += line_subtotal
 
@@ -793,35 +1019,43 @@ class OrderService:
             branch.coordinates.coordinates[0],
             branch.coordinates.coordinates[1],
         )
-        delivery_coords = (delivery_address["longitude"], delivery_address["latitude"])
-
-        subtotal_for_zone = subtotal
-        if order_currency != "CUP":
-            subtotal_for_zone = self._convert_amount(
-                amount=subtotal,
-                from_currency=order_currency,
-                to_currency="CUP",
-                exchange_rate=exchange_rate,
-            )
-
-        delivery_fee_cup, delivery_zone_id = await calculate_delivery_fee_h3(
-            branch_coords,
-            delivery_coords,
-            subtotal_for_zone,
-        )
-
-        if order_currency == "CUP":
-            delivery_fee = delivery_fee_cup
+        if is_pickup:
+            delivery_fee = 0.0
+            delivery_zone_id = None
+            delivery_mode = "pickup"
         else:
-            delivery_fee = self._convert_amount(
-                amount=delivery_fee_cup,
-                from_currency="CUP",
-                to_currency=order_currency,
-                exchange_rate=exchange_rate,
+            delivery_coords = (
+                delivery_address["longitude"],
+                delivery_address["latitude"],
             )
 
-        delivery_fee = round(delivery_fee, 2)
-        delivery_mode = "app"
+            subtotal_for_zone = subtotal
+            if order_currency != "CUP":
+                subtotal_for_zone = self._convert_amount(
+                    amount=subtotal,
+                    from_currency=order_currency,
+                    to_currency="CUP",
+                    exchange_rate=exchange_rate,
+                )
+
+            delivery_fee_cup, delivery_zone_id = await calculate_delivery_fee_h3(
+                branch_coords,
+                delivery_coords,
+                subtotal_for_zone,
+            )
+
+            if order_currency == "CUP":
+                delivery_fee = delivery_fee_cup
+            else:
+                delivery_fee = self._convert_amount(
+                    amount=delivery_fee_cup,
+                    from_currency="CUP",
+                    to_currency=order_currency,
+                    exchange_rate=exchange_rate,
+                )
+
+            delivery_fee = round(delivery_fee, 2)
+            delivery_mode = "app"
 
         # H3 index of branch for efficient geo queries by delivery persons
         branch_h3 = coords_to_h3(branch_coords[1], branch_coords[0])
@@ -853,24 +1087,41 @@ class OrderService:
         order_id = str(ObjectId())
         order_number = await generate_order_number()
 
-        delivery_addr = DeliveryAddress(
-            street=delivery_address["street"],
-            city=delivery_address.get("city"),
-            reference=delivery_address.get("reference"),
-            coordinates=GeoPoint(
-                type="Point",
-                coordinates=[
-                    delivery_address["longitude"],
-                    delivery_address["latitude"],
-                ],
-            ),
-            # Delivery instruction fields (Uber Eats / Glovo style)
-            addressType=AddressType(delivery_address.get("addressType", "house")),
-            buildingName=delivery_address.get("buildingName"),
-            floor=delivery_address.get("floor"),
-            apartment=delivery_address.get("apartment"),
-            deliveryInstructions=delivery_address.get("deliveryInstructions"),
-        )
+        if is_pickup:
+            # Legacy fallback: keep deliveryAddress non-null for old tracking clients.
+            delivery_addr = DeliveryAddress(
+                street=branch.address or "Recogida en tienda",
+                city=None,
+                reference="pickup",
+                coordinates=GeoPoint(
+                    type="Point",
+                    coordinates=list(branch.coordinates.coordinates),
+                ),
+                addressType=AddressType.OTHER,
+                buildingName=None,
+                floor=None,
+                apartment=None,
+                deliveryInstructions=None,
+            )
+        else:
+            delivery_addr = DeliveryAddress(
+                street=delivery_address["street"],
+                city=delivery_address.get("city"),
+                reference=delivery_address.get("reference"),
+                coordinates=GeoPoint(
+                    type="Point",
+                    coordinates=[
+                        delivery_address["longitude"],
+                        delivery_address["latitude"],
+                    ],
+                ),
+                # Delivery instruction fields (Uber Eats / Glovo style)
+                addressType=AddressType(delivery_address.get("addressType", "house")),
+                buildingName=delivery_address.get("buildingName"),
+                floor=delivery_address.get("floor"),
+                apartment=delivery_address.get("apartment"),
+                deliveryInstructions=delivery_address.get("deliveryInstructions"),
+            )
 
         pickup_addr = PickupAddress(
             street=branch.address,
@@ -1501,9 +1752,12 @@ class OrderService:
         }
 
         # Get delivery location
+        delivery_coords = self._resolve_order_destination_coords(
+            order, branch_coords=branch.coordinates.coordinates
+        )
         delivery_location = {
-            "longitude": order.deliveryAddress.coordinates.coordinates[0],
-            "latitude": order.deliveryAddress.coordinates.coordinates[1],
+            "longitude": delivery_coords[0],
+            "latitude": delivery_coords[1],
         }
 
         # Get delivery person location if assigned
@@ -1581,9 +1835,13 @@ class OrderService:
                             delivery_person.currentLocation.coordinates[0],
                             delivery_person.currentLocation.coordinates[1],
                         ),
-                        (
-                            order.deliveryAddress.coordinates.coordinates[0],
-                            order.deliveryAddress.coordinates.coordinates[1],
+                        tuple(
+                            self._resolve_order_destination_coords(
+                                order,
+                                branch_coords=order.pickupAddress.coordinates.coordinates
+                                if order.pickupAddress
+                                else None,
+                            )
                         ),
                     )
                     # Estimate 25 km/h average speed

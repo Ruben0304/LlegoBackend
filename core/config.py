@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     cash_kyc_max_auto_retries: int = 4
     cash_kyc_global_policy_version: str = "global-kyc-v1"
 
+    # Pickup / Click & Collect rollout controls
+    pickup_feature_enabled: bool = False
+    # Comma-separated allowlists (optional). Empty means no restriction for that dimension.
+    pickup_allowed_branch_ids: str = ""
+    pickup_allowed_business_ids: str = ""
+
     # DeepSeek API Configuration (used by AI chat RAG pipeline)
     deepseek_api_key: str = ""
     deepseek_model: str = "deepseek-chat"
