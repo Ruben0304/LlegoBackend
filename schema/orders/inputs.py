@@ -125,6 +125,13 @@ class ModifyOrderItemsInput:
 
 
 @strawberry.input
+class ResubmitOrderInput:
+    orderId: str
+    items: Optional[List[OrderItemInput]] = None
+    comment: Optional[str] = None
+
+
+@strawberry.input
 class UpdateDeliveryLocationInput:
     orderId: str
     latitude: float

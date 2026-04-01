@@ -276,10 +276,10 @@ class QvaPayService:
         current_status = (order_doc or {}).get("status")
         if current_status == "pending_payment":
             next_status = "accepted"
-        elif current_status in {"accepted", "modified_by_store"}:
+        elif current_status == "accepted":
             next_status = "accepted"
         else:
-            next_status = "pending_acceptance"
+            next_status = current_status or "accepted"
         await db.orders.update_one(
             {"_id": invoice.orderId},
             {

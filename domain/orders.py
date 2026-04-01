@@ -20,6 +20,7 @@ class OrderStatus(str, Enum):
     PAYMENT_IN_PROGRESS = "payment_in_progress"  # Payment being processed
     PENDING_ACCEPTANCE = "pending_acceptance"  # Waiting for business to accept
     MODIFIED_BY_STORE = "modified_by_store"
+    REJECTED_BY_STORE = "rejected_by_store"
     ACCEPTED = "accepted"
     PREPARING = "preparing"
     READY_FOR_PICKUP = "ready_for_pickup"
@@ -251,6 +252,12 @@ class Order(BaseModel):
     )
     paidAt: Optional[datetime] = None  # When payment was completed
     deliveryFeePaid: float = 0.0  # Delivery fee actually paid (for tracking)
+    deadlineAt: Optional[datetime] = None  # SLA deadline for pre-preparation states
+    resubmissionCount: int = 0
+    deliveryVerificationCode: Optional[str] = None
+    deliveryCodeGeneratedAt: Optional[datetime] = None
+    deliveryCodeVerifiedAt: Optional[datetime] = None
+    deliveryCodeAttempts: int = 0
 
     pickupAddress: Optional[PickupAddress] = None  # Branch address for pickup
     branchH3: Optional[str] = None  # H3 index of branch location for geo queries
@@ -346,15 +353,21 @@ ALLOWED_TRANSITIONS: Dict[str, List[str]] = {
     OrderStatus.PENDING_ACCEPTANCE.value: [
         OrderStatus.AWAITING_DELIVERY_ACCEPTANCE.value,
         OrderStatus.MODIFIED_BY_STORE.value,
+        OrderStatus.REJECTED_BY_STORE.value,
         OrderStatus.CANCELLED.value,
     ],
     OrderStatus.AWAITING_DELIVERY_ACCEPTANCE.value: [
         OrderStatus.PENDING_PAYMENT.value,
+        OrderStatus.ACCEPTED.value,
+        OrderStatus.MODIFIED_BY_STORE.value,
+        OrderStatus.REJECTED_BY_STORE.value,
+        OrderStatus.PENDING_ACCEPTANCE.value,
         OrderStatus.CANCELLED.value,
     ],
     OrderStatus.PENDING_PAYMENT.value: [
         OrderStatus.ACCEPTED.value,
         OrderStatus.AWAITING_DELIVERY_ACCEPTANCE.value,
+        OrderStatus.PENDING_ACCEPTANCE.value,
         OrderStatus.CANCELLED.value,
     ],
     OrderStatus.PAYMENT_IN_PROGRESS.value: [
@@ -363,25 +376,27 @@ ALLOWED_TRANSITIONS: Dict[str, List[str]] = {
         OrderStatus.CANCELLED.value,
     ],
     OrderStatus.MODIFIED_BY_STORE.value: [
-        OrderStatus.ACCEPTED.value,
+        OrderStatus.PENDING_ACCEPTANCE.value,
+        OrderStatus.CANCELLED.value,
+    ],
+    OrderStatus.REJECTED_BY_STORE.value: [
+        OrderStatus.PENDING_ACCEPTANCE.value,
         OrderStatus.CANCELLED.value,
     ],
     OrderStatus.ACCEPTED.value: [
         OrderStatus.PREPARING.value,
-        OrderStatus.READY_FOR_PICKUP.value,
-        OrderStatus.CANCELLED.value,
+        OrderStatus.MODIFIED_BY_STORE.value,
+        OrderStatus.REJECTED_BY_STORE.value,
     ],
     OrderStatus.PREPARING.value: [
         OrderStatus.READY_FOR_PICKUP.value,
-        OrderStatus.CANCELLED.value,
+        OrderStatus.ON_THE_WAY.value,
     ],
     OrderStatus.READY_FOR_PICKUP.value: [
         OrderStatus.ON_THE_WAY.value,
-        OrderStatus.CANCELLED.value,
     ],
     OrderStatus.ON_THE_WAY.value: [
         OrderStatus.DELIVERED.value,
-        OrderStatus.CANCELLED.value,
     ],
     OrderStatus.DELIVERED.value: [],
     OrderStatus.CANCELLED.value: [],

@@ -235,28 +235,13 @@ class OrderQuery:
         delivery_person = await _get_or_create_delivery_person(user_id)
 
         if delivery_person.linkedBranchIds:
-            ready_orders = await orders_repo.get_ready_for_pickup_by_branches(
+            orders = await orders_repo.get_awaiting_delivery_acceptance_by_branches(
                 delivery_person.linkedBranchIds
             )
-            prepayment_orders = (
-                await orders_repo.get_awaiting_delivery_acceptance_by_branches(
-                    delivery_person.linkedBranchIds
-                )
-            )
         else:
-            ready_orders = await orders_repo.get_ready_for_pickup_nearby(
+            orders = await orders_repo.get_awaiting_delivery_acceptance_nearby(
                 longitude, latitude, radiusKm
             )
-            prepayment_orders = (
-                await orders_repo.get_awaiting_delivery_acceptance_nearby(
-                    longitude, latitude, radiusKm
-                )
-            )
-
-        orders = sorted(
-            [*prepayment_orders, *ready_orders],
-            key=lambda o: o.createdAt,
-        )
 
         return [order_to_type(o) for o in orders]
 

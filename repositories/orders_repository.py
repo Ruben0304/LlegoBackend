@@ -1,6 +1,6 @@
 """Repository classes for Orders, Delivery Persons, and Location Updates."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
@@ -124,6 +124,7 @@ class OrderRepository:
                     OrderStatus.AWAITING_DELIVERY_ACCEPTANCE.value,
                     OrderStatus.PENDING_PAYMENT.value,
                     OrderStatus.MODIFIED_BY_STORE.value,
+                    OrderStatus.REJECTED_BY_STORE.value,
                 ]
             },
         }
@@ -223,7 +224,11 @@ class OrderRepository:
         return self._doc_to_order(doc) if doc else None
 
     async def update_status(
-        self, order_id: str, status: OrderStatus, timeline_entry: OrderTimeline
+        self,
+        order_id: str,
+        status: OrderStatus,
+        timeline_entry: OrderTimeline,
+        extra_set_fields: Optional[Dict[str, Any]] = None,
     ) -> Optional[Order]:
         """Update order status and add timeline entry."""
         collection = self._get_collection()
@@ -244,6 +249,8 @@ class OrderRepository:
             if order and order.assignedAt:
                 delta = now - order.assignedAt
                 set_fields["deliveryDurationMin"] = int(delta.total_seconds() / 60)
+        if extra_set_fields:
+            set_fields.update(extra_set_fields)
 
         result = await collection.find_one_and_update(
             {"_id": self._to_object_id(order_id)},
@@ -274,6 +281,9 @@ class OrderRepository:
                     "subtotal": subtotal,
                     "total": total,
                     "status": OrderStatus.MODIFIED_BY_STORE.value,
+                    "deliveryPersonId": None,
+                    "currentPaymentAttemptId": None,
+                    "deadlineAt": now + timedelta(minutes=10),
                     "updatedAt": now,
                     "lastStatusAt": now,
                 },
@@ -282,6 +292,59 @@ class OrderRepository:
             return_document=True,
         )
         return self._doc_to_order(result) if result else None
+
+    async def resubmit_order(
+        self,
+        order_id: str,
+        timeline_entry: OrderTimeline,
+        items: Optional[List[OrderItem]] = None,
+        subtotal: Optional[float] = None,
+        total: Optional[float] = None,
+    ) -> Optional[Order]:
+        """Resubmit an order back to pending acceptance from pre-preparation states."""
+        collection = self._get_collection()
+        now = datetime.utcnow()
+        set_fields: Dict[str, Any] = {
+            "status": OrderStatus.PENDING_ACCEPTANCE.value,
+            "deadlineAt": now + timedelta(minutes=10),
+            "deliveryPersonId": None,
+            "currentPaymentAttemptId": None,
+            "paymentStatus": PaymentStatus.PENDING.value,
+            "paymentId": None,
+            "paidAt": None,
+            "updatedAt": now,
+            "lastStatusAt": now,
+        }
+        if items is not None:
+            set_fields["items"] = [item.model_dump() for item in items]
+        if subtotal is not None:
+            set_fields["subtotal"] = subtotal
+        if total is not None:
+            set_fields["total"] = total
+
+        result = await collection.find_one_and_update(
+            {"_id": self._to_object_id(order_id)},
+            {
+                "$set": set_fields,
+                "$inc": {"resubmissionCount": 1},
+                "$push": {"timeline": timeline_entry.model_dump()},
+            },
+            return_document=True,
+        )
+        return self._doc_to_order(result) if result else None
+
+    async def get_expired_preparation_candidates(
+        self, statuses: List[OrderStatus], now: Optional[datetime] = None, limit: int = 100
+    ) -> List[Order]:
+        """Get orders with elapsed deadlines before preparation."""
+        collection = self._get_collection()
+        current_time = now or datetime.utcnow()
+        query = {
+            "status": {"$in": [status.value for status in statuses]},
+            "deadlineAt": {"$lte": current_time},
+        }
+        cursor = collection.find(query).sort("deadlineAt", 1).limit(limit)
+        return [self._doc_to_order(doc) async for doc in cursor]
 
     async def assign_delivery_person(
         self, order_id: str, delivery_person_id: str, estimated_delivery_time: datetime
@@ -311,6 +374,7 @@ class OrderRepository:
         result = await collection.find_one_and_update(
             {
                 "_id": self._to_object_id(order_id),
+                "status": OrderStatus.AWAITING_DELIVERY_ACCEPTANCE.value,
                 "deliveryPersonId": None,
             },
             {
@@ -978,6 +1042,7 @@ async def create_order_indexes():
     await orders.create_index("orderNumber", unique=True)
     await orders.create_index("status")
     await orders.create_index([("paymentStatus", 1), ("status", 1)])
+    await orders.create_index([("status", 1), ("deadlineAt", 1)])
     # Compound index for delivery person pickup queries (H3-based geo)
     await orders.create_index([("status", 1), ("deliveryPersonId", 1), ("branchH3", 1)])
     await orders.create_index([("deliveryPersonId", 1), ("completedAt", -1)])

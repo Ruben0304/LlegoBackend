@@ -563,7 +563,7 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
 
         Retorna una `paymentUrl` que el cliente debe abrir en un WebView o browser
         para completar el pago. Una vez pagado, QvaPay notifica al backend
-        automáticamente y la orden pasa a `pending_acceptance`.
+        automáticamente y la orden pasa a `accepted`.
 
         Solo disponible si la sucursal tiene `acceptsQvapay = true`.
         """
@@ -583,7 +583,7 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
         if str(order.customerId) != user_id:
             raise Exception("No autorizado")
 
-        payable_statuses = {"pending_payment", "accepted", "modified_by_store"}
+        payable_statuses = {"pending_payment"}
         if order.status.value not in payable_statuses:
             raise Exception(
                 f"El pedido no está en un estado que permita pago: {order.status.value}"
@@ -630,7 +630,7 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
 
         Retorna la `address` y el `expectedAmount` exacto en USDT que el cliente
         debe enviar. TronDealer detecta el depósito y notifica al backend
-        automáticamente; la orden pasa a `pending_acceptance`.
+        automáticamente; la orden pasa a `accepted`.
 
         Solo disponible si la sucursal tiene `acceptsZelle = true`.
         """
@@ -650,7 +650,7 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
         if str(order.customerId) != user_id:
             raise Exception("No autorizado")
 
-        payable_statuses = {"pending_payment", "accepted", "modified_by_store"}
+        payable_statuses = {"pending_payment"}
         if order.status.value not in payable_statuses:
             raise Exception(
                 f"El pedido no está en un estado que permita pago: {order.status.value}"

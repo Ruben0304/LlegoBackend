@@ -31,6 +31,7 @@ from .inputs import (
     AssignDeliveryPersonInput,
     CreateOrderInput,
     ModifyOrderItemsInput,
+    ResubmitOrderInput,
     RequestBranchLinkInput,
     RespondBranchLinkInput,
     UpdateDeliveryLocationInput,
@@ -139,6 +140,50 @@ class OrderMutation:
 
         try:
             order = await order_service.accept_modifications(orderId, user_id)
+            return order_to_type(order)
+        except ValueError as e:
+            raise Exception(str(e))
+
+    @strawberry.mutation(description="Editar y reenviar pedido al estado inicial")
+    async def resubmit_order(
+        self, info: Info, input: ResubmitOrderInput, jwt: str
+    ) -> OrderType:
+        user_id = require_auth(jwt, info)
+
+        try:
+            mapped_items = None
+            if input.items:
+                mapped_items = [
+                    {
+                        "itemType": i.itemType.value,
+                        "productId": i.productId,
+                        "comboId": i.comboId,
+                        "comboSelections": [
+                            {
+                                "slotId": selection.slotId,
+                                "selectedOptions": [
+                                    {
+                                        "productId": selected.productId,
+                                        "quantity": selected.quantity,
+                                        "modifiers": [
+                                            {"name": modifier.name}
+                                            for modifier in selected.modifiers
+                                        ],
+                                    }
+                                    for selected in selection.selectedOptions
+                                ],
+                            }
+                            for selection in i.comboSelections
+                        ],
+                        "showcaseId": i.showcaseId,
+                        "description": i.description,
+                        "quantity": i.quantity,
+                    }
+                    for i in input.items
+                ]
+            order = await order_service.resubmit_order(
+                input.orderId, user_id, mapped_items, input.comment
+            )
             return order_to_type(order)
         except ValueError as e:
             raise Exception(str(e))
@@ -421,11 +466,13 @@ class OrderMutation:
         return True
 
     @strawberry.mutation(description="Confirmar entrega completada")
-    async def confirm_delivery(self, info: Info, orderId: str, jwt: str) -> OrderType:
+    async def confirm_delivery(
+        self, info: Info, orderId: str, deliveryCode: str, jwt: str
+    ) -> OrderType:
         user_id = require_auth(jwt, info)
 
         try:
-            order = await order_service.confirm_delivery(orderId, user_id)
+            order = await order_service.confirm_delivery(orderId, user_id, deliveryCode)
             return order_to_type(order)
         except ValueError as e:
             raise Exception(str(e))

@@ -58,14 +58,135 @@ class OrderValidationError(ValueError):
 class OrderService:
     """Service for order business logic."""
 
+    PRE_PREPARATION_TIMEOUT_MINUTES = 10
+    PRE_PREPARATION_TIMEOUT_STATUSES = {
+        OrderStatus.PENDING_ACCEPTANCE,
+        OrderStatus.MODIFIED_BY_STORE,
+        OrderStatus.REJECTED_BY_STORE,
+        OrderStatus.AWAITING_DELIVERY_ACCEPTANCE,
+        OrderStatus.PENDING_PAYMENT,
+    }
+    CASH_PAYMENT_METHODS = {"cash", "efectivo", "cashondelivery", "contrareembolso"}
+    NON_CASH_PAYMENT_METHODS = {
+        "transfer",
+        "transferencia",
+        "transfermovil",
+        "banktransfer",
+        "wallet",
+        "stripe",
+        "card",
+        "tarjeta",
+        "gateway",
+        "pasarela",
+        "qvapay",
+        "trondealer",
+        "zelle",
+        "crypto",
+        "deposit",
+    }
+
     def __init__(self):
         self.orders_repo = OrderRepository()
         self.delivery_repo = DeliveryPersonRepository()
         self.locations_repo = OrderLocationRepository()
+        self._payment_cash_cache: Dict[str, bool] = {}
 
     @staticmethod
     def _ids_equal(a, b) -> bool:
         return str(a) == str(b)
+
+    @classmethod
+    def _next_deadline_for_status(
+        cls, status: OrderStatus, now: Optional[datetime] = None
+    ) -> Optional[datetime]:
+        if status not in cls.PRE_PREPARATION_TIMEOUT_STATUSES:
+            return None
+        base = now or datetime.utcnow()
+        return base + timedelta(minutes=cls.PRE_PREPARATION_TIMEOUT_MINUTES)
+
+    @staticmethod
+    def _normalize_payment_token(value: Any) -> str:
+        token = unicodedata.normalize("NFKD", str(value or ""))
+        token = "".join(ch for ch in token if not unicodedata.combining(ch))
+        token = re.sub(r"[^a-zA-Z0-9]+", "", token).lower()
+        return token
+
+    async def _is_cash_payment_method(self, payment_method: str) -> bool:
+        """
+        Resolve cash-vs-prepaid using payment method code/method metadata when available.
+
+        Fallback is conservative: unknown methods are treated as non-cash.
+        """
+        normalized = self._normalize_payment_token(payment_method)
+        if not normalized:
+            return False
+
+        if normalized in self._payment_cash_cache:
+            return self._payment_cash_cache[normalized]
+
+        if normalized in self.CASH_PAYMENT_METHODS:
+            self._payment_cash_cache[normalized] = True
+            return True
+        if normalized in self.NON_CASH_PAYMENT_METHODS:
+            self._payment_cash_cache[normalized] = False
+            return False
+
+        payment_method_doc = await payment_methods_repo.get_by_code(payment_method)
+        if payment_method_doc:
+            method_token = self._normalize_payment_token(
+                getattr(payment_method_doc, "method", "")
+            )
+            code_token = self._normalize_payment_token(
+                getattr(payment_method_doc, "code", "")
+            )
+            name_token = self._normalize_payment_token(
+                getattr(payment_method_doc, "name", "")
+            )
+
+            is_cash = (
+                method_token in self.CASH_PAYMENT_METHODS
+                or code_token in self.CASH_PAYMENT_METHODS
+                or "efectivo" in name_token
+                or "cash" in name_token
+            )
+            if not is_cash and (
+                method_token in self.NON_CASH_PAYMENT_METHODS
+                or code_token in self.NON_CASH_PAYMENT_METHODS
+            ):
+                self._payment_cash_cache[normalized] = False
+                return False
+
+            self._payment_cash_cache[normalized] = is_cash
+            return is_cash
+
+        self._payment_cash_cache[normalized] = False
+        return False
+
+    @staticmethod
+    def _generate_delivery_verification_code() -> str:
+        # 6-digit code, enough entropy for delivery handoff while still user-friendly.
+        return f"{uuid.uuid4().int % 1_000_000:06d}"
+
+    @staticmethod
+    def _timeout_cancel_message(status: OrderStatus) -> str:
+        mapping = {
+            OrderStatus.PENDING_ACCEPTANCE: (
+                "Cancelado automaticamente: la tienda no respondio a tiempo"
+            ),
+            OrderStatus.MODIFIED_BY_STORE: (
+                "Cancelado automaticamente: el cliente no reenvio el pedido modificado a tiempo"
+            ),
+            OrderStatus.REJECTED_BY_STORE: (
+                "Cancelado automaticamente: el cliente no reenvio el pedido rechazado a tiempo"
+            ),
+            OrderStatus.AWAITING_DELIVERY_ACCEPTANCE: (
+                "Cancelado automaticamente: ningun mensajero acepto a tiempo"
+            ),
+            OrderStatus.PENDING_PAYMENT: (
+                "Cancelado automaticamente: el cliente no completo el pago a tiempo"
+            ),
+        }
+        return mapping.get(status, "Cancelado automaticamente por expiracion")
 
     @staticmethod
     def _normalize_text(value: Any) -> str:
@@ -400,7 +521,7 @@ class OrderService:
 
         if not exchange_rate or exchange_rate <= 0:
             raise ValueError(
-                "Falta exchangeRate vÃ¡lido en la sucursal para convertir monedas"
+                "Falta exchangeRate valido en la sucursal para convertir monedas"
             )
 
         if from_curr == "USD" and to_curr == "CUP":
@@ -408,7 +529,7 @@ class OrderService:
         if from_curr == "CUP" and to_curr == "USD":
             return value / exchange_rate
         raise ValueError(
-            f"ConversiÃ³n de moneda no soportada: {from_curr} -> {to_curr}"
+            f"Conversion de moneda no soportada: {from_curr} -> {to_curr}"
         )
 
     async def _resolve_payment_method(
@@ -1174,6 +1295,8 @@ class OrderService:
             paymentMethod=payment_method_code,
             paymentStatus=payment_status,
             paymentId=payment_intent_id,
+            deadlineAt=self._next_deadline_for_status(OrderStatus.PENDING_ACCEPTANCE, now),
+            resubmissionCount=0,
             createdAt=now,
             updatedAt=now,
             lastStatusAt=now,
@@ -1208,54 +1331,71 @@ class OrderService:
         if not order:
             raise ValueError("Pedido no encontrado")
 
+        now = datetime.utcnow()
+
         if not force and not self._validate_transition(order.status, new_status):
             raise ValueError(
-                f"TransiciÃ³n de estado no permitida: {order.status.value} -> {new_status.value}"
+                f"Transicion de estado no permitida: {order.status.value} -> {new_status.value}"
             )
 
-        # VALIDACIÃ“N CRÃTICA: Verificar pago antes de PREPARING
-        if new_status == OrderStatus.PREPARING:
-            payment_method = order.paymentMethod.lower()
+        # Payment is mandatory before PREPARING for non-cash methods.
+        if (
+            new_status == OrderStatus.PREPARING
+            and not await self._is_cash_payment_method(order.paymentMethod)
+            and order.paymentStatus != PaymentStatus.COMPLETED
+        ):
+            raise ValueError(
+                "El pedido debe estar pagado antes de prepararse. "
+                "El cliente debe completar el pago primero."
+            )
 
-            # Efectivo no requiere pago previo (se paga al entregar)
-            if payment_method not in ["cash", "efectivo"]:
-                if order.paymentStatus != PaymentStatus.COMPLETED:
-                    raise ValueError(
-                        "El pedido debe estar pagado antes de prepararse. "
-                        "El cliente debe completar el pago primero."
-                    )
-
-        # Default messages
         if not message:
             messages = {
                 OrderStatus.AWAITING_DELIVERY_ACCEPTANCE: "Pedido aceptado por tienda, esperando mensajero",
                 OrderStatus.ACCEPTED: "Pedido aceptado por la tienda",
                 OrderStatus.PENDING_PAYMENT: "Mensajero confirmado. Pedido listo para pagar",
-                OrderStatus.PREPARING: "Tu pedido estÃ¡ siendo preparado",
+                OrderStatus.PREPARING: "Tu pedido esta siendo preparado",
                 OrderStatus.READY_FOR_PICKUP: "Pedido listo para recoger",
-                OrderStatus.ON_THE_WAY: "Tu pedido estÃ¡ en camino",
+                OrderStatus.ON_THE_WAY: "Tu pedido esta en camino",
                 OrderStatus.DELIVERED: "Pedido entregado",
                 OrderStatus.CANCELLED: "Pedido cancelado",
                 OrderStatus.MODIFIED_BY_STORE: "La tienda ha modificado tu pedido",
+                OrderStatus.REJECTED_BY_STORE: "La tienda rechazo tu pedido",
+                OrderStatus.PENDING_ACCEPTANCE: "Pedido reenviado, esperando respuesta de la tienda",
             }
             message = messages.get(
                 new_status, f"Estado actualizado a {new_status.value}"
             )
 
+        extra_set_fields: Dict[str, Any] = {
+            "deadlineAt": self._next_deadline_for_status(new_status, now)
+        }
+        if new_status == OrderStatus.ON_THE_WAY and not order.deliveryVerificationCode:
+            extra_set_fields["deliveryVerificationCode"] = (
+                self._generate_delivery_verification_code()
+            )
+            extra_set_fields["deliveryCodeGeneratedAt"] = now
+            extra_set_fields["deliveryCodeAttempts"] = 0
+        if new_status == OrderStatus.DELIVERED:
+            extra_set_fields["deliveryCodeVerifiedAt"] = now
+
         timeline_entry = OrderTimeline(
-            status=new_status, timestamp=datetime.utcnow(), message=message, actor=actor
+            status=new_status,
+            timestamp=now,
+            message=message,
+            actor=actor,
         )
 
         updated_order = await self.orders_repo.update_status(
-            order_id, new_status, timeline_entry
+            order_id,
+            new_status,
+            timeline_entry,
+            extra_set_fields=extra_set_fields,
         )
 
         if not updated_order:
             raise ValueError("Error al actualizar el pedido")
 
-        # TODO: Send push notification based on status
-
-        # Emit tracking event for real-time subscription
         await self._emit_tracking_event(updated_order)
 
         return updated_order
@@ -1291,7 +1431,7 @@ class OrderService:
         # If branch sets its own delivery fee, update it before accepting
         if delivery_fee_override is not None:
             if delivery_fee_override < 0:
-                raise ValueError("El precio de envÃ­o no puede ser negativo")
+                raise ValueError("El precio de envio no puede ser negativo")
             total_discounts = sum(d.amount for d in order.discounts)
             new_total = round(
                 order.subtotal + delivery_fee_override - total_discounts, 2
@@ -1300,11 +1440,27 @@ class OrderService:
                 order_id, delivery_fee_override, new_total, delivery_mode="branch"
             )
 
+        if order.deliveryMode == "pickup":
+            next_status = (
+                OrderStatus.ACCEPTED
+                if await self._is_cash_payment_method(order.paymentMethod)
+                else OrderStatus.PENDING_PAYMENT
+            )
+            message = (
+                f"Pedido aceptado para pickup. Tiempo estimado: {estimated_minutes} minutos"
+            )
+        else:
+            next_status = OrderStatus.AWAITING_DELIVERY_ACCEPTANCE
+            message = (
+                "Pedido aceptado por tienda. Esperando mensajero. "
+                f"Tiempo estimado: {estimated_minutes} minutos"
+            )
+
         return await self.update_status(
             order_id,
-            OrderStatus.AWAITING_DELIVERY_ACCEPTANCE,
+            next_status,
             OrderActor.BUSINESS,
-            f"Pedido aceptado por tienda. Esperando mensajero. Tiempo estimado: {estimated_minutes} minutos",
+            message,
         )
 
     async def reject_order(self, order_id: str, reason: str, user_id: str) -> Order:
@@ -1324,7 +1480,7 @@ class OrderService:
 
         return await self.update_status(
             order_id,
-            OrderStatus.CANCELLED,
+            OrderStatus.REJECTED_BY_STORE,
             OrderActor.BUSINESS,
             f"Pedido rechazado: {reason}",
         )
@@ -1423,7 +1579,7 @@ class OrderService:
         return updated_order
 
     async def accept_modifications(self, order_id: str, user_id: str) -> Order:
-        """Accept store modifications (customer action)."""
+        """Accept store modifications and resubmit for branch confirmation."""
         order = await self.orders_repo.get_by_id(order_id)
         if not order:
             raise ValueError("Pedido no encontrado")
@@ -1434,17 +1590,10 @@ class OrderService:
         if order.status != OrderStatus.MODIFIED_BY_STORE:
             raise ValueError("El pedido no tiene modificaciones pendientes")
 
-        next_status = (
-            OrderStatus.ACCEPTED
-            if order.paymentStatus == PaymentStatus.COMPLETED
-            else OrderStatus.AWAITING_DELIVERY_ACCEPTANCE
-        )
-
-        return await self.update_status(
+        return await self.resubmit_order(
             order_id,
-            next_status,
-            OrderActor.CUSTOMER,
-            "Cliente aceptÃ³ las modificaciones",
+            user_id,
+            comment="Cliente acepto modificaciones y reenvio el pedido",
         )
 
     async def reject_modifications(self, order_id: str, user_id: str) -> Order:
@@ -1459,14 +1608,88 @@ class OrderService:
         if order.status != OrderStatus.MODIFIED_BY_STORE:
             raise ValueError("El pedido no tiene modificaciones pendientes")
 
-        # TODO: Process refund
-
         return await self.update_status(
             order_id,
             OrderStatus.CANCELLED,
             OrderActor.CUSTOMER,
-            "Cliente rechazÃ³ las modificaciones",
+            "Cliente rechazo modificaciones y abandono el pedido",
         )
+
+    async def resubmit_order(
+        self,
+        order_id: str,
+        user_id: str,
+        new_items: Optional[List[dict]] = None,
+        comment: Optional[str] = None,
+    ) -> Order:
+        """Customer resubmits the order to the initial review state."""
+        order = await self.orders_repo.get_by_id(order_id)
+        if not order:
+            raise ValueError("Pedido no encontrado")
+
+        if not self._ids_equal(order.customerId, user_id):
+            raise ValueError("No autorizado")
+
+        allowed_statuses = {
+            OrderStatus.MODIFIED_BY_STORE,
+            OrderStatus.REJECTED_BY_STORE,
+            OrderStatus.AWAITING_DELIVERY_ACCEPTANCE,
+            OrderStatus.PENDING_PAYMENT,
+        }
+        if order.status not in allowed_statuses:
+            raise ValueError("El pedido no puede reenviarse en este estado")
+
+        branch = await branches_repo.get_by_id(order.branchId)
+        if not branch:
+            raise ValueError("Sucursal no encontrada")
+        exchange_rate = self._resolve_exchange_rate(branch)
+        order_currency = self._normalize_currency(order.currency, fallback="USD")
+
+        updated_items: Optional[List[OrderItem]] = None
+        subtotal_value: Optional[float] = None
+        total_value: Optional[float] = None
+
+        if new_items is not None:
+            rebuilt_items: List[OrderItem] = []
+            running_subtotal = 0.0
+            for item in new_items:
+                order_item, line_subtotal = await self._build_order_item_snapshot(
+                    item=item,
+                    branch_id=str(order.branchId),
+                    order_currency=order_currency,
+                    exchange_rate=exchange_rate,
+                )
+                rebuilt_items.append(order_item)
+                running_subtotal += line_subtotal
+
+            total_discounts = sum(d.amount for d in order.discounts)
+            subtotal_value = round(running_subtotal, 2)
+            total_value = round(subtotal_value + order.deliveryFee - total_discounts, 2)
+            updated_items = rebuilt_items
+
+        timeline_message = (
+            (comment or "").strip()
+            or "Cliente reenvio el pedido para una nueva revision de la tienda"
+        )
+        timeline_entry = OrderTimeline(
+            status=OrderStatus.PENDING_ACCEPTANCE,
+            timestamp=datetime.utcnow(),
+            message=timeline_message,
+            actor=OrderActor.CUSTOMER,
+        )
+
+        updated_order = await self.orders_repo.resubmit_order(
+            order_id,
+            timeline_entry,
+            items=updated_items,
+            subtotal=subtotal_value,
+            total=total_value,
+        )
+        if not updated_order:
+            raise ValueError("No se pudo reenviar el pedido")
+
+        await self._emit_tracking_event(updated_order)
+        return updated_order
 
     async def cancel_order(
         self, order_id: str, user_id: str, reason: Optional[str] = None
@@ -1479,13 +1702,10 @@ class OrderService:
         if not self._ids_equal(order.customerId, user_id):
             raise ValueError("No autorizado")
 
-        # Can only cancel in early stages
+        # Customer can explicitly abandon only editable pre-preparation flows.
         cancellable_statuses = [
-            OrderStatus.AWAITING_DELIVERY_ACCEPTANCE,
-            OrderStatus.PENDING_PAYMENT,
-            OrderStatus.PENDING_ACCEPTANCE,
             OrderStatus.MODIFIED_BY_STORE,
-            OrderStatus.ACCEPTED,
+            OrderStatus.REJECTED_BY_STORE,
         ]
         if order.status not in cancellable_statuses:
             raise ValueError("No se puede cancelar el pedido en este estado")
@@ -1501,15 +1721,19 @@ class OrderService:
         )
 
     async def accept_delivery(self, order_id: str, user_id: str) -> Order:
-        """Accept order for delivery (delivery person action)."""
+        """Backward-compatible courier accept entrypoint."""
         order = await self.orders_repo.get_by_id(order_id)
         if not order:
             raise ValueError("Pedido no encontrado")
 
-        if order.status != OrderStatus.READY_FOR_PICKUP:
-            raise ValueError("El pedido no estÃ¡ listo para recoger")
+        # Preferred flow: courier accepts before payment.
+        if order.status == OrderStatus.AWAITING_DELIVERY_ACCEPTANCE:
+            return await self.accept_order_for_payment(order_id, user_id)
 
-        # Get delivery person
+        # Legacy flow support: assign courier once order is ready for pickup.
+        if order.status not in {OrderStatus.READY_FOR_PICKUP, OrderStatus.PREPARING}:
+            raise ValueError("El pedido no esta listo para recogida")
+
         delivery_person = await self.delivery_repo.get_by_user_id(user_id)
         if not delivery_person:
             raise ValueError("No eres un repartidor registrado")
@@ -1524,7 +1748,6 @@ class OrderService:
         ):
             raise ValueError("Ya tienes un pedido en curso")
 
-        # Assign delivery person if it is not pre-assigned yet
         if not order.deliveryPersonId:
             estimated_time = datetime.utcnow() + timedelta(minutes=30)
             await self.orders_repo.assign_delivery_person(
@@ -1534,12 +1757,10 @@ class OrderService:
         if not delivery_person.currentOrderId:
             await self.delivery_repo.assign_order(delivery_person.id, order_id)
 
-        return await self.update_status(
-            order_id,
-            OrderStatus.READY_FOR_PICKUP,
-            OrderActor.DELIVERY,
-            f"Repartidor {delivery_person.name} asignado",
-        )
+        refreshed = await self.orders_repo.get_by_id(order_id)
+        if not refreshed:
+            raise ValueError("Error al actualizar asignacion de mensajero")
+        return refreshed
 
     async def accept_order_for_payment(self, order_id: str, user_id: str) -> Order:
         """Delivery person accepts order before payment is enabled."""
@@ -1563,11 +1784,20 @@ class OrderService:
         if not reserved_order:
             raise ValueError("No se pudo reservar el pedido para este mensajero")
 
+        if await self._is_cash_payment_method(order.paymentMethod):
+            next_status = OrderStatus.ACCEPTED
+            next_message = (
+                "Mensajero asignado. Pago en efectivo, el negocio puede iniciar elaboracion"
+            )
+        else:
+            next_status = OrderStatus.PENDING_PAYMENT
+            next_message = "Mensajero asignado. Esperando pago del cliente"
+
         return await self.update_status(
             order_id,
-            OrderStatus.PENDING_PAYMENT,
+            next_status,
             OrderActor.DELIVERY,
-            "Mensajero asignado. Esperando pago del cliente",
+            next_message,
         )
 
     async def reject_order_for_payment(self, order_id: str, user_id: str) -> Order:
@@ -1605,8 +1835,8 @@ class OrderService:
         if not order:
             raise ValueError("Pedido no encontrado")
 
-        if order.status != OrderStatus.READY_FOR_PICKUP:
-            raise ValueError("El pedido no está listo para recoger")
+        if order.status not in {OrderStatus.READY_FOR_PICKUP, OrderStatus.PREPARING}:
+            raise ValueError("El pedido no esta listo para recogida")
 
         delivery_person = await self.delivery_repo.get_by_user_id(user_id)
         if not delivery_person or not self._ids_equal(
@@ -1629,11 +1859,16 @@ class OrderService:
             "Pedido recogido, en camino",
         )
 
-    async def confirm_delivery(self, order_id: str, user_id: str) -> Order:
+    async def confirm_delivery(
+        self, order_id: str, user_id: str, delivery_code: str
+    ) -> Order:
         """Confirm order delivery (delivery person action)."""
         order = await self.orders_repo.get_by_id(order_id)
         if not order:
             raise ValueError("Pedido no encontrado")
+
+        if order.status != OrderStatus.ON_THE_WAY:
+            raise ValueError("El pedido no esta en camino")
 
         delivery_person = await self.delivery_repo.get_by_user_id(user_id)
         if not delivery_person or not self._ids_equal(
@@ -1641,11 +1876,18 @@ class OrderService:
         ):
             raise ValueError("No autorizado")
 
+        expected_code = (order.deliveryVerificationCode or "").strip()
+        provided_code = (delivery_code or "").strip()
+        if not expected_code:
+            raise ValueError("No hay codigo de entrega generado para este pedido")
+        if provided_code != expected_code:
+            raise ValueError("Codigo de entrega incorrecto")
+
         # Complete delivery
         await self.delivery_repo.complete_delivery(delivery_person.id)
 
         # Update payment status if cash
-        if order.paymentMethod == "cash":
+        if await self._is_cash_payment_method(order.paymentMethod):
             await self.orders_repo.update_payment_status(
                 order_id, PaymentStatus.COMPLETED
             )
@@ -1653,6 +1895,28 @@ class OrderService:
         return await self.update_status(
             order_id, OrderStatus.DELIVERED, OrderActor.DELIVERY, "Pedido entregado"
         )
+
+    async def expire_stale_pre_preparation_orders(self, limit: int = 100) -> int:
+        """Auto-cancel timed-out orders before PREPARING."""
+        expired_orders = await self.orders_repo.get_expired_preparation_candidates(
+            statuses=list(self.PRE_PREPARATION_TIMEOUT_STATUSES),
+            now=datetime.utcnow(),
+            limit=limit,
+        )
+        expired_count = 0
+        for order in expired_orders:
+            try:
+                await self.update_status(
+                    str(order.id),
+                    OrderStatus.CANCELLED,
+                    OrderActor.SYSTEM,
+                    self._timeout_cancel_message(order.status),
+                )
+                expired_count += 1
+            except ValueError:
+                # Race-safe: if status changed concurrently, skip it.
+                continue
+        return expired_count
 
     async def add_comment(self, order_id: str, user_id: str, message: str) -> Order:
         """Add a comment to an order."""
@@ -1693,7 +1957,7 @@ class OrderService:
     ) -> Order:
         """Rate a delivered order."""
         if rating < 1 or rating > 5:
-            raise ValueError("La calificaciÃ³n debe ser entre 1 y 5")
+            raise ValueError("La calificacion debe ser entre 1 y 5")
 
         order = await self.orders_repo.get_by_id(order_id)
         if not order:
@@ -1901,36 +2165,40 @@ class OrderService:
             # Status-specific messages
             status_messages = {
                 OrderStatus.ACCEPTED: {
-                    "title": "Â¡Pedido aceptado! ðŸŽ‰",
-                    "body": f"Tu pedido #{order.orderNumber} ha sido aceptado y se estÃ¡ preparando",
+                    "title": "Pedido aceptado",
+                    "body": f"Tu pedido #{order.orderNumber} ha sido aceptado y se esta preparando",
                 },
                 OrderStatus.PENDING_PAYMENT: {
                     "title": "Mensajero confirmado",
                     "body": f"Tu pedido #{order.orderNumber} ya puede pagarse",
                 },
                 OrderStatus.PREPARING: {
-                    "title": "Preparando tu pedido ðŸ‘¨â€ðŸ³",
+                    "title": "Preparando tu pedido",
                     "body": f"Estamos preparando tu pedido #{order.orderNumber}",
                 },
                 OrderStatus.READY_FOR_PICKUP: {
-                    "title": "Â¡Pedido listo! ðŸ“¦",
-                    "body": f"Tu pedido #{order.orderNumber} estÃ¡ listo para ser recogido",
+                    "title": "Pedido listo",
+                    "body": f"Tu pedido #{order.orderNumber} esta listo para ser recogido",
                 },
                 OrderStatus.ON_THE_WAY: {
-                    "title": "Â¡En camino! ðŸš—",
-                    "body": f"Tu pedido #{order.orderNumber} estÃ¡ en camino",
+                    "title": "En camino",
+                    "body": f"Tu pedido #{order.orderNumber} esta en camino",
                 },
                 OrderStatus.DELIVERED: {
-                    "title": "Â¡Pedido entregado! âœ…",
-                    "body": f"Tu pedido #{order.orderNumber} ha sido entregado. Â¡DisfrÃºtalo!",
+                    "title": "Pedido entregado",
+                    "body": f"Tu pedido #{order.orderNumber} ha sido entregado. Disfrutalo",
                 },
                 OrderStatus.CANCELLED: {
-                    "title": "Pedido cancelado âŒ",
+                    "title": "Pedido cancelado",
                     "body": f"Tu pedido #{order.orderNumber} ha sido cancelado",
                 },
                 OrderStatus.MODIFIED_BY_STORE: {
-                    "title": "Pedido modificado âš ï¸",
-                    "body": f"La tienda modificÃ³ tu pedido #{order.orderNumber}. Por favor revÃ­salo",
+                    "title": "Pedido modificado",
+                    "body": f"La tienda modifico tu pedido #{order.orderNumber}. Por favor revisalo",
+                },
+                OrderStatus.REJECTED_BY_STORE: {
+                    "title": "Pedido rechazado",
+                    "body": f"La tienda rechazo tu pedido #{order.orderNumber}. Puedes editarlo y reenviarlo",
                 },
             }
 
@@ -2008,7 +2276,7 @@ class OrderService:
                 return
 
             # Notification message
-            title = "Â¡Nuevo pedido! ðŸ””"
+            title = "Nuevo pedido"
             body = f"Pedido #{order.orderNumber} - ${order.total:.2f} - {len(order.items)} items"
 
             # Additional data payload
@@ -2094,11 +2362,11 @@ class OrderService:
             # Status-specific messages for business
             status_messages = {
                 OrderStatus.CANCELLED: {
-                    "title": "Pedido cancelado âŒ",
+                    "title": "Pedido cancelado",
                     "body": f"Pedido #{order.orderNumber} ha sido cancelado",
                 },
                 OrderStatus.DELIVERED: {
-                    "title": "Pedido entregado âœ…",
+                    "title": "Pedido entregado",
                     "body": f"Pedido #{order.orderNumber} fue entregado exitosamente",
                 },
             }

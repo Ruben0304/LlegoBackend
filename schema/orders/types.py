@@ -5,6 +5,7 @@ from enum import Enum
 from typing import List, Optional
 
 import strawberry
+from strawberry.types import Info
 
 from repositories import branches_repo, businesses_repo, users_repo
 from repositories.orders_repository import delivery_persons_repo
@@ -24,6 +25,7 @@ class OrderStatusEnum(Enum):
     PAYMENT_IN_PROGRESS = "payment_in_progress"
     PENDING_ACCEPTANCE = "pending_acceptance"
     MODIFIED_BY_STORE = "modified_by_store"
+    REJECTED_BY_STORE = "rejected_by_store"
     ACCEPTED = "accepted"
     PREPARING = "preparing"
     READY_FOR_PICKUP = "ready_for_pickup"
@@ -347,6 +349,8 @@ class OrderType:
     paymentId: Optional[str] = None
     currentPaymentAttemptId: Optional[str] = None
     paidAt: Optional[datetime] = None
+    deadlineAt: Optional[datetime] = None
+    resubmissionCount: int = 0
 
     # Delivery tracking timestamps & metrics
     assignedAt: Optional[datetime] = None
@@ -366,6 +370,7 @@ class OrderType:
     _pickup_address: strawberry.Private[Optional[dict]]
     _timeline: strawberry.Private[List[dict]]
     _comments: strawberry.Private[List[dict]]
+    _delivery_verification_code: strawberry.Private[Optional[str]] = None
 
     @strawberry.field(description="Order items")
     def items(self) -> List[OrderItemType]:
@@ -499,6 +504,25 @@ class OrderType:
             for c in self._comments
         ]
 
+    @strawberry.field(
+        description=(
+            "Codigo de verificacion de entrega. Solo visible para el cliente "
+            "dueno del pedido mientras esta en camino."
+        )
+    )
+    def delivery_verification_code(self, info: Info) -> Optional[str]:
+        user_id = None
+        if isinstance(info.context, dict):
+            user_id = info.context.get("user_id")
+        else:
+            user_id = getattr(info.context, "user_id", None)
+
+        if not user_id or str(user_id) != str(self.customerId):
+            return None
+        if self.status != OrderStatusEnum.ON_THE_WAY:
+            return None
+        return self._delivery_verification_code
+
     @strawberry.field(description="Customer who placed the order")
     async def customer(self) -> UserType:
         user = await users_repo.get_by_id(self.customerId)
@@ -557,12 +581,23 @@ class OrderType:
 
     @strawberry.field(description="Whether order can be edited by customer")
     def is_editable(self) -> bool:
-        return self.status == OrderStatusEnum.MODIFIED_BY_STORE
+        return self.status in {
+            OrderStatusEnum.MODIFIED_BY_STORE,
+            OrderStatusEnum.REJECTED_BY_STORE,
+        }
 
     @strawberry.field(description="Whether order can be cancelled")
     def can_cancel(self) -> bool:
-        non_cancellable = [OrderStatusEnum.DELIVERED, OrderStatusEnum.CANCELLED]
-        return self.status not in non_cancellable
+        return self.status in {
+            OrderStatusEnum.MODIFIED_BY_STORE,
+            OrderStatusEnum.REJECTED_BY_STORE,
+        }
+
+    @strawberry.field(description="Customer-facing status")
+    def customer_visible_status(self) -> OrderStatusEnum:
+        if self.status in {OrderStatusEnum.READY_FOR_PICKUP, OrderStatusEnum.ON_THE_WAY}:
+            return OrderStatusEnum.ON_THE_WAY
+        return self.status
 
     @strawberry.field(description="Estimated minutes remaining for delivery")
     def estimated_minutes_remaining(self) -> Optional[int]:
@@ -628,6 +663,8 @@ def order_to_type(order) -> OrderType:
         if order.currentPaymentAttemptId
         else None,
         paidAt=order.paidAt,
+        deadlineAt=order.deadlineAt,
+        resubmissionCount=order.resubmissionCount,
         assignedAt=order.assignedAt,
         pickedUpAt=order.pickedUpAt,
         completedAt=order.completedAt,
@@ -644,6 +681,7 @@ def order_to_type(order) -> OrderType:
         else None,
         _timeline=[t.model_dump() for t in order.timeline],
         _comments=[c.model_dump() for c in order.comments],
+        _delivery_verification_code=order.deliveryVerificationCode,
     )
 
 
