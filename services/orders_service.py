@@ -4,7 +4,7 @@ import re
 import unicodedata
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 from bson import ObjectId
@@ -362,10 +362,6 @@ class OrderService:
         return False
 
     @staticmethod
-    def _parse_allowlist(raw: str) -> Set[str]:
-        return {entry.strip() for entry in (raw or "").split(",") if entry.strip()}
-
-    @staticmethod
     def _coerce_bool(value: Any) -> Optional[bool]:
         if isinstance(value, bool):
             return value
@@ -406,33 +402,6 @@ class OrderService:
                 return True
 
         return False
-
-    def _is_pickup_enabled_for_branch(
-        self, branch: Any, business: Any
-    ) -> tuple[bool, str]:
-        if not settings.pickup_feature_enabled:
-            return False, "PICKUP_NOT_ENABLED"
-
-        branch_pickup_flags = [
-            getattr(branch, "pickupEnabled", None),
-            getattr(branch, "isPickupEnabled", None),
-            getattr(branch, "supportsPickup", None),
-            getattr(branch, "pickupAvailable", None),
-        ]
-        for flag in branch_pickup_flags:
-            coerced = self._coerce_bool(flag)
-            if coerced is False:
-                return False, "PICKUP_NOT_AVAILABLE_FOR_BRANCH"
-
-        allow_branch_ids = self._parse_allowlist(settings.pickup_allowed_branch_ids)
-        if allow_branch_ids and str(branch.id) not in allow_branch_ids:
-            return False, "PICKUP_NOT_AVAILABLE_FOR_BRANCH"
-
-        allow_business_ids = self._parse_allowlist(settings.pickup_allowed_business_ids)
-        if allow_business_ids and str(business.id) not in allow_business_ids:
-            return False, "PICKUP_NOT_AVAILABLE_FOR_BRANCH"
-
-        return True, ""
 
     def _assert_pickup_item_eligible(self, entity: Any, label: str) -> None:
         direct_flags = [
@@ -1069,14 +1038,6 @@ class OrderService:
             raise ValueError("Negocio no encontrado")
 
         if is_pickup:
-            pickup_enabled, pickup_error_code = self._is_pickup_enabled_for_branch(
-                branch, business
-            )
-            if not pickup_enabled:
-                raise OrderValidationError(
-                    "Pickup no está habilitado para esta sucursal",
-                    code=pickup_error_code,
-                )
             if not self._is_branch_open_for_pickup(getattr(branch, "schedule", None)):
                 raise OrderValidationError(
                     "La sucursal está cerrada para pickup",
