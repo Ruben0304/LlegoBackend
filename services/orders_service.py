@@ -374,34 +374,12 @@ class OrderService:
         return None
 
     def _is_branch_open_for_pickup(self, schedule: Optional[dict]) -> bool:
-        """Best-effort branch schedule validation. On parse ambiguity, allow by default."""
+        """Validate pickup availability using branch local time and shared schedule parser."""
         if not isinstance(schedule, dict) or not schedule:
             return True
 
-        now = datetime.utcnow()
-        key_by_weekday = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
-        day_key = key_by_weekday[now.weekday()]
-        slots = schedule.get(day_key)
-        if not slots:
-            return True
-
-        current_minutes = now.hour * 60 + now.minute
-        for slot in slots:
-            if not isinstance(slot, str) or "-" not in slot:
-                continue
-            start_raw, end_raw = slot.split("-", 1)
-            try:
-                start_h, start_m = start_raw.strip().split(":")
-                end_h, end_m = end_raw.strip().split(":")
-                start_minutes = int(start_h) * 60 + int(start_m)
-                end_minutes = int(end_h) * 60 + int(end_m)
-            except Exception:
-                continue
-
-            if start_minutes <= current_minutes <= end_minutes:
-                return True
-
-        return False
+        now_local = self._get_branch_local_now()
+        return self._is_branch_open_now(schedule, now_local)
 
     def _assert_pickup_item_eligible(self, entity: Any, label: str) -> None:
         direct_flags = [
