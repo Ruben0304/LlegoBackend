@@ -83,6 +83,8 @@ class User(BaseModel):
     # Saved delivery addresses (Uber Eats / Glovo style)
     savedAddresses: List["SavedAddress"] = []
     defaultAddressId: Optional[str] = None  # ID of the default address
+    # Denormalized counter of successfully delivered orders
+    deliveredOrdersCount: int = 0
 
     class Config:
         populate_by_name = True

@@ -262,6 +262,32 @@ class OrderRepository:
         )
         return self._doc_to_order(result) if result else None
 
+    async def mark_delivered_counted_for_customer(self, order_id: str) -> Optional[str]:
+        """
+        Mark an order as already counted for customer's deliveredOrdersCount.
+
+        Returns customerId only on first successful mark. Subsequent calls return None.
+        """
+        collection = self._get_collection()
+        result = await collection.find_one_and_update(
+            {
+                "_id": self._to_object_id(order_id),
+                "status": OrderStatus.DELIVERED.value,
+                "deliveryCountedForCustomer": {"$ne": True},
+            },
+            {
+                "$set": {
+                    "deliveryCountedForCustomer": True,
+                    "updatedAt": datetime.utcnow(),
+                }
+            },
+            return_document=True,
+        )
+        if not result:
+            return None
+        customer_id = result.get("customerId")
+        return str(customer_id) if customer_id is not None else None
+
     async def update_items(
         self,
         order_id: str,

@@ -32,6 +32,7 @@ from repositories import (
     payment_methods_repo,
     products_repo,
     showcases_repo,
+    users_repo,
 )
 from repositories.orders_repository import (
     DeliveryPersonRepository,
@@ -528,9 +529,7 @@ class OrderService:
             return value * exchange_rate
         if from_curr == "CUP" and to_curr == "USD":
             return value / exchange_rate
-        raise ValueError(
-            f"Conversion de moneda no soportada: {from_curr} -> {to_curr}"
-        )
+        raise ValueError(f"Conversion de moneda no soportada: {from_curr} -> {to_curr}")
 
     async def _resolve_payment_method(
         self, payment_method: str
@@ -1295,7 +1294,9 @@ class OrderService:
             paymentMethod=payment_method_code,
             paymentStatus=payment_status,
             paymentId=payment_intent_id,
-            deadlineAt=self._next_deadline_for_status(OrderStatus.PENDING_ACCEPTANCE, now),
+            deadlineAt=self._next_deadline_for_status(
+                OrderStatus.PENDING_ACCEPTANCE, now
+            ),
             resubmissionCount=0,
             createdAt=now,
             updatedAt=now,
@@ -1396,6 +1397,17 @@ class OrderService:
         if not updated_order:
             raise ValueError("Error al actualizar el pedido")
 
+        # Count customer delivered orders exactly once per order.
+        if new_status == OrderStatus.DELIVERED:
+            customer_id = await self.orders_repo.mark_delivered_counted_for_customer(
+                order_id
+            )
+            if customer_id:
+                await users_repo.increment_delivered_orders_count(customer_id)
+
+        # TODO: Send push notification based on status
+
+        # Emit tracking event for real-time subscription
         await self._emit_tracking_event(updated_order)
 
         return updated_order
@@ -1446,9 +1458,7 @@ class OrderService:
                 if await self._is_cash_payment_method(order.paymentMethod)
                 else OrderStatus.PENDING_PAYMENT
             )
-            message = (
-                f"Pedido aceptado para pickup. Tiempo estimado: {estimated_minutes} minutos"
-            )
+            message = f"Pedido aceptado para pickup. Tiempo estimado: {estimated_minutes} minutos"
         else:
             next_status = OrderStatus.AWAITING_DELIVERY_ACCEPTANCE
             message = (
@@ -1668,9 +1678,8 @@ class OrderService:
             updated_items = rebuilt_items
 
         timeline_message = (
-            (comment or "").strip()
-            or "Cliente reenvio el pedido para una nueva revision de la tienda"
-        )
+            comment or ""
+        ).strip() or "Cliente reenvio el pedido para una nueva revision de la tienda"
         timeline_entry = OrderTimeline(
             status=OrderStatus.PENDING_ACCEPTANCE,
             timestamp=datetime.utcnow(),
@@ -1786,9 +1795,7 @@ class OrderService:
 
         if await self._is_cash_payment_method(order.paymentMethod):
             next_status = OrderStatus.ACCEPTED
-            next_message = (
-                "Mensajero asignado. Pago en efectivo, el negocio puede iniciar elaboracion"
-            )
+            next_message = "Mensajero asignado. Pago en efectivo, el negocio puede iniciar elaboracion"
         else:
             next_status = OrderStatus.PENDING_PAYMENT
             next_message = "Mensajero asignado. Esperando pago del cliente"

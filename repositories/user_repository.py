@@ -114,6 +114,21 @@ class UserRepository:
         )
         return User(**self._convert_id(result)) if result else None
 
+    async def increment_delivered_orders_count(self, user_id: str) -> Optional[User]:
+        """Atomically increment denormalized delivered orders counter."""
+        db = get_database()
+        try:
+            object_id = ObjectId(user_id)
+        except Exception:
+            object_id = user_id
+
+        result = await db[self.collection_name].find_one_and_update(
+            {"_id": object_id},
+            {"$inc": {"deliveredOrdersCount": 1}},
+            return_document=True,
+        )
+        return User(**self._convert_id(result)) if result else None
+
     async def add_business_id(self, user_id: str, business_id: str) -> Optional[User]:
         """Add a business ID to the user's businessIds list."""
         db = get_database()
@@ -338,7 +353,6 @@ class UserRepository:
             return_document=True,
         )
         return User(**self._convert_id(result)) if result else None
-
 
     async def get_wallet(self, user_id: str) -> Optional[Dict[str, float]]:
         """Get user wallet balance."""
