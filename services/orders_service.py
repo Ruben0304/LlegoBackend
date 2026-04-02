@@ -1273,10 +1273,18 @@ class OrderService:
 
         now = datetime.utcnow()
 
-        if not force and not self._validate_transition(order.status, new_status):
-            raise ValueError(
-                f"Transicion de estado no permitida: {order.status.value} -> {new_status.value}"
+        if not force:
+            pickup_direct_accept = (
+                getattr(order, "deliveryMode", None) == "pickup"
+                and order.status == OrderStatus.PENDING_ACCEPTANCE
+                and new_status in {OrderStatus.PENDING_PAYMENT, OrderStatus.ACCEPTED}
             )
+            if not pickup_direct_accept and not self._validate_transition(
+                order.status, new_status
+            ):
+                raise ValueError(
+                    f"Transicion de estado no permitida: {order.status.value} -> {new_status.value}"
+                )
 
         # Payment is mandatory before PREPARING for non-cash methods.
         if (
