@@ -1,4 +1,4 @@
-"""Pydantic models for data validation and serialization."""
+﻿"""Pydantic models for data validation and serialization."""
 
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
@@ -30,7 +30,7 @@ class QrPayment(BaseModel):
 
 
 class TransferPhone(BaseModel):
-    """A phone number for mobile transfers (Transfermóvil, etc.)."""
+    """A phone number for mobile transfers (TransfermÃ³vil, etc.)."""
 
     phone: str
     isActive: bool = True
@@ -129,14 +129,15 @@ class Branch(BaseModel):
     tipos: List[str] = []  # ["restaurante", "dulceria", "tienda", "perfumeria"]
     paymentMethodIds: List[
         Union[PyObjectId, str]
-    ] = []  # IDs de métodos de pago aceptados
+    ] = []  # IDs de mÃ©todos de pago aceptados
     wallet: Dict[str, float] = Field(
         default_factory=lambda: {"local": 0.00, "usd": 0.00}
     )
     walletStatus: str = "active"  # "active", "frozen", "closed"
     useAppMessaging: bool = (
-        True  # True = mensajería por la app, False = mensajería por cuenta propia
+        True  # True = mensajeria por la app, False = mensajeria por cuenta propia
     )
+    pickupEnabled: bool = False  # Click & collect enabled for this branch
     vehicles: List[str] = []  # ["moto", "bicicleta", "carro", "camion", "a_pie"]
     deliveryRadius: Optional[float] = None  # Radio de entrega en km
     # Currency acceptance: "CUP", "USD", or "BOTH"
@@ -219,7 +220,7 @@ class Product(BaseModel):
 
 
 class ShowcaseItem(BaseModel):
-    """Ítem opcional detectado/manual dentro de una vitrina."""
+    """Ãtem opcional detectado/manual dentro de una vitrina."""
 
     id: str
     name: str
@@ -229,7 +230,7 @@ class ShowcaseItem(BaseModel):
 
 
 class Showcase(BaseModel):
-    """Vitrina de una sucursal con foto principal y lista opcional de ítems."""
+    """Vitrina de una sucursal con foto principal y lista opcional de Ã­tems."""
 
     id: PyObjectId = Field(alias="_id")
     branchId: PyObjectId
@@ -247,17 +248,17 @@ class Showcase(BaseModel):
 
 
 class SmsOcr(BaseModel):
-    """Modelo para datos extraídos de capturas de SMS bancarios mediante OCR."""
+    """Modelo para datos extraÃ­dos de capturas de SMS bancarios mediante OCR."""
 
     id: PyObjectId = Field(alias="_id")
     quien_envio: str  # Remitente del mensaje
     banco: str  # Nombre del banco
     fecha: datetime  # Fecha de la transferencia
-    es_mensaje_banco: bool  # Validación de que es un mensaje bancario
+    es_mensaje_banco: bool  # ValidaciÃ³n de que es un mensaje bancario
     cantidad_transferida: float  # Monto de la transferencia
-    numero_transferencia: str  # Número de referencia de la transferencia
-    primeros_4_tarjeta: str  # Primeros 4 dígitos de la tarjeta
-    ultimos_4_tarjeta: str  # Últimos 4 dígitos de la tarjeta
+    numero_transferencia: str  # NÃºmero de referencia de la transferencia
+    primeros_4_tarjeta: str  # Primeros 4 dÃ­gitos de la tarjeta
+    ultimos_4_tarjeta: str  # Ãšltimos 4 dÃ­gitos de la tarjeta
     createdAt: datetime
 
     class Config:
@@ -276,7 +277,7 @@ class PaymentMethod(BaseModel):
     id: Union[PyObjectId, str] = Field(alias="_id")
 
     # Basic info
-    name: str  # "Wallet USD", "Transfermóvil", "Stripe", "Efectivo"
+    name: str  # "Wallet USD", "TransfermÃ³vil", "Stripe", "Efectivo"
     code: str  # "wallet_usd", "wallet_cup", "transfermovil", "stripe", "cash"
     currency: str  # "CUP", "USD"
     method: str  # "wallet", "transfer", "stripe", "cash"
@@ -361,33 +362,33 @@ class StripePaymentLink(BaseModel):
 
 class BranchInvitation(BaseModel):
     """
-    Código de invitación para administrar sucursales o negocios completos.
-    Permite a dueños de negocios invitar usuarios con acceso temporal o indefinido.
+    CÃ³digo de invitaciÃ³n para administrar sucursales o negocios completos.
+    Permite a dueÃ±os de negocios invitar usuarios con acceso temporal o indefinido.
     """
 
     id: PyObjectId = Field(alias="_id")
-    code: str  # Código único, ej. "INV-A7B3C2-D9E4F1"
+    code: str  # CÃ³digo Ãºnico, ej. "INV-A7B3C2-D9E4F1"
 
-    # Tipo de invitación
+    # Tipo de invitaciÃ³n
     invitationType: (
-        str  # "branch" (sucursal específica) o "business" (negocio completo)
+        str  # "branch" (sucursal especÃ­fica) o "business" (negocio completo)
     )
-    branchId: Optional[PyObjectId] = None  # Específico para tipo "branch"
+    branchId: Optional[PyObjectId] = None  # EspecÃ­fico para tipo "branch"
     businessId: PyObjectId  # Siempre presente
 
     # Control de acceso temporal
-    accessDurationDays: Optional[int] = None  # None = indefinido, int = días de acceso
+    accessDurationDays: Optional[int] = None  # None = indefinido, int = dÃ­as de acceso
 
     # Metadatos
-    createdBy: PyObjectId  # ID del usuario dueño del negocio
+    createdBy: PyObjectId  # ID del usuario dueÃ±o del negocio
     createdAt: datetime
 
-    # Estado del código
+    # Estado del cÃ³digo
     status: str = "pending"  # "pending", "used", "revoked"
-    usedBy: Optional[PyObjectId] = None  # ID del usuario que canjeó el código
+    usedBy: Optional[PyObjectId] = None  # ID del usuario que canjeÃ³ el cÃ³digo
     usedAt: Optional[datetime] = None
 
-    # Expiración del acceso (calculado al momento del canje)
+    # ExpiraciÃ³n del acceso (calculado al momento del canje)
     accessExpiresAt: Optional[datetime] = None
 
     class Config:
@@ -398,13 +399,13 @@ class BranchInvitation(BaseModel):
 class BusinessAccess(BaseModel):
     """
     Registro de acceso de usuario a nivel de negocio completo.
-    Permite acceso automático a todas las sucursales (presentes y futuras).
+    Permite acceso automÃ¡tico a todas las sucursales (presentes y futuras).
     """
 
     id: PyObjectId = Field(alias="_id")
     userId: PyObjectId
     businessId: PyObjectId
-    invitationId: PyObjectId  # Referencia al código que otorgó el acceso
+    invitationId: PyObjectId  # Referencia al cÃ³digo que otorgÃ³ el acceso
 
     # Control temporal
     grantedAt: datetime
@@ -698,7 +699,7 @@ class BranchLike(BaseModel):
 
 
 class DeliveryZone(BaseModel):
-    """Zona hexagonal H3 con configuración de precios de envío para delivery por la app."""
+    """Zona hexagonal H3 con configuraciÃ³n de precios de envÃ­o para delivery por la app."""
 
     id: PyObjectId = Field(alias="_id")
     h3Index: str  # H3 index at resolution 7, e.g. "872a1008fffffff"
@@ -708,13 +709,13 @@ class DeliveryZone(BaseModel):
     # Pricing
     baseFee: float  # Tarifa base para entregar EN esta zona
     perKmFee: float = 50.0  # Costo adicional por km
-    currency: str = "CUP"  # Moneda de los precios de envío
+    currency: str = "CUP"  # Moneda de los precios de envÃ­o
     surchargePercent: float = 0.0  # Recargo % (zona de alta demanda, etc.)
 
     # Rules
     isActive: bool = True
-    minOrderAmount: Optional[float] = None  # Monto mínimo para pedir en esta zona
-    maxDeliveryFee: Optional[float] = None  # Tope máximo del envío
+    minOrderAmount: Optional[float] = None  # Monto mÃ­nimo para pedir en esta zona
+    maxDeliveryFee: Optional[float] = None  # Tope mÃ¡ximo del envÃ­o
 
     # Metadata
     city: Optional[str] = None
@@ -762,8 +763,8 @@ class ComboOption(BaseModel):
     """Producto seleccionable dentro de un slot del combo."""
 
     productId: PyObjectId
-    isDefault: bool = False  # Opción pre-seleccionada
-    priceAdjustment: float = 0.0  # Costo extra si elige esta opción
+    isDefault: bool = False  # OpciÃ³n pre-seleccionada
+    priceAdjustment: float = 0.0  # Costo extra si elige esta opciÃ³n
     availableModifiers: List[ComboModifier] = []  # Modificadores permitidos
 
 
@@ -780,15 +781,15 @@ class ComboSlot(BaseModel):
     name: str  # "Plato Fuerte", "Batidos", "Entrantes" (escrito por el negocio)
     description: Optional[str] = None
 
-    # Productos disponibles (pueden ser de diferentes categorías)
+    # Productos disponibles (pueden ser de diferentes categorÃ­as)
     options: List[ComboOption]
 
-    # Reglas de selección
-    minSelections: int = 1  # Mínimo a elegir
-    maxSelections: int = 1  # Máximo a elegir
+    # Reglas de selecciÃ³n
+    minSelections: int = 1  # MÃ­nimo a elegir
+    maxSelections: int = 1  # MÃ¡ximo a elegir
     isFree: bool = False  # Si es gratis, no suma al precio del combo
 
-    displayOrder: int = 0  # Orden de visualización
+    displayOrder: int = 0  # Orden de visualizaciÃ³n
 
 
 class Combo(BaseModel):
@@ -802,7 +803,7 @@ class Combo(BaseModel):
     branchId: PyObjectId
     name: str
     description: str
-    image: Optional[str] = None  # OPCIONAL - si no existe, frontend genera composición
+    image: Optional[str] = None  # OPCIONAL - si no existe, frontend genera composiciÃ³n
 
     # Slots (listados de productos)
     slots: List[ComboSlot]
@@ -811,14 +812,14 @@ class Combo(BaseModel):
     discountType: str = "none"  # "none" | "percentage" | "fixed"
     discountValue: float = 0.0  # Valor del descuento (% o cantidad fija)
 
-    # Regalos opcionales (selección del cliente al armar el combo)
+    # Regalos opcionales (selecciÃ³n del cliente al armar el combo)
     giftOptions: List[ComboGiftOption] = []
 
     currency: str = "USD"
 
     # Metadata
     availability: bool = True
-    categoryId: Optional[PyObjectId] = None  # Categoría del combo (opcional)
+    categoryId: Optional[PyObjectId] = None  # CategorÃ­a del combo (opcional)
     createdAt: datetime = Field(default_factory=datetime.utcnow)
     updatedAt: datetime = Field(default_factory=datetime.utcnow)
 
@@ -828,7 +829,7 @@ class Combo(BaseModel):
 
 
 class VariantOption(BaseModel):
-    """Opción individual dentro de una lista de variantes."""
+    """OpciÃ³n individual dentro de una lista de variantes."""
 
     id: str  # UUID generado
     name: str  # "Grande", "Extra queso", "Sin cebolla"
@@ -840,7 +841,7 @@ class VariantList(BaseModel):
 
     id: PyObjectId = Field(alias="_id")
     branchId: PyObjectId  # Pertenece a la sucursal
-    name: str  # "Tamaños", "Extras", "Ingredientes"
+    name: str  # "TamaÃ±os", "Extras", "Ingredientes"
     description: Optional[str] = None
     options: List[VariantOption]  # Opciones disponibles
     createdAt: datetime
@@ -896,3 +897,4 @@ __all__ = [
     "ComboSlot",
     "Combo",
 ]
+

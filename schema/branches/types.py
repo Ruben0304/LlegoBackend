@@ -1,4 +1,4 @@
-"""GraphQL type definitions for Branch entity."""
+﻿"""GraphQL type definitions for Branch entity."""
 
 from datetime import datetime
 from enum import Enum
@@ -32,7 +32,7 @@ class QrPaymentType:
 
 @strawberry.type
 class TransferPhoneType:
-    """A phone number for mobile transfers (Transfermóvil, etc.)."""
+    """A phone number for mobile transfers (TransfermÃ³vil, etc.)."""
 
     phone: str
     isActive: bool
@@ -50,7 +50,7 @@ class BranchTipo(Enum):
 
 @strawberry.enum
 class BranchVehicle(Enum):
-    """Tipos de vehículo disponibles para delivery en una sucursal."""
+    """Tipos de vehÃ­culo disponibles para delivery en una sucursal."""
 
     MOTO = "moto"
     BICICLETA = "bicicleta"
@@ -108,6 +108,7 @@ class BranchType:
     tipos: List[BranchTipo]
     paymentMethodIds: List[str]
     useAppMessaging: bool = True
+    pickupEnabled: bool = False
     vehicles: List[BranchVehicle] = strawberry.field(default_factory=list)
     accounts: List[TransferAccountType] = strawberry.field(default_factory=list)
     qrPayments: List[QrPaymentType] = strawberry.field(default_factory=list)
@@ -269,6 +270,7 @@ class NearbyBranchType:
     tipos: List[BranchTipo]
     paymentMethodIds: List[str]
     useAppMessaging: bool = True
+    pickupEnabled: bool = False
     vehicles: List[BranchVehicle] = strawberry.field(default_factory=list)
     accounts: List[TransferAccountType] = strawberry.field(default_factory=list)
     qrPayments: List[QrPaymentType] = strawberry.field(default_factory=list)
@@ -434,6 +436,7 @@ class ScoredBranchType:
     tipos: List[BranchTipo]
     paymentMethodIds: List[str]
     useAppMessaging: bool = True
+    pickupEnabled: bool = False
     vehicles: List[BranchVehicle] = strawberry.field(default_factory=list)
     accounts: List[TransferAccountType] = strawberry.field(default_factory=list)
     qrPayments: List[QrPaymentType] = strawberry.field(default_factory=list)

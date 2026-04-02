@@ -1,4 +1,4 @@
-"""GraphQL input types for Branch mutations."""
+﻿"""GraphQL input types for Branch mutations."""
 
 from typing import List, Optional
 
@@ -36,7 +36,7 @@ class QrPaymentInput:
 
 @strawberry.input
 class TransferPhoneInput:
-    """Input for a phone number for mobile transfers (Transfermóvil, etc.)."""
+    """Input for a phone number for mobile transfers (TransfermÃ³vil, etc.)."""
 
     phone: str
     isActive: bool = True
@@ -54,15 +54,16 @@ class CreateBranchInput:
     tipos: List[
         BranchTipo
     ]  # Obligatorio: ["restaurante", "dulceria", "tienda", "perfumeria"]
-    paymentMethodIds: List[str]  # Obligatorio: IDs de métodos de pago aceptados
+    paymentMethodIds: List[str]  # Obligatorio: IDs de mÃ©todos de pago aceptados
     address: Optional[str] = None
     managerIds: Optional[List[str]] = None
     avatar: Optional[str] = None  # Path from /upload/branch/avatar
     coverImage: Optional[str] = None  # Path from /upload/branch/cover
     socialMedia: Optional[JSON] = None
     useAppMessaging: bool = (
-        True  # True = mensajería por la app, False = por cuenta propia
+        True  # True = mensajerÃ­a por la app, False = por cuenta propia
     )
+    pickupEnabled: bool = False
     vehicles: Optional[List[BranchVehicle]] = (
         None  # ["moto", "bicicleta", "carro", "camioneta", "caminando"]
     )
@@ -97,10 +98,11 @@ class UpdateBranchInput:
     tipos: Optional[List[BranchTipo]] = (
         None  # ["restaurante", "dulceria", "tienda", "perfumeria"]
     )
-    paymentMethodIds: Optional[List[str]] = None  # IDs de métodos de pago aceptados
+    paymentMethodIds: Optional[List[str]] = None  # IDs de mÃ©todos de pago aceptados
     useAppMessaging: Optional[bool] = (
-        None  # True = mensajería por la app, False = por cuenta propia
+        None  # True = mensajerÃ­a por la app, False = por cuenta propia
     )
+    pickupEnabled: Optional[bool] = None
     vehicles: Optional[List[BranchVehicle]] = (
         None  # ["moto", "bicicleta", "carro", "camioneta", "caminando"]
     )
@@ -115,7 +117,7 @@ class UpdateBranchInput:
     # QvaPay / Zelle (TronDealer) acceptance
     acceptsQvapay: Optional[bool] = None
     acceptsZelle: Optional[bool] = None  # True habilita TronDealer/USDT
-    qvapayUsername: Optional[str] = None  # Username QvaPay para reenvíos manuales
+    qvapayUsername: Optional[str] = None  # Username QvaPay para reenvÃ­os manuales
     zelleEmail: Optional[str] = None  # Email Zelle asociado a TronDealer
     cashKycEnabled: Optional[bool] = None
     cashKycPolicyVersion: Optional[str] = None

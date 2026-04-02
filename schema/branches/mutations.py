@@ -92,6 +92,7 @@ class BranchMutation:
             wallet={"local": 0.0, "usd": 0.0},
             walletStatus="active",
             useAppMessaging=input.useAppMessaging,
+            pickupEnabled=input.pickupEnabled,
             vehicles=[v.value for v in input.vehicles] if input.vehicles else [],
             acceptedCurrency=accepted_currency,
             exchangeRate=input.exchangeRate if accepted_currency == "BOTH" else None,
@@ -207,6 +208,8 @@ class BranchMutation:
                 from repositories.orders_repository import delivery_persons_repo
 
                 await delivery_persons_repo.unlink_all_from_branch(branch_id)
+        if input.pickupEnabled is not None:
+            updates["pickupEnabled"] = input.pickupEnabled
         if input.vehicles is not None:
             updates["vehicles"] = [v.value for v in input.vehicles]
         if input.acceptedCurrency is not None:

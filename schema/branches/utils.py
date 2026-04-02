@@ -1,4 +1,4 @@
-"""Utility functions for Branch GraphQL types."""
+﻿"""Utility functions for Branch GraphQL types."""
 
 from domain.models import Branch
 from schema.branches.types import (
@@ -28,11 +28,12 @@ def branch_to_dict(branch: Branch) -> dict:
             "phones",
         },
     )
-    # New crypto/digital payment fields — default to safe values if not in DB yet
+    # New crypto/digital payment fields â€” default to safe values if not in DB yet
     branch_dict.setdefault("acceptsQvapay", False)
     branch_dict.setdefault("acceptsZelle", False)
     branch_dict.setdefault("qvapayUsername", None)
     branch_dict.setdefault("zelleEmail", None)
+    branch_dict.setdefault("pickupEnabled", False)
     # Keep a stable string value for status to avoid null decoding failures in clients.
     if not branch_dict.get("status"):
         branch_dict["status"] = "active" if getattr(branch, "isActive", False) else "inactive"
