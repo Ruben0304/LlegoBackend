@@ -221,6 +221,7 @@ class PaymentMethodQuery:
         merchantId: str,
         jwt: str,
         branchId: Optional[str] = None,
+        customerId: Optional[str] = None,
     ) -> CashKycAccountStatusResult:
         apply_optional_jwt(jwt, info)
         user_id = info.context.get("user_id")
@@ -231,6 +232,7 @@ class PaymentMethodQuery:
                 merchant_id=merchantId,
                 user_id=user_id,
                 branch_id=branchId,
+                customer_id=customerId,
             )
             return CashKycAccountStatusResult(**status)
         except ValueError as e:

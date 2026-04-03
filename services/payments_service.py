@@ -19,6 +19,7 @@ from repositories import (
     users_repo,
 )
 from repositories.payments_attempt_repository import PaymentAttemptRepository
+from services.access_checker import access_checker
 from services.shortcut_transfer_service import shortcut_transfer_service
 
 logger = logging.getLogger(__name__)
@@ -144,6 +145,24 @@ class PaymentService:
         """Get user by ID using the user repository."""
         user = await users_repo.get_by_id(user_id)
         return user.model_dump() if user else None
+
+    async def _customer_has_order_with_merchant(
+        self,
+        *,
+        customer_id: str,
+        merchant_id: str,
+        branch_id: Optional[str] = None,
+    ) -> bool:
+        """Ensure customer has at least one order with the merchant/branch."""
+        db = get_database()
+        query: Dict[str, Any] = {
+            "customerId": self._to_object_id(customer_id),
+            "businessId": self._to_object_id(merchant_id),
+        }
+        if branch_id:
+            query["branchId"] = self._to_object_id(branch_id)
+        doc = await db.orders.find_one(query, {"_id": 1})
+        return bool(doc)
 
     async def _get_platform(self):
         """Get or create platform document."""
@@ -477,11 +496,48 @@ class PaymentService:
         merchant_id: str,
         user_id: str,
         branch_id: Optional[str] = None,
+        customer_id: Optional[str] = None,
     ) -> dict:
-        """Get KYC status for a user scoped by merchant, independent from checkout."""
+        """Get KYC status for a customer scoped by merchant, independent from checkout."""
         _, kyc_verifications_repo, _, _ = self._get_kyc_dependencies()
+        target_customer_id = customer_id or user_id
+        is_self_lookup = str(target_customer_id) == str(user_id)
+
+        if not customer_id:
+            has_business_access, _ = await access_checker.check_business_access(
+                user_id, merchant_id
+            )
+            if has_business_access:
+                raise ValueError(
+                    "customerId es requerido para consultar KYC de un cliente desde negocio"
+                )
+
+        if not is_self_lookup:
+            has_business_access, error = await access_checker.check_business_access(
+                user_id, merchant_id
+            )
+            if not has_business_access:
+                raise ValueError(error or "No autorizado para consultar KYC del cliente")
+
+            if branch_id:
+                has_branch_access, branch_error = await access_checker.check_branch_access(
+                    user_id, branch_id
+                )
+                if not has_branch_access:
+                    raise ValueError(
+                        branch_error or "No autorizado para consultar KYC en esta sucursal"
+                    )
+
+            has_relationship = await self._customer_has_order_with_merchant(
+                customer_id=target_customer_id,
+                merchant_id=merchant_id,
+                branch_id=branch_id,
+            )
+            if not has_relationship:
+                raise ValueError("No hay relación cliente-negocio para consultar este KYC")
+
         global_approved = await kyc_verifications_repo.get_global_approved(
-            customer_id=user_id,
+            customer_id=target_customer_id,
         )
         if global_approved:
             provider_error = getattr(global_approved, "lastError", None)
@@ -501,7 +557,7 @@ class PaymentService:
             }
 
         latest = await kyc_verifications_repo.get_latest_global_by_customer(
-            customer_id=user_id,
+            customer_id=target_customer_id,
         )
         latest_status = latest.status if latest else "pending_evidence"
         return {
