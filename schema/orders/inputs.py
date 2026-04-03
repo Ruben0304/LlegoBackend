@@ -1,5 +1,6 @@
 """GraphQL input types for Orders."""
 
+from datetime import datetime
 from enum import Enum
 from typing import List, Optional
 
@@ -157,3 +158,12 @@ class RequestBranchLinkInput:
 class RespondBranchLinkInput:
     requestId: str
     accept: bool
+
+
+@strawberry.input
+class DeliveredOrdersFilterInput:
+    fromDate: Optional[datetime] = None
+    toDate: Optional[datetime] = None
+    search: Optional[str] = None
+    branchId: Optional[str] = None
+    city: Optional[str] = None

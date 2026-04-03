@@ -595,7 +595,10 @@ class OrderType:
 
     @strawberry.field(description="Customer-facing status")
     def customer_visible_status(self) -> OrderStatusEnum:
-        if self.status in {OrderStatusEnum.READY_FOR_PICKUP, OrderStatusEnum.ON_THE_WAY}:
+        if self.status in {
+            OrderStatusEnum.READY_FOR_PICKUP,
+            OrderStatusEnum.ON_THE_WAY,
+        }:
             return OrderStatusEnum.ON_THE_WAY
         return self.status
 
@@ -690,6 +693,48 @@ class OrdersConnectionType:
     orders: List[OrderType]
     totalCount: int
     hasMore: bool
+
+
+@strawberry.enum
+class DeliveredOrderFinalStatusEnum(Enum):
+    DELIVERED = "delivered"
+    DISPUTED = "disputed"
+    REVERSED = "reversed"
+    FRAUD_HIDDEN = "fraud_hidden"
+
+
+@strawberry.type
+class DeliveredOrderType:
+    orderId: str
+    orderNumber: str
+    deliveredAt: datetime
+    merchantName: str
+    customerDisplayName: str
+    addressSummary: str
+    city: Optional[str] = None
+    visibleAmount: float
+    currency: str
+    finalStatus: DeliveredOrderFinalStatusEnum
+    hasDeliveryEvidence: bool
+
+
+@strawberry.type
+class DeliveredOrdersEdgeType:
+    cursor: str
+    node: DeliveredOrderType
+
+
+@strawberry.type
+class DeliveredOrdersPageInfoType:
+    hasNextPage: bool
+    endCursor: Optional[str] = None
+
+
+@strawberry.type
+class DeliveredOrdersConnectionType:
+    edges: List[DeliveredOrdersEdgeType]
+    pageInfo: DeliveredOrdersPageInfoType
+    totalCount: int
 
 
 @strawberry.type

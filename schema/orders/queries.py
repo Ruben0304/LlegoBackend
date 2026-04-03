@@ -6,8 +6,10 @@ from typing import List, Optional
 
 import strawberry
 from bson import ObjectId
+from graphql import GraphQLError
 from strawberry.types import Info
 
+from core.config import settings
 from domain.orders import (
     DeliveryPerson,
     DeliveryRequestStatus,
@@ -20,13 +22,20 @@ from repositories.orders_repository import (
     delivery_persons_repo,
     orders_repo,
 )
+from services.delivered_orders_query_service import delivered_orders_query_service
 from services.orders_service import order_service
 from utils.graphql_auth import apply_optional_jwt, require_auth
 
+from .inputs import DeliveredOrdersFilterInput
 from .types import (
     BranchDeliveryRequestType,
     CoordinatesType,
     DashboardStatsType,
+    DeliveredOrderFinalStatusEnum,
+    DeliveredOrdersConnectionType,
+    DeliveredOrdersEdgeType,
+    DeliveredOrdersPageInfoType,
+    DeliveredOrderType,
     DeliveryFeeEstimateType,
     DeliveryRequestStatusEnum,
     OrdersConnectionType,
@@ -272,6 +281,80 @@ class OrderQuery:
             delivery_person.id, page, pageSize, status_filter
         )
         return [order_to_type(o) for o in orders]
+
+    @strawberry.field(
+        description=(
+            "Historial cursor-based de pedidos entregados del repartidor autenticado"
+        )
+    )
+    async def my_delivered_orders(
+        self,
+        info: Info,
+        jwt: str,
+        first: int = 20,
+        after: Optional[str] = None,
+        filter: Optional[DeliveredOrdersFilterInput] = None,
+    ) -> DeliveredOrdersConnectionType:
+        try:
+            user_id = require_auth(jwt, info)
+        except Exception as e:
+            raise GraphQLError(str(e), extensions={"code": "UNAUTHORIZED"})
+
+        if not settings.courier_delivered_orders_v2_enabled:
+            raise GraphQLError(
+                "Funcionalidad no habilitada",
+                extensions={"code": "FORBIDDEN"},
+            )
+
+        delivery_person = await _get_or_create_delivery_person(user_id)
+
+        try:
+            result = await delivered_orders_query_service.list_for_courier(
+                courier_id=str(delivery_person.id),
+                first=first,
+                after=after,
+                from_date=filter.fromDate if filter else None,
+                to_date=filter.toDate if filter else None,
+                search=filter.search if filter else None,
+                branch_id=filter.branchId if filter else None,
+                city=filter.city if filter else None,
+                include_fraud_hidden=False,
+            )
+        except ValueError as e:
+            raise GraphQLError(str(e), extensions={"code": "BAD_USER_INPUT"})
+        except GraphQLError:
+            raise
+        except Exception as e:
+            raise GraphQLError(str(e), extensions={"code": "FORBIDDEN"})
+
+        return DeliveredOrdersConnectionType(
+            edges=[
+                DeliveredOrdersEdgeType(
+                    cursor=edge["cursor"],
+                    node=DeliveredOrderType(
+                        orderId=edge["node"]["orderId"],
+                        orderNumber=edge["node"]["orderNumber"],
+                        deliveredAt=edge["node"]["deliveredAt"],
+                        merchantName=edge["node"]["merchantName"],
+                        customerDisplayName=edge["node"]["customerDisplayName"],
+                        addressSummary=edge["node"]["addressSummary"],
+                        city=edge["node"]["city"],
+                        visibleAmount=edge["node"]["visibleAmount"],
+                        currency=edge["node"]["currency"],
+                        finalStatus=DeliveredOrderFinalStatusEnum(
+                            edge["node"]["finalStatus"]
+                        ),
+                        hasDeliveryEvidence=edge["node"]["hasDeliveryEvidence"],
+                    ),
+                )
+                for edge in result["edges"]
+            ],
+            pageInfo=DeliveredOrdersPageInfoType(
+                hasNextPage=result["pageInfo"]["hasNextPage"],
+                endCursor=result["pageInfo"]["endCursor"],
+            ),
+            totalCount=result["totalCount"],
+        )
 
     @strawberry.field(description="Estadísticas del repartidor autenticado")
     async def my_delivery_stats(self, info: Info, jwt: str) -> DeliveryPersonStatsType:

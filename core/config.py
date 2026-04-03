@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     pickup_allowed_branch_ids: str = ""
     pickup_allowed_business_ids: str = ""
 
+    # Courier delivered orders (cursor-based query rollout)
+    courier_delivered_orders_v2_enabled: bool = True
+
     # DeepSeek API Configuration (used by AI chat RAG pipeline)
     deepseek_api_key: str = ""
     deepseek_model: str = "deepseek-chat"

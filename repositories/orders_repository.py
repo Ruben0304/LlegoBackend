@@ -1,7 +1,7 @@
 """Repository classes for Orders, Delivery Persons, and Location Updates."""
 
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from bson import ObjectId
 
@@ -360,7 +360,10 @@ class OrderRepository:
         return self._doc_to_order(result) if result else None
 
     async def get_expired_preparation_candidates(
-        self, statuses: List[OrderStatus], now: Optional[datetime] = None, limit: int = 100
+        self,
+        statuses: List[OrderStatus],
+        now: Optional[datetime] = None,
+        limit: int = 100,
     ) -> List[Order]:
         """Get orders with elapsed deadlines before preparation."""
         collection = self._get_collection()
@@ -661,6 +664,50 @@ class OrderRepository:
             collection.find(query).sort("completedAt", -1).skip(skip).limit(page_size)
         )
         return [self._doc_to_order(doc) async for doc in cursor]
+
+    async def find_delivered_orders_for_delivery_person(
+        self,
+        delivery_person_id: str,
+        query_filters: Optional[Dict[str, Any]] = None,
+        limit: int = 20,
+        sort: Optional[List[Tuple[str, int]]] = None,
+        projection: Optional[Dict[str, int]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Query delivered orders for a delivery person using projection and stable sorting.
+
+        This is intended for read-optimized courier history endpoints.
+        """
+        collection = self._get_collection()
+        query: Dict[str, Any] = {
+            "deliveryPersonId": self._to_object_id(delivery_person_id),
+            "status": OrderStatus.DELIVERED.value,
+            "completedAt": {"$ne": None},
+        }
+        if query_filters:
+            query.update(query_filters)
+
+        query_sort = sort or [("completedAt", -1), ("_id", -1)]
+        cursor = (
+            collection.find(query, projection=projection).sort(query_sort).limit(limit)
+        )
+        return [doc async for doc in cursor]
+
+    async def count_delivered_orders_for_delivery_person(
+        self,
+        delivery_person_id: str,
+        query_filters: Optional[Dict[str, Any]] = None,
+    ) -> int:
+        """Count delivered orders for a delivery person with optional extra filters."""
+        collection = self._get_collection()
+        query: Dict[str, Any] = {
+            "deliveryPersonId": self._to_object_id(delivery_person_id),
+            "status": OrderStatus.DELIVERED.value,
+            "completedAt": {"$ne": None},
+        }
+        if query_filters:
+            query.update(query_filters)
+        return await collection.count_documents(query)
 
     async def get_delivery_person_stats(
         self, delivery_person_id: str
@@ -1072,6 +1119,15 @@ async def create_order_indexes():
     # Compound index for delivery person pickup queries (H3-based geo)
     await orders.create_index([("status", 1), ("deliveryPersonId", 1), ("branchH3", 1)])
     await orders.create_index([("deliveryPersonId", 1), ("completedAt", -1)])
+    await orders.create_index(
+        [("deliveryPersonId", 1), ("completedAt", -1), ("_id", -1)],
+        name="idx_delivery_person_completed_at_id",
+    )
+    await orders.create_index(
+        [("deliveryPersonId", 1), ("completedAt", -1), ("_id", -1)],
+        name="idx_delivery_person_completed_at_id_delivered_partial",
+        partialFilterExpression={"status": OrderStatus.DELIVERED.value},
+    )
 
     # Delivery persons indexes
     delivery_persons = db.delivery_persons

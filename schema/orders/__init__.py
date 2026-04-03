@@ -4,6 +4,7 @@ from .inputs import (
     AddOrderCommentInput,
     AssignDeliveryPersonInput,
     CreateOrderInput,
+    DeliveredOrdersFilterInput,
     DeliveryAddressInput,
     FulfillmentInput,
     FulfillmentTypeEnum,
@@ -28,6 +29,11 @@ from .subscriptions import (
 )
 from .types import (
     BranchDeliveryRequestType,
+    DeliveredOrderFinalStatusEnum,
+    DeliveredOrdersConnectionType,
+    DeliveredOrdersEdgeType,
+    DeliveredOrdersPageInfoType,
+    DeliveredOrderType,
     DeliveryAddressType,
     DeliveryLocationUpdateType,
     DeliveryPersonType,
@@ -70,6 +76,10 @@ __all__ = [
     "OrdersConnectionType",
     "OrderStatsType",
     "DeliveryLocationUpdateType",
+    "DeliveredOrderType",
+    "DeliveredOrdersEdgeType",
+    "DeliveredOrdersPageInfoType",
+    "DeliveredOrdersConnectionType",
     "order_to_type",
     # Enums
     "OrderStatusEnum",
@@ -78,10 +88,12 @@ __all__ = [
     "OrderActorEnum",
     "VehicleTypeEnum",
     "DeliveryRequestStatusEnum",
+    "DeliveredOrderFinalStatusEnum",
     "BranchDeliveryRequestType",
     "branch_delivery_request_to_type",
     # Inputs
     "CreateOrderInput",
+    "DeliveredOrdersFilterInput",
     "OrderItemInput",
     "OrderComboModifierInput",
     "OrderComboSelectedOptionInput",
