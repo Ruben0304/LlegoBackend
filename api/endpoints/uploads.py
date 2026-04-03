@@ -57,6 +57,7 @@ MAX_FILE_SIZES = {
     "avatar": 10 * 1024 * 1024,  # 10MB - will be resized to 400x400
     "cover": 10 * 1024 * 1024,  # 10MB - will be resized to 1920x1080 (16:9)
     "product": 10 * 1024 * 1024,  # 10MB - will be resized to max 1440x1800
+    "payment_proof": 10 * 1024 * 1024,  # 10MB - transfer receipt/proof images
     "model3d": 50 * 1024 * 1024,  # 50MB - 3D models can be large
     "video": 100 * 1024 * 1024,  # 100MB - videos can be large
     "thumbnail": 5 * 1024 * 1024,  # 5MB - thumbnails are smaller
@@ -665,6 +666,48 @@ async def upload_user_avatar(
         raise HTTPException(status_code=500, detail="Error subiendo imagen")
 
     return {"image_path": image_path, "image_url": generate_presigned_url(image_path)}
+
+
+@router.post("/payment/proof", status_code=status.HTTP_200_OK)
+@limiter.limit(RATE_LIMIT_UPLOADS)
+async def upload_payment_proof(
+    request: Request,
+    image: UploadFile = File(...),
+    user_id: str = Depends(get_current_user_id_from_header),
+):
+    """
+    Upload proof/receipt image for manual transfer confirmation.
+    Max size: 10MB | Preserves transparency (PNG/WebP supported)
+    """
+    if not user_id:
+        raise HTTPException(status_code=401, detail="No autorizado")
+
+    file_content = await validate_upload(
+        image, "payment_proof", MAX_FILE_SIZES["payment_proof"]
+    )
+
+    filename = image.filename or "proof.png"
+    original_ext = "." + filename.split(".")[-1].lower() if "." in filename else ".png"
+    if original_ext not in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
+        original_ext = ".png"
+
+    try:
+        processed_content, extension = await process_product_image_async(
+            file_content, original_ext
+        )
+    except Exception:
+        raise HTTPException(status_code=400, detail="Error procesando imagen")
+
+    entity_id = str(ObjectId())
+
+    try:
+        image_path = await upload_file(
+            processed_content, "payments/proofs", entity_id, extension
+        )
+    except Exception:
+        raise HTTPException(status_code=500, detail="Error subiendo imagen")
+
+    return {"proof_path": image_path, "proof_url": generate_presigned_url(image_path)}
 
 
 @router.post("/business-type/model3d", status_code=status.HTTP_200_OK)

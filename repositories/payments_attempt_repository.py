@@ -122,7 +122,7 @@ class PaymentAttemptRepository:
         return self._doc_to_payment_attempt(result) if result else None
 
     async def set_proof(
-        self, attempt_id: str, proof_url: str
+        self, attempt_id: str, proof_url: Optional[str] = None
     ) -> Optional[PaymentAttempt]:
         """Set proof URL and mark customer confirmed."""
         return await self.update_status(

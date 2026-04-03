@@ -1173,7 +1173,7 @@ class PaymentService:
         return payment_attempt
 
     async def confirm_payment_sent(
-        self, payment_attempt_id: str, user_id: str, proof_url: str
+        self, payment_attempt_id: str, user_id: str, proof_url: Optional[str] = None
     ) -> PaymentAttempt:
         """
         Customer confirms they sent the payment (for manual methods).
@@ -1181,7 +1181,7 @@ class PaymentService:
         Args:
             payment_attempt_id: The payment attempt ID
             user_id: The user confirming
-            proof_url: URL to proof/receipt image
+            proof_url: Optional URL to proof/receipt image
         """
         attempt = await self.payment_attempts_repo.get_by_id(payment_attempt_id)
         if not attempt:
@@ -1196,8 +1196,9 @@ class PaymentService:
             raise ValueError(f"Estado no válido para confirmar: {attempt.status}")
 
         # Update attempt
+        normalized_proof = (proof_url or "").strip() or None
         updated = await self.payment_attempts_repo.set_proof(
-            payment_attempt_id, proof_url
+            payment_attempt_id, normalized_proof
         )
 
         # TODO: Notify business

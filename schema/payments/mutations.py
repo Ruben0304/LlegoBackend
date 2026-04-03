@@ -201,17 +201,21 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
         description="Confirmar que el cliente envió el pago (para métodos manuales)"
     )
     async def confirm_payment_sent(
-        self, info: Info, paymentAttemptId: str, proofUrl: str, jwt: str
+        self,
+        info: Info,
+        paymentAttemptId: str,
+        jwt: str,
+        proofUrl: Optional[str] = None,
     ) -> PaymentAttemptType:
         """
-        Customer confirms they sent the payment and uploads proof.
+        Customer confirms they sent the payment.
 
         This is used for manual payment methods like bank transfers.
         After this, the payment awaits business confirmation.
 
         Args:
             paymentAttemptId: The payment attempt ID
-            proofUrl: URL to the uploaded proof/receipt image
+            proofUrl: Optional URL to the uploaded proof/receipt image
             jwt: User JWT token
         """
         apply_optional_jwt(jwt, info)
