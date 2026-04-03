@@ -21,7 +21,7 @@ class TransferAccountInput:
     """Input for a bank card account for CUP transfers."""
 
     cardNumber: str
-    cardHolderName: str
+    cardHolderName: Optional[str] = None
     bankName: str
     isActive: bool = True
 

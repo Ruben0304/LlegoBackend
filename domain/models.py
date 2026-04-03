@@ -17,7 +17,7 @@ class TransferAccount(BaseModel):
     """A bank card account for receiving CUP transfers."""
 
     cardNumber: str
-    cardHolderName: str
+    cardHolderName: Optional[str] = None
     bankName: str  # "Bandec", "BPA", "Metropolitano", etc.
     isActive: bool = True
 
