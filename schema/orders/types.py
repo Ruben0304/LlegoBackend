@@ -566,7 +566,7 @@ class OrderType:
             return DeliveryPersonType(
                 id=str(dp.id),
                 name=dp.name,
-                phone=dp.phone,
+                phone=dp.phone or "",
                 rating=dp.rating,
                 totalDeliveries=dp.totalDeliveries,
                 vehicleType=dp.vehicleType.value,
