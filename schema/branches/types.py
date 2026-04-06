@@ -17,24 +17,9 @@ class TransferAccountType:
     """A bank card account for receiving CUP transfers."""
 
     cardNumber: str
+    confirmPhone: str
     cardHolderName: Optional[str] = None
-    bankName: str
-    isActive: bool
-
-
-@strawberry.type
-class QrPaymentType:
-    """A QR code value for online payments (EnZona, etc.)."""
-
-    value: str
-    isActive: bool
-
-
-@strawberry.type
-class TransferPhoneType:
-    """A phone number for mobile transfers (TransfermÃ³vil, etc.)."""
-
-    phone: str
+    pagoQr: Optional[str] = None
     isActive: bool
 
 
@@ -111,8 +96,6 @@ class BranchType:
     pickupEnabled: bool = False
     vehicles: List[BranchVehicle] = strawberry.field(default_factory=list)
     accounts: List[TransferAccountType] = strawberry.field(default_factory=list)
-    qrPayments: List[QrPaymentType] = strawberry.field(default_factory=list)
-    phones: List[TransferPhoneType] = strawberry.field(default_factory=list)
     deliveryRadius: Optional[float] = None
     acceptedCurrency: Optional[AcceptedCurrency] = None
     exchangeRate: Optional[int] = None
@@ -273,8 +256,6 @@ class NearbyBranchType:
     pickupEnabled: bool = False
     vehicles: List[BranchVehicle] = strawberry.field(default_factory=list)
     accounts: List[TransferAccountType] = strawberry.field(default_factory=list)
-    qrPayments: List[QrPaymentType] = strawberry.field(default_factory=list)
-    phones: List[TransferPhoneType] = strawberry.field(default_factory=list)
     deliveryRadius: Optional[float] = None
     acceptedCurrency: Optional[AcceptedCurrency] = None
     exchangeRate: Optional[int] = None
@@ -439,8 +420,6 @@ class ScoredBranchType:
     pickupEnabled: bool = False
     vehicles: List[BranchVehicle] = strawberry.field(default_factory=list)
     accounts: List[TransferAccountType] = strawberry.field(default_factory=list)
-    qrPayments: List[QrPaymentType] = strawberry.field(default_factory=list)
-    phones: List[TransferPhoneType] = strawberry.field(default_factory=list)
     deliveryRadius: Optional[float] = None
     acceptedCurrency: Optional[AcceptedCurrency] = None
     exchangeRate: Optional[int] = None

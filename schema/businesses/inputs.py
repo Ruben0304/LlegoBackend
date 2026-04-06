@@ -5,9 +5,7 @@ from strawberry.scalars import JSON
 
 from schema.branches.inputs import (
     CoordinatesInput,
-    QrPaymentInput,
     TransferAccountInput,
-    TransferPhoneInput,
 )
 from schema.branches.types import AcceptedCurrency, BranchTipo
 
@@ -50,10 +48,8 @@ class RegisterBranchInput:
     socialMedia: Optional[JSON] = None
     acceptedCurrency: Optional[AcceptedCurrency] = None  # "CUP", "USD", or "BOTH"
     exchangeRate: Optional[int] = None  # Tasa de cambio (solo si acceptedCurrency es "BOTH")
-    # Transfer payment info
+    # Transfer payment info (single source of truth)
     accounts: Optional[List[TransferAccountInput]] = None
-    qrPayments: Optional[List[QrPaymentInput]] = None
-    phones: Optional[List[TransferPhoneInput]] = None
 
 
 @strawberry.input

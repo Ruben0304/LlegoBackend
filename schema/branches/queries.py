@@ -35,10 +35,7 @@ from .types import (
     BranchVehicle,
     CoordinatesType,
     NearbyBranchType,
-    QrPaymentType,
     ScoredBranchType,
-    TransferAccountType,
-    TransferPhoneType,
 )
 from .utils import branch_to_dict
 
@@ -65,8 +62,6 @@ def _to_scored_branch_data(branch_data: dict) -> dict:
         "pickupEnabled",
         "vehicles",
         "accounts",
-        "qrPayments",
-        "phones",
         "deliveryRadius",
         "acceptedCurrency",
         "exchangeRate",

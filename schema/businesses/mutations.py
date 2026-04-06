@@ -7,6 +7,11 @@ from strawberry.types import Info
 
 from domain.models import Branch, Business, Coordinates
 from repositories import branches_repo, businesses_repo, users_repo
+from schema.branches.transfer_accounts import (
+    build_legacy_phones,
+    build_legacy_qr_payments,
+    normalize_transfer_accounts,
+)
 from utils.graphql_auth import apply_optional_jwt
 from utils.s3 import delete_file
 
@@ -92,6 +97,7 @@ class BusinessMutation:
                 raise Exception("Uno o más métodos de pago no existen")
 
             branch_id = ObjectId()
+            normalized_accounts = normalize_transfer_accounts(branch_inp.accounts)
 
             branch = Branch(
                 id=branch_id,
@@ -114,15 +120,9 @@ class BusinessMutation:
                 socialMedia=branch_inp.socialMedia,
                 tipos=[t.value for t in branch_inp.tipos],
                 paymentMethodIds=branch_inp.paymentMethodIds,
-                accounts=[a.__dict__ for a in branch_inp.accounts]
-                if branch_inp.accounts
-                else [],
-                qrPayments=[q.__dict__ for q in branch_inp.qrPayments]
-                if branch_inp.qrPayments
-                else [],
-                phones=[p.__dict__ for p in branch_inp.phones]
-                if branch_inp.phones
-                else [],
+                accounts=normalized_accounts,
+                qrPayments=build_legacy_qr_payments(normalized_accounts),
+                phones=build_legacy_phones(normalized_accounts),
                 createdAt=datetime.now(),
             )
 
@@ -293,6 +293,7 @@ class BusinessMutation:
                         )
 
                     branch_id = ObjectId()
+                    normalized_accounts = normalize_transfer_accounts(branch_inp.accounts)
 
                     branch = Branch(
                         id=branch_id,
@@ -315,15 +316,9 @@ class BusinessMutation:
                         socialMedia=branch_inp.socialMedia,
                         tipos=[t.value for t in branch_inp.tipos],
                         paymentMethodIds=branch_inp.paymentMethodIds,
-                        accounts=[a.__dict__ for a in branch_inp.accounts]
-                        if branch_inp.accounts
-                        else [],
-                        qrPayments=[q.__dict__ for q in branch_inp.qrPayments]
-                        if branch_inp.qrPayments
-                        else [],
-                        phones=[p.__dict__ for p in branch_inp.phones]
-                        if branch_inp.phones
-                        else [],
+                        accounts=normalized_accounts,
+                        qrPayments=build_legacy_qr_payments(normalized_accounts),
+                        phones=build_legacy_phones(normalized_accounts),
                         createdAt=datetime.now(),
                     )
 

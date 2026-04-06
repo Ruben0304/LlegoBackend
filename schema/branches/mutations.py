@@ -19,6 +19,11 @@ from utils.graphql_auth import apply_optional_jwt
 from utils.s3 import delete_file
 
 from .inputs import CreateBranchInput, UpdateBranchInput
+from .transfer_accounts import (
+    build_legacy_phones,
+    build_legacy_qr_payments,
+    normalize_transfer_accounts,
+)
 from .types import BranchTipo, BranchType, CoordinatesType
 from .utils import branch_to_dict
 
@@ -70,6 +75,10 @@ class BranchMutation:
                     "exchangeRate solo aplica cuando acceptedCurrency es BOTH"
                 )
 
+        normalized_accounts = normalize_transfer_accounts(input.accounts)
+        legacy_qr_payments = build_legacy_qr_payments(normalized_accounts)
+        legacy_phones = build_legacy_phones(normalized_accounts)
+
         # Create branch
         branch_id = str(ObjectId())
         branch = Branch(
@@ -96,11 +105,10 @@ class BranchMutation:
             vehicles=[v.value for v in input.vehicles] if input.vehicles else [],
             acceptedCurrency=accepted_currency,
             exchangeRate=input.exchangeRate if accepted_currency == "BOTH" else None,
-            accounts=[a.__dict__ for a in input.accounts] if input.accounts else [],
-            qrPayments=[q.__dict__ for q in input.qrPayments]
-            if input.qrPayments
-            else [],
-            phones=[p.__dict__ for p in input.phones] if input.phones else [],
+            accounts=normalized_accounts,
+            # Legacy mirrors kept in DB for backward compatibility with old clients.
+            qrPayments=legacy_qr_payments,
+            phones=legacy_phones,
             cashKycEnabled=input.cashKycEnabled,
             cashKycPolicyVersion=input.cashKycPolicyVersion,
             cashKycMinConfidence=input.cashKycMinConfidence,
@@ -231,11 +239,11 @@ class BranchMutation:
                 )
             updates["exchangeRate"] = input.exchangeRate
         if input.accounts is not None:
-            updates["accounts"] = [a.__dict__ for a in input.accounts]
-        if input.qrPayments is not None:
-            updates["qrPayments"] = [q.__dict__ for q in input.qrPayments]
-        if input.phones is not None:
-            updates["phones"] = [p.__dict__ for p in input.phones]
+            normalized_accounts = normalize_transfer_accounts(input.accounts)
+            updates["accounts"] = normalized_accounts
+            # Keep legacy mirrors synchronized from the single source of truth.
+            updates["qrPayments"] = build_legacy_qr_payments(normalized_accounts)
+            updates["phones"] = build_legacy_phones(normalized_accounts)
         if input.acceptsQvapay is not None:
             updates["acceptsQvapay"] = input.acceptsQvapay
         if input.acceptsZelle is not None:

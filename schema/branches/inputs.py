@@ -21,24 +21,8 @@ class TransferAccountInput:
     """Input for a bank card account for CUP transfers."""
 
     cardNumber: str
+    confirmPhone: str
     cardHolderName: Optional[str] = None
-    bankName: str
-    isActive: bool = True
-
-
-@strawberry.input
-class QrPaymentInput:
-    """Input for a QR payment value (EnZona, etc.)."""
-
-    value: str
-    isActive: bool = True
-
-
-@strawberry.input
-class TransferPhoneInput:
-    """Input for a phone number for mobile transfers (TransfermÃ³vil, etc.)."""
-
-    phone: str
     isActive: bool = True
 
 
@@ -71,10 +55,8 @@ class CreateBranchInput:
     exchangeRate: Optional[int] = (
         None  # Tasa de cambio (solo si acceptedCurrency es "BOTH")
     )
-    # Transfer payment info
+    # Transfer payment info (single source of truth)
     accounts: Optional[List[TransferAccountInput]] = None
-    qrPayments: Optional[List[QrPaymentInput]] = None
-    phones: Optional[List[TransferPhoneInput]] = None
     cashKycEnabled: bool = False
     cashKycPolicyVersion: str = "cash-kyc-v1"
     cashKycMinConfidence: float = 0.85
@@ -110,10 +92,8 @@ class UpdateBranchInput:
     exchangeRate: Optional[int] = (
         None  # Tasa de cambio (solo si acceptedCurrency es "BOTH")
     )
-    # Transfer payment info
+    # Transfer payment info (single source of truth)
     accounts: Optional[List[TransferAccountInput]] = None
-    qrPayments: Optional[List[QrPaymentInput]] = None
-    phones: Optional[List[TransferPhoneInput]] = None
     # QvaPay / Zelle (TronDealer) acceptance
     acceptsQvapay: Optional[bool] = None
     acceptsZelle: Optional[bool] = None  # True habilita TronDealer/USDT
