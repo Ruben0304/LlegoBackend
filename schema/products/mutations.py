@@ -16,6 +16,33 @@ from services.access_checker import access_checker
 from services.qdrant_indexing_service import qdrant_indexing_service
 
 
+async def _validate_variant_lists_belong_to_business(
+    variant_lists: list,
+    business_id: str,
+) -> None:
+    """Validate that each variant list belongs to a branch of the given business."""
+    if not variant_lists:
+        return
+
+    branch_ids = list({str(vl.branchId) for vl in variant_lists})
+    branches = await branches_repo.get_by_ids(branch_ids)
+    business_by_branch = {str(branch.id): str(branch.businessId) for branch in branches}
+
+    for vl in variant_lists:
+        variant_branch_id = str(vl.branchId)
+        variant_branch_business_id = business_by_branch.get(variant_branch_id)
+
+        if not variant_branch_business_id:
+            raise Exception(
+                f"La sucursal de la lista de variantes '{vl.name}' no fue encontrada"
+            )
+
+        if variant_branch_business_id != str(business_id):
+            raise Exception(
+                f"La lista de variantes '{vl.name}' no pertenece al negocio de esta sucursal"
+            )
+
+
 async def _delete_image_if_unreferenced(
     image_path: Optional[str],
     exclude_product_id: Optional[str] = None,
@@ -115,12 +142,10 @@ class ProductMutation:
             if len(variant_lists) != len(input.variantListIds):
                 raise Exception("Una o más listas de variantes no fueron encontradas")
             
-            # Validate that all variant lists belong to the same business as the branch
-            for vl in variant_lists:
-                if str(vl.businessId) != str(business.id):
-                    raise Exception(
-                        f"La lista de variantes '{vl.name}' no pertenece al negocio de esta sucursal"
-                    )
+            await _validate_variant_lists_belong_to_business(
+                variant_lists=variant_lists,
+                business_id=str(business.id),
+            )
             
             variant_list_ids = [ObjectId(vid) for vid in input.variantListIds]
 
@@ -198,12 +223,10 @@ class ProductMutation:
             if len(variant_lists) != len(input.variantListIds):
                 raise Exception("Una o más listas de variantes no fueron encontradas")
             
-            # Validate that all variant lists belong to the same business as the branch
-            for vl in variant_lists:
-                if str(vl.businessId) != str(business.id):
-                    raise Exception(
-                        f"La lista de variantes '{vl.name}' no pertenece al negocio de esta sucursal"
-                    )
+            await _validate_variant_lists_belong_to_business(
+                variant_lists=variant_lists,
+                business_id=str(business.id),
+            )
 
         # Build updates dict from input
         updates = {}
