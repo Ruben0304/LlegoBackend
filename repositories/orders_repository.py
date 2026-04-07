@@ -309,7 +309,7 @@ class OrderRepository:
                     "status": OrderStatus.MODIFIED_BY_STORE.value,
                     "deliveryPersonId": None,
                     "currentPaymentAttemptId": None,
-                    "deadlineAt": now + timedelta(minutes=10),
+                    "deadlineAt": now + timedelta(minutes=15),
                     "updatedAt": now,
                     "lastStatusAt": now,
                 },
@@ -332,7 +332,7 @@ class OrderRepository:
         now = datetime.utcnow()
         set_fields: Dict[str, Any] = {
             "status": OrderStatus.PENDING_ACCEPTANCE.value,
-            "deadlineAt": now + timedelta(minutes=10),
+            "deadlineAt": now + timedelta(minutes=15),
             "deliveryPersonId": None,
             "currentPaymentAttemptId": None,
             "paymentStatus": PaymentStatus.PENDING.value,

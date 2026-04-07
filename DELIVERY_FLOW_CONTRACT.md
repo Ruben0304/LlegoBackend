@@ -36,7 +36,7 @@ El backend usa la maquina de estados de `OrderStatus` y aplica timeouts automati
 - Chofer recoge: `preparing|ready_for_pickup -> on_the_way`
 - Chofer entrega con codigo: `on_the_way -> delivered`
 
-## Timeout SLA (10 min)
+## Timeout SLA (15 min)
 Se cancela automaticamente (`cancelled`) si vence `deadlineAt` en:
 - `pending_acceptance` (tienda no responde)
 - `modified_by_store` (cliente no reenvia)

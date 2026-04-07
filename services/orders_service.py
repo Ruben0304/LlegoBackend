@@ -59,7 +59,7 @@ class OrderValidationError(ValueError):
 class OrderService:
     """Service for order business logic."""
 
-    PRE_PREPARATION_TIMEOUT_MINUTES = 10
+    PRE_PREPARATION_TIMEOUT_MINUTES = 15
     PRE_PREPARATION_TIMEOUT_STATUSES = {
         OrderStatus.PENDING_ACCEPTANCE,
         OrderStatus.MODIFIED_BY_STORE,
