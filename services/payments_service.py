@@ -244,7 +244,7 @@ class PaymentService:
             raise ValueError("Pedido no encontrado")
 
         # Verify user owns the order
-        if order.get("customerId") != user_id:
+        if str(order.get("customerId")) != str(user_id):
             raise ValueError("No autorizado para pagar este pedido")
 
         # Check order status - must be in a payable state
@@ -386,7 +386,7 @@ class PaymentService:
         order = await self._get_order(order_id)
         if not order:
             raise ValueError("Pedido no encontrado")
-        if order.get("customerId") != user_id:
+        if str(order.get("customerId")) != str(user_id):
             raise ValueError("No autorizado")
 
         branch = await self._get_branch(order.get("branchId")) or {}
@@ -637,7 +637,7 @@ class PaymentService:
         if not attempt:
             raise ValueError("Intento de pago no encontrado")
         order = await self._get_order(attempt.orderId)
-        if not order or order.get("customerId") != user_id:
+        if not order or str(order.get("customerId")) != str(user_id):
             raise ValueError("No autorizado")
         if attempt.status not in {
             PaymentAttemptStatus.AWAITING_KYC,
@@ -850,7 +850,7 @@ class PaymentService:
         if not attempt:
             raise ValueError("Intento de pago no encontrado")
         order = await self._get_order(attempt.orderId)
-        if not order or order.get("customerId") != user_id:
+        if not order or str(order.get("customerId")) != str(user_id):
             raise ValueError("No autorizado")
 
         if verification.retryCount >= settings.cash_kyc_max_auto_retries:
@@ -1189,7 +1189,7 @@ class PaymentService:
 
         # Verify ownership
         order = await self._get_order(attempt.orderId)
-        if not order or order.get("customerId") != user_id:
+        if not order or str(order.get("customerId")) != str(user_id):
             raise ValueError("No autorizado")
 
         if attempt.status != PaymentAttemptStatus.AWAITING_PROOF:
@@ -1393,7 +1393,7 @@ class PaymentService:
             raise ValueError("Intento de pago no encontrado")
 
         order = await self._get_order(attempt.orderId)
-        if not order or order.get("customerId") != user_id:
+        if not order or str(order.get("customerId")) != str(user_id):
             raise ValueError("No autorizado")
 
         if attempt.status != PaymentAttemptStatus.COMPLETED:
@@ -1727,7 +1727,7 @@ class PaymentService:
             raise ValueError("Intento de pago no encontrado")
 
         order = await self._get_order(attempt.orderId)
-        if not order or order.get("customerId") != user_id:
+        if not order or str(order.get("customerId")) != str(user_id):
             raise ValueError("No autorizado")
 
         if attempt.status != PaymentAttemptStatus.AWAITING_PROOF:
@@ -1782,7 +1782,7 @@ class PaymentService:
             raise ValueError("Intento de pago no encontrado")
 
         order = await self._get_order(attempt.orderId)
-        if not order or order.get("customerId") != user_id:
+        if not order or str(order.get("customerId")) != str(user_id):
             raise ValueError("No autorizado")
 
         # Can only cancel pending/awaiting payments
@@ -1822,8 +1822,8 @@ class PaymentService:
             raise ValueError("Pedido no encontrado")
 
         # Check authorization - customer, business manager, or delivery person
-        is_customer = order.get("customerId") == user_id
-        is_delivery = order.get("deliveryPersonId") == user_id
+        is_customer = str(order.get("customerId")) == str(user_id)
+        is_delivery = str(order.get("deliveryPersonId")) == str(user_id) if order.get("deliveryPersonId") else False
 
         branch = await self._get_branch(order.get("branchId"))
         is_business = user_id in branch.get("managerIds", []) if branch else False
