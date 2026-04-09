@@ -6,6 +6,7 @@ from typing import List, Optional
 
 import strawberry
 
+from schema.branches.types import BranchScheduleType
 from utils.s3 import generate_presigned_url
 
 
@@ -38,7 +39,7 @@ class BranchSyncType:
     address: Optional[str]
     coordinates: CoordinatesSyncType
     phone: str
-    schedule: strawberry.scalars.JSON
+    schedule: BranchScheduleType
     isActive: bool
     status: Optional[str] = None
     avatar: Optional[str]

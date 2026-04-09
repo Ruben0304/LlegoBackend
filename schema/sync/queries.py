@@ -6,6 +6,7 @@ import strawberry
 from strawberry.types import Info
 
 from repositories import branches_repo, businesses_repo, products_repo
+from schema.branches.utils import schedule_to_type
 from utils.graphql_auth import apply_optional_jwt
 from utils.s3 import generate_presigned_url, get_image_variant_path
 
@@ -69,7 +70,7 @@ class SyncQuery:
                         coordinates=branch.coordinates.coordinates,
                     ),
                     phone=branch.phone,
-                    schedule=branch.schedule,
+                    schedule=schedule_to_type(branch.schedule),
                     isActive=branch.isActive,
                     status=branch.status,
                     avatar=branch.avatar,

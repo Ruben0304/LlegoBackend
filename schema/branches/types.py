@@ -59,6 +59,32 @@ class CoordinatesType:
     coordinates: List[float]
 
 
+@strawberry.type
+class TimeRangeType:
+    open: str   # "HH:MM" 24h
+    close: str  # "HH:MM" 24h
+
+
+@strawberry.type
+class DayScheduleType:
+    day: int    # 0=Dom, 1=Lun, 2=Mar, 3=Mie, 4=Jue, 5=Vie, 6=Sab
+    isOpen: bool
+    hours: List[TimeRangeType]
+
+
+@strawberry.type
+class TemporaryStatusType:
+    temporallyClosed: bool
+    temporallyOpen: bool
+    reason: Optional[str]
+
+
+@strawberry.type
+class BranchScheduleType:
+    days: List[DayScheduleType]
+    temporaryStatus: Optional[TemporaryStatusType]
+
+
 async def _resolve_branch_avatar_path(
     business_id: str, branch_avatar: Optional[str]
 ) -> Optional[str]:
@@ -83,7 +109,7 @@ class BranchType:
     address: Optional[str]
     coordinates: CoordinatesType
     phone: str
-    schedule: strawberry.scalars.JSON
+    schedule: BranchScheduleType
     managerIds: List[str]
     isActive: bool
     status: Optional[str] = None
@@ -243,7 +269,7 @@ class NearbyBranchType:
     address: Optional[str]
     coordinates: CoordinatesType
     phone: str
-    schedule: strawberry.scalars.JSON
+    schedule: BranchScheduleType
     managerIds: List[str]
     isActive: bool
     status: Optional[str] = None
@@ -407,7 +433,7 @@ class ScoredBranchType:
     address: Optional[str]
     coordinates: CoordinatesType
     phone: str
-    schedule: strawberry.scalars.JSON
+    schedule: BranchScheduleType
     managerIds: List[str]
     isActive: bool
     status: Optional[str] = None

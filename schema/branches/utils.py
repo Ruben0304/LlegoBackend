@@ -2,9 +2,13 @@
 
 from domain.models import Branch
 from schema.branches.types import (
+    BranchScheduleType,
     BranchTipo,
     BranchVehicle,
     CoordinatesType,
+    DayScheduleType,
+    TemporaryStatusType,
+    TimeRangeType,
     TransferAccountType,
 )
 from schema.wallet.types import WalletBalanceType
@@ -16,6 +20,51 @@ from .transfer_accounts import (
     normalize_confirm_phone,
     normalize_holder_name,
 )
+
+
+def schedule_to_type(schedule) -> BranchScheduleType:
+    """Convert a BranchSchedule pydantic model or dict to BranchScheduleType."""
+    days_raw = schedule.days if hasattr(schedule, "days") else schedule.get("days", [])
+    ts_raw = (
+        schedule.temporaryStatus
+        if hasattr(schedule, "temporaryStatus")
+        else schedule.get("temporaryStatus")
+    )
+
+    days = []
+    for d in days_raw:
+        if hasattr(d, "day"):
+            day_num, is_open, hours_raw = d.day, d.isOpen, d.hours
+        else:
+            day_num = d.get("day", 0)
+            is_open = d.get("isOpen", True)
+            hours_raw = d.get("hours", [])
+
+        hours = [
+            TimeRangeType(
+                open=h.open if hasattr(h, "open") else h.get("open", ""),
+                close=h.close if hasattr(h, "close") else h.get("close", ""),
+            )
+            for h in hours_raw
+        ]
+        days.append(DayScheduleType(day=day_num, isOpen=is_open, hours=hours))
+
+    temporary_status = None
+    if ts_raw:
+        if hasattr(ts_raw, "temporallyClosed"):
+            temporary_status = TemporaryStatusType(
+                temporallyClosed=ts_raw.temporallyClosed,
+                temporallyOpen=ts_raw.temporallyOpen,
+                reason=ts_raw.reason,
+            )
+        else:
+            temporary_status = TemporaryStatusType(
+                temporallyClosed=ts_raw.get("temporallyClosed", False),
+                temporallyOpen=ts_raw.get("temporallyOpen", False),
+                reason=ts_raw.get("reason"),
+            )
+
+    return BranchScheduleType(days=days, temporaryStatus=temporary_status)
 
 
 def branch_to_dict(branch: Branch) -> dict:
@@ -31,8 +80,10 @@ def branch_to_dict(branch: Branch) -> dict:
             "accounts",
             "qrPayments",
             "phones",
+            "schedule",
         },
     )
+    branch_dict["schedule"] = schedule_to_type(branch.schedule)
     # New crypto/digital payment fields â€” default to safe values if not in DB yet
     branch_dict.setdefault("acceptsQvapay", False)
     branch_dict.setdefault("acceptsZelle", False)
