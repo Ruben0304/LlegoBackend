@@ -589,6 +589,8 @@ class OrderType:
     @strawberry.field(description="Whether order can be cancelled")
     def can_cancel(self) -> bool:
         return self.status in {
+            OrderStatusEnum.PENDING_ACCEPTANCE,
+            OrderStatusEnum.PENDING_PAYMENT,
             OrderStatusEnum.MODIFIED_BY_STORE,
             OrderStatusEnum.REJECTED_BY_STORE,
         }
