@@ -7,6 +7,7 @@ from strawberry.types import Info
 
 from domain.models import Branch, Business, Coordinates
 from repositories import branches_repo, businesses_repo, users_repo
+from schema.branches.inputs import expand_schedule_input
 from schema.branches.transfer_accounts import (
     build_legacy_phones,
     build_legacy_qr_payments,
@@ -308,7 +309,7 @@ class BusinessMutation:
                             ],
                         ),
                         phone=branch_inp.phone,
-                        schedule=branch_inp.schedule,
+                        schedule=expand_schedule_input(branch_inp.schedule),
                         managerIds=branch_inp.managerIds or [user_id],
                         isActive=True,
                         avatar=branch_inp.avatar,

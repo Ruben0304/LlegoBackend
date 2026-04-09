@@ -18,7 +18,7 @@ from services.access_checker import access_checker
 from utils.graphql_auth import apply_optional_jwt
 from utils.s3 import delete_file
 
-from .inputs import CreateBranchInput, UpdateBranchInput
+from .inputs import CreateBranchInput, UpdateBranchInput, expand_schedule_input
 from .transfer_accounts import (
     build_legacy_phones,
     build_legacy_qr_payments,
@@ -90,7 +90,7 @@ class BranchMutation:
                 type="Point", coordinates=[input.coordinates.lng, input.coordinates.lat]
             ),
             phone=input.phone,
-            schedule=input.schedule,
+            schedule=expand_schedule_input(input.schedule),
             managerIds=input.managerIds or [user_id],
             isActive=True,
             avatar=input.avatar,
@@ -168,7 +168,7 @@ class BranchMutation:
         if input.phone is not None:
             updates["phone"] = input.phone
         if input.schedule is not None:
-            updates["schedule"] = input.schedule
+            updates["schedule"] = expand_schedule_input(input.schedule).model_dump()
         if input.isActive is not None:
             updates["isActive"] = input.isActive
         if input.socialMedia is not None:

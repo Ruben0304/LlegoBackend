@@ -190,63 +190,6 @@ class OrderService:
         return mapping.get(status, "Cancelado automaticamente por expiracion")
 
     @staticmethod
-    def _normalize_text(value: Any) -> str:
-        normalized = unicodedata.normalize("NFKD", str(value or ""))
-        return "".join(ch for ch in normalized if not unicodedata.combining(ch)).lower()
-
-    @classmethod
-    def _normalize_schedule_day_key(cls, day_key: Any) -> Optional[int]:
-        if isinstance(day_key, int) and 0 <= day_key <= 6:
-            return day_key
-
-        key = cls._normalize_text(day_key)
-        key = re.sub(r"[^a-z0-9]", "", key)
-
-        day_aliases = {
-            "mon": 0,
-            "monday": 0,
-            "lun": 0,
-            "lunes": 0,
-            "tue": 1,
-            "tues": 1,
-            "tuesday": 1,
-            "mar": 1,
-            "martes": 1,
-            "wed": 2,
-            "wednesday": 2,
-            "mie": 2,
-            "mier": 2,
-            "miercoles": 2,
-            "thu": 3,
-            "thur": 3,
-            "thurs": 3,
-            "thursday": 3,
-            "jue": 3,
-            "jueves": 3,
-            "fri": 4,
-            "friday": 4,
-            "vie": 4,
-            "viernes": 4,
-            "sat": 5,
-            "saturday": 5,
-            "sab": 5,
-            "sabado": 5,
-            "sun": 6,
-            "sunday": 6,
-            "dom": 6,
-            "domingo": 6,
-        }
-        if key in day_aliases:
-            return day_aliases[key]
-
-        if key.isdigit():
-            numeric = int(key)
-            if 0 <= numeric <= 6:
-                return numeric
-
-        return None
-
-    @staticmethod
     def _parse_time_to_minutes(time_value: Any) -> Optional[int]:
         raw = str(time_value or "").strip()
         if not re.fullmatch(r"\d{1,2}:\d{2}", raw):
@@ -264,72 +207,58 @@ class OrderService:
             return None
         return hour * 60 + minute
 
-    @classmethod
-    def _parse_schedule_range(cls, day_range: Any) -> Optional[tuple[int, int]]:
-        if isinstance(day_range, str):
-            if "-" not in day_range:
-                return None
-            start_raw, end_raw = day_range.split("-", 1)
-        elif isinstance(day_range, dict):
-            start_raw = day_range.get("open") or day_range.get("start")
-            end_raw = day_range.get("close") or day_range.get("end")
-        elif isinstance(day_range, (list, tuple)) and len(day_range) == 2:
-            start_raw, end_raw = day_range
-        else:
-            return None
-
-        start = cls._parse_time_to_minutes(start_raw)
-        end = cls._parse_time_to_minutes(end_raw)
-        if start is None or end is None:
-            return None
-        return start, end
+    @staticmethod
+    def _python_weekday_to_schedule_day(python_weekday: int) -> int:
+        """Convert Python weekday (Mon=0..Sun=6) to schedule day (Dom=0..Sab=6)."""
+        return (python_weekday + 1) % 7
 
     @classmethod
-    def _extract_day_ranges(
-        cls, schedule: Any, target_day: int
-    ) -> List[tuple[int, int]]:
-        if not isinstance(schedule, dict):
-            return []
-
-        parsed_ranges: List[tuple[int, int]] = []
-        for raw_day_key, raw_ranges in schedule.items():
-            normalized_day = cls._normalize_schedule_day_key(raw_day_key)
-            if normalized_day != target_day:
-                continue
-
-            if isinstance(raw_ranges, (str, dict)):
-                raw_ranges = [raw_ranges]
-            if not isinstance(raw_ranges, list):
-                continue
-
-            for day_range in raw_ranges:
-                parsed = cls._parse_schedule_range(day_range)
-                if parsed:
-                    parsed_ranges.append(parsed)
-
-        return parsed_ranges
+    def _get_day_sched(cls, schedule: Any, schedule_day: int) -> Any:
+        """Return the DaySchedule (model or dict) for a given schedule day, or None."""
+        days = schedule.days if hasattr(schedule, "days") else schedule.get("days", [])
+        for d in days:
+            day_num = d.day if hasattr(d, "day") else d.get("day")
+            if day_num == schedule_day:
+                return d
+        return None
 
     @classmethod
-    def _format_schedule_for_day(cls, schedule: Any, target_day: int) -> str:
-        if not isinstance(schedule, dict):
+    def _day_sched_hours(cls, day_sched: Any) -> List[tuple[int, int]]:
+        """Extract list of (start_min, end_min) tuples from a DaySchedule."""
+        hours = (
+            day_sched.hours if hasattr(day_sched, "hours") else day_sched.get("hours", [])
+        )
+        result: List[tuple[int, int]] = []
+        for tr in hours:
+            open_str = tr.open if hasattr(tr, "open") else tr.get("open", "")
+            close_str = tr.close if hasattr(tr, "close") else tr.get("close", "")
+            start = cls._parse_time_to_minutes(open_str)
+            end = cls._parse_time_to_minutes(close_str)
+            if start is not None and end is not None:
+                result.append((start, end))
+        return result
+
+    @classmethod
+    def _format_schedule_for_day(cls, schedule: Any, target_python_weekday: int) -> str:
+        if not schedule:
             return "no configurado"
 
-        raw_values: List[str] = []
-        for raw_day_key, raw_ranges in schedule.items():
-            normalized_day = cls._normalize_schedule_day_key(raw_day_key)
-            if normalized_day != target_day:
-                continue
-
-            if isinstance(raw_ranges, list):
-                raw_values.extend(
-                    [str(item).strip() for item in raw_ranges if str(item).strip()]
-                )
-            elif raw_ranges:
-                raw_values.append(str(raw_ranges).strip())
-
-        if not raw_values:
+        target_day = cls._python_weekday_to_schedule_day(target_python_weekday)
+        day_sched = cls._get_day_sched(schedule, target_day)
+        if not day_sched:
             return "cerrado"
-        return ", ".join(raw_values)
+
+        is_open = (
+            day_sched.isOpen if hasattr(day_sched, "isOpen") else day_sched.get("isOpen", True)
+        )
+        if not is_open:
+            return "cerrado"
+
+        ranges = cls._day_sched_hours(day_sched)
+        if not ranges:
+            return "cerrado"
+
+        return ", ".join(f"{s // 60:02d}:{s % 60:02d}-{e // 60:02d}:{e % 60:02d}" for s, e in ranges)
 
     @staticmethod
     def _get_branch_local_now() -> datetime:
@@ -340,24 +269,53 @@ class OrderService:
 
     @classmethod
     def _is_branch_open_now(cls, schedule: Any, now_local: datetime) -> bool:
+        if not schedule:
+            return True
+
+        # Check temporary status override
+        ts = (
+            schedule.temporaryStatus
+            if hasattr(schedule, "temporaryStatus")
+            else schedule.get("temporaryStatus")
+        )
+        if ts:
+            if ts.temporallyClosed if hasattr(ts, "temporallyClosed") else ts.get("temporallyClosed", False):
+                return False
+            if ts.temporallyOpen if hasattr(ts, "temporallyOpen") else ts.get("temporallyOpen", False):
+                return True
+
         current_minutes = now_local.hour * 60 + now_local.minute
-        today = now_local.weekday()
+        today = cls._python_weekday_to_schedule_day(now_local.weekday())
         yesterday = (today - 1) % 7
 
-        # Today's ranges. If a range crosses midnight (start > end),
-        # evaluate only the part that belongs to today (start->24:00).
-        for start, end in cls._extract_day_ranges(schedule, today):
-            if start == 0 and end == 24 * 60:
-                return True
-            if start < end and start <= current_minutes < end:
-                return True
-            if start > end and current_minutes >= start:
-                return True
+        today_sched = cls._get_day_sched(schedule, today)
+        if today_sched:
+            is_open = (
+                today_sched.isOpen
+                if hasattr(today_sched, "isOpen")
+                else today_sched.get("isOpen", True)
+            )
+            if is_open:
+                for start, end in cls._day_sched_hours(today_sched):
+                    if start == 0 and end == 24 * 60:
+                        return True
+                    if start < end and start <= current_minutes < end:
+                        return True
+                    if start > end and current_minutes >= start:  # overnight start
+                        return True
 
-        # Overnight ranges inherited from yesterday (e.g. 22:00-02:00).
-        for start, end in cls._extract_day_ranges(schedule, yesterday):
-            if start > end and current_minutes < end:
-                return True
+        # Overnight ranges inherited from yesterday (e.g. 22:00-02:00)
+        yesterday_sched = cls._get_day_sched(schedule, yesterday)
+        if yesterday_sched:
+            is_open = (
+                yesterday_sched.isOpen
+                if hasattr(yesterday_sched, "isOpen")
+                else yesterday_sched.get("isOpen", True)
+            )
+            if is_open:
+                for start, end in cls._day_sched_hours(yesterday_sched):
+                    if start > end and current_minutes < end:
+                        return True
 
         return False
 
@@ -373,9 +331,9 @@ class OrderService:
                 return False
         return None
 
-    def _is_branch_open_for_pickup(self, schedule: Optional[dict]) -> bool:
+    def _is_branch_open_for_pickup(self, schedule: Any) -> bool:
         """Validate pickup availability using branch local time and shared schedule parser."""
-        if not isinstance(schedule, dict) or not schedule:
+        if not schedule:
             return True
 
         now_local = self._get_branch_local_now()

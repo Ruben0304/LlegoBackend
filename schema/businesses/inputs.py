@@ -4,6 +4,7 @@ import strawberry
 from strawberry.scalars import JSON
 
 from schema.branches.inputs import (
+    BranchScheduleInput,
     CoordinatesInput,
     TransferAccountInput,
 )
@@ -38,7 +39,7 @@ class RegisterBranchInput:
     name: str
     coordinates: CoordinatesInput
     phone: str
-    schedule: JSON
+    schedule: BranchScheduleInput
     tipos: List[BranchTipo]  # Obligatorio: ["restaurante", "dulceria", "tienda", "perfumeria"]
     paymentMethodIds: List[str]  # Obligatorio: IDs de métodos de pago aceptados
     address: Optional[str] = None

@@ -112,6 +112,41 @@ class Coordinates(BaseModel):
     coordinates: List[float]  # [longitude, latitude]
 
 
+# =============================================================================
+# Branch Schedule Models
+# =============================================================================
+
+
+class TimeRange(BaseModel):
+    """A single open/close time range in HH:MM 24h format."""
+
+    open: str
+    close: str
+
+
+class DaySchedule(BaseModel):
+    """Schedule for a single day of the week."""
+
+    day: int  # 0=Dom, 1=Lun, 2=Mar, 3=Mie, 4=Jue, 5=Vie, 6=Sab
+    isOpen: bool = True
+    hours: List[TimeRange] = []
+
+
+class TemporaryStatus(BaseModel):
+    """Temporary override for branch open/closed status."""
+
+    temporallyClosed: bool = False  # Closed despite being within open hours
+    temporallyOpen: bool = False    # Open despite being outside open hours
+    reason: Optional[str] = None
+
+
+class BranchSchedule(BaseModel):
+    """Full weekly schedule for a branch, with optional temporary status override."""
+
+    days: List[DaySchedule]
+    temporaryStatus: Optional[TemporaryStatus] = None
+
+
 class Branch(BaseModel):
     id: PyObjectId = Field(alias="_id")
     businessId: PyObjectId
@@ -119,7 +154,7 @@ class Branch(BaseModel):
     address: Optional[str] = None
     coordinates: Coordinates
     phone: str
-    schedule: Dict[str, List[str]]  # {"mon": ["08:00-20:00"], ...}
+    schedule: BranchSchedule
     managerIds: List[PyObjectId]
     isActive: bool = True
     status: Optional[str] = None
@@ -857,6 +892,10 @@ __all__ = [
     "SavedAddress",
     "Business",
     "Coordinates",
+    "TimeRange",
+    "DaySchedule",
+    "TemporaryStatus",
+    "BranchSchedule",
     "Branch",
     "Subcategory",
     "Category",

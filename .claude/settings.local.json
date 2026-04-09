@@ -31,7 +31,8 @@
       "WebFetch(domain:pypi.org)",
       "WebFetch(domain:api.qvapay.com)",
       "WebFetch(domain:scalar.com)",
-      "WebFetch(domain:api.trondealer.com)"
+      "WebFetch(domain:api.trondealer.com)",
+      "Bash(source .venv/bin/activate)"
     ]
   }
 }
