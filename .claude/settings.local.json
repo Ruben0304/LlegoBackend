@@ -32,7 +32,8 @@
       "WebFetch(domain:api.qvapay.com)",
       "WebFetch(domain:scalar.com)",
       "WebFetch(domain:api.trondealer.com)",
-      "Bash(source .venv/bin/activate)"
+      "Bash(source .venv/bin/activate)",
+      "Bash(grep -rn mongodb_database '/Users/ruben/projects/Llego Org/LlegoBackend/' --include=*.py)"
     ]
   }
 }

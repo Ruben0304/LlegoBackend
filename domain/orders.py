@@ -253,6 +253,7 @@ class Order(BaseModel):
     paidAt: Optional[datetime] = None  # When payment was completed
     deliveryFeePaid: float = 0.0  # Delivery fee actually paid (for tracking)
     deadlineAt: Optional[datetime] = None  # SLA deadline for pre-preparation states
+    scheduledFor: Optional[datetime] = None  # Programmed delivery/pickup time (UTC)
     resubmissionCount: int = 0
     deliveryVerificationCode: Optional[str] = None
     deliveryCodeGeneratedAt: Optional[datetime] = None

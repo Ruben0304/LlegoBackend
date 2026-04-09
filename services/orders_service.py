@@ -319,6 +319,35 @@ class OrderService:
 
         return False
 
+    @classmethod
+    def _is_branch_open_at(cls, schedule: Any, target_local: datetime) -> bool:
+        """Check if branch is open at a specific future datetime (ignores temporaryStatus)."""
+        if not schedule:
+            return True
+
+        target_minutes = target_local.hour * 60 + target_local.minute
+        target_day = cls._python_weekday_to_schedule_day(target_local.weekday())
+
+        day_sched = cls._get_day_sched(schedule, target_day)
+        if not day_sched:
+            return False
+
+        is_open = (
+            day_sched.isOpen if hasattr(day_sched, "isOpen") else day_sched.get("isOpen", True)
+        )
+        if not is_open:
+            return False
+
+        for start, end in cls._day_sched_hours(day_sched):
+            if start == 0 and end == 24 * 60:
+                return True
+            if start < end and start <= target_minutes < end:
+                return True
+            if start > end and (target_minutes >= start or target_minutes < end):  # overnight
+                return True
+
+        return False
+
     @staticmethod
     def _coerce_bool(value: Any) -> Optional[bool]:
         if isinstance(value, bool):
@@ -905,6 +934,7 @@ class OrderService:
         fulfillment_type: Optional[str] = None,
         pickup_branch_id: Optional[str] = None,
         pickup_window_id: Optional[str] = None,
+        scheduled_for: Optional[datetime] = None,
     ) -> Order:
         """Create a new order with all validations."""
         requested_fulfillment = (fulfillment_type or "DELIVERY").strip().upper()
@@ -947,33 +977,61 @@ class OrderService:
         if not items:
             raise ValueError("El pedido debe incluir al menos un ítem")
 
-        if not is_pickup:
+        day_names = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"]
+
+        if scheduled_for is not None:
+            # Validate scheduled time
             branch_now = self._get_branch_local_now()
-            if not self._is_branch_open_now(branch.schedule, branch_now):
-                day_names = [
-                    "lunes",
-                    "martes",
-                    "miercoles",
-                    "jueves",
-                    "viernes",
-                    "sabado",
-                    "domingo",
-                ]
-                day_index = branch_now.weekday()
-                today_schedule = self._format_schedule_for_day(
-                    branch.schedule, day_index
+            try:
+                scheduled_local = scheduled_for.astimezone(ZoneInfo("America/Havana"))
+            except Exception:
+                scheduled_local = scheduled_for
+
+            if scheduled_local <= branch_now:
+                raise OrderValidationError(
+                    "La hora programada debe ser en el futuro",
+                    code="INVALID_SCHEDULED_TIME",
                 )
-                raise ValueError(
-                    "La sucursal esta cerrada en este momento "
-                    f"({day_names[day_index]} {branch_now.strftime('%H:%M')}). "
-                    f"Horario de hoy: {today_schedule}"
+
+            today_date = branch_now.date()
+            tomorrow_date = today_date + timedelta(days=1)
+            scheduled_date = scheduled_local.date()
+            if scheduled_date not in {today_date, tomorrow_date}:
+                raise OrderValidationError(
+                    "Solo se pueden programar pedidos para hoy o mañana",
+                    code="INVALID_SCHEDULED_TIME",
                 )
+
+            if not self._is_branch_open_at(branch.schedule, scheduled_local):
+                target_schedule = self._format_schedule_for_day(
+                    branch.schedule, scheduled_local.weekday()
+                )
+                raise OrderValidationError(
+                    f"La sucursal no está abierta a las {scheduled_local.strftime('%H:%M')} "
+                    f"({day_names[scheduled_local.weekday()]}). "
+                    f"Horario: {target_schedule}",
+                    code="BRANCH_CLOSED_AT_SCHEDULED_TIME",
+                )
+        else:
+            if not is_pickup:
+                branch_now = self._get_branch_local_now()
+                if not self._is_branch_open_now(branch.schedule, branch_now):
+                    day_index = branch_now.weekday()
+                    today_schedule = self._format_schedule_for_day(
+                        branch.schedule, day_index
+                    )
+                    raise ValueError(
+                        "La sucursal esta cerrada en este momento "
+                        f"({day_names[day_index]} {branch_now.strftime('%H:%M')}). "
+                        f"Horario de hoy: {today_schedule}"
+                    )
+
         # 2. Get business
         business = await businesses_repo.get_by_id(branch.businessId)
         if not business:
             raise ValueError("Negocio no encontrado")
 
-        if is_pickup:
+        if is_pickup and scheduled_for is None:
             if not self._is_branch_open_for_pickup(getattr(branch, "schedule", None)):
                 raise OrderValidationError(
                     "La sucursal está cerrada para pickup",
@@ -1194,6 +1252,7 @@ class OrderService:
             deadlineAt=self._next_deadline_for_status(
                 OrderStatus.PENDING_ACCEPTANCE, now
             ),
+            scheduledFor=scheduled_for,
             resubmissionCount=0,
             createdAt=now,
             updatedAt=now,

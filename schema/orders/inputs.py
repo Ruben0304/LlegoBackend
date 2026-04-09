@@ -103,6 +103,7 @@ class CreateOrderInput:
     paymentIntentId: Optional[str] = None
     comments: Optional[str] = None
     promoCode: Optional[str] = None
+    scheduledFor: Optional[datetime] = None  # Hora programada (hoy o mañana, UTC)
 
 
 @strawberry.input

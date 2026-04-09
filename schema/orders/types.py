@@ -350,6 +350,7 @@ class OrderType:
     currentPaymentAttemptId: Optional[str] = None
     paidAt: Optional[datetime] = None
     deadlineAt: Optional[datetime] = None
+    scheduledFor: Optional[datetime] = None
     resubmissionCount: int = 0
 
     # Delivery tracking timestamps & metrics
@@ -669,6 +670,7 @@ def order_to_type(order) -> OrderType:
         else None,
         paidAt=order.paidAt,
         deadlineAt=order.deadlineAt,
+        scheduledFor=order.scheduledFor,
         resubmissionCount=order.resubmissionCount,
         assignedAt=order.assignedAt,
         pickedUpAt=order.pickedUpAt,

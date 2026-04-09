@@ -122,6 +122,7 @@ class OrderMutation:
                 fulfillment_type=fulfillment_type,
                 pickup_branch_id=pickup_branch_id,
                 pickup_window_id=pickup_window_id,
+                scheduled_for=input.scheduledFor,
             )
             return order_to_type(order)
         except OrderValidationError as e:
