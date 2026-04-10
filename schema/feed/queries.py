@@ -1,7 +1,7 @@
 """GraphQL query resolvers for Feed."""
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 import strawberry
@@ -167,6 +167,7 @@ class FeedQuery:
                             user_location,
                             branch_ids,
                             first,
+                            radius_km=radius_km,
                             all_products=all_products,
                         )
                     )
@@ -186,14 +187,22 @@ class FeedQuery:
             elif section_id == "populares_cerca":
                 tasks.append(
                     feed_service.get_populares_cerca_section(
-                        user_location, branch_ids, first, all_products=all_products
+                        user_location,
+                        branch_ids,
+                        first,
+                        radius_km=radius_km,
+                        all_products=all_products,
                     )
                 )
                 section_keys.append(section_id)
             elif section_id == "trending":
                 tasks.append(
                     feed_service.get_trending_section(
-                        user_location, branch_ids, first, all_products=all_products
+                        user_location,
+                        branch_ids,
+                        first,
+                        radius_km=radius_km,
+                        all_products=all_products,
                     )
                 )
                 section_keys.append(section_id)
@@ -240,7 +249,11 @@ class FeedQuery:
             elif section_id == "mas_favoriteados":
                 tasks.append(
                     feed_service.get_mas_favoriteados_section(
-                        user_location, branch_ids, first, all_products=all_products
+                        user_location,
+                        branch_ids,
+                        first,
+                        radius_km=radius_km,
+                        all_products=all_products,
                     )
                 )
                 section_keys.append(section_id)
@@ -248,7 +261,11 @@ class FeedQuery:
                 if user_location:
                     tasks.append(
                         feed_service.get_cerca_de_ti_section(
-                            user_location, branch_ids, first, all_products=all_products
+                            user_location,
+                            branch_ids,
+                            first,
+                            radius_km=radius_km,
+                            all_products=all_products,
                         )
                     )
                     section_keys.append(section_id)
@@ -272,6 +289,7 @@ class FeedQuery:
                             user_location,
                             branch_ids,
                             first,
+                            radius_km=radius_km,
                             all_products=all_products,
                         )
                     )
@@ -317,20 +335,18 @@ class FeedQuery:
             raw_sections.append(result)
             valid_keys.append(section_id)
 
-        # Deduplicate products across sections (operates on ScoredFeedProduct)
-        deduplicated_sections = feed_service._deduplicate_sections(raw_sections)
+        # Deduplicate products across sections using backfill from extra candidates.
+        deduplicated_sections = feed_service._deduplicate_sections(
+            raw_sections, target_limit=first
+        )
 
         # Convert ScoredFeedProduct lists to FeedSection GraphQL types
-        # Business rule: only apply cross-section deduplication when a section has > 10 items.
         final_sections = []
         for i, scored_products in enumerate(deduplicated_sections):
             section_id = valid_keys[i]
             title, description = requested_sections[section_id]
             total_before_dedup = len(raw_sections[i])
-            should_apply_dedup = total_before_dedup > 10
-            effective_scored_products = (
-                scored_products if should_apply_dedup else raw_sections[i]
-            )
+            effective_scored_products = scored_products
             total_after_dedup = len(effective_scored_products)
 
             if total_before_dedup == 0:
@@ -346,7 +362,7 @@ class FeedQuery:
                 )
                 continue
 
-            if should_apply_dedup and total_after_dedup == 0:
+            if total_after_dedup == 0:
                 section_diagnostics.append(
                     FeedSectionDiagnostic(
                         section_id=section_id,
@@ -376,13 +392,13 @@ class FeedQuery:
                 )
             )
 
-            if should_apply_dedup and total_after_dedup < total_before_dedup:
+            if total_after_dedup < total_before_dedup:
                 section_diagnostics.append(
                     FeedSectionDiagnostic(
                         section_id=section_id,
                         title=title,
                         status="partial",
-                        reason="Se removieron productos duplicados para evitar repetidos entre secciones",
+                        reason="Se removieron duplicados y se rellenó la sección con candidatos alternativos cuando fue posible",
                         total_before_dedup=total_before_dedup,
                         total_after_dedup=total_after_dedup,
                     )
@@ -402,5 +418,5 @@ class FeedQuery:
         return FeedResponse(
             sections=final_sections,
             section_diagnostics=section_diagnostics,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )

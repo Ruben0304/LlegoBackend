@@ -1,7 +1,9 @@
 """Feed service for personalized product recommendations."""
 
 import asyncio
+import math
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
 
 from repositories import (
@@ -39,9 +41,11 @@ class FeedService:
     """
 
     # --- Section 1: Para Ti ---
-    PARA_TI_PERSONALIZATION = 0.45
-    PARA_TI_POPULARITY = 0.30
-    PARA_TI_PROXIMITY = 0.25
+    PARA_TI_CATEGORY_AFFINITY = 0.35
+    PARA_TI_BRANCH_AFFINITY = 0.20
+    PARA_TI_RECENT_INTENT = 0.20
+    PARA_TI_PROXIMITY = 0.15
+    PARA_TI_RECENT_POPULARITY = 0.10
 
     # --- Section 2: Populares Cerca ---
     POPULARES_POPULARITY = 0.50
@@ -55,9 +59,10 @@ class FeedService:
     TRENDING_PROXIMITY = 0.10
 
     # --- Section 4: Basado en Búsquedas ---
-    BUSQUEDAS_CLICKED = 0.50
-    BUSQUEDAS_SIMILAR = 0.30
-    BUSQUEDAS_POPULARITY = 0.20
+    BUSQUEDAS_SEARCH_INTENT = 0.45
+    BUSQUEDAS_CATEGORY_AFFINITY = 0.25
+    BUSQUEDAS_BRANCH_AFFINITY = 0.20
+    BUSQUEDAS_RECENT_POPULARITY = 0.10
 
     # --- Section 5: Nuevos en Lugares Favoritos ---
     NUEVOS_BRANCH_AFFINITY = 0.50
@@ -75,9 +80,11 @@ class FeedService:
     CERCA_POPULARITY = 0.10
 
     # --- Section 8: Te Podría Gustar ---
-    GUSTAR_SIMILARITY = 0.50
-    GUSTAR_POPULARITY = 0.30
-    GUSTAR_PROXIMITY = 0.20
+    GUSTAR_CATEGORY_AFFINITY = 0.40
+    GUSTAR_BRANCH_AFFINITY = 0.20
+    GUSTAR_NOVELTY = 0.15
+    GUSTAR_PROXIMITY = 0.15
+    GUSTAR_RECENT_POPULARITY = 0.10
 
     async def get_branch_ids_by_tipo(self, branch_tipo: str) -> Set[str]:
         """Fetch branch IDs filtered by tipo. Used once per feed request."""
@@ -88,68 +95,261 @@ class FeedService:
             print(f"[DEBUG] get_branch_ids_by_tipo - Sample branch IDs (first 5): {list(ids)[:5]}")
         return set(ids)
 
+    def _normalize_score_map(self, raw_scores: Dict[str, float]) -> Dict[str, float]:
+        """Normalize a score dictionary into the 0-1 range."""
+        if not raw_scores:
+            return {}
+
+        positive_scores = {key: value for key, value in raw_scores.items() if value > 0}
+        if not positive_scores:
+            return {}
+
+        max_value = max(positive_scores.values())
+        if max_value <= 0:
+            return {}
+
+        return {key: min(value / max_value, 1.0) for key, value in positive_scores.items()}
+
+    def _candidate_limit(self, limit: int) -> int:
+        """Fetch extra candidates so later deduplication can backfill sections."""
+        return max(limit * 3, 30)
+
+    def _decay_factor(
+        self, timestamp: Optional[datetime], half_life_days: float = 30.0
+    ) -> float:
+        """Apply an exponential time decay so recent actions weigh more."""
+        if not timestamp:
+            return 0.0
+
+        if getattr(timestamp, "tzinfo", None) is not None:
+            now = datetime.now(timestamp.tzinfo)
+        else:
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+        age_seconds = max((now - timestamp).total_seconds(), 0.0)
+        half_life_seconds = max(half_life_days * 86400, 1.0)
+        return math.exp(-math.log(2) * (age_seconds / half_life_seconds))
+
+    def _sort_scored_products(
+        self, scored_products: List[ScoredFeedProduct]
+    ) -> List[ScoredFeedProduct]:
+        """Sort scored products with stable tie-breakers for more realistic ranking."""
+
+        def sort_key(item: ScoredFeedProduct) -> tuple:
+            created_at = getattr(item.product, "createdAt", None)
+            created_ts = created_at.timestamp() if created_at else 0.0
+            return (
+                item.score,
+                item.section_scores.get("recent_intent", 0.0),
+                item.section_scores.get("category_affinity", 0.0),
+                item.section_scores.get("branch_affinity", 0.0),
+                item.section_scores.get("proximity", 0.0),
+                item.section_scores.get("recent_popularity", 0.0),
+                item.section_scores.get("freshness", 0.0),
+                created_ts,
+            )
+
+        scored_products.sort(key=sort_key, reverse=True)
+        return scored_products
+
+    async def _prepare_products_with_proximity(
+        self,
+        products: List[Any],
+        user_location: Optional[tuple],
+        radius_km: Optional[float] = None,
+    ) -> tuple[List[Any], Dict[str, float]]:
+        """Build a proximity map and optionally trim items outside the requested radius."""
+        if not products or not user_location:
+            return products, {}
+
+        scored_items = await scoring_service.score_products_by_branch(
+            products,
+            user_location,
+            radius_km=radius_km,
+        )
+        proximity_map = {item.id: item.score for item in scored_items}
+
+        if radius_km is not None:
+            products = [product for product in products if str(product.id) in proximity_map]
+
+        return products, proximity_map
+
+    async def _build_recent_popularity_scores(
+        self, days: int = 30
+    ) -> Dict[str, float]:
+        """Build recent popularity scores from clicks, favorites, and cart activity."""
+        recent_clicks_data, recent_favorites, recent_cart = await asyncio.gather(
+            searches_repo.get_recent_activity(days),
+            favorites_cart_repo.get_recent_activity("favorite", days),
+            favorites_cart_repo.get_recent_activity("cart", days),
+        )
+
+        raw_scores: Dict[str, float] = {}
+
+        for pid, data in recent_clicks_data.items():
+            click_signal = data.get("clicks", 0) * 0.7 + data.get("unique_users", 0) * 0.3
+            raw_scores[str(pid)] = raw_scores.get(str(pid), 0.0) + click_signal
+
+        for pid, count in recent_favorites.items():
+            raw_scores[str(pid)] = raw_scores.get(str(pid), 0.0) + count * 1.2
+
+        for pid, count in recent_cart.items():
+            raw_scores[str(pid)] = raw_scores.get(str(pid), 0.0) + count * 1.4
+
+        return self._normalize_score_map(raw_scores)
+
+    async def _build_para_ti_user_profile(self, user_id: str) -> Dict[str, Any]:
+        """Build lightweight affinity maps and direct interaction sets for feed ranking."""
+        searches, favorite_items, cart_items, liked_branches = await asyncio.gather(
+            searches_repo.get_user_searches(user_id, limit=100),
+            favorites_cart_repo.get_by_user(user_id, "favorite"),
+            favorites_cart_repo.get_by_user(user_id, "cart"),
+            branch_likes_repo.get_by_user(user_id),
+        )
+
+        interacted_product_ids: Set[str] = set()
+        for search in searches:
+            for clicked_item in search.clickedItems:
+                if clicked_item.itemType == "product":
+                    interacted_product_ids.add(str(clicked_item.itemId))
+
+        favorite_product_ids = {str(item.productId) for item in favorite_items}
+        cart_product_ids = {str(item.productId) for item in cart_items}
+
+        interacted_product_ids.update(favorite_product_ids)
+        interacted_product_ids.update(cart_product_ids)
+
+        interacted_products = (
+            await products_repo.get_by_ids(sorted(interacted_product_ids))
+            if interacted_product_ids
+            else []
+        )
+        products_by_id = {str(product.id): product for product in interacted_products}
+
+        product_intent_raw: Dict[str, float] = {}
+        category_affinity_raw: Dict[str, float] = {}
+        branch_affinity_raw: Dict[str, float] = {}
+
+        def add_product_signal(product_id: Any, weight: float) -> None:
+            pid = str(product_id)
+            product_intent_raw[pid] = product_intent_raw.get(pid, 0.0) + weight
+
+            product = products_by_id.get(pid)
+            if not product:
+                return
+
+            if getattr(product, "categoryId", None):
+                category_id = str(product.categoryId)
+                category_affinity_raw[category_id] = (
+                    category_affinity_raw.get(category_id, 0.0) + weight
+                )
+
+            branch_id = str(product.branchId)
+            branch_affinity_raw[branch_id] = branch_affinity_raw.get(branch_id, 0.0) + weight
+
+        for search in searches:
+            for clicked_item in search.clickedItems:
+                if clicked_item.itemType != "product":
+                    continue
+                for click_time in clicked_item.clicks:
+                    add_product_signal(
+                        clicked_item.itemId,
+                        1.0 * self._decay_factor(click_time, half_life_days=14.0),
+                    )
+
+        for favorite_item in favorite_items:
+            add_product_signal(
+                favorite_item.productId,
+                2.0
+                * self._decay_factor(
+                    getattr(favorite_item, "createdAt", None), half_life_days=30.0
+                ),
+            )
+
+        for cart_item in cart_items:
+            add_product_signal(
+                cart_item.productId,
+                2.4
+                * self._decay_factor(
+                    getattr(cart_item, "createdAt", None), half_life_days=21.0
+                ),
+            )
+
+        for branch_like in liked_branches:
+            branch_id = str(branch_like.branchId)
+            branch_affinity_raw[branch_id] = branch_affinity_raw.get(branch_id, 0.0) + (
+                1.6
+                * self._decay_factor(
+                    getattr(branch_like, "createdAt", None), half_life_days=45.0
+                )
+            )
+
+        return {
+            "product_intent": self._normalize_score_map(product_intent_raw),
+            "category_affinity": self._normalize_score_map(category_affinity_raw),
+            "branch_affinity": self._normalize_score_map(branch_affinity_raw),
+            "favorite_products": favorite_product_ids,
+            "cart_products": cart_product_ids,
+        }
+
     async def get_para_ti_section(
         self,
         user_id: str,
         user_location: Optional[tuple],
         branch_ids: Set[str],
         limit: int = 10,
+        radius_km: Optional[float] = None,
         all_products: Optional[List[Any]] = None,
     ) -> List[ScoredFeedProduct]:
         """
         Section 1: Para Ti (Personalizado)
-        personalization (45%) + popularity (30%) + proximity (25%)
+        category affinity (35%) + branch affinity (20%) + recent intent (20%)
+        + proximity (15%) + recent popularity (10%)
         """
-        products = [p for p in (all_products or []) if str(p.branchId) in branch_ids]
+        products = [
+            p
+            for p in (all_products or [])
+            if str(p.branchId) in branch_ids and getattr(p, "availability", False)
+        ]
         if not products:
             return []
 
-        # Get signals in parallel
-        (
-            personal_clicks,
-            personal_favorites,
-            personal_cart,
-            popularity_favorites,
-            popularity_cart,
-        ) = await asyncio.gather(
-            searches_repo.get_user_click_preferences(user_id),
-            favorites_cart_repo.get_user_preferences(user_id, "favorite"),
-            favorites_cart_repo.get_user_preferences(user_id, "cart"),
-            favorites_cart_repo.get_popularity_scores("favorite"),
-            favorites_cart_repo.get_popularity_scores("cart"),
+        products, proximity_map = await self._prepare_products_with_proximity(
+            products,
+            user_location,
+            radius_km=radius_km,
         )
+        if not products:
+            return []
 
-        proximity_map = {}
-        if user_location:
-            scored_items = await scoring_service.score_products_by_branch(
-                products, user_location
-            )
-            proximity_map = {item.id: item.score for item in scored_items}
+        user_profile, recent_popularity_scores = await asyncio.gather(
+            self._build_para_ti_user_profile(user_id),
+            self._build_recent_popularity_scores(days=30),
+        )
 
         # Calculate scores
         scored_products = []
         for product in products:
             pid = str(product.id)
+            category_id = str(product.categoryId) if getattr(product, "categoryId", None) else None
 
-            # Personalization
-            pers_clicks = personal_clicks.get(pid, 0.0)
-            pers_favorites = 1.0 if pid in personal_favorites else 0.0
-            pers_cart = 1.0 if pid in personal_cart else 0.0
-            personalization = pers_clicks * 0.5 + pers_favorites * 0.3 + pers_cart * 0.2
-
-            # Popularity
-            pop_fav = popularity_favorites.get(pid, 0.0)
-            pop_cart = popularity_cart.get(pid, 0.0)
-            popularity = pop_fav * 0.6 + pop_cart * 0.4
-
-            # Proximity
+            category_affinity = (
+                user_profile["category_affinity"].get(category_id, 0.0)
+                if category_id
+                else 0.0
+            )
+            branch_affinity = user_profile["branch_affinity"].get(str(product.branchId), 0.0)
+            recent_intent = user_profile["product_intent"].get(pid, 0.0)
             proximity = proximity_map.get(pid, 0.0)
+            recent_popularity = recent_popularity_scores.get(pid, 0.0)
 
             # Final score
             final_score = (
-                personalization * self.PARA_TI_PERSONALIZATION
-                + popularity * self.PARA_TI_POPULARITY
+                category_affinity * self.PARA_TI_CATEGORY_AFFINITY
+                + branch_affinity * self.PARA_TI_BRANCH_AFFINITY
+                + recent_intent * self.PARA_TI_RECENT_INTENT
                 + proximity * self.PARA_TI_PROXIMITY
+                + recent_popularity * self.PARA_TI_RECENT_POPULARITY
             )
 
             scored_products.append(
@@ -157,22 +357,25 @@ class FeedService:
                     product=product,
                     score=final_score,
                     section_scores={
-                        "personalization": personalization,
-                        "popularity": popularity,
+                        "category_affinity": category_affinity,
+                        "branch_affinity": branch_affinity,
+                        "recent_intent": recent_intent,
                         "proximity": proximity,
+                        "recent_popularity": recent_popularity,
                     },
                 )
             )
 
         # Sort and limit
-        scored_products.sort(key=lambda x: x.score, reverse=True)
-        return scored_products[:limit]
+        self._sort_scored_products(scored_products)
+        return scored_products[: self._candidate_limit(limit)]
 
     async def get_populares_cerca_section(
         self,
         user_location: Optional[tuple],
         branch_ids: Set[str],
         limit: int = 10,
+        radius_km: Optional[float] = None,
         all_products: Optional[List[Any]] = None,
     ) -> List[ScoredFeedProduct]:
         """
@@ -189,12 +392,13 @@ class FeedService:
             favorites_cart_repo.get_popularity_scores("cart"),
         )
 
-        proximity_map = {}
-        if user_location:
-            scored_items = await scoring_service.score_products_by_branch(
-                products, user_location
-            )
-            proximity_map = {item.id: item.score for item in scored_items}
+        products, proximity_map = await self._prepare_products_with_proximity(
+            products,
+            user_location,
+            radius_km=radius_km,
+        )
+        if not products:
+            return []
 
         freshness_scores = products_repo.calculate_freshness_scores(products)
 
@@ -234,8 +438,8 @@ class FeedService:
             )
 
         # Sort and limit
-        scored_products.sort(key=lambda x: x.score, reverse=True)
-        return scored_products[:limit]
+        self._sort_scored_products(scored_products)
+        return scored_products[: self._candidate_limit(limit)]
 
     async def get_trending_section(
         self,
@@ -243,6 +447,7 @@ class FeedService:
         branch_ids: Set[str],
         limit: int = 10,
         days: int = 7,
+        radius_km: Optional[float] = None,
         all_products: Optional[List[Any]] = None,
     ) -> List[ScoredFeedProduct]:
         """
@@ -286,12 +491,13 @@ class FeedService:
                     pid: count / max_cart for pid, count in recent_cart.items()
                 }
 
-        proximity_map = {}
-        if user_location:
-            scored_items = await scoring_service.score_products_by_branch(
-                products, user_location
-            )
-            proximity_map = {item.id: item.score for item in scored_items}
+        products, proximity_map = await self._prepare_products_with_proximity(
+            products,
+            user_location,
+            radius_km=radius_km,
+        )
+        if not products:
+            return []
 
         # Calculate scores
         scored_products = []
@@ -325,8 +531,8 @@ class FeedService:
             )
 
         # Sort and limit
-        scored_products.sort(key=lambda x: x.score, reverse=True)
-        return scored_products[:limit]
+        self._sort_scored_products(scored_products)
+        return scored_products[: self._candidate_limit(limit)]
 
     async def get_basado_busquedas_section(
         self,
@@ -337,51 +543,67 @@ class FeedService:
     ) -> List[ScoredFeedProduct]:
         """
         Section 4: Basado en tus Búsquedas
-        clicked_in_searches (50%) + popularity (50%)
+        search intent (45%) + category affinity (25%) + branch affinity (20%)
+        + recent popularity (10%)
         """
-        products = [p for p in (all_products or []) if str(p.branchId) in branch_ids]
+        products = [
+            p
+            for p in (all_products or [])
+            if str(p.branchId) in branch_ids and getattr(p, "availability", False)
+        ]
         if not products:
             return []
 
-        # Get signals in parallel
-        personal_clicks, popularity_favorites, popularity_cart = await asyncio.gather(
+        search_clicks, user_profile, recent_popularity_scores = await asyncio.gather(
             searches_repo.get_user_click_preferences(user_id),
-            favorites_cart_repo.get_popularity_scores("favorite"),
-            favorites_cart_repo.get_popularity_scores("cart"),
+            self._build_para_ti_user_profile(user_id),
+            self._build_recent_popularity_scores(days=30),
         )
 
         # Calculate scores
         scored_products = []
         for product in products:
             pid = str(product.id)
+            category_id = (
+                str(product.categoryId) if getattr(product, "categoryId", None) else None
+            )
 
-            # Clicked in searches
-            clicked = personal_clicks.get(pid, 0.0)
+            clicked = search_clicks.get(pid, 0.0)
+            category_affinity = (
+                user_profile["category_affinity"].get(category_id, 0.0)
+                if category_id
+                else 0.0
+            )
+            branch_affinity = user_profile["branch_affinity"].get(
+                str(product.branchId), 0.0
+            )
+            recent_popularity = recent_popularity_scores.get(pid, 0.0)
 
-            # Popularity
-            pop_fav = popularity_favorites.get(pid, 0.0)
-            pop_cart = popularity_cart.get(pid, 0.0)
-            popularity = pop_fav * 0.6 + pop_cart * 0.4
+            final_score = (
+                clicked * self.BUSQUEDAS_SEARCH_INTENT
+                + category_affinity * self.BUSQUEDAS_CATEGORY_AFFINITY
+                + branch_affinity * self.BUSQUEDAS_BRANCH_AFFINITY
+                + recent_popularity * self.BUSQUEDAS_RECENT_POPULARITY
+            )
 
-            # Final score (adjusted weights since we don't have similarity)
-            final_score = clicked * 0.70 + popularity * 0.30
-
-            # Only include products with some search activity
-            if clicked > 0 or popularity > 0:
+            # Keep this section anchored to search-driven affinity, not just global popularity.
+            if clicked > 0 or category_affinity > 0 or branch_affinity > 0:
                 scored_products.append(
                     ScoredFeedProduct(
                         product=product,
                         score=final_score,
                         section_scores={
                             "clicked_in_searches": clicked,
-                            "popularity": popularity,
+                            "category_affinity": category_affinity,
+                            "branch_affinity": branch_affinity,
+                            "recent_popularity": recent_popularity,
                         },
                     )
                 )
 
         # Sort and limit
-        scored_products.sort(key=lambda x: x.score, reverse=True)
-        return scored_products[:limit]
+        self._sort_scored_products(scored_products)
+        return scored_products[: self._candidate_limit(limit)]
 
     async def get_nuevos_lugares_favoritos_section(
         self,
@@ -456,13 +678,14 @@ class FeedService:
 
         # Sort and limit
         scored_products.sort(key=lambda x: x.score, reverse=True)
-        return scored_products[:limit]
+        return scored_products[: self._candidate_limit(limit)]
 
     async def get_mas_favoriteados_section(
         self,
         user_location: Optional[tuple],
         branch_ids: Set[str],
         limit: int = 10,
+        radius_km: Optional[float] = None,
         all_products: Optional[List[Any]] = None,
     ) -> List[ScoredFeedProduct]:
         """
@@ -479,12 +702,13 @@ class FeedService:
             favorites_cart_repo.get_popularity_scores("cart"),
         )
 
-        proximity_map = {}
-        if user_location:
-            scored_items = await scoring_service.score_products_by_branch(
-                products, user_location
-            )
-            proximity_map = {item.id: item.score for item in scored_items}
+        products, proximity_map = await self._prepare_products_with_proximity(
+            products,
+            user_location,
+            radius_km=radius_km,
+        )
+        if not products:
+            return []
 
         # Calculate scores
         scored_products = []
@@ -515,14 +739,15 @@ class FeedService:
             )
 
         # Sort and limit
-        scored_products.sort(key=lambda x: x.score, reverse=True)
-        return scored_products[:limit]
+        self._sort_scored_products(scored_products)
+        return scored_products[: self._candidate_limit(limit)]
 
     async def get_cerca_de_ti_section(
         self,
         user_location: tuple,
         branch_ids: Set[str],
         limit: int = 10,
+        radius_km: Optional[float] = None,
         all_products: Optional[List[Any]] = None,
     ) -> List[ScoredFeedProduct]:
         """
@@ -538,22 +763,18 @@ class FeedService:
         if not products:
             return []
 
-        # Get signals in parallel
-        proximity_task = None
-        if user_location:
-            proximity_task = scoring_service.score_products_by_branch(
-                products, user_location
-            )
-
         popularity_favorites, popularity_cart = await asyncio.gather(
             favorites_cart_repo.get_popularity_scores("favorite"),
             favorites_cart_repo.get_popularity_scores("cart"),
         )
 
-        proximity_map = {}
-        if proximity_task:
-            scored_items = await proximity_task
-            proximity_map = {item.id: item.score for item in scored_items}
+        products, proximity_map = await self._prepare_products_with_proximity(
+            products,
+            user_location,
+            radius_km=radius_km,
+        )
+        if not products:
+            return []
 
         # Calculate scores
         scored_products = []
@@ -587,8 +808,8 @@ class FeedService:
             )
 
         # Sort and limit
-        scored_products.sort(key=lambda x: x.score, reverse=True)
-        return scored_products[:limit]
+        self._sort_scored_products(scored_products)
+        return scored_products[: self._candidate_limit(limit)]
 
     async def get_te_podria_gustar_section(
         self,
@@ -596,85 +817,97 @@ class FeedService:
         user_location: Optional[tuple],
         branch_ids: Set[str],
         limit: int = 10,
+        radius_km: Optional[float] = None,
         all_products: Optional[List[Any]] = None,
     ) -> List[ScoredFeedProduct]:
         """
         Section 8: Te Podría Gustar
-        similarity (50%) + popularity (30%) + proximity (20%)
+        category affinity (40%) + branch affinity (20%) + novelty (15%)
+        + proximity (15%) + recent popularity (10%)
         """
-        products = [p for p in (all_products or []) if str(p.branchId) in branch_ids]
+        products = [
+            p
+            for p in (all_products or [])
+            if str(p.branchId) in branch_ids and getattr(p, "availability", False)
+        ]
         if not products:
             return []
 
-        # Get signals in parallel
-        (
-            personal_favorites,
-            personal_clicks,
-            popularity_favorites,
-            popularity_cart,
-        ) = await asyncio.gather(
-            favorites_cart_repo.get_user_preferences(user_id, "favorite"),
-            searches_repo.get_user_click_preferences(user_id),
-            favorites_cart_repo.get_popularity_scores("favorite"),
-            favorites_cart_repo.get_popularity_scores("cart"),
+        user_profile, recent_popularity_scores = await asyncio.gather(
+            self._build_para_ti_user_profile(user_id),
+            self._build_recent_popularity_scores(days=30),
         )
 
-        proximity_map = {}
-        if user_location:
-            scored_items = await scoring_service.score_products_by_branch(
-                products, user_location
-            )
-            proximity_map = {item.id: item.score for item in scored_items}
+        products, proximity_map = await self._prepare_products_with_proximity(
+            products,
+            user_location,
+            radius_km=radius_km,
+        )
+        if not products:
+            return []
 
         # Calculate scores
         scored_products = []
         for product in products:
             pid = str(product.id)
+            category_id = str(product.categoryId) if getattr(product, "categoryId", None) else None
 
-            # Skip products user already favorited or clicked frequently
-            if pid in personal_favorites or personal_clicks.get(pid, 0) > 0.5:
+            # Skip explicit positives and highly consumed products; this section should explore adjacent items.
+            if (
+                pid in user_profile["favorite_products"]
+                or pid in user_profile["cart_products"]
+                or user_profile["product_intent"].get(pid, 0.0) >= 0.65
+            ):
                 continue
 
-            # Similarity (simplified: inverse of how much user interacted)
-            interaction = personal_clicks.get(pid, 0.0)
-            similarity = 1.0 - interaction
-
-            # Popularity
-            pop_fav = popularity_favorites.get(pid, 0.0)
-            pop_cart = popularity_cart.get(pid, 0.0)
-            popularity = pop_fav * 0.6 + pop_cart * 0.4
-
-            # Proximity
+            category_affinity = (
+                user_profile["category_affinity"].get(category_id, 0.0)
+                if category_id
+                else 0.0
+            )
+            branch_affinity = user_profile["branch_affinity"].get(str(product.branchId), 0.0)
+            recent_intent = user_profile["product_intent"].get(pid, 0.0)
+            novelty = max(0.0, 1.0 - recent_intent)
             proximity = proximity_map.get(pid, 0.0)
+            recent_popularity = recent_popularity_scores.get(pid, 0.0)
 
             # Final score
             final_score = (
-                similarity * self.GUSTAR_SIMILARITY
-                + popularity * self.GUSTAR_POPULARITY
+                category_affinity * self.GUSTAR_CATEGORY_AFFINITY
+                + branch_affinity * self.GUSTAR_BRANCH_AFFINITY
+                + novelty * self.GUSTAR_NOVELTY
                 + proximity * self.GUSTAR_PROXIMITY
+                + recent_popularity * self.GUSTAR_RECENT_POPULARITY
             )
 
-            scored_products.append(
-                ScoredFeedProduct(
-                    product=product,
-                    score=final_score,
-                    section_scores={
-                        "similarity": similarity,
-                        "popularity": popularity,
-                        "proximity": proximity,
-                    },
+            if final_score > 0:
+                scored_products.append(
+                    ScoredFeedProduct(
+                        product=product,
+                        score=final_score,
+                        section_scores={
+                            "category_affinity": category_affinity,
+                            "branch_affinity": branch_affinity,
+                            "novelty": novelty,
+                            "recent_intent": recent_intent,
+                            "proximity": proximity,
+                            "recent_popularity": recent_popularity,
+                        },
+                    )
                 )
-            )
 
         # Sort and limit
-        scored_products.sort(key=lambda x: x.score, reverse=True)
-        return scored_products[:limit]
+        self._sort_scored_products(scored_products)
+        return scored_products[: self._candidate_limit(limit)]
 
     def _deduplicate_sections(
-        self, sections: List[List[ScoredFeedProduct]]
+        self,
+        sections: List[List[ScoredFeedProduct]],
+        target_limit: Optional[int] = None,
     ) -> List[List[ScoredFeedProduct]]:
         """
-        Remove duplicate products across sections, keeping first occurrence.
+        Remove duplicate products across sections, keeping first occurrence and
+        backfilling each section with the next unique candidates available.
 
         Args:
             sections: List of section results (each is a list of ScoredFeedProduct)
@@ -692,6 +925,8 @@ class FeedService:
                 if pid not in seen_ids:
                     seen_ids.add(pid)
                     deduplicated_section.append(scored_product)
+                    if target_limit is not None and len(deduplicated_section) >= target_limit:
+                        break
             deduplicated_sections.append(deduplicated_section)
 
         return deduplicated_sections
