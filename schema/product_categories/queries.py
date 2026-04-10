@@ -64,5 +64,5 @@ class ProductCategoryQuery:
         if not used_category_ids:
             return []
 
-        filtered_categories = [cat for cat in categories if cat.id in used_category_ids]
+        filtered_categories = [cat for cat in categories if str(cat.id) in used_category_ids]
         return [ProductCategoryType(**to_strawberry_dict(cat)) for cat in filtered_categories]
