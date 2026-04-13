@@ -59,6 +59,7 @@ def _to_scored_branch_data(branch_data: dict) -> dict:
         "tipos",
         "paymentMethodIds",
         "useAppMessaging",
+        "catalogOnly",
         "pickupEnabled",
         "vehicles",
         "accounts",
