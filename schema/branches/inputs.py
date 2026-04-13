@@ -160,6 +160,7 @@ class UpdateBranchInput:
     useAppMessaging: Optional[bool] = (
         None  # True = mensajerÃ­a por la app, False = por cuenta propia
     )
+    catalogOnly: Optional[bool] = None  # True = solo catálogo, sin pedidos ni mensajería
     pickupEnabled: Optional[bool] = None
     vehicles: Optional[List[BranchVehicle]] = (
         None  # ["moto", "bicicleta", "carro", "camioneta", "caminando"]

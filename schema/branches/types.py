@@ -119,6 +119,7 @@ class BranchType:
     tipos: List[BranchTipo]
     paymentMethodIds: List[str]
     useAppMessaging: bool = True
+    catalogOnly: bool = False
     pickupEnabled: bool = False
     vehicles: List[BranchVehicle] = strawberry.field(default_factory=list)
     accounts: List[TransferAccountType] = strawberry.field(default_factory=list)

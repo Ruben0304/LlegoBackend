@@ -974,6 +974,8 @@ class OrderService:
             raise ValueError("Sucursal no encontrada")
         if not branch.isActive:
             raise ValueError("La sucursal no está activa")
+        if branch.catalogOnly:
+            raise ValueError("Esta sucursal solo muestra su catálogo y no acepta pedidos")
         if not items:
             raise ValueError("El pedido debe incluir al menos un ítem")
 

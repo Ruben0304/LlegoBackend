@@ -172,6 +172,7 @@ class Branch(BaseModel):
     useAppMessaging: bool = (
         True  # True = mensajeria por la app, False = mensajeria por cuenta propia
     )
+    catalogOnly: bool = False  # True = solo catálogo, sin pedidos ni mensajería
     pickupEnabled: bool = False  # Click & collect enabled for this branch
     vehicles: List[str] = []  # ["moto", "bicicleta", "carro", "camion", "a_pie"]
     deliveryRadius: Optional[float] = None  # Radio de entrega en km
