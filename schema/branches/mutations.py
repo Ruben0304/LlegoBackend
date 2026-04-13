@@ -266,6 +266,8 @@ class BranchMutation:
             updates["cashKycTtlDays"] = input.cashKycTtlDays
         if input.forceReverify is not None:
             updates["forceReverify"] = input.forceReverify
+        if input.catalogOnly is not None:
+            updates["catalogOnly"] = input.catalogOnly
 
         # Handle coordinates update - save to MongoDB stores_location
         if input.coordinates is not None:
