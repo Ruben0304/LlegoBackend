@@ -101,6 +101,7 @@ class BranchMutation:
             wallet={"local": 0.0, "usd": 0.0},
             walletStatus="active",
             useAppMessaging=input.useAppMessaging,
+            catalogOnly=input.catalogOnly,
             pickupEnabled=input.pickupEnabled,
             vehicles=[v.value for v in input.vehicles] if input.vehicles else [],
             acceptedCurrency=accepted_currency,
