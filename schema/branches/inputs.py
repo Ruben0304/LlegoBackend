@@ -123,6 +123,7 @@ class CreateBranchInput:
     useAppMessaging: bool = (
         True  # True = mensajerÃ­a por la app, False = por cuenta propia
     )
+    catalogOnly: bool = False  # True = solo catálogo, sin pedidos ni mensajería
     pickupEnabled: bool = False
     vehicles: Optional[List[BranchVehicle]] = (
         None  # ["moto", "bicicleta", "carro", "camioneta", "caminando"]
