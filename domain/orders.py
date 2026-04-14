@@ -386,6 +386,7 @@ ALLOWED_TRANSITIONS: Dict[str, List[str]] = {
     ],
     OrderStatus.ACCEPTED.value: [
         OrderStatus.PREPARING.value,
+        OrderStatus.ON_THE_WAY.value,
         OrderStatus.MODIFIED_BY_STORE.value,
         OrderStatus.REJECTED_BY_STORE.value,
     ],

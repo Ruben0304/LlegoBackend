@@ -1759,6 +1759,8 @@ class OrderService:
         if not reserved_order:
             raise ValueError("No se pudo reservar el pedido para este mensajero")
 
+        await self.delivery_repo.assign_order(delivery_person.id, order_id)
+
         if await self._is_cash_payment_method(order.paymentMethod):
             next_status = OrderStatus.ACCEPTED
             next_message = "Mensajero asignado. Pago en efectivo, el negocio puede iniciar elaboracion"
@@ -1808,7 +1810,11 @@ class OrderService:
         if not order:
             raise ValueError("Pedido no encontrado")
 
-        if order.status not in {OrderStatus.READY_FOR_PICKUP, OrderStatus.PREPARING}:
+        if order.status not in {
+            OrderStatus.ACCEPTED,
+            OrderStatus.PREPARING,
+            OrderStatus.READY_FOR_PICKUP,
+        }:
             raise ValueError("El pedido no esta listo para recogida")
 
         delivery_person = await self.delivery_repo.get_by_user_id(user_id)
