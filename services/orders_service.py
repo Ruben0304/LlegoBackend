@@ -1826,9 +1826,19 @@ class OrderService:
         if delivery_person.currentOrderId and not self._ids_equal(
             delivery_person.currentOrderId, order_id
         ):
-            raise ValueError("Ya tienes otro pedido en curso")
+            # Only block if the other order is genuinely still active
+            other_order = await self.orders_repo.get_by_id(
+                str(delivery_person.currentOrderId)
+            )
+            if other_order and other_order.status not in {
+                OrderStatus.DELIVERED,
+                OrderStatus.CANCELLED,
+            }:
+                raise ValueError("Ya tienes otro pedido en curso")
 
-        if not delivery_person.currentOrderId:
+        if not delivery_person.currentOrderId or not self._ids_equal(
+            delivery_person.currentOrderId, order_id
+        ):
             await self.delivery_repo.assign_order(delivery_person.id, order_id)
 
         return await self.update_status(
