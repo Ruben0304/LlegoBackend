@@ -113,7 +113,7 @@ class BusinessMutation:
                     ],
                 ),
                 phone=branch_inp.phone,
-                schedule=branch_inp.schedule,
+                schedule=expand_schedule_input(branch_inp.schedule),
                 managerIds=branch_inp.managerIds or [user_id],
                 isActive=True,
                 avatar=branch_inp.avatar,
