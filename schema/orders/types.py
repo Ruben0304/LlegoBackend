@@ -7,7 +7,7 @@ from typing import List, Optional
 import strawberry
 from strawberry.types import Info
 
-from repositories import branches_repo, businesses_repo, users_repo
+from repositories import branches_repo, businesses_repo, payment_methods_repo, users_repo
 from repositories.orders_repository import delivery_persons_repo
 from schema.branches.types import BranchType, CoordinatesType
 from schema.businesses.types import BusinessType
@@ -595,6 +595,11 @@ class OrderType:
             OrderStatusEnum.MODIFIED_BY_STORE,
             OrderStatusEnum.REJECTED_BY_STORE,
         }
+
+    @strawberry.field(description="Human-readable payment method name")
+    async def paymentMethodName(self) -> Optional[str]:
+        pm = await payment_methods_repo.get_by_code(self.paymentMethod)
+        return pm.name if pm else None
 
     @strawberry.field(description="Customer-facing status")
     def customer_visible_status(self) -> OrderStatusEnum:
