@@ -47,6 +47,7 @@ class RegisterBranchInput:
     avatar: Optional[str] = None  # Optional, upload via REST endpoint
     coverImage: Optional[str] = None  # Optional, upload via REST endpoint
     socialMedia: Optional[JSON] = None
+    pickupEnabled: bool = False
     acceptedCurrency: Optional[AcceptedCurrency] = None  # "CUP", "USD", or "BOTH"
     exchangeRate: Optional[int] = None  # Tasa de cambio (solo si acceptedCurrency es "BOTH")
     # Transfer payment info (single source of truth)
