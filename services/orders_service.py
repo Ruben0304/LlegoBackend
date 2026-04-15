@@ -1337,7 +1337,7 @@ class OrderService:
         extra_set_fields: Dict[str, Any] = {
             "deadlineAt": self._next_deadline_for_status(new_status, now)
         }
-        if new_status == OrderStatus.ON_THE_WAY and not order.deliveryVerificationCode:
+        if new_status in {OrderStatus.ON_THE_WAY, OrderStatus.READY_FOR_PICKUP} and not order.deliveryVerificationCode:
             extra_set_fields["deliveryVerificationCode"] = (
                 self._generate_delivery_verification_code()
             )
