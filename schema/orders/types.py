@@ -520,7 +520,7 @@ class OrderType:
 
         if not user_id or str(user_id) != str(self.customerId):
             return None
-        if self.status != OrderStatusEnum.ON_THE_WAY:
+        if self.status not in {OrderStatusEnum.ON_THE_WAY, OrderStatusEnum.READY_FOR_PICKUP}:
             return None
         return self._delivery_verification_code
 
