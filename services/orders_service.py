@@ -1149,7 +1149,8 @@ class OrderService:
             pass
 
         total_discounts = sum(d.amount for d in discounts)
-        total = round(subtotal + delivery_fee - total_discounts, 2)
+        service_charge = round(subtotal * settings.service_fee_rate, 2)
+        total = round(subtotal + delivery_fee + service_charge - total_discounts, 2)
 
         # 6. Validate payment if card
         payment_status = PaymentStatus.PENDING
@@ -1237,6 +1238,7 @@ class OrderService:
             items=order_items,
             subtotal=subtotal,
             deliveryFee=delivery_fee,
+            serviceCharge=service_charge,
             deliveryMode=delivery_mode,
             deliveryZoneId=delivery_zone_id,
             branchH3=branch_h3,
@@ -1412,7 +1414,7 @@ class OrderService:
                 raise ValueError("El precio de envio no puede ser negativo")
             total_discounts = sum(d.amount for d in order.discounts)
             new_total = round(
-                order.subtotal + delivery_fee_override - total_discounts, 2
+                order.subtotal + delivery_fee_override + order.serviceCharge - total_discounts, 2
             )
             await self.orders_repo.update_delivery_fee(
                 order_id, delivery_fee_override, new_total, delivery_mode="branch"
@@ -1529,9 +1531,10 @@ class OrderService:
             modified_items.append(order_item)
             subtotal += line_subtotal
 
-        # Recalculate total
+        # Recalculate total (service charge recalculated on new subtotal)
         total_discounts = sum(d.amount for d in order.discounts)
-        total = round(subtotal + order.deliveryFee - total_discounts, 2)
+        service_charge = round(subtotal * settings.service_fee_rate, 2)
+        total = round(subtotal + order.deliveryFee + service_charge - total_discounts, 2)
 
         timeline_entry = OrderTimeline(
             status=OrderStatus.MODIFIED_BY_STORE,
@@ -1541,7 +1544,7 @@ class OrderService:
         )
 
         updated_order = await self.orders_repo.update_items(
-            order_id, modified_items, round(subtotal, 2), total, timeline_entry
+            order_id, modified_items, round(subtotal, 2), service_charge, total, timeline_entry
         )
 
         if not updated_order:
@@ -1623,6 +1626,7 @@ class OrderService:
 
         updated_items: Optional[List[OrderItem]] = None
         subtotal_value: Optional[float] = None
+        service_charge_value: Optional[float] = None
         total_value: Optional[float] = None
 
         if new_items is not None:
@@ -1640,7 +1644,8 @@ class OrderService:
 
             total_discounts = sum(d.amount for d in order.discounts)
             subtotal_value = round(running_subtotal, 2)
-            total_value = round(subtotal_value + order.deliveryFee - total_discounts, 2)
+            service_charge_value = round(subtotal_value * settings.service_fee_rate, 2)
+            total_value = round(subtotal_value + order.deliveryFee + service_charge_value - total_discounts, 2)
             updated_items = rebuilt_items
 
         timeline_message = (
@@ -1658,6 +1663,7 @@ class OrderService:
             timeline_entry,
             items=updated_items,
             subtotal=subtotal_value,
+            service_charge=service_charge_value,
             total=total_value,
         )
         if not updated_order:

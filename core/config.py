@@ -147,6 +147,9 @@ class Settings(BaseSettings):
     # Optional comma-separated IP whitelist for TronDealer callback source IPs.
     trondealer_allowed_ips: str = ""
 
+    # Service fee rate charged on every order (e.g. 0.10 = 10%)
+    service_fee_rate: float = 0.10
+
     # Admin API key for /admin/* endpoints (simple bearer token)
     admin_api_key: str = ""
 

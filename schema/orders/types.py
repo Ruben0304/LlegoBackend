@@ -334,6 +334,7 @@ class OrderType:
     businessId: str
     subtotal: float
     deliveryFee: float
+    serviceCharge: float = 0.0
     deliveryMode: str
     total: float
     currency: str
@@ -655,6 +656,7 @@ def order_to_type(order) -> OrderType:
         businessId=str(order.businessId),
         subtotal=order.subtotal,
         deliveryFee=order.deliveryFee,
+        serviceCharge=order.serviceCharge,
         deliveryMode=order.deliveryMode,
         total=order.total,
         currency=order.currency,

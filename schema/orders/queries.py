@@ -477,6 +477,12 @@ class OrderQuery:
             raise Exception(str(e))
 
     @strawberry.field(
+        description="Retorna la tasa de cargo de servicio configurada en el servidor (fracción, ej: 0.10 = 10%)"
+    )
+    def get_service_fee_rate(self) -> float:
+        return settings.service_fee_rate
+
+    @strawberry.field(
         description="Estadísticas del dashboard: ingresos, pedidos completados/rechazados y productos más vendidos por período (today, week, month)"
     )
     async def dashboard_stats(

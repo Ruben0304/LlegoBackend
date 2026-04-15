@@ -295,6 +295,7 @@ class OrderRepository:
         order_id: str,
         items: List[OrderItem],
         subtotal: float,
+        service_charge: float,
         total: float,
         timeline_entry: OrderTimeline,
     ) -> Optional[Order]:
@@ -307,6 +308,7 @@ class OrderRepository:
                 "$set": {
                     "items": [item.model_dump() for item in items],
                     "subtotal": subtotal,
+                    "serviceCharge": service_charge,
                     "total": total,
                     "status": OrderStatus.MODIFIED_BY_STORE.value,
                     "deliveryPersonId": None,
@@ -327,6 +329,7 @@ class OrderRepository:
         timeline_entry: OrderTimeline,
         items: Optional[List[OrderItem]] = None,
         subtotal: Optional[float] = None,
+        service_charge: Optional[float] = None,
         total: Optional[float] = None,
     ) -> Optional[Order]:
         """Resubmit an order back to pending acceptance from pre-preparation states."""
@@ -347,6 +350,8 @@ class OrderRepository:
             set_fields["items"] = [item.model_dump() for item in items]
         if subtotal is not None:
             set_fields["subtotal"] = subtotal
+        if service_charge is not None:
+            set_fields["serviceCharge"] = service_charge
         if total is not None:
             set_fields["total"] = total
 

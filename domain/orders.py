@@ -233,6 +233,7 @@ class Order(BaseModel):
     items: List[OrderItem]
     subtotal: float
     deliveryFee: float
+    serviceCharge: float = 0.0  # Cargo de servicio (% sobre subtotal, configurado via env)
     deliveryMode: str = "app"  # "app" | "branch" | "pickup_only"
     deliveryZoneId: Optional[str] = None  # H3 index de la zona (si fue por app)
     discounts: List[OrderDiscount] = []
