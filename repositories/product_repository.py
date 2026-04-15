@@ -592,6 +592,9 @@ class ProductRepository:
         else:
             products = await self.get_all()
 
+        # Only include available products in the feed
+        products = [p for p in products if getattr(p, "availability", False)]
+
         # If no category filtering, return all products
         if not apply_category_filter:
             return products
