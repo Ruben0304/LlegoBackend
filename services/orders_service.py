@@ -1286,6 +1286,7 @@ class OrderService:
         actor: OrderActor,
         message: Optional[str] = None,
         force: bool = False,
+        extra_fields: Optional[Dict[str, Any]] = None,
     ) -> Order:
         """Update order status with validation."""
         order = await self.orders_repo.get_by_id(order_id)
@@ -1339,6 +1340,8 @@ class OrderService:
         extra_set_fields: Dict[str, Any] = {
             "deadlineAt": self._next_deadline_for_status(new_status, now)
         }
+        if extra_fields:
+            extra_set_fields.update(extra_fields)
         if new_status in {OrderStatus.ON_THE_WAY, OrderStatus.READY_FOR_PICKUP} and not order.deliveryVerificationCode:
             extra_set_fields["deliveryVerificationCode"] = (
                 self._generate_delivery_verification_code()
@@ -1439,6 +1442,7 @@ class OrderService:
             next_status,
             OrderActor.BUSINESS,
             message,
+            extra_fields={"estimatedMinutes": estimated_minutes},
         )
 
     async def reject_order(self, order_id: str, reason: str, user_id: str) -> Order:

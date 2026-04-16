@@ -272,6 +272,8 @@ class Order(BaseModel):
     deliveryDurationMin: Optional[int] = None  # Minutes from assignment to delivery
     deliveryEarnings: Optional[float] = None  # Amount earned by delivery person
 
+    estimatedMinutes: Optional[int] = None  # Preparation time set by business when accepting
+
     rating: Optional[int] = None
     ratingComment: Optional[str] = None
     createdAt: datetime

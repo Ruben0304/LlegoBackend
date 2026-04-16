@@ -362,6 +362,8 @@ class OrderType:
     deliveryDurationMin: Optional[int] = None
     deliveryEarnings: Optional[float] = None
 
+    estimatedMinutes: Optional[int] = None
+
     rating: Optional[int] = None
     ratingComment: Optional[str] = None
 
@@ -685,6 +687,7 @@ def order_to_type(order) -> OrderType:
         deliveryDistanceKm=order.deliveryDistanceKm,
         deliveryDurationMin=order.deliveryDurationMin,
         deliveryEarnings=order.deliveryEarnings,
+        estimatedMinutes=order.estimatedMinutes,
         rating=order.rating,
         ratingComment=order.ratingComment,
         _items=[item.model_dump() for item in order.items],
