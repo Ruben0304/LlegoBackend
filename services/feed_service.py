@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Set
 from repositories import (
     branch_likes_repo,
     branches_repo,
+    businesses_repo,
     favorites_cart_repo,
     products_repo,
     searches_repo,
@@ -87,9 +88,10 @@ class FeedService:
     GUSTAR_RECENT_POPULARITY = 0.10
 
     async def get_branch_ids_by_tipo(self, branch_tipo: str) -> Set[str]:
-        """Fetch branch IDs filtered by tipo. Used once per feed request."""
+        """Fetch branch IDs filtered by tipo, restricted to approved businesses."""
         print(f"[DEBUG] get_branch_ids_by_tipo - Fetching branch IDs for tipo: {branch_tipo}")
-        ids = await branches_repo.get_ids_by_tipo(branch_tipo.lower())
+        approved_business_ids = await businesses_repo.get_ids_by_approval_status("approved")
+        ids = await branches_repo.get_ids_by_tipo(branch_tipo.lower(), business_ids=approved_business_ids)
         print(f"[DEBUG] get_branch_ids_by_tipo - Found {len(ids)} branches for tipo {branch_tipo}")
         if len(ids) > 0:
             print(f"[DEBUG] get_branch_ids_by_tipo - Sample branch IDs (first 5): {list(ids)[:5]}")

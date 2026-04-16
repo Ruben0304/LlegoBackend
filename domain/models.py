@@ -100,6 +100,10 @@ class Business(BaseModel):
     description: Optional[str] = None
     tags: Optional[List[str]] = None
     isActive: bool = True
+    approvalStatus: str = "pending"  # "pending", "approved", "rejected"
+    rejectionReason: Optional[str] = None
+    approvedAt: Optional[datetime] = None
+    rejectedAt: Optional[datetime] = None
     createdAt: datetime
 
     class Config:

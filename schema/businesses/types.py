@@ -16,6 +16,10 @@ class BusinessType:
     description: Optional[str]
     tags: Optional[List[str]]
     isActive: bool
+    approvalStatus: str
+    rejectionReason: Optional[str]
+    approvedAt: Optional[datetime]
+    rejectedAt: Optional[datetime]
     createdAt: datetime
 
     @strawberry.field(description="Presigned URL for the business avatar")

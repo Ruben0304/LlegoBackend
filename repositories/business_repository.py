@@ -130,6 +130,33 @@ class BusinessRepository:
             print(f"Error fetching businesses by IDs from MongoDB: {e}")
             return []
 
+    async def get_by_approval_status(self, status: str) -> List[Business]:
+        """Get businesses filtered by approvalStatus from MongoDB."""
+        try:
+            db = get_database()
+            cursor = db[self.mongo_collection_name].find(
+                {"approvalStatus": status},
+                sort=[("createdAt", 1)],
+            )
+            documents = await cursor.to_list(length=None)
+            return [Business(**doc) for doc in documents]
+        except Exception as e:
+            print(f"Error fetching businesses by approval status from MongoDB: {e}")
+            return []
+
+    async def get_ids_by_approval_status(self, status: str) -> List[str]:
+        """Get business IDs filtered by approvalStatus (lightweight, for gates)."""
+        try:
+            db = get_database()
+            cursor = db[self.mongo_collection_name].find(
+                {"approvalStatus": status}, {"_id": 1}
+            )
+            documents = await cursor.to_list(length=None)
+            return [str(doc["_id"]) for doc in documents]
+        except Exception as e:
+            print(f"Error fetching business IDs by approval status from MongoDB: {e}")
+            return []
+
     async def get_by_owner(self, owner_id: str) -> List[Business]:
         """Get businesses by owner ID from MongoDB."""
         try:

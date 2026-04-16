@@ -150,23 +150,30 @@ class BranchRepository:
             print(f"Error fetching branches by tipo from MongoDB: {e}")
             return []
 
-    async def get_ids_by_tipo(self, tipo: str) -> List[str]:
-        """Get branch IDs that have a specific tipo from MongoDB."""
+    async def get_ids_by_tipo(
+        self, tipo: str, business_ids: Optional[List[str]] = None
+    ) -> List[str]:
+        """Get branch IDs that have a specific tipo from MongoDB.
+
+        If business_ids is provided, only returns branches belonging to those businesses.
+        """
         try:
             normalized_tipo = (tipo or "").strip()
             if not normalized_tipo:
                 return []
 
+            query: dict = {
+                "tipos": {
+                    "$regex": f"^{re.escape(normalized_tipo)}$",
+                    "$options": "i",
+                }
+            }
+
+            if business_ids is not None:
+                query["businessId"] = {"$in": [ObjectId(bid) for bid in business_ids]}
+
             db = get_database()
-            cursor = db[self.mongo_collection_name].find(
-                {
-                    "tipos": {
-                        "$regex": f"^{re.escape(normalized_tipo)}$",
-                        "$options": "i",
-                    }
-                },
-                {"_id": 1},  # Only return _id field
-            )
+            cursor = db[self.mongo_collection_name].find(query, {"_id": 1})
             documents = await cursor.to_list(length=None)
 
             return [str(doc["_id"]) for doc in documents]

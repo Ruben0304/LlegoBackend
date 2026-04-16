@@ -976,6 +976,15 @@ class OrderService:
             raise ValueError("La sucursal no está activa")
         if branch.catalogOnly:
             raise ValueError("Esta sucursal solo muestra su catálogo y no acepta pedidos")
+
+        # Validate business is approved
+        from repositories import businesses_repo
+        business = await businesses_repo.get_by_id(str(branch.businessId))
+        if not business or business.approvalStatus != "approved":
+            raise OrderValidationError(
+                "Este negocio no está disponible para recibir pedidos",
+                code="BUSINESS_NOT_APPROVED",
+            )
         if not items:
             raise ValueError("El pedido debe incluir al menos un ítem")
 

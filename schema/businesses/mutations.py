@@ -5,6 +5,7 @@ import strawberry
 from bson import ObjectId
 from strawberry.types import Info
 
+from core.config import settings
 from domain.models import Branch, Business, Coordinates
 from repositories import branches_repo, businesses_repo, users_repo
 from schema.branches.inputs import expand_schedule_input
@@ -64,7 +65,8 @@ class BusinessMutation:
             avatar=business_input.avatar or "",
             description=business_input.description,
             tags=business_input.tags or [],
-            isActive=True,
+            isActive=False,
+            approvalStatus="pending",
             createdAt=datetime.now(),
         )
 
@@ -142,6 +144,10 @@ class BusinessMutation:
             description=created_business.description,
             tags=created_business.tags,
             isActive=created_business.isActive,
+            approvalStatus=created_business.approvalStatus,
+            rejectionReason=created_business.rejectionReason,
+            approvedAt=created_business.approvedAt,
+            rejectedAt=created_business.rejectedAt,
             createdAt=created_business.createdAt,
         )
 
@@ -204,6 +210,10 @@ class BusinessMutation:
             description=updated_business.description,
             tags=updated_business.tags,
             isActive=updated_business.isActive,
+            approvalStatus=updated_business.approvalStatus,
+            rejectionReason=updated_business.rejectionReason,
+            approvedAt=updated_business.approvedAt,
+            rejectedAt=updated_business.rejectedAt,
             createdAt=updated_business.createdAt,
         )
 
@@ -258,7 +268,8 @@ class BusinessMutation:
                     avatar=business_input.avatar or "",
                     description=business_input.description,
                     tags=business_input.tags or [],
-                    isActive=True,
+                    isActive=False,
+                    approvalStatus="pending",
                     createdAt=datetime.now(),
                 )
 
@@ -342,6 +353,10 @@ class BusinessMutation:
                     description=b.description,
                     tags=b.tags,
                     isActive=b.isActive,
+                    approvalStatus=b.approvalStatus,
+                    rejectionReason=b.rejectionReason,
+                    approvedAt=b.approvedAt,
+                    rejectedAt=b.rejectedAt,
                     createdAt=b.createdAt,
                 )
                 for b in created_businesses
@@ -364,6 +379,92 @@ class BusinessMutation:
 
             # Re-lanzar la excepción original
             raise Exception(f"Error al registrar múltiples negocios: {str(e)}")
+
+    @strawberry.mutation(description="[Admin] Aprobar un negocio")
+    async def approve_business(
+        self,
+        info: Info,
+        business_id: str,
+        admin_key: str,
+    ) -> BusinessType:
+        key = settings.admin_api_key
+        if not key or admin_key != key:
+            raise Exception("No autorizado")
+
+        business = await businesses_repo.get_by_id(business_id)
+        if not business:
+            raise Exception("Negocio no encontrado")
+
+        if business.approvalStatus == "approved":
+            raise Exception("El negocio ya está aprobado")
+
+        updated = await businesses_repo.update(
+            business_id,
+            {
+                "approvalStatus": "approved",
+                "isActive": True,
+                "rejectionReason": None,
+                "approvedAt": datetime.now(),
+                "rejectedAt": None,
+            },
+        )
+        return BusinessType(
+            id=str(updated.id),
+            name=updated.name,
+            ownerId=str(updated.ownerId),
+            globalRating=updated.globalRating,
+            avatar=updated.avatar,
+            description=updated.description,
+            tags=updated.tags,
+            isActive=updated.isActive,
+            approvalStatus=updated.approvalStatus,
+            rejectionReason=updated.rejectionReason,
+            approvedAt=updated.approvedAt,
+            rejectedAt=updated.rejectedAt,
+            createdAt=updated.createdAt,
+        )
+
+    @strawberry.mutation(description="[Admin] Rechazar un negocio")
+    async def reject_business(
+        self,
+        info: Info,
+        business_id: str,
+        admin_key: str,
+        reason: Optional[str] = None,
+    ) -> BusinessType:
+        key = settings.admin_api_key
+        if not key or admin_key != key:
+            raise Exception("No autorizado")
+
+        business = await businesses_repo.get_by_id(business_id)
+        if not business:
+            raise Exception("Negocio no encontrado")
+
+        updated = await businesses_repo.update(
+            business_id,
+            {
+                "approvalStatus": "rejected",
+                "isActive": False,
+                "rejectionReason": reason,
+                "rejectedAt": datetime.now(),
+                "approvedAt": None,
+            },
+        )
+        return BusinessType(
+            id=str(updated.id),
+            name=updated.name,
+            ownerId=str(updated.ownerId),
+            globalRating=updated.globalRating,
+            avatar=updated.avatar,
+            description=updated.description,
+            tags=updated.tags,
+            isActive=updated.isActive,
+            approvalStatus=updated.approvalStatus,
+            rejectionReason=updated.rejectionReason,
+            approvedAt=updated.approvedAt,
+            rejectedAt=updated.rejectedAt,
+            createdAt=updated.createdAt,
+        )
 
     @strawberry.mutation(description="Eliminar un negocio y todas sus sucursales")
     async def delete_business(

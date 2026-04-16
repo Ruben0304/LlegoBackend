@@ -6,6 +6,7 @@ from typing import List, Optional
 import strawberry
 from strawberry.types import Info
 
+from core.config import settings
 from repositories import branches_repo, businesses_repo, searches_repo
 from schema.branches.types import BranchTipo, BranchType, CoordinatesType
 from utils.graphql_auth import apply_optional_jwt
@@ -27,6 +28,10 @@ class BusinessWithBranchesType:
     description: Optional[str]
     tags: Optional[List[str]]
     isActive: bool
+    approvalStatus: str
+    rejectionReason: Optional[str]
+    approvedAt: Optional[datetime]
+    rejectedAt: Optional[datetime]
     createdAt: datetime
     branches: List[BranchType]
     isOwner: bool  # True if user is the owner, False if invited
@@ -260,6 +265,10 @@ class BusinessQuery:
                     description=business.description,
                     tags=business.tags,
                     isActive=business.isActive,
+                    approvalStatus=business.approvalStatus,
+                    rejectionReason=business.rejectionReason,
+                    approvedAt=business.approvedAt,
+                    rejectedAt=business.rejectedAt,
                     createdAt=business.createdAt,
                     branches=branches,
                     isOwner=is_owner,
@@ -267,4 +276,28 @@ class BusinessQuery:
                 )
             )
 
+        return result
+
+    @strawberry.field(description="[Admin] Listar negocios por estado de aprobación")
+    async def admin_businesses_by_status(
+        self,
+        info: Info,
+        admin_key: str,
+        approval_status: str = "pending",
+    ) -> List[BusinessType]:
+        """
+        Admin query: devuelve negocios filtrados por approvalStatus.
+        Requiere admin_key válida.
+        """
+        key = settings.admin_api_key
+        if not key or admin_key != key:
+            raise Exception("No autorizado")
+
+        businesses = await businesses_repo.get_by_approval_status(approval_status)
+        result = []
+        for b in businesses:
+            data = to_strawberry_dict(b)
+            data["id"] = str(b.id)
+            data["ownerId"] = str(b.ownerId)
+            result.append(BusinessType(**data))
         return result
