@@ -269,6 +269,19 @@ class BranchMutation:
             updates["forceReverify"] = input.forceReverify
         if input.catalogOnly is not None:
             updates["catalogOnly"] = input.catalogOnly
+            # catalogOnly = true implies no orders and no messaging.
+            # Force-disable useAppMessaging and pickupEnabled so delivery persons
+            # are unlinked and the branch is fully in catalog-only mode.
+            if input.catalogOnly:
+                if "useAppMessaging" not in updates:
+                    updates["useAppMessaging"] = False
+                if "pickupEnabled" not in updates:
+                    updates["pickupEnabled"] = False
+                # Unlink delivery persons if useAppMessaging was previously active
+                if branch.useAppMessaging:
+                    from repositories.orders_repository import delivery_persons_repo
+
+                    await delivery_persons_repo.unlink_all_from_branch(branch_id)
 
         # Handle coordinates update - save to MongoDB stores_location
         if input.coordinates is not None:
