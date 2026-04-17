@@ -568,7 +568,11 @@ class OrderRepository:
         }
 
     async def get_dashboard_stats(
-        self, business_id: str, from_date: datetime, to_date: datetime
+        self,
+        business_id: str,
+        from_date: datetime,
+        to_date: datetime,
+        branch_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Get dashboard statistics: revenue, completed, cancelled, top products."""
         collection = self._get_collection()
@@ -576,6 +580,8 @@ class OrderRepository:
             "businessId": self._to_object_id(business_id),
             "createdAt": {"$gte": from_date, "$lte": to_date},
         }
+        if branch_id:
+            match_stage["branchId"] = self._to_object_id(branch_id)
 
         # Stats aggregation
         stats_pipeline = [
@@ -585,7 +591,7 @@ class OrderRepository:
                     "_id": None,
                     "totalRevenue": {
                         "$sum": {
-                            "$cond": [{"$eq": ["$status", "delivered"]}, "$total", 0]
+                            "$cond": [{"$eq": ["$status", "delivered"]}, "$subtotal", 0]
                         }
                     },
                     "completedOrders": {
