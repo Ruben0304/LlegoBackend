@@ -136,6 +136,7 @@ class BranchType:
     cashKycMinConfidence: float = 0.85
     cashKycTtlDays: int = 30
     forceReverify: bool = False
+    code: Optional[str] = None
     createdAt: datetime
     wallet: WalletBalanceType
     walletStatus: str = "active"

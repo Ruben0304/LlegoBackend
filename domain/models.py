@@ -200,6 +200,8 @@ class Branch(BaseModel):
     cashKycTtlDays: int = 30
     forceReverify: bool = False
 
+    code: Optional[str] = None  # Auto-generated short code, e.g. "mir", "fou.par"
+
     createdAt: datetime
 
     class Config:

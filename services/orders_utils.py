@@ -12,21 +12,26 @@ from clients.mongodb_client import get_database
 H3_RESOLUTION = 7
 
 
-async def generate_order_number() -> str:
-    """Generate unique human-readable order number: ORD-YYYY-XXXXXX."""
-    db = get_database()
-    year = datetime.now().year
+async def generate_order_number(branch_code: str, branch_id: str) -> str:
+    """Generate unique order number per branch per day: {CODE}-{YYYYMMDD}-{NNN}.
 
-    # Use MongoDB findAndModify to get atomic sequence
+    Example: 'fou.par-20260420-042'
+    Counter resets daily (new MongoDB document per branch+day).
+    """
+    db = get_database()
+    today = datetime.now().strftime("%Y%m%d")
+    counter_key = f"order_seq_{branch_id}_{today}"
+
     result = await db.counters.find_one_and_update(
-        {"_id": f"order_sequence_{year}"},
+        {"_id": counter_key},
         {"$inc": {"seq": 1}},
         upsert=True,
         return_document=True,
     )
 
     sequence = result["seq"]
-    return f"ORD-{year}-{sequence:06d}"
+    code = (branch_code or "suc").upper()
+    return f"{code}-{today}-{sequence:03d}"
 
 
 def haversine_distance(

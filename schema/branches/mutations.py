@@ -1,5 +1,7 @@
 """GraphQL mutations for Branch entity."""
 
+import re
+import unicodedata
 from datetime import datetime
 from typing import Optional
 
@@ -7,6 +9,7 @@ import strawberry
 from bson import ObjectId
 from strawberry.types import Info
 
+from clients.mongodb_client import get_database
 from domain.models import Branch, Coordinates
 from repositories import (
     branches_repo,
@@ -26,6 +29,60 @@ from .transfer_accounts import (
 )
 from .types import BranchTipo, BranchType, CoordinatesType
 from .utils import branch_to_dict
+
+
+def _clean_word(word: str) -> str:
+    """Strip accents and keep only lowercase letters."""
+    nfd = unicodedata.normalize("NFD", word.lower())
+    ascii_only = "".join(c for c in nfd if unicodedata.category(c) != "Mn")
+    return re.sub(r"[^a-z]", "", ascii_only)
+
+
+async def generate_branch_code(name: str) -> str:
+    """
+    Generate a globally unique short code for a branch from its name.
+
+    - Single word  → start with 3 letters, grow one at a time: 'mir', 'mira', 'miran'…
+    - Two+ words   → 'fou.par', 'four.par', 'fourn.par'… (extend first word first,
+                     then second word), e.g. 'fournier parfums' → 'fou.par'
+    - Last resort  → append an integer suffix: 'mir2', 'mir3'…
+    """
+    db = get_database()
+    words = [_clean_word(w) for w in name.split()]
+    words = [w for w in words if w] or ["suc"]
+
+    if len(words) >= 2:
+        w1, w2 = words[0], words[1]
+        # Extend first word (keep second at 3 chars)
+        for n in range(3, len(w1) + 1):
+            candidate = f"{w1[:n]}.{w2[:3]}"
+            if not await db.branches.find_one({"code": candidate}):
+                return candidate
+        # Extend second word (first word at full length)
+        for m in range(4, len(w2) + 1):
+            candidate = f"{w1}.{w2[:m]}"
+            if not await db.branches.find_one({"code": candidate}):
+                return candidate
+        # Integer suffix fallback
+        i = 2
+        while True:
+            candidate = f"{w1[:3]}.{w2[:3]}{i}"
+            if not await db.branches.find_one({"code": candidate}):
+                return candidate
+            i += 1
+    else:
+        w = words[0]
+        for n in range(3, len(w) + 1):
+            candidate = w[:n]
+            if not await db.branches.find_one({"code": candidate}):
+                return candidate
+        # Integer suffix fallback
+        i = 2
+        while True:
+            candidate = f"{w[:3]}{i}"
+            if not await db.branches.find_one({"code": candidate}):
+                return candidate
+            i += 1
 
 
 @strawberry.type
@@ -81,6 +138,7 @@ class BranchMutation:
 
         # Create branch
         branch_id = str(ObjectId())
+        branch_code = await generate_branch_code(input.name)
         branch = Branch(
             id=branch_id,
             businessId=input.businessId,
@@ -114,6 +172,7 @@ class BranchMutation:
             cashKycPolicyVersion=input.cashKycPolicyVersion,
             cashKycMinConfidence=input.cashKycMinConfidence,
             cashKycTtlDays=input.cashKycTtlDays,
+            code=branch_code,
             createdAt=datetime.now(),
         )
 

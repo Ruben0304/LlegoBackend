@@ -1172,7 +1172,10 @@ class OrderService:
         # 7. Create order
         now = datetime.utcnow()
         order_id = str(ObjectId())
-        order_number = await generate_order_number()
+        order_number = await generate_order_number(
+            branch_code=branch.code or "suc",
+            branch_id=str(branch.id),
+        )
 
         if is_pickup:
             # Legacy fallback: keep deliveryAddress non-null for old tracking clients.
