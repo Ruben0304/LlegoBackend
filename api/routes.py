@@ -1,5 +1,6 @@
 """REST API routes - Only essential endpoints that can't be done via GraphQL."""
 
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
@@ -39,6 +40,24 @@ router.include_router(shortcuts_router)
 router.include_router(qvapay_webhooks_router)
 router.include_router(trondealer_webhooks_router)
 router.include_router(admin_payouts_router)
+
+
+# =============================================================================
+# Server Time
+# =============================================================================
+
+
+@router.get("/time", tags=["Utilities"])
+async def server_time():
+    """
+    Returns the current server UTC time as an ISO 8601 string with Z suffix.
+    Use this to calculate the offset between server and device clock, so that
+    deadline countdowns are accurate regardless of device clock skew.
+
+    Response:
+        { "utc": "2026-04-20T18:41:45.123456Z" }
+    """
+    return {"utc": datetime.now(timezone.utc).isoformat()}
 
 
 # =============================================================================
