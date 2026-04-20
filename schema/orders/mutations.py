@@ -1,6 +1,7 @@
 """GraphQL mutations for Orders."""
 
 from datetime import datetime, timedelta
+import json
 from typing import Optional
 
 import strawberry
@@ -25,6 +26,7 @@ from repositories.orders_repository import (
 )
 from services.orders_service import OrderValidationError, order_service
 from utils.graphql_auth import apply_optional_jwt, require_auth
+from utils.rate_limit import redis_client
 
 from .inputs import (
     AddOrderCommentInput,
@@ -44,6 +46,68 @@ from .types import (
     branch_delivery_request_to_type,
     order_to_type,
 )
+
+COURIER_PRESENCE_TTL_SECONDS = 45
+
+
+def _redis_key_courier_online(delivery_person_id: str) -> str:
+    return f"presence:courier:{delivery_person_id}:online"
+
+
+def _redis_key_courier_location(delivery_person_id: str) -> str:
+    return f"presence:courier:{delivery_person_id}:loc"
+
+
+def _redis_set_courier_presence(
+    delivery_person_id: str,
+    *,
+    online: bool,
+    longitude: Optional[float] = None,
+    latitude: Optional[float] = None,
+    order_id: Optional[str] = None,
+) -> None:
+    """
+    Best-effort presence write.
+
+    We use Redis TTL so couriers naturally "fall offline" if the app stops sending updates.
+    This function must never raise (GraphQL mutation should still work without Redis).
+    """
+    if redis_client is None:
+        return
+    try:
+        if not online:
+            redis_client.delete(
+                _redis_key_courier_online(delivery_person_id),
+                _redis_key_courier_location(delivery_person_id),
+            )
+            return
+
+        now_iso = datetime.utcnow().isoformat()
+        redis_client.setex(
+            _redis_key_courier_online(delivery_person_id),
+            COURIER_PRESENCE_TTL_SECONDS,
+            "1",
+        )
+
+        if longitude is None or latitude is None:
+            return
+
+        payload = {
+            "type": "Point",
+            "coordinates": [float(longitude), float(latitude)],
+            "timestamp": now_iso,
+        }
+        if order_id:
+            payload["orderId"] = str(order_id)
+
+        redis_client.setex(
+            _redis_key_courier_location(delivery_person_id),
+            COURIER_PRESENCE_TTL_SECONDS,
+            json.dumps(payload, default=str),
+        )
+    except Exception:
+        # Best-effort only
+        return
 
 
 @strawberry.type
@@ -382,6 +446,42 @@ class OrderMutation:
             raise Exception(str(e))
 
     # Delivery person mutations
+    @strawberry.mutation(description="Marcar al mensajero como conectado/desconectado (presencia en Redis)")
+    async def set_delivery_online_status(
+        self,
+        info: Info,
+        isOnline: bool,
+        jwt: str,
+    ) -> bool:
+        user_id = require_auth(jwt, info)
+
+        delivery_person = await delivery_persons_repo.get_by_user_id(user_id)
+        if not delivery_person:
+            raise Exception("No eres un repartidor registrado")
+
+        await delivery_persons_repo.update_online_status(delivery_person.id, isOnline)
+
+        coords = None
+        try:
+            if delivery_person.currentLocation and delivery_person.currentLocation.coordinates:
+                coords = delivery_person.currentLocation.coordinates
+        except Exception:
+            coords = None
+
+        if isOnline:
+            longitude = coords[0] if coords and len(coords) >= 2 else None
+            latitude = coords[1] if coords and len(coords) >= 2 else None
+            _redis_set_courier_presence(
+                str(delivery_person.id),
+                online=True,
+                longitude=longitude,
+                latitude=latitude,
+            )
+        else:
+            _redis_set_courier_presence(str(delivery_person.id), online=False)
+
+        return True
+
     @strawberry.mutation(
         description="Aceptar pedido antes del pago para habilitar el cobro"
     )
@@ -443,6 +543,15 @@ class OrderMutation:
         # Update delivery person location
         await delivery_persons_repo.update_location(
             delivery_person.id, input.longitude, input.latitude
+        )
+        await delivery_persons_repo.update_online_status(delivery_person.id, True)
+
+        _redis_set_courier_presence(
+            str(delivery_person.id),
+            online=True,
+            longitude=input.longitude,
+            latitude=input.latitude,
+            order_id=input.orderId,
         )
 
         # Create location update record

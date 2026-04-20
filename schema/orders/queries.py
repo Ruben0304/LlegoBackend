@@ -211,6 +211,35 @@ class OrderQuery:
             hasMore=(offset + len(orders)) < total,
         )
 
+    @strawberry.field(
+        description=(
+            "Pedidos activos (iniciados pero no cancelados ni entregados). "
+            "Si se pasa branchId, filtra por esa sucursal; si no, retorna de todas."
+        )
+    )
+    async def active_orders(
+        self,
+        info: Info,
+        jwt: str,
+        branchId: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> OrdersConnectionType:
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+
+        # TODO: Verificar permisos (manager/owner/admin) según tu modelo
+        orders, total = await orders_repo.get_active(
+            branch_id=branchId, limit=limit, offset=offset
+        )
+        return OrdersConnectionType(
+            orders=[order_to_type(o) for o in orders],
+            totalCount=total,
+            hasMore=(offset + len(orders)) < total,
+        )
+
     @strawberry.field(description="Pedidos pendientes de una sucursal")
     async def pending_branch_orders(
         self, info: Info, branchId: str, jwt: str

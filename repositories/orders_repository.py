@@ -113,6 +113,35 @@ class OrderRepository:
         orders = [self._doc_to_order(doc) async for doc in cursor]
         return orders, total
 
+    async def get_active(
+        self,
+        branch_id: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[List[Order], int]:
+        """
+        Get active orders (not cancelled and not delivered).
+
+        If branch_id is provided, filters by a single branch; otherwise returns
+        active orders across all branches.
+        """
+        collection = self._get_collection()
+        query: Dict[str, Any] = {
+            "status": {
+                "$nin": [
+                    OrderStatus.CANCELLED.value,
+                    OrderStatus.DELIVERED.value,
+                ]
+            }
+        }
+        if branch_id:
+            query["branchId"] = self._to_object_id(branch_id)
+
+        total = await collection.count_documents(query)
+        cursor = collection.find(query).sort("createdAt", -1).skip(offset).limit(limit)
+        orders = [self._doc_to_order(doc) async for doc in cursor]
+        return orders, total
+
     async def get_pending_by_branch(self, branch_id: str) -> List[Order]:
         """Get pending orders for a branch."""
         collection = self._get_collection()
