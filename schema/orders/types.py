@@ -326,6 +326,17 @@ class DeliveryPersonType:
 
 
 @strawberry.type
+class CourierPresenceType:
+    """Estado efímero (Redis) para mensajeros online + ubicación actual."""
+
+    deliveryPersonId: str
+    isOnline: bool
+    location: Optional[CoordinatesType] = None
+    timestamp: Optional[datetime] = None
+    orderId: Optional[str] = None
+
+
+@strawberry.type
 class OrderType:
     id: str
     orderNumber: str

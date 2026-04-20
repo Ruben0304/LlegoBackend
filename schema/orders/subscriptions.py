@@ -1,19 +1,98 @@
 """GraphQL subscriptions for real-time order updates."""
+import json
 import strawberry
-from typing import AsyncGenerator, Optional
+from datetime import datetime
+from typing import AsyncGenerator, Optional, List
 import asyncio
 
 from strawberry.types import Info
 from utils.graphql_auth import require_auth
+from utils.rate_limit import redis_client
 
 from .types import (
     OrderType,
     DeliveryLocationUpdateType,
     CoordinatesType,
     OrderTrackingStreamPayload,
+    CourierPresenceType,
     order_to_type,
 )
 from repositories.orders_repository import orders_repo
+
+COURIER_ONLINE_KEY_PREFIX = "presence:courier:"
+
+
+def _parse_iso_dt(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        # Supports the isoformat() we stored (naive UTC)
+        return datetime.fromisoformat(value)
+    except Exception:
+        return None
+
+
+def _redis_fetch_courier_presence_snapshot_sync() -> List[CourierPresenceType]:
+    """
+    Sync Redis read: returns a snapshot of currently-online couriers.
+
+    Uses scan_iter (safe-ish) and a pipeline for efficiency.
+    This runs in a worker thread from the async subscription.
+    """
+    if redis_client is None:
+        return []
+
+    loc_keys = list(
+        redis_client.scan_iter(match=f"{COURIER_ONLINE_KEY_PREFIX}*:loc", count=200)
+    )
+    if not loc_keys:
+        return []
+
+    pipe = redis_client.pipeline()
+    for k in loc_keys:
+        pipe.get(k)
+    loc_values = pipe.execute()
+
+    results: List[CourierPresenceType] = []
+    for key, raw in zip(loc_keys, loc_values):
+        if not raw:
+            continue
+        # key: presence:courier:{id}:loc
+        try:
+            parts = str(key).split(":")
+            delivery_person_id = parts[2]  # courier:{id}
+            if delivery_person_id == "courier":
+                # Unexpected shape; skip
+                continue
+        except Exception:
+            continue
+
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            continue
+
+        coords = payload.get("coordinates") or []
+        location = None
+        if isinstance(coords, list) and len(coords) >= 2:
+            try:
+                location = CoordinatesType(
+                    type=payload.get("type") or "Point",
+                    coordinates=[float(coords[0]), float(coords[1])],
+                )
+            except Exception:
+                location = None
+
+        results.append(
+            CourierPresenceType(
+                deliveryPersonId=str(delivery_person_id),
+                isOnline=True,
+                location=location,
+                timestamp=_parse_iso_dt(payload.get("timestamp")),
+                orderId=payload.get("orderId"),
+            )
+        )
+    return results
 
 
 # In-memory pub/sub for demo (replace with Redis in production)
@@ -71,6 +150,40 @@ async def publish_order_tracking(order_id: str, tracking_data: OrderTrackingStre
 
 @strawberry.type
 class OrderSubscription:
+    @strawberry.subscription(
+        description="Mensajeros online y su ubicación (snapshot periódico desde Redis)"
+    )
+    async def couriers_presence_stream(
+        self,
+        info: Info,
+        jwt: Optional[str] = None,
+        intervalSeconds: float = 2.0,
+    ) -> AsyncGenerator[List[CourierPresenceType], None]:
+        """
+        WebSocket subscription that periodically emits a snapshot of online couriers.
+
+        - Fuente: Redis keys `presence:courier:{id}:loc` (con TTL)
+        - Para 50 mensajeros, polling cada ~2s es suficiente y simple.
+        """
+        # Auth (allow jwt param or connection_init context)
+        user_id = None
+        if isinstance(info.context, dict):
+            user_id = info.context.get("user_id")
+        else:
+            user_id = getattr(info.context, "user_id", None)
+        if not user_id and jwt:
+            user_id = require_auth(jwt, info)
+        if not user_id:
+            raise Exception("Autenticación requerida. Proporciona un JWT válido.")
+
+        # Guard interval
+        effective_interval = max(0.5, float(intervalSeconds or 2.0))
+
+        while True:
+            snapshot = await asyncio.to_thread(_redis_fetch_courier_presence_snapshot_sync)
+            yield snapshot
+            await asyncio.sleep(effective_interval)
+
     @strawberry.subscription(description="Escuchar cambios en un pedido específico")
     async def order_updated(self, orderId: str) -> AsyncGenerator[OrderType, None]:
         """Subscribe to order updates."""
