@@ -101,10 +101,11 @@ class OrderService:
     def _next_deadline_for_status(
         cls, status: OrderStatus, now: Optional[datetime] = None
     ) -> Optional[datetime]:
-        if status not in cls.PRE_PREPARATION_TIMEOUT_STATUSES:
+        minutes = cls.STATUS_TIMEOUT_MINUTES.get(status)
+        if minutes is None:
             return None
         base = now or datetime.utcnow()
-        return base + timedelta(minutes=cls.PRE_PREPARATION_TIMEOUT_MINUTES)
+        return base + timedelta(minutes=minutes)
 
     @staticmethod
     def _normalize_payment_token(value: Any) -> str:
@@ -186,6 +187,9 @@ class OrderService:
             ),
             OrderStatus.PENDING_PAYMENT: (
                 "Cancelado automaticamente: el cliente no completo el pago a tiempo"
+            ),
+            OrderStatus.ACCEPTED: (
+                "Cancelado automaticamente: la tienda no inicio la elaboracion a tiempo"
             ),
         }
         return mapping.get(status, "Cancelado automaticamente por expiracion")
