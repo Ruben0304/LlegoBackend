@@ -59,14 +59,15 @@ class OrderValidationError(ValueError):
 class OrderService:
     """Service for order business logic."""
 
-    PRE_PREPARATION_TIMEOUT_MINUTES = 15
-    PRE_PREPARATION_TIMEOUT_STATUSES = {
-        OrderStatus.PENDING_ACCEPTANCE,
-        OrderStatus.MODIFIED_BY_STORE,
-        OrderStatus.REJECTED_BY_STORE,
-        OrderStatus.AWAITING_DELIVERY_ACCEPTANCE,
-        OrderStatus.PENDING_PAYMENT,
+    STATUS_TIMEOUT_MINUTES: Dict[OrderStatus, int] = {
+        OrderStatus.PENDING_ACCEPTANCE: 15,
+        OrderStatus.MODIFIED_BY_STORE: 15,
+        OrderStatus.REJECTED_BY_STORE: 15,
+        OrderStatus.AWAITING_DELIVERY_ACCEPTANCE: 15,
+        OrderStatus.PENDING_PAYMENT: 15,
+        OrderStatus.ACCEPTED: 20,
     }
+    PRE_PREPARATION_TIMEOUT_STATUSES = set(STATUS_TIMEOUT_MINUTES.keys())
     CASH_PAYMENT_METHODS = {"cash", "efectivo", "cashondelivery", "contrareembolso"}
     NON_CASH_PAYMENT_METHODS = {
         "transfer",
@@ -1352,6 +1353,10 @@ class OrderService:
         extra_set_fields: Dict[str, Any] = {
             "deadlineAt": self._next_deadline_for_status(new_status, now)
         }
+        if new_status == OrderStatus.CANCELLED and order.paymentStatus not in {
+            PaymentStatus.COMPLETED
+        }:
+            extra_set_fields["paymentStatus"] = PaymentStatus.CANCELLED.value
         if extra_fields:
             extra_set_fields.update(extra_fields)
         if new_status in {OrderStatus.ON_THE_WAY, OrderStatus.READY_FOR_PICKUP} and not order.deliveryVerificationCode:

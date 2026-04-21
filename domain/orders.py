@@ -36,6 +36,7 @@ class PaymentStatus(str, Enum):
     VALIDATED = "validated"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class DiscountType(str, Enum):
