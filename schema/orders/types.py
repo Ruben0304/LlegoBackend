@@ -40,6 +40,7 @@ class PaymentStatusEnum(Enum):
     VALIDATED = "validated"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 @strawberry.enum
