@@ -14,7 +14,7 @@ from .inputs import (
     UpdateSavedAddressInput,
 )
 from repositories import users_repo, branches_repo, businesses_repo
-from utils.graphql_auth import apply_optional_jwt
+from utils.graphql_auth import apply_optional_jwt, require_role
 from utils.s3 import delete_file
 
 
@@ -432,5 +432,32 @@ class UserMutation:
         updated_user = await users_repo.set_default_address(user_id, addressId)
         if not updated_user:
             raise Exception("Error al actualizar la dirección por defecto")
+
+        return _user_to_type(updated_user)
+
+    @strawberry.mutation(description="Cambiar estado de wallet de un usuario (admin/manager)")
+    async def admin_set_user_wallet_status(
+        self,
+        info: Info,
+        user_id: str,
+        status: str,
+        jwt: str,
+    ) -> UserType:
+        """
+        Set a user's walletStatus. Valid values: 'active', 'frozen', 'closed'.
+        'frozen' effectively bans the user from transacting. Requires admin or manager role.
+        """
+        require_role(jwt, info, ["admin", "manager"])
+        valid_statuses = {"active", "frozen", "closed"}
+        if status not in valid_statuses:
+            raise Exception(f"Estado inválido. Debe ser uno de: {', '.join(valid_statuses)}")
+
+        user = await users_repo.get_by_id(user_id)
+        if not user:
+            raise Exception("Usuario no encontrado")
+
+        updated_user = await users_repo.update(user_id, {"walletStatus": status})
+        if not updated_user:
+            raise Exception("Error al actualizar el estado del usuario")
 
         return _user_to_type(updated_user)

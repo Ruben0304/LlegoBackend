@@ -23,7 +23,7 @@ from repositories.orders_repository import (
 )
 from services.delivered_orders_query_service import delivered_orders_query_service
 from services.orders_service import order_service
-from utils.graphql_auth import apply_optional_jwt, require_auth
+from utils.graphql_auth import apply_optional_jwt, require_auth, require_role
 
 from .inputs import DeliveredOrdersFilterInput
 from .types import (
@@ -537,4 +537,25 @@ class OrderQuery:
                 )
                 for p in stats["topProducts"]
             ],
+        )
+
+    @strawberry.field(description="Pedidos de un cliente específico (admin/manager)")
+    async def customer_orders(
+        self,
+        info: Info,
+        user_id: str,
+        jwt: str,
+        status: Optional[OrderStatusEnum] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> OrdersConnectionType:
+        require_role(jwt, info, ["admin", "manager"])
+        status_filter = OrderStatus(status.value) if status else None
+        orders, total = await orders_repo.get_by_customer(
+            user_id, status_filter, limit, offset
+        )
+        return OrdersConnectionType(
+            orders=[order_to_type(o) for o in orders],
+            totalCount=total,
+            hasMore=(offset + len(orders)) < total,
         )
