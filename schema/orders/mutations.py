@@ -25,7 +25,7 @@ from repositories.orders_repository import (
     orders_repo,
 )
 from services.orders_service import OrderValidationError, order_service
-from utils.graphql_auth import apply_optional_jwt, require_auth
+from utils.graphql_auth import apply_optional_jwt, require_auth, require_role
 from utils.rate_limit import redis_client
 
 from .inputs import (
@@ -711,6 +711,88 @@ class OrderMutation:
 
         await branch_delivery_requests_repo.update_status(
             requestId, DeliveryRequestStatus.REJECTED, user_id
+        )
+        return True
+
+    @strawberry.mutation(
+        description=(
+            "Empuja la presencia/ubicación de un mensajero (admin/manager). "
+            "Útil para simulación y testing del mapa en vivo cuando no hay "
+            "mensajeros reales conectados. Auto-crea el delivery_person si no existe."
+        )
+    )
+    async def admin_push_courier_location(
+        self,
+        info: Info,
+        deliveryPersonId: str,
+        longitude: float,
+        latitude: float,
+        jwt: str,
+        isOnline: bool = True,
+        orderId: Optional[str] = None,
+        name: Optional[str] = None,
+        vehicleType: Optional[str] = None,
+    ) -> bool:
+        """
+        Admin-only: write a courier presence + location entry directly to Redis.
+        If `deliveryPersonId` does not exist in `delivery_persons`, a stub document
+        is upserted so the live-map subscription can join name/avatar/vehicle.
+
+        Cleared by passing `isOnline: false` (deletes the Redis keys).
+        """
+        require_role(jwt, info, ["admin", "manager"])
+
+        from domain.orders import DeliveryPerson, GeoPoint, VehicleType
+        # Auto-create the delivery_persons doc if missing so the snapshot enrichment
+        # finds name/avatar/vehicleType.
+        existing = await delivery_persons_repo.get_by_id(deliveryPersonId)
+        if existing is None:
+            try:
+                vt = VehicleType(vehicleType) if vehicleType else VehicleType.A_PIE
+            except Exception:
+                vt = VehicleType.A_PIE
+            now = datetime.utcnow()
+            stub_user_id = str(ObjectId())  # synthetic user id; not linked to real user
+            stub = DeliveryPerson(
+                _id=deliveryPersonId,
+                userId=stub_user_id,
+                name=name or f"Sim {deliveryPersonId[-6:]}",
+                phone=None,
+                vehicleType=vt,
+                profileImageUrl=None,
+                isActive=True,
+                isOnline=isOnline,
+                currentLocation=GeoPoint(
+                    type="Point", coordinates=[float(longitude), float(latitude)]
+                ),
+                createdAt=now,
+                updatedAt=now,
+            )
+            try:
+                await delivery_persons_repo.create(stub)
+            except Exception:
+                # Race or duplicate — safe to ignore, snapshot will just lack profile data
+                pass
+        else:
+            # Keep Mongo-side fields fresh (online flag + last location).
+            try:
+                await delivery_persons_repo.update_online_status(
+                    existing.id, isOnline
+                )
+                if isOnline:
+                    await delivery_persons_repo.update_location(
+                        existing.id, float(longitude), float(latitude)
+                    )
+            except Exception:
+                pass
+
+        # Best-effort write to Redis (the same path real couriers use).
+        _redis_set_courier_presence(
+            str(deliveryPersonId),
+            online=isOnline,
+            longitude=float(longitude) if isOnline else None,
+            latitude=float(latitude) if isOnline else None,
+            order_id=orderId,
         )
         return True
 
