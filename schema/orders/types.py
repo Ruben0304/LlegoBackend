@@ -335,6 +335,13 @@ class CourierPresenceType:
     location: Optional[CoordinatesType] = None
     timestamp: Optional[datetime] = None
     orderId: Optional[str] = None
+    # Enriched fields (joined from delivery_persons collection)
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    profileImageUrl: Optional[str] = None
+    vehicleType: Optional[str] = None
+    rating: Optional[float] = None
+    totalDeliveries: Optional[int] = None
 
 
 @strawberry.type

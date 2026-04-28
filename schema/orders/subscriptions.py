@@ -17,7 +17,9 @@ from .types import (
     CourierPresenceType,
     order_to_type,
 )
-from repositories.orders_repository import orders_repo
+from repositories.orders_repository import orders_repo, delivery_persons_repo
+from clients import get_database
+from bson import ObjectId
 
 COURIER_ONLINE_KEY_PREFIX = "presence:courier:"
 
@@ -93,6 +95,61 @@ def _redis_fetch_courier_presence_snapshot_sync() -> List[CourierPresenceType]:
             )
         )
     return results
+
+
+async def _enrich_courier_snapshot(
+    snapshot: List[CourierPresenceType],
+) -> List[CourierPresenceType]:
+    """
+    Enrich a Redis-only courier snapshot with profile fields (name, phone,
+    profileImageUrl, vehicleType) from the `delivery_persons` collection.
+
+    Performs a single batch query for all couriers in the snapshot.
+    """
+    if not snapshot:
+        return snapshot
+
+    ids: List[ObjectId] = []
+    for c in snapshot:
+        try:
+            ids.append(ObjectId(c.deliveryPersonId))
+        except Exception:
+            # Skip ids that aren't valid ObjectIds
+            continue
+
+    if not ids:
+        return snapshot
+
+    db = get_database()
+    cursor = db["delivery_persons"].find(
+        {"_id": {"$in": ids}},
+        {
+            "name": 1,
+            "phone": 1,
+            "profileImageUrl": 1,
+            "vehicleType": 1,
+            "rating": 1,
+            "totalDeliveries": 1,
+        },
+    )
+    profiles_by_id: dict = {}
+    async for doc in cursor:
+        profiles_by_id[str(doc["_id"])] = doc
+
+    for c in snapshot:
+        profile = profiles_by_id.get(c.deliveryPersonId)
+        if not profile:
+            continue
+        c.name = profile.get("name")
+        c.phone = profile.get("phone")
+        c.profileImageUrl = profile.get("profileImageUrl")
+        vt = profile.get("vehicleType")
+        # vehicleType may be stored as a Pydantic Enum value or plain string
+        c.vehicleType = vt.value if hasattr(vt, "value") else vt
+        c.rating = profile.get("rating")
+        c.totalDeliveries = profile.get("totalDeliveries")
+
+    return snapshot
 
 
 # In-memory pub/sub for demo (replace with Redis in production)
@@ -181,6 +238,7 @@ class OrderSubscription:
 
         while True:
             snapshot = await asyncio.to_thread(_redis_fetch_courier_presence_snapshot_sync)
+            snapshot = await _enrich_courier_snapshot(snapshot)
             yield snapshot
             await asyncio.sleep(effective_interval)
 
