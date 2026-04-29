@@ -283,6 +283,7 @@ class OrderQuery:
         delivery_person = await _get_or_create_delivery_person(user_id)
 
         order = await orders_repo.get_current_delivery(delivery_person.id)
+        print(f"[COURIER] my_current_delivery user={user_id} dp={delivery_person.id} order={order.id if order else None} status={order.status.value if order else None}")
         return order_to_type(order) if order else None
 
     @strawberry.field(description="Historial de pedidos del repartidor autenticado")

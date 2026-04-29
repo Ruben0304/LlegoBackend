@@ -244,6 +244,7 @@ class OrderRepository:
                 "deliveryPersonId": self._to_object_id(delivery_person_id),
                 "status": {
                     "$in": [
+                        OrderStatus.AWAITING_DELIVERY_ACCEPTANCE.value,
                         OrderStatus.PENDING_PAYMENT.value,
                         OrderStatus.ACCEPTED.value,
                         OrderStatus.PREPARING.value,
