@@ -1797,9 +1797,12 @@ class OrderService:
 
     async def accept_order_for_payment(self, order_id: str, user_id: str) -> Order:
         """Delivery person accepts order before payment is enabled."""
+        print(f"[COURIER] accept_order_for_payment order={order_id} user={user_id}")
         order = await self.orders_repo.get_by_id(order_id)
         if not order:
             raise ValueError("Pedido no encontrado")
+
+        print(f"[COURIER] order status={order.status.value} deliveryPersonId={order.deliveryPersonId}")
 
         if order.status != OrderStatus.AWAITING_DELIVERY_ACCEPTANCE:
             raise ValueError("El pedido no está esperando confirmación del mensajero")
@@ -1808,6 +1811,7 @@ class OrderService:
             raise ValueError("El pedido ya fue tomado por otro mensajero")
 
         delivery_person = await self._get_or_create_delivery_person(user_id)
+        print(f"[COURIER] delivery_person id={delivery_person.id}")
 
         reserved_order = await self.orders_repo.set_delivery_person(
             order_id, delivery_person.id
@@ -1817,19 +1821,24 @@ class OrderService:
 
         await self.delivery_repo.assign_order(delivery_person.id, order_id)
 
-        if await self._is_cash_payment_method(order.paymentMethod):
+        is_cash = await self._is_cash_payment_method(order.paymentMethod)
+        print(f"[COURIER] paymentMethod={order.paymentMethod} is_cash={is_cash}")
+        if is_cash:
             next_status = OrderStatus.ACCEPTED
             next_message = "Mensajero asignado. Pago en efectivo, el negocio puede iniciar elaboracion"
         else:
             next_status = OrderStatus.PENDING_PAYMENT
             next_message = "Mensajero asignado. Esperando pago del cliente"
 
-        return await self.update_status(
+        print(f"[COURIER] transitioning to next_status={next_status.value}")
+        result = await self.update_status(
             order_id,
             next_status,
             OrderActor.DELIVERY,
             next_message,
         )
+        print(f"[COURIER] accept_order_for_payment done — final status={result.status.value} deliveryPersonId={result.deliveryPersonId}")
+        return result
 
     async def reject_order_for_payment(self, order_id: str, user_id: str) -> Order:
         """Delivery person rejects/relinquishes a pre-payment accepted order."""
