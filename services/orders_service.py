@@ -1419,6 +1419,13 @@ class OrderService:
             if customer_id:
                 await users_repo.increment_delivered_orders_count(customer_id)
 
+        # When an order is cancelled or delivered, free the delivery person so
+        # they can accept the next order. Covers auto-cancel by the scheduler,
+        # manual cancel by customer/admin, and normal delivery completion.
+        if new_status in {OrderStatus.CANCELLED, OrderStatus.DELIVERED}:
+            if order.deliveryPersonId:
+                await self.delivery_repo.complete_delivery(str(order.deliveryPersonId))
+
         # TODO: Send push notification based on status
 
         # Emit tracking event for real-time subscription
