@@ -27,7 +27,7 @@ class InvitationValidator:
         if not business:
             raise InvitationValidationError("Negocio no encontrado")
 
-        if business.ownerId != user_id:
+        if str(business.ownerId) != str(user_id):
             existing_access = await business_access_repo.get_by_user_and_business(user_id, business_id)
             if not existing_access or not existing_access.isActive:
                 raise InvitationValidationError("No autorizado para crear invitaciones en este negocio")
