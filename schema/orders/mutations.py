@@ -493,7 +493,8 @@ class OrderMutation:
         try:
             order = await order_service.accept_order_for_payment(orderId, user_id)
             return order_to_type(order)
-        except ValueError as e:
+        except Exception as e:
+            print(f"[COURIER] accept_order_for_payment error: {type(e).__name__}: {e}")
             raise Exception(str(e))
 
     @strawberry.mutation(
@@ -507,7 +508,8 @@ class OrderMutation:
         try:
             order = await order_service.reject_order_for_payment(orderId, user_id)
             return order_to_type(order)
-        except ValueError as e:
+        except Exception as e:
+            print(f"[COURIER] reject_order_for_payment error: {type(e).__name__}: {e}")
             raise Exception(str(e))
 
     @strawberry.mutation(description="Aceptar pedido para entrega")
@@ -517,7 +519,8 @@ class OrderMutation:
         try:
             order = await order_service.accept_delivery(orderId, user_id)
             return order_to_type(order)
-        except ValueError as e:
+        except Exception as e:
+            print(f"[COURIER] accept_delivery error: {type(e).__name__}: {e}")
             raise Exception(str(e))
 
     @strawberry.mutation(description="Confirmar recogida del pedido")
@@ -527,7 +530,8 @@ class OrderMutation:
         try:
             order = await order_service.confirm_pickup(orderId, user_id)
             return order_to_type(order)
-        except ValueError as e:
+        except Exception as e:
+            print(f"[COURIER] confirm_pickup error: {type(e).__name__}: {e}")
             raise Exception(str(e))
 
     @strawberry.mutation(description="Actualizar ubicación durante la entrega")
@@ -584,7 +588,8 @@ class OrderMutation:
         try:
             order = await order_service.confirm_delivery(orderId, user_id, deliveryCode)
             return order_to_type(order)
-        except ValueError as e:
+        except Exception as e:
+            print(f"[COURIER] confirm_delivery error: {type(e).__name__}: {e}")
             raise Exception(str(e))
 
     # Admin mutations
