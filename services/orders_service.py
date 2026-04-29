@@ -1758,6 +1758,23 @@ class OrderService:
         if order.status == OrderStatus.AWAITING_DELIVERY_ACCEPTANCE:
             return await self.accept_order_for_payment(order_id, user_id)
 
+        # Idempotency: if the order is already in a post-acceptance status and
+        # this courier is the assigned delivery person, return the current state.
+        # This handles retries when the first response was lost in transit.
+        if order.status in {
+            OrderStatus.PENDING_PAYMENT,
+            OrderStatus.ACCEPTED,
+            OrderStatus.PREPARING,
+            OrderStatus.READY_FOR_PICKUP,
+            OrderStatus.ON_THE_WAY,
+        }:
+            delivery_person = await self.delivery_repo.get_by_user_id(user_id)
+            if delivery_person and order.deliveryPersonId and self._ids_equal(
+                order.deliveryPersonId, delivery_person.id
+            ):
+                print(f"[COURIER] accept_delivery idempotent return — already accepted, status={order.status.value}")
+                return order
+
         # Legacy flow support: assign courier once order is ready for pickup.
         if order.status not in {OrderStatus.READY_FOR_PICKUP, OrderStatus.PREPARING}:
             raise ValueError("El pedido no esta listo para recogida")
@@ -1797,20 +1814,36 @@ class OrderService:
 
         print(f"[COURIER] order status={order.status.value} deliveryPersonId={order.deliveryPersonId}")
 
+        # Resolve delivery person first so we can do idempotency checks.
+        delivery_person = await self._get_or_create_delivery_person(user_id)
+        print(f"[COURIER] delivery_person id={delivery_person.id}")
+
+        # Idempotency: if this courier already accepted this order (i.e. a previous
+        # request succeeded on the backend but the response was lost in transit),
+        # just return the current order state instead of erroring.
+        if order.deliveryPersonId and self._ids_equal(order.deliveryPersonId, delivery_person.id):
+            print(f"[COURIER] accept_order_for_payment idempotent — already accepted, status={order.status.value}")
+            return order
+
         if order.status != OrderStatus.AWAITING_DELIVERY_ACCEPTANCE:
             raise ValueError("El pedido no está esperando confirmación del mensajero")
 
         if order.deliveryPersonId:
             raise ValueError("El pedido ya fue tomado por otro mensajero")
 
-        delivery_person = await self._get_or_create_delivery_person(user_id)
-        print(f"[COURIER] delivery_person id={delivery_person.id}")
-
         reserved_order = await self.orders_repo.set_delivery_person(
             order_id, delivery_person.id
         )
         if not reserved_order:
-            raise ValueError("No se pudo reservar el pedido para este mensajero")
+            # Could be a race between two couriers. Reload and check who won.
+            order_check = await self.orders_repo.get_by_id(order_id)
+            if order_check and order_check.deliveryPersonId and self._ids_equal(
+                order_check.deliveryPersonId, delivery_person.id
+            ):
+                print(f"[COURIER] set_delivery_person race — we won on a previous tick, continuing")
+                reserved_order = order_check
+            else:
+                raise ValueError("El pedido ya fue tomado por otro mensajero")
 
         await self.delivery_repo.assign_order(delivery_person.id, order_id)
 
