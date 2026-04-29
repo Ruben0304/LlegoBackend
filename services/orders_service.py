@@ -14,6 +14,7 @@ from domain.orders import (
     ALLOWED_TRANSITIONS,
     AddressType,
     DeliveryAddress,
+    DeliveryPerson,
     GeoPoint,
     Order,
     OrderActor,
@@ -24,6 +25,7 @@ from domain.orders import (
     OrderTimeline,
     PaymentStatus,
     PickupAddress,
+    VehicleType,
 )
 from repositories import (
     branches_repo,
@@ -92,6 +94,26 @@ class OrderService:
         self.delivery_repo = DeliveryPersonRepository()
         self.locations_repo = OrderLocationRepository()
         self._payment_cash_cache: Dict[str, bool] = {}
+
+    async def _get_or_create_delivery_person(self, user_id: str) -> DeliveryPerson:
+        """Return the delivery_persons record for this user, creating it on first use."""
+        dp = await self.delivery_repo.get_by_user_id(user_id)
+        if dp:
+            return dp
+        user = await users_repo.get_by_id(user_id)
+        if not user:
+            raise ValueError("Usuario no encontrado")
+        now = datetime.utcnow()
+        new_dp = DeliveryPerson(
+            _id=str(ObjectId()),
+            userId=user_id,
+            name=user.name or "",
+            phone=user.phone,
+            vehicleType=VehicleType.A_PIE,
+            createdAt=now,
+            updatedAt=now,
+        )
+        return await self.delivery_repo.create(new_dp)
 
     @staticmethod
     def _ids_equal(a, b) -> bool:
@@ -1740,9 +1762,7 @@ class OrderService:
         if order.status not in {OrderStatus.READY_FOR_PICKUP, OrderStatus.PREPARING}:
             raise ValueError("El pedido no esta listo para recogida")
 
-        delivery_person = await self.delivery_repo.get_by_user_id(user_id)
-        if not delivery_person:
-            raise ValueError("No eres un repartidor registrado")
+        delivery_person = await self._get_or_create_delivery_person(user_id)
 
         if order.deliveryPersonId and not self._ids_equal(
             order.deliveryPersonId, delivery_person.id
@@ -1780,9 +1800,7 @@ class OrderService:
         if order.deliveryPersonId:
             raise ValueError("El pedido ya fue tomado por otro mensajero")
 
-        delivery_person = await self.delivery_repo.get_by_user_id(user_id)
-        if not delivery_person:
-            raise ValueError("No eres un repartidor registrado")
+        delivery_person = await self._get_or_create_delivery_person(user_id)
 
         reserved_order = await self.orders_repo.set_delivery_person(
             order_id, delivery_person.id
