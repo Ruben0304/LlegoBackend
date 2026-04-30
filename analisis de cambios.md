@@ -2,6 +2,45 @@
 
 ---
 
+## 📅 30 de Abril, 2026
+
+### Resumen de cambios (últimas 24h)
+
+**Área principal: Sistema de mensajeros (couriers) — unificación de endpoints de mapa**
+
+| Commit | Autor | Descripción |
+|--------|-------|-------------|
+| `6b81661` | brianmojena | feat(courier): incluye la entrega activa en `available_orders_for_delivery` |
+
+**Contexto:** Antes, el frontend llamaba a `myCurrentDelivery` y `availableOrdersForDelivery` por separado, generando race conditions donde el pin del pedido aceptado desaparecía del mapa. Ahora el backend siempre antepone la entrega activa del courier a la lista `availableOrdersForDelivery`, sin importar el timing del polling.
+
+### Análisis de riesgos y consideraciones
+
+#### 🔴 Riesgos altos
+
+1. **El frontend debe distinguir el primer ítem (entrega activa) del resto (disponibles para aceptar)**
+   - Si el frontend renderiza todos los ítems de `availableOrdersForDelivery` de forma idéntica, el courier podría ver su propia entrega actual como un pedido "disponible para aceptar" de nuevo, o peor, intentar aceptarla otra vez.
+   - **Acción recomendada:** Verificar que el frontend identifica el primer elemento (la entrega activa) y lo renderiza/trata de forma diferenciada al resto de pins del mapa.
+
+#### 🟡 Riesgos medios
+
+2. **Caso donde el courier no tiene entrega activa**
+   - El commit dice que siempre se _prepend_ la entrega activa. Hay que asegurar que cuando `get_current_delivery` retorna `None` (sin entrega activa), la función no intente insertar `None` al inicio de la lista ni lance un error de índice.
+   - **Consideración:** Revisar el bloque de código que hace el prepend para confirmar que el caso `None` está manejado.
+
+3. **Acoplamiento entre `get_current_delivery` y `available_orders_for_delivery`**
+   - Ahora `available_orders_for_delivery` depende internamente de `get_current_delivery`. Si esta consulta falla o se vuelve lenta, el endpoint de órdenes disponibles también se degrada.
+   - **Consideración:** Evaluar si vale la pena atrapar excepciones de `get_current_delivery` dentro del resolver de `available_orders_for_delivery` para que un fallo parcial no rompa el listado completo.
+
+#### 🟢 Mejoras positivas
+
+4. **Eliminación de race condition en el mapa**
+   - Con una única fuente de verdad en el backend, el frontend ya no necesita coordinar dos llamadas independientes. Reduce complejidad del cliente y hace el estado del mapa más confiable.
+
+5. **Sesión sin commits con mensajes sin descripción** — a diferencia de días anteriores, todos los commits de hoy tienen mensajes claros.
+
+---
+
 ## 📅 29 de Abril, 2026
 
 ### Resumen de cambios (últimas 24h)
