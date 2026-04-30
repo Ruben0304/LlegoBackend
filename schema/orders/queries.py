@@ -266,13 +266,29 @@ class OrderQuery:
         delivery_person = await _get_or_create_delivery_person(user_id)
 
         if delivery_person.linkedBranchIds:
-            orders = await orders_repo.get_awaiting_delivery_acceptance_by_branches(
-                delivery_person.linkedBranchIds
+            orders = list(
+                await orders_repo.get_awaiting_delivery_acceptance_by_branches(
+                    delivery_person.linkedBranchIds
+                )
             )
         else:
-            orders = await orders_repo.get_awaiting_delivery_acceptance_nearby(
-                longitude, latitude, radiusKm
+            orders = list(
+                await orders_repo.get_awaiting_delivery_acceptance_nearby(
+                    longitude, latitude, radiusKm
+                )
             )
+
+        # Always prepend the courier's active delivery (if any) so the map pin
+        # never disappears after acceptance — the frontend has ONE source of truth.
+        try:
+            current = await orders_repo.get_current_delivery(str(delivery_person.id))
+            if current is not None:
+                existing_ids = {str(o.id) for o in orders}
+                if str(current.id) not in existing_ids:
+                    orders = [current] + orders
+                    print(f"[COURIER] available_orders_for_delivery: prepended active delivery {current.id} status={current.status.value}")
+        except Exception as e:
+            print(f"[COURIER] available_orders_for_delivery: current delivery lookup failed: {e}")
 
         return [order_to_type(o) for o in orders]
 
