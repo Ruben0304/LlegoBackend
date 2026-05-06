@@ -2,6 +2,20 @@
 
 ---
 
+## 📅 6 de Mayo, 2026
+
+### Resumen de cambios (últimas 24h)
+
+Sin commits de desarrollo nuevos. Solo el commit automático de "Analisis diario Claude".
+
+#### Consideraciones del día
+
+- Sin actividad de backend hoy.
+- Seguimiento vigente: verificar que el frontend diferencia correctamente el primer ítem (entrega activa) del resto de pins en `available_orders_for_delivery` (fix del 30 de abril).
+- **Alerta desde SunCarWeb:** el nuevo modal de análisis de stock en almacenes (frontend) recibe un error 500 del backend. Revisar si el endpoint de historial de movimientos para stock mínimo existe y está desplegado. El fix del frontend solo evita el crash visual, el backend sigue fallando.
+
+---
+
 ## 📅 5 de Mayo, 2026
 
 ### Resumen de cambios (últimas 24h)
