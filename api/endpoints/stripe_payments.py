@@ -1,11 +1,14 @@
 """Stripe payment endpoints for wallet recharge."""
-from fastapi import APIRouter, HTTPException, Header, Request
-from pydantic import BaseModel, Field
-from typing import Optional
-import stripe
+import asyncio
+import functools
 import logging
-from jose import jwt, JWTError
 from datetime import datetime
+from typing import Optional
+
+import stripe
+from fastapi import APIRouter, Header, HTTPException, Request
+from jose import JWTError, jwt
+from pydantic import BaseModel, Field
 
 from core.config import settings
 from repositories.wallet_repository import WalletRepository
@@ -90,19 +93,19 @@ async def create_payment_intent(
         
         logger.info(f"Creating payment intent for user {user_id}, amount: {request.amount} {request.currency}")
         
-        # Create Payment Intent
-        payment_intent = stripe.PaymentIntent.create(
-            amount=request.amount,
-            currency=request.currency.lower(),
-            description=request.description,
-            metadata={
-                "user_id": user_id,
-                "type": "wallet_recharge"
-            },
-            # Enable automatic payment methods (includes Apple Pay, Google Pay, cards)
-            automatic_payment_methods={
-                "enabled": True,
-            },
+        # Create Payment Intent (non-blocking)
+        payment_intent = await asyncio.to_thread(
+            functools.partial(
+                stripe.PaymentIntent.create,
+                amount=request.amount,
+                currency=request.currency.lower(),
+                description=request.description,
+                metadata={
+                    "user_id": user_id,
+                    "type": "wallet_recharge",
+                },
+                automatic_payment_methods={"enabled": True},
+            )
         )
         
         logger.info(f"Payment intent created: {payment_intent.id}")
@@ -153,62 +156,67 @@ async def create_recharge_link(
         
         logger.info(f"Creating recharge link for user {user_id} ({user_email})")
         
-        # Create a Product for this user
-        product = stripe.Product.create(
-            name=f"Recarga Wallet - {user_name}",
-            description=f"Recarga internacional para {user_email}",
-            metadata={
-                "user_id": user_id,
-                "user_email": user_email,
-                "username": user_username,
-                "type": "wallet_recharge"
-            }
+        # Create a Product for this user (non-blocking)
+        product = await asyncio.to_thread(
+            functools.partial(
+                stripe.Product.create,
+                name=f"Recarga Wallet - {user_name}",
+                description=f"Recarga internacional para {user_email}",
+                metadata={
+                    "user_id": user_id,
+                    "user_email": user_email,
+                    "username": user_username,
+                    "type": "wallet_recharge",
+                },
+            )
         )
-        
+
         logger.info(f"Created Stripe product: {product.id}")
-        
-        # Create a Price with custom amount enabled
-        price = stripe.Price.create(
-            product=product.id,
-            currency=request.currency.lower(),
-            unit_amount=2000,  # $20 USD as default suggestion (in cents)
-            custom_unit_amount={
-                "enabled": True,
-                "minimum": 500,      # Minimum $5 USD
-                "maximum": 100000,   # Maximum $1000 USD
-                "preset": 2000       # Suggested amount $20 USD
-            }
+
+        # Create a Price with custom amount enabled (non-blocking)
+        price = await asyncio.to_thread(
+            functools.partial(
+                stripe.Price.create,
+                product=product.id,
+                currency=request.currency.lower(),
+                unit_amount=2000,
+                custom_unit_amount={
+                    "enabled": True,
+                    "minimum": 500,
+                    "maximum": 100000,
+                    "preset": 2000,
+                },
+            )
         )
-        
+
         logger.info(f"Created Stripe price: {price.id}")
-        
-        # Create the Payment Link
-        payment_link = stripe.PaymentLink.create(
-            line_items=[{
-                "price": price.id,
-                "quantity": 1,
-                "adjustable_quantity": {
-                    "enabled": False  # Don't allow changing quantity, only amount
-                }
-            }],
-            after_completion={
-                "type": "hosted_confirmation",
-                "hosted_confirmation": {
-                    "custom_message": f"¡Gracias! El dinero ha sido enviado a {user_name} exitosamente."
-                }
-            },
-            allow_promotion_codes=False,
-            billing_address_collection="auto",
-            phone_number_collection={
-                "enabled": False
-            },
-            metadata={
-                "user_id": user_id,
-                "user_email": user_email,
-                "username": user_username,
-                "type": "wallet_recharge",
-                "created_at": datetime.utcnow().isoformat()
-            }
+
+        # Create the Payment Link (non-blocking)
+        payment_link = await asyncio.to_thread(
+            functools.partial(
+                stripe.PaymentLink.create,
+                line_items=[{
+                    "price": price.id,
+                    "quantity": 1,
+                    "adjustable_quantity": {"enabled": False},
+                }],
+                after_completion={
+                    "type": "hosted_confirmation",
+                    "hosted_confirmation": {
+                        "custom_message": f"¡Gracias! El dinero ha sido enviado a {user_name} exitosamente."
+                    },
+                },
+                allow_promotion_codes=False,
+                billing_address_collection="auto",
+                phone_number_collection={"enabled": False},
+                metadata={
+                    "user_id": user_id,
+                    "user_email": user_email,
+                    "username": user_username,
+                    "type": "wallet_recharge",
+                    "created_at": datetime.utcnow().isoformat(),
+                },
+            )
         )
         
         logger.info(f"Created payment link: {payment_link.id}")

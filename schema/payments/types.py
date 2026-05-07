@@ -178,6 +178,32 @@ class PaymentAttemptType:
 
 
 @strawberry.type
+class PaymentAttemptAdminRowType:
+    """Fila administrativa enriquecida: intento + método + metadata del pedido."""
+
+    attempt: PaymentAttemptType
+    paymentMethod: Optional[PaymentMethodType] = None
+    orderNumber: Optional[str] = None
+    branchId: Optional[str] = None
+    businessId: Optional[str] = None
+    customerId: Optional[str] = None
+
+
+@strawberry.type
+class PaymentAttemptAdminConnectionType:
+    rows: List[PaymentAttemptAdminRowType]
+    totalCount: int
+    hasMore: bool
+
+
+@strawberry.type
+class OcrPaymentsConnectionType:
+    payments: List[PaymentType]
+    totalCount: int
+    hasMore: bool
+
+
+@strawberry.type
 class InitiatePaymentResult:
     """Result of initiating a payment."""
 

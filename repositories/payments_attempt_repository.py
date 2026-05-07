@@ -1,7 +1,7 @@
 """Payment attempt repository for database operations."""
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict, Any, Tuple
 
 from bson import ObjectId
 
@@ -302,6 +302,53 @@ class PaymentAttemptRepository:
         )
 
         return [self._doc_to_payment_attempt(doc) async for doc in cursor]
+
+    async def list_filtered(
+        self,
+        *,
+        order_ids: Optional[List[Any]] = None,
+        payment_method_id: Optional[str] = None,
+        status_in: Optional[List[str]] = None,
+        from_date: Optional[datetime] = None,
+        to_date: Optional[datetime] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Tuple[List[PaymentAttempt], int]:
+        """
+        List payment attempts with optional filters and pagination.
+
+        Notes:
+        - order_ids should be raw Mongo IDs (ObjectId or str), not coerced here.
+        - status_in should contain string enum values (e.g. "pending", "completed").
+        """
+        collection = self._get_collection()
+        query: Dict[str, Any] = {}
+
+        if order_ids is not None:
+            # If caller supplies an empty list, return empty fast.
+            if not order_ids:
+                return [], 0
+            query["orderId"] = {"$in": order_ids}
+
+        if payment_method_id:
+            query["paymentMethodId"] = self._to_object_id(payment_method_id)
+
+        if status_in:
+            query["status"] = {"$in": status_in}
+
+        if from_date or to_date:
+            query.setdefault("createdAt", {})
+            if from_date:
+                query["createdAt"]["$gte"] = from_date
+            if to_date:
+                query["createdAt"]["$lte"] = to_date
+
+        total = await collection.count_documents(query)
+        cursor = (
+            collection.find(query).sort("createdAt", -1).skip(offset).limit(limit)
+        )
+        attempts = [self._doc_to_payment_attempt(doc) async for doc in cursor]
+        return attempts, total
 
 
 async def create_payment_indexes():

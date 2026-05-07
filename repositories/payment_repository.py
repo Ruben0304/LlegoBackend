@@ -1,5 +1,5 @@
 """Payment repository for database operations."""
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from bson import ObjectId
 from clients import get_database
 from domain.models import SmsOcr
@@ -58,6 +58,44 @@ class PaymentRepository:
         db = get_database()
         payment = await db[self.collection_name].find_one({"numero_transferencia": numero})
         return SmsOcr(**self._convert_id(payment)) if payment else None
+
+    async def list_filtered(
+        self,
+        *,
+        banco: Optional[str] = None,
+        numero_transferencia: Optional[str] = None,
+        from_date: Optional[datetime] = None,
+        to_date: Optional[datetime] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Tuple[List[SmsOcr], int]:
+        """Lista pagos OCR (colección `pagos`) con filtros y paginación."""
+        db = get_database()
+        query: Dict[str, Any] = {}
+
+        if banco:
+            query["banco"] = banco
+        if numero_transferencia:
+            query["numero_transferencia"] = numero_transferencia
+
+        if from_date or to_date:
+            # Preferimos filtrar por `createdAt` que siempre se setea en create()
+            query.setdefault("createdAt", {})
+            if from_date:
+                query["createdAt"]["$gte"] = from_date
+            if to_date:
+                query["createdAt"]["$lte"] = to_date
+
+        total = await db[self.collection_name].count_documents(query)
+        cursor = (
+            db[self.collection_name]
+            .find(query)
+            .sort("createdAt", -1)
+            .skip(offset)
+            .limit(limit)
+        )
+        docs = await cursor.to_list(length=limit)
+        return [SmsOcr(**self._convert_id(d)) for d in docs], total
 
     @staticmethod
     def _convert_id(doc: Dict[str, Any]) -> Dict[str, Any]:

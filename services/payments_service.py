@@ -1,5 +1,7 @@
 """Payment service for handling payment processing logic."""
 
+import asyncio
+import functools
 import logging
 import mimetypes
 from datetime import datetime, timedelta
@@ -1143,18 +1145,21 @@ class PaymentService:
             # Convert to cents
             amount_cents = int(payment_attempt.totalAmount * 100)
 
-            # Create Payment Intent
-            intent = stripe.PaymentIntent.create(
-                amount=amount_cents,
-                currency=payment_attempt.currency,
-                description=f"Pedido #{order.get('orderNumber', '')} - Llego",
-                metadata={
-                    "user_id": user_id,
-                    "order_id": str(order.get("_id")),
-                    "payment_attempt_id": payment_attempt.id,
-                    "type": "order_payment",
-                },
-                automatic_payment_methods={"enabled": True},
+            # Create Payment Intent (run in thread pool to avoid blocking event loop)
+            intent = await asyncio.to_thread(
+                functools.partial(
+                    stripe.PaymentIntent.create,
+                    amount=amount_cents,
+                    currency=payment_attempt.currency,
+                    description=f"Pedido #{order.get('orderNumber', '')} - Llego",
+                    metadata={
+                        "user_id": user_id,
+                        "order_id": str(order.get("_id")),
+                        "payment_attempt_id": payment_attempt.id,
+                        "type": "order_payment",
+                    },
+                    automatic_payment_methods={"enabled": True},
+                )
             )
 
             payment_attempt.stripePaymentIntentId = intent.id
@@ -1201,7 +1206,48 @@ class PaymentService:
             payment_attempt_id, normalized_proof
         )
 
-        # TODO: Notify business
+        # Notify business that customer submitted payment proof
+        try:
+            from repositories.device_token_repository import device_token_repo
+            from services.push_notification_service import push_service
+
+            order_num = str(order.get("orderNumber", ""))
+            branch_obj = await self._get_branch(str(order.get("branchId", "")))
+            biz = None
+            if branch_obj:
+                biz = await businesses_repo.get_by_id(branch_obj.get("businessId"))
+
+            user_ids: list[str] = []
+            if biz:
+                user_ids.append(str(biz.ownerId))
+            if branch_obj:
+                user_ids.extend([str(m) for m in branch_obj.get("managerIds", [])])
+            user_ids = list(set(user_ids))
+
+            all_tokens = []
+            for uid in user_ids:
+                all_tokens.extend(await device_token_repo.get_by_user_id(uid))
+
+            if all_tokens:
+                title = "Comprobante de pago recibido"
+                body = f"El cliente envió su pago para el pedido #{order_num}. Revisa y confirma."
+                data = {
+                    "orderId": str(attempt.orderId),
+                    "orderNumber": order_num,
+                    "type": "payment_proof_submitted",
+                }
+                ios_tokens = [t.token for t in all_tokens if t.platform == "IOS"]
+                android_tokens = [t.token for t in all_tokens if t.platform == "ANDROID"]
+                if ios_tokens:
+                    await push_service.send_to_all(
+                        tokens=ios_tokens, title=title, body=body, data=data, platform="IOS"
+                    )
+                if android_tokens:
+                    await push_service.send_to_all(
+                        tokens=android_tokens, title=title, body=body, data=data, platform="ANDROID"
+                    )
+        except Exception as e:
+            print(f"[PUSH] Failed to notify business about payment proof: {e}")
 
         return updated
 
@@ -1249,7 +1295,35 @@ class PaymentService:
         # Complete order payment
         await self._complete_order_payment(attempt.orderId, payment_attempt_id)
 
-        # TODO: Notify customer
+        # Notify customer that business confirmed their payment
+        try:
+            from repositories.device_token_repository import device_token_repo
+            from services.push_notification_service import push_service
+
+            customer_id = str(order.get("customerId", ""))
+            order_num = str(order.get("orderNumber", ""))
+
+            device_tokens = await device_token_repo.get_by_user_id(customer_id)
+            if device_tokens:
+                title = "Pago confirmado"
+                body = f"El negocio confirmó tu pago del pedido #{order_num}. ¡Todo listo!"
+                data = {
+                    "orderId": str(attempt.orderId),
+                    "orderNumber": order_num,
+                    "type": "payment_confirmed_by_business",
+                }
+                ios_tokens = [t.token for t in device_tokens if t.platform == "IOS"]
+                android_tokens = [t.token for t in device_tokens if t.platform == "ANDROID"]
+                if ios_tokens:
+                    await push_service.send_to_all(
+                        tokens=ios_tokens, title=title, body=body, data=data, platform="IOS"
+                    )
+                if android_tokens:
+                    await push_service.send_to_all(
+                        tokens=android_tokens, title=title, body=body, data=data, platform="ANDROID"
+                    )
+        except Exception as e:
+            print(f"[PUSH] Failed to notify customer about payment confirmation: {e}")
 
         return updated
 
@@ -1512,11 +1586,12 @@ class PaymentService:
             raise ValueError("No hay Payment Intent de Stripe asociado")
 
         try:
-            # Create Stripe refund
-            refund = stripe.Refund.create(
-                payment_intent=attempt.stripePaymentIntentId,
-                # Refund full amount minus commission (or full amount if you want)
-                # For now, refund full amount
+            # Create Stripe refund (run in thread pool to avoid blocking event loop)
+            refund = await asyncio.to_thread(
+                functools.partial(
+                    stripe.Refund.create,
+                    payment_intent=attempt.stripePaymentIntentId,
+                )
             )
 
             logger.info(f"Stripe refund created: {refund.id}")
@@ -1800,7 +1875,9 @@ class PaymentService:
         # If Stripe, cancel the Payment Intent
         if attempt.stripePaymentIntentId:
             try:
-                stripe.PaymentIntent.cancel(attempt.stripePaymentIntentId)
+                await asyncio.to_thread(
+                    stripe.PaymentIntent.cancel, attempt.stripePaymentIntentId
+                )
             except stripe.error.StripeError as e:
                 logger.warning(f"Could not cancel Stripe PI: {e}")
 
