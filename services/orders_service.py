@@ -1188,13 +1188,10 @@ class OrderService:
         service_charge = round(subtotal * settings.service_fee_rate, 2)
         total = round(subtotal + delivery_fee + service_charge - total_discounts, 2)
 
-        # 6. Validate payment if card
+        # 6. Payment status starts as PENDING for all methods.
+        # For stripe, the PaymentIntent is created later via initiatePayment()
+        # once the order reaches PENDING_PAYMENT status (after business + delivery accept).
         payment_status = PaymentStatus.PENDING
-        if payment_method_code in {"card", "stripe"}:
-            if not payment_intent_id:
-                raise ValueError("Se requiere paymentIntentId para pagos con tarjeta")
-            # TODO: Verify payment intent with Stripe
-            payment_status = PaymentStatus.VALIDATED
 
         # 7. Create order
         now = datetime.utcnow()
