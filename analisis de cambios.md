@@ -2,6 +2,64 @@
 
 ---
 
+## 📅 7 de Mayo, 2026
+
+### Resumen de cambios (últimas 24h)
+
+**Áreas: Pagos Stripe (live), sistema de vehículos de mensajeros, rendimiento del feed**
+
+| Commit | Autor | Descripción |
+|--------|-------|-------------|
+| `5830594` | Ruben0304 | feat(payments): Stripe live, llamadas async y notificaciones push |
+| `96503d8` | Ruben0304 | fix(payments): eliminar requisito prematuro de `paymentIntentId` en creación de orden |
+| `dca075c` | brianmojena | feat: catálogo de vehículos y mutación `link_vehicle` |
+| `652eee7` | brianmojena | fix: crash en `DeliveryPerson` con valores legacy de `vehicleType` |
+| `f1a3ed7` | brianmojena | perf(feed): eliminar N+1 en categorías con batch fetch y DataLoader |
+
+**Contexto general:** Día con actividad intensa y bien documentada. Ruben cerró la integración de Stripe en producción y Brian completó el sistema de vehículos de mensajeros (bicicleta/triciclo) y una mejora de rendimiento significativa en el feed.
+
+### Análisis de riesgos y consideraciones
+
+#### 🔴 Riesgos altos
+
+1. **Stripe key live en el commit**
+   - El commit `5830594` menciona explícitamente _"Set live Stripe secret key configuration"_. Si la clave fue incluida literalmente en el código fuente (en lugar de una variable de entorno), está expuesta en el historial de git de forma permanente, incluso si se elimina en un commit posterior.
+   - **Acción urgente:** Verificar que `STRIPE_SECRET_KEY` se lee de variable de entorno y no está hardcodeada. Si llegó a estar en el código, rotar la clave en el dashboard de Stripe inmediatamente.
+
+2. **Breaking change en `VehicleType`: eliminación de `moto`, `auto`, `a_pie`**
+   - Los tipos antiguos se reemplazan por `bicicleta` y `triciclo`. El validator de Pydantic convierte valores desconocidos a `None` (fix de `652eee7`), lo que evita crashes, pero cualquier lógica downstream que asuma un `vehicleType` no-`None` (cálculos de tarifa, rutas, filtros) recibirá `None` silenciosamente y puede producir comportamiento incorrecto.
+   - **Acción recomendada:** Auditar todos los lugares donde se consume `DeliveryPerson.vehicleType` para asegurar que manejan `None` explícitamente.
+
+3. **`A_PIE` fallbacks eliminados completamente**
+   - El commit `dca075c` indica _"Remove all A_PIE fallbacks (replaced with None)"_. Si algún endpoint de frontend o app móvil aún envía `a_pie` como valor, el backend lo convertirá a `None` sin error visible. Mensajeros con ese valor en DB quedarán sin tipo de vehículo asignado.
+   - **Acción recomendada:** Coordinar con el equipo mobile/frontend para garantizar que ya no se envían los tipos legacy antes del deploy en producción.
+
+#### 🟡 Riesgos medios
+
+4. **Auto-seed del catálogo de vehículos en el lifespan hook**
+   - El catálogo (bicicleta + triciclo) se siembra en cada startup. Si el seed usa `upsert`, es seguro. Si usa `insert`, creará documentos duplicados en cada reinicio.
+   - **Verificación:** Confirmar que `upsert_seed` es verdaderamente idempotente (verifica existencia antes de insertar o usa `update_one(upsert=True)`).
+
+5. **Stripe SDK envuelto en `asyncio.to_thread()`**
+   - Enfoque correcto para SDK bloqueante. Riesgo: si el thread pool del event loop se satura bajo carga alta, las llamadas de Stripe se encolarán. En Railway con pocos workers, monitorear el comportamiento bajo carga concurrente.
+
+6. **Notificaciones APNs/FCM en el flujo de pago**
+   - Si el servicio de notificaciones falla, el flujo de pago no debería verse afectado. Verificar que los errores de notificación están capturados y no propagan excepciones que cancelen la transacción.
+
+7. **Scope del DataLoader de categorías**
+   - El DataLoader resuelve `category_name` en un solo round-trip. Riesgo clave: si el cache del DataLoader es global (compartido entre requests) en lugar de por-request, usuarios distintos podrían ver nombres de categoría stale o de otro usuario.
+   - **Verificación:** Confirmar que el `category_loader` se instancia por request (en el contexto de la request de GraphQL), no a nivel de módulo.
+
+#### 🟢 Mejoras positivas
+
+8. **N+1 eliminado en el feed** — `get_feed_products` pasó de una query por producto a una sola query batch por request. Mejora de rendimiento significativa en el endpoint más usado.
+
+9. **Stripe async no bloquea el event loop** — las llamadas a Stripe ya no degradan el throughput del servidor durante operaciones de pago.
+
+10. **Todos los commits con mensajes descriptivos** — sin commits con mensajes vagos en este día. Excelente.
+
+---
+
 ## 📅 5 de Mayo, 2026
 
 ### Resumen de cambios (últimas 24h)
@@ -106,68 +164,5 @@ Sin commits de desarrollo nuevos desde el análisis de ayer. Solo el commit auto
    - Con una única fuente de verdad en el backend, el frontend ya no necesita coordinar dos llamadas independientes. Reduce complejidad del cliente y hace el estado del mapa más confiable.
 
 5. **Sesión sin commits con mensajes sin descripción** — a diferencia de días anteriores, todos los commits de hoy tienen mensajes claros.
-
----
-
-## 📅 29 de Abril, 2026
-
-### Resumen de cambios (últimas 24h)
-
-**Área principal: Sistema de mensajeros (couriers)**
-
-| Commit | Autor | Descripción |
-|--------|-------|-------------|
-| `0b4fe77` | brianmojena | fix(courier): `accept_delivery` idempotente + manejo de race conditions |
-| `e9aa50b` | brianmojena | fix(courier): captura todas las excepciones en mutaciones de courier + logging |
-| `0ec439a` | brianmojena | fix(courier): añade `AWAITING_DELIVERY_ACCEPTANCE` a `get_current_delivery` + logs |
-| `37f6aba` | brianmojena | fix(couriers): limpia estado del mensajero al cancelar/entregar pedido |
-| `24784cf` | brianmojena | fix(couriers): auto-crea registro `delivery_person` en primera aceptación |
-| `09ab052` | brianmojena | Añade `PENDING_PAYMENT` al query de estado de pedidos |
-| `c60045c` | Ruben0304 | feat(couriers): mutación `adminPushCourierLocation` para simulación en mapa |
-| `948613c` | Ruben0304 | feat(couriers): enriquece `CourierPresenceType` con perfil del mensajero |
-| `82fa35b` | Fabian1820 | *(mensaje sin descripción: "fdvfdvb")* |
-| `1c1220c` | Fabian1820 | *(mensaje sin descripción: "hvhj")* |
-
-### Análisis de riesgos y consideraciones
-
-#### 🔴 Riesgos altos
-
-1. **Commits sin mensajes descriptivos (`fdvfdvb`, `hvhj`) de Fabian1820**
-   - Es imposible saber qué cambiaron sin inspeccionar el diff directamente.
-   - Si introducen bugs, serán muy difíciles de rastrear en el historial.
-   - **Acción recomendada:** Revisar estos diffs manualmente. Adoptar convención de mensajes descriptivos.
-
-2. **Auto-creación de `delivery_person` en primera aceptación**
-   - Si dos requests llegan simultáneamente para el mismo usuario, podría haber race condition en la creación del documento, generando duplicados en MongoDB.
-   - Depende de si hay un índice único por `user_id` en la colección `delivery_persons`.
-   - **Acción recomendada:** Confirmar que existe un índice único o usar `upsert` atómico.
-
-#### 🟡 Riesgos medios
-
-3. **Idempotencia de `accept_delivery` basada en `deliveryPersonId`**
-   - La lógica retorna el estado actual si el courier ya está asignado. Correcto para reintentos.
-   - Pero si el check de idempotencia ocurre justo cuando otro courier también ganó la carrera y se está actualizando, podría retornar un falso positivo.
-   - **Consideración:** Verificar que el re-fetch tras `None` en `set_delivery_person` es verdaderamente atómico.
-
-4. **Limpieza de estado del mensajero en cancel/deliver**
-   - `update_status` ahora llama a `delivery_repo.complete_delivery()` cuando el estado pasa a `CANCELLED` o `DELIVERED`.
-   - Si `complete_delivery()` falla silenciosamente, el mensajero queda bloqueado.
-   - **Acción recomendada:** Asegurarse de que `complete_delivery()` loguea errores y que el error no sea silenciado.
-
-5. **`AWAITING_DELIVERY_ACCEPTANCE` en `get_current_delivery`**
-   - Cubre la ventana de race entre `set_delivery_person` y `update_status`. Es una buena solución.
-   - Riesgo menor: si un pedido queda en este estado indefinidamente (fallo entre los dos pasos), el mensajero aparecerá con un pedido "fantasma".
-   - **Consideración:** Evaluar si hace falta un timeout o limpieza periódica para este estado intermedio.
-
-#### 🟢 Mejoras positivas
-
-6. **`adminPushCourierLocation` para simulación**
-   - Facilita el testing del mapa en vivo sin mensajeros reales. Muy útil para QA.
-
-7. **Enriquecimiento de `CourierPresenceType` con perfil**
-   - Batch query de Mongo por snapshot es eficiente. Bien implementado.
-
-8. **Logging `[COURIER]` en mutaciones**
-   - Mejora significativa para diagnóstico en Railway.
 
 ---
