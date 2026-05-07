@@ -24,6 +24,7 @@ from repositories.orders_repository import (
     order_locations_repo,
     orders_repo,
 )
+from repositories.vehicle_repository import vehicles_repo
 from services.orders_service import OrderValidationError, order_service
 from utils.graphql_auth import apply_optional_jwt, require_auth, require_role
 from utils.rate_limit import redis_client
@@ -753,9 +754,9 @@ class OrderMutation:
         existing = await delivery_persons_repo.get_by_id(deliveryPersonId)
         if existing is None:
             try:
-                vt = VehicleType(vehicleType) if vehicleType else VehicleType.A_PIE
+                vt = VehicleType(vehicleType) if vehicleType else None
             except Exception:
-                vt = VehicleType.A_PIE
+                vt = None
             now = datetime.utcnow()
             stub_user_id = str(ObjectId())  # synthetic user id; not linked to real user
             stub = DeliveryPerson(
@@ -823,3 +824,34 @@ class OrderMutation:
             return order_to_type(order)
         except ValueError as e:
             raise Exception(str(e))
+
+    @strawberry.mutation(description="Vincular un vehículo del catálogo al perfil del mensajero")
+    async def link_vehicle(
+        self,
+        info: Info,
+        vehicle_id: str,
+        jwt: str,
+    ) -> bool:
+        """Set the courier's active vehicle. Replaces any previously linked vehicle."""
+        user_id = require_auth(jwt, info)
+
+        vehicle = await vehicles_repo.get_by_id(vehicle_id)
+        if vehicle is None or not vehicle.isActive:
+            raise GraphQLError("Vehículo no encontrado o inactivo")
+
+        delivery_person = await delivery_persons_repo.get_by_user_id(user_id)
+        if delivery_person is None:
+            raise GraphQLError("Perfil de mensajero no encontrado")
+
+        now = datetime.utcnow()
+        await delivery_persons_repo._get_collection().update_one(
+            {"_id": ObjectId(delivery_person.id)},
+            {
+                "$set": {
+                    "vehicleId": str(vehicle.id),
+                    "vehicleType": vehicle.slug.value,
+                    "updatedAt": now,
+                }
+            },
+        )
+        return True

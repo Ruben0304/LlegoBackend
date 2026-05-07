@@ -59,10 +59,23 @@ class OrderActor(str, Enum):
 class VehicleType(str, Enum):
     """Delivery vehicle type."""
 
-    MOTO = "moto"
     BICICLETA = "bicicleta"
-    AUTO = "auto"
-    A_PIE = "a_pie"
+    TRICICLO = "triciclo"
+
+
+class Vehicle(BaseModel):
+    """Catalog of available delivery vehicles couriers can link to their profile."""
+
+    id: PyObjectId = Field(alias="_id")
+    name: str          # e.g. "Triciclo", "Bicicleta"
+    slug: VehicleType  # matches VehicleType enum values
+    isActive: bool = True
+    createdAt: datetime
+    updatedAt: datetime
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
 class AddressType(str, Enum):
@@ -303,7 +316,8 @@ class DeliveryPerson(BaseModel):
     phone: Optional[str] = None
     rating: float = 5.0
     totalDeliveries: int = 0
-    vehicleType: VehicleType
+    vehicleType: Optional[VehicleType] = None
+    vehicleId: Optional[PyObjectId] = None   # references vehicles collection
     vehiclePlate: Optional[str] = None
     profileImageUrl: Optional[str] = None
     isActive: bool = True

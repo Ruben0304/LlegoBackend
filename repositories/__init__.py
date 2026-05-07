@@ -47,6 +47,7 @@ from .trondealer_repository import TronDealerRepository, trondealer_wallets_repo
 from .tutorial_repository import TutorialRepository
 from .user_repository import UserRepository
 from .variant_list_repository import VariantListRepository, variant_lists_repo
+from .vehicle_repository import VehicleRepository, vehicles_repo
 from .wallet_repository import WalletTransactionRepository
 
 # Repository instances
@@ -162,4 +163,6 @@ __all__ = [
     "trondealer_wallets_repo",
     "PayoutRepository",
     "payouts_repo",
+    "VehicleRepository",
+    "vehicles_repo",
 ]

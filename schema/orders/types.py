@@ -60,10 +60,8 @@ class OrderActorEnum(Enum):
 
 @strawberry.enum
 class VehicleTypeEnum(Enum):
-    MOTO = "moto"
     BICICLETA = "bicicleta"
-    AUTO = "auto"
-    A_PIE = "a_pie"
+    TRICICLO = "triciclo"
 
 
 @strawberry.enum
@@ -72,6 +70,15 @@ class AddressTypeEnum(Enum):
     APARTMENT = "apartment"
     OFFICE = "office"
     OTHER = "other"
+
+
+@strawberry.type
+class VehicleTypeGQL:
+    """A vehicle from the vehicles catalog that a courier can link to their profile."""
+    id: str
+    name: str
+    slug: str
+    is_active: bool
 
 
 # Types

@@ -21,6 +21,7 @@ from repositories.orders_repository import (
     delivery_persons_repo,
     orders_repo,
 )
+from repositories.vehicle_repository import vehicles_repo
 from services.delivered_orders_query_service import delivered_orders_query_service
 from services.orders_service import order_service
 from utils.graphql_auth import apply_optional_jwt, require_auth, require_role
@@ -43,6 +44,7 @@ from .types import (
     OrderTrackingType,
     OrderType,
     TopProductType,
+    VehicleTypeGQL,
     branch_delivery_request_to_type,
     estimate_delivery_fee,
     order_to_type,
@@ -75,7 +77,7 @@ async def _get_or_create_delivery_person(user_id: str) -> DeliveryPerson:
         userId=user_id,
         name=user.name or "",
         phone=user.phone,
-        vehicleType=VehicleType.A_PIE,
+        vehicleType=None,
         createdAt=now,
         updatedAt=now,
     )
@@ -576,3 +578,18 @@ class OrderQuery:
             totalCount=total,
             hasMore=(offset + len(orders)) < total,
         )
+
+
+    @strawberry.field(description="Listado de vehículos disponibles para mensajeros")
+    async def vehicles(self, info: Info) -> List[VehicleTypeGQL]:
+        """Return all active vehicles from the catalog."""
+        all_vehicles = await vehicles_repo.get_all(active_only=True)
+        return [
+            VehicleTypeGQL(
+                id=str(v.id),
+                name=v.name,
+                slug=v.slug.value,
+                is_active=v.isActive,
+            )
+            for v in all_vehicles
+        ]
