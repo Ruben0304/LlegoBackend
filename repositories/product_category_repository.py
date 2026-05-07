@@ -25,6 +25,21 @@ class ProductCategoryRepository:
         category = await db[self.collection_name].find_one({"_id": object_id})
         return ProductCategory(**self._convert_id(category)) if category else None
 
+    async def get_by_ids(self, category_ids: List[str]) -> List[ProductCategory]:
+        """Batch fetch product categories by IDs in a single query."""
+        if not category_ids:
+            return []
+        db = get_database()
+        object_ids = []
+        for cid in category_ids:
+            try:
+                object_ids.append(ObjectId(cid))
+            except Exception:
+                object_ids.append(cid)
+        cursor = db[self.collection_name].find({"_id": {"$in": object_ids}})
+        categories = await cursor.to_list(length=None)
+        return [ProductCategory(**self._convert_id(c)) for c in categories]
+
     async def get_by_branch_type(self, branch_type: str) -> List[ProductCategory]:
         """Get product categories for a specific branch type."""
         db = get_database()

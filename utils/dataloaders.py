@@ -6,7 +6,7 @@ from typing import List, Optional
 from strawberry.dataloader import DataLoader
 
 from domain.models import Branch, Business, Product
-from repositories import branches_repo, businesses_repo, products_repo
+from repositories import branches_repo, businesses_repo, product_categories_repo, products_repo
 from utils.cache import (
     TTL_DEFAULT,
     get_business_cache_key,
@@ -91,10 +91,19 @@ async def load_businesses(business_ids: List[str]) -> List[Optional[object]]:
     return [business_map.get(bid) for bid in business_ids]
 
 
+async def load_product_categories(category_ids: List[str]) -> List[Optional[object]]:
+    """Batch load product categories by IDs in a single query."""
+    category_ids = [str(cid) for cid in category_ids]
+    categories = await product_categories_repo.get_by_ids(category_ids)
+    category_map = {str(c.id): c for c in categories}
+    return [category_map.get(cid) for cid in category_ids]
+
+
 def create_dataloaders() -> dict:
     """Create all DataLoaders for the GraphQL context."""
     return {
         "products_by_branch_loader": DataLoader(load_fn=load_products_for_branches),
         "branch_loader": DataLoader(load_fn=load_branches),
         "business_loader": DataLoader(load_fn=load_businesses),
+        "category_loader": DataLoader(load_fn=load_product_categories),
     }

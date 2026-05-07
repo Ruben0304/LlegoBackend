@@ -54,16 +54,17 @@ class FeedProductType:
 
     @strawberry.field(description="Product category name")
     async def category_name(self, info: Info) -> Optional[str]:
-        """Resolve the product category name."""
         if not self.categoryId:
             return None
 
-        from repositories import product_categories_repo
+        loader = info.context.get("category_loader")
+        if loader:
+            category_data = await loader.load(str(self.categoryId))
+        else:
+            from repositories import product_categories_repo
+            category_data = await product_categories_repo.get_by_id(self.categoryId)
 
-        category_data = await product_categories_repo.get_by_id(self.categoryId)
-        if category_data:
-            return category_data.name
-        return None
+        return category_data.name if category_data else None
 
     @strawberry.field(description="Branch associated with this product")
     async def branch(

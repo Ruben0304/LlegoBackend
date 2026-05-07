@@ -605,42 +605,37 @@ class ProductRepository:
         from repositories import product_categories_repo
 
         logger = logging.getLogger(__name__)
-        filtered_products = []
 
+        # Batch-fetch all unique category IDs in a single query
+        unique_category_ids = list({p.categoryId for p in products if p.categoryId})
+        category_map: dict = {}
+        if unique_category_ids:
+            try:
+                fetched = await product_categories_repo.get_by_ids(unique_category_ids)
+                category_map = {str(c.id): c for c in fetched}
+            except Exception as e:
+                logger.warning(f"Error batch-fetching categories: {e}")
+
+        filtered_products = []
         for product in products:
-            # Handle products without category
             if not product.categoryId:
-                # Only include if no specific tipo is requested
                 if not requested_branch_tipo:
                     filtered_products.append(product)
                 continue
 
-            # Get product category
-            try:
-                category = await product_categories_repo.get_by_id(product.categoryId)
-            except Exception as e:
-                logger.warning(
-                    f"Error fetching category {product.categoryId} for product {product.id}: {e}"
-                )
-                category = None
-
+            category = category_map.get(str(product.categoryId))
             if not category:
-                # Log warning about invalid category
                 logger.warning(
                     f"Product {product.id} ({product.name}) has invalid categoryId: {product.categoryId}"
                 )
-                # If category not found, include only if no specific tipo requested
                 if not requested_branch_tipo:
                     filtered_products.append(product)
                 continue
 
-            # If a specific branchTipo is requested, only show products
-            # whose category matches that tipo
             if requested_branch_tipo:
                 if category.branchType == requested_branch_tipo:
                     filtered_products.append(product)
             else:
-                # No specific tipo requested - include all products with valid categories
                 filtered_products.append(product)
 
         return filtered_products
