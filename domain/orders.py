@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .py_object_id import PyObjectId
 
@@ -327,6 +327,20 @@ class DeliveryPerson(BaseModel):
     linkedBranchIds: List[PyObjectId] = []
     createdAt: datetime
     updatedAt: datetime
+
+    @field_validator("vehicleType", mode="before")
+    @classmethod
+    def coerce_vehicle_type(cls, v: Any) -> Optional[str]:
+        """Accept legacy values (moto, auto, a_pie) that existed before the
+        enum was narrowed to bicicleta/triciclo. Unknown values become None
+        instead of raising a validation error."""
+        if v is None:
+            return None
+        try:
+            VehicleType(v)   # validate
+            return v
+        except ValueError:
+            return None      # graceful fallback for old documents
 
     class Config:
         populate_by_name = True

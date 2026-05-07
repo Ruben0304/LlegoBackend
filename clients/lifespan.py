@@ -82,6 +82,17 @@ async def lifespan(app):
         logger.error(f"Warning: Could not start order timeout worker: {e}")
         print(f"Warning: Could not start order timeout worker: {e}")
 
+    # Seed the vehicles catalog (idempotent — skips if records already exist)
+    try:
+        from repositories.vehicle_repository import VehicleRepository
+        from domain.orders import VehicleType
+        repo = VehicleRepository()
+        await repo.upsert_seed("Bicicleta", VehicleType.BICICLETA)
+        await repo.upsert_seed("Triciclo",  VehicleType.TRICICLO)
+        logger.info("Vehicles catalog seeded")
+    except Exception as e:
+        logger.warning(f"Could not seed vehicles catalog: {e}")
+
     logger.info("All clients initialized successfully")
     print("All clients initialized successfully\n")
 
