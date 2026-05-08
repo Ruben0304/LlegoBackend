@@ -2,6 +2,65 @@
 
 ---
 
+## 📅 8 de Mayo, 2026
+
+### Resumen de cambios (últimas 24h)
+
+**Áreas: Sistema de vehículos (nuevo módulo), pagos Stripe en producción, feed de productos**
+
+| Commit | Autor | Descripción |
+|--------|-------|-------------|
+| `f1a3ed7` | brianmojena/Claude | perf(feed): fix N+1 queries en categorías con DataLoader |
+| `652eee7` | brianmojena/Claude | Fix crash en DeliveryPerson por legacy vehicleType values |
+| `dca075c` | brianmojena/Claude | feat: catálogo de vehículos + mutación link_vehicle |
+| `96503d8` | Ruben0304/Claude | fix(payments): quitar requerimiento prematuro de paymentIntentId en órdenes |
+| `58305943` | Ruben0304/Claude | feat(payments): Stripe live, llamadas async y notificaciones push en pagos |
+
+### Análisis de riesgos y consideraciones
+
+#### 🔴 Riesgos altos
+
+1. **Stripe en modo live — clave de producción activa**
+   - El commit activa la clave de Stripe live. Cualquier error en el flujo de pagos afecta dinero real.
+   - Las llamadas están envueltas en `asyncio.to_thread()` (correcto), pero si el thread pool del servidor se agota bajo carga, los pagos se encolarán silenciosamente sin feedback al cliente.
+   - **Acción urgente:** Verificar en Stripe Dashboard que los PaymentIntents llegan desde producción. Monitorear logs en Railway para excepciones de Stripe. Confirmar que el webhook (si existe) usa idempotency keys.
+
+2. **Cambio de enum VehicleType — documentos legacy quedan con vehicleType=None**
+   - El enum pasó de `moto/auto/a_pie` a `bicicleta/triciclo`. Los documentos legacy se deserializan con `vehicleType=None` via el `field_validator`.
+   - Si alguna lógica de negocio hace `if delivery_person.vehicleType:` o asume que el campo no es None, fallará silenciosamente en documentos legacy.
+   - **Acción recomendada:** Revisar todos los usos de `vehicleType` en el codebase. Evaluar migración de datos en MongoDB para convertir los valores legacy antes del siguiente despliegue.
+
+3. **Auto-seed de vehículos en el lifespan del servidor**
+   - `upsert_seed` corre en cada arranque. Si no es verdaderamente idempotente (upsert por slug o campo único), puede crear duplicados en la colección `vehicles` en reinicios frecuentes.
+   - **Acción recomendada:** Confirmar que `upsert_seed` usa `update_one(..., upsert=True)` con un índice único por `slug`.
+
+#### 🟡 Riesgos medios
+
+4. **paymentIntentId eliminado del create_order — flujo en 2 etapas**
+   - Ahora el PaymentIntent se crea solo en `initiatePayment()` (post-aceptación). Si una orden llega a `PENDING_PAYMENT` y `initiatePayment()` nunca se llama (abandono del cliente), queda en estado indefinido sin PaymentIntent.
+   - **Consideración:** Verificar si existe mecanismo de expiración o limpieza para órdenes en `PENDING_PAYMENT` sin PaymentIntent asociado.
+
+5. **DataLoader para categorías en el feed**
+   - El DataLoader agrupa peticiones en el mismo tick del event loop. Si el feed es cargado en múltiples resolvers simultáneos, la batching window puede ser demasiado corta para ser efectiva.
+   - **Consideración:** Probar con un feed de 20+ productos distintos y confirmar que los round-trips a MongoDB se reducen significativamente.
+
+6. **link_vehicle — validación de existencia del vehicleId**
+   - La mutación vincula el `vehicleId` al mensajero autenticado. No está explícito en el commit que se valide que el `vehicleId` existe en el catálogo antes de persistirlo en DeliveryPerson.
+   - **Consideración:** Confirmar que `VehicleRepository.get_by_id(vehicleId)` es invocado y lanza error si no existe, antes de hacer el update en DeliveryPerson.
+
+#### 🟢 Mejoras positivas
+
+7. **Notificaciones push reales en el flujo de pago**
+   - Se reemplazaron los `# TODO` de APNs/FCM con llamadas reales. El negocio recibe push al recibir comprobante; el cliente recibe push al confirmar pago. Cierra el loop de comunicación sin polling.
+
+8. **Stripe async con `asyncio.to_thread()`**
+   - El SDK sincrónico de Stripe ya no bloquea el event loop de FastAPI. Corrección técnica importante para estabilidad bajo carga concurrente.
+
+9. **Catálogo de vehículos en MongoDB**
+   - Reemplaza el enum hardcoded por una colección dinámica, permitiendo agregar tipos de vehículo sin cambios de código.
+
+---
+
 ## 📅 5 de Mayo, 2026
 
 ### Resumen de cambios (últimas 24h)
@@ -67,107 +126,5 @@ Sin commits de desarrollo nuevos desde el análisis de ayer. Solo el commit auto
 
 - El fix de race condition en `available_orders_for_delivery` (ayer, April 30) merece seguimiento activo hoy en producción: verificar que el frontend diferencia correctamente el primer ítem (entrega activa) del resto de pins disponibles.
 - No hay riesgos nuevos que reportar.
-
----
-
-## 📅 30 de Abril, 2026
-
-### Resumen de cambios (últimas 24h)
-
-**Área principal: Sistema de mensajeros (couriers) — unificación de endpoints de mapa**
-
-| Commit | Autor | Descripción |
-|--------|-------|-------------|
-| `6b81661` | brianmojena | feat(courier): incluye la entrega activa en `available_orders_for_delivery` |
-
-**Contexto:** Antes, el frontend llamaba a `myCurrentDelivery` y `availableOrdersForDelivery` por separado, generando race conditions donde el pin del pedido aceptado desaparecía del mapa. Ahora el backend siempre antepone la entrega activa del courier a la lista `availableOrdersForDelivery`, sin importar el timing del polling.
-
-### Análisis de riesgos y consideraciones
-
-#### 🔴 Riesgos altos
-
-1. **El frontend debe distinguir el primer ítem (entrega activa) del resto (disponibles para aceptar)**
-   - Si el frontend renderiza todos los ítems de `availableOrdersForDelivery` de forma idéntica, el courier podría ver su propia entrega actual como un pedido "disponible para aceptar" de nuevo, o peor, intentar aceptarla otra vez.
-   - **Acción recomendada:** Verificar que el frontend identifica el primer elemento (la entrega activa) y lo renderiza/trata de forma diferenciada al resto de pins del mapa.
-
-#### 🟡 Riesgos medios
-
-2. **Caso donde el courier no tiene entrega activa**
-   - El commit dice que siempre se _prepend_ la entrega activa. Hay que asegurar que cuando `get_current_delivery` retorna `None` (sin entrega activa), la función no intente insertar `None` al inicio de la lista ni lance un error de índice.
-   - **Consideración:** Revisar el bloque de código que hace el prepend para confirmar que el caso `None` está manejado.
-
-3. **Acoplamiento entre `get_current_delivery` y `available_orders_for_delivery`**
-   - Ahora `available_orders_for_delivery` depende internamente de `get_current_delivery`. Si esta consulta falla o se vuelve lenta, el endpoint de órdenes disponibles también se degrada.
-   - **Consideración:** Evaluar si vale la pena atrapar excepciones de `get_current_delivery` dentro del resolver de `available_orders_for_delivery` para que un fallo parcial no rompa el listado completo.
-
-#### 🟢 Mejoras positivas
-
-4. **Eliminación de race condition en el mapa**
-   - Con una única fuente de verdad en el backend, el frontend ya no necesita coordinar dos llamadas independientes. Reduce complejidad del cliente y hace el estado del mapa más confiable.
-
-5. **Sesión sin commits con mensajes sin descripción** — a diferencia de días anteriores, todos los commits de hoy tienen mensajes claros.
-
----
-
-## 📅 29 de Abril, 2026
-
-### Resumen de cambios (últimas 24h)
-
-**Área principal: Sistema de mensajeros (couriers)**
-
-| Commit | Autor | Descripción |
-|--------|-------|-------------|
-| `0b4fe77` | brianmojena | fix(courier): `accept_delivery` idempotente + manejo de race conditions |
-| `e9aa50b` | brianmojena | fix(courier): captura todas las excepciones en mutaciones de courier + logging |
-| `0ec439a` | brianmojena | fix(courier): añade `AWAITING_DELIVERY_ACCEPTANCE` a `get_current_delivery` + logs |
-| `37f6aba` | brianmojena | fix(couriers): limpia estado del mensajero al cancelar/entregar pedido |
-| `24784cf` | brianmojena | fix(couriers): auto-crea registro `delivery_person` en primera aceptación |
-| `09ab052` | brianmojena | Añade `PENDING_PAYMENT` al query de estado de pedidos |
-| `c60045c` | Ruben0304 | feat(couriers): mutación `adminPushCourierLocation` para simulación en mapa |
-| `948613c` | Ruben0304 | feat(couriers): enriquece `CourierPresenceType` con perfil del mensajero |
-| `82fa35b` | Fabian1820 | *(mensaje sin descripción: "fdvfdvb")* |
-| `1c1220c` | Fabian1820 | *(mensaje sin descripción: "hvhj")* |
-
-### Análisis de riesgos y consideraciones
-
-#### 🔴 Riesgos altos
-
-1. **Commits sin mensajes descriptivos (`fdvfdvb`, `hvhj`) de Fabian1820**
-   - Es imposible saber qué cambiaron sin inspeccionar el diff directamente.
-   - Si introducen bugs, serán muy difíciles de rastrear en el historial.
-   - **Acción recomendada:** Revisar estos diffs manualmente. Adoptar convención de mensajes descriptivos.
-
-2. **Auto-creación de `delivery_person` en primera aceptación**
-   - Si dos requests llegan simultáneamente para el mismo usuario, podría haber race condition en la creación del documento, generando duplicados en MongoDB.
-   - Depende de si hay un índice único por `user_id` en la colección `delivery_persons`.
-   - **Acción recomendada:** Confirmar que existe un índice único o usar `upsert` atómico.
-
-#### 🟡 Riesgos medios
-
-3. **Idempotencia de `accept_delivery` basada en `deliveryPersonId`**
-   - La lógica retorna el estado actual si el courier ya está asignado. Correcto para reintentos.
-   - Pero si el check de idempotencia ocurre justo cuando otro courier también ganó la carrera y se está actualizando, podría retornar un falso positivo.
-   - **Consideración:** Verificar que el re-fetch tras `None` en `set_delivery_person` es verdaderamente atómico.
-
-4. **Limpieza de estado del mensajero en cancel/deliver**
-   - `update_status` ahora llama a `delivery_repo.complete_delivery()` cuando el estado pasa a `CANCELLED` o `DELIVERED`.
-   - Si `complete_delivery()` falla silenciosamente, el mensajero queda bloqueado.
-   - **Acción recomendada:** Asegurarse de que `complete_delivery()` loguea errores y que el error no sea silenciado.
-
-5. **`AWAITING_DELIVERY_ACCEPTANCE` en `get_current_delivery`**
-   - Cubre la ventana de race entre `set_delivery_person` y `update_status`. Es una buena solución.
-   - Riesgo menor: si un pedido queda en este estado indefinidamente (fallo entre los dos pasos), el mensajero aparecerá con un pedido "fantasma".
-   - **Consideración:** Evaluar si hace falta un timeout o limpieza periódica para este estado intermedio.
-
-#### 🟢 Mejoras positivas
-
-6. **`adminPushCourierLocation` para simulación**
-   - Facilita el testing del mapa en vivo sin mensajeros reales. Muy útil para QA.
-
-7. **Enriquecimiento de `CourierPresenceType` con perfil**
-   - Batch query de Mongo por snapshot es eficiente. Bien implementado.
-
-8. **Logging `[COURIER]` en mutaciones**
-   - Mejora significativa para diagnóstico en Railway.
 
 ---
