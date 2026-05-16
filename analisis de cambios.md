@@ -2,6 +2,25 @@
 
 ---
 
+## 📅 16 de Mayo, 2026
+
+### Resumen de cambios (últimas 24h)
+
+Sin commits de desarrollo nuevos en el backend. Solo el commit automático de "Analisis diario Claude".
+
+#### Consideraciones del día
+
+- Sin actividad directa en el backend hoy.
+- Los riesgos críticos identificados el 15 de mayo permanecen **abiertos y sin confirmar**:
+
+  - **[URGENTE] `aumento_porcentaje` y `aumento_tipo` en ofertas:** El frontend calcula `precio × (1 - desc/100) × (1 + aum/100)` y muestra el resultado al cliente. Si el backend no persiste estos campos, el precio procesado diferirá del precio mostrado.
+  - **[URGENTE] Tasa de cambio EUR vs CUP:** El frontend tuvo 3 cambios contradictorios en un día. La convención final es: EUR multiplica (`monto × tasa`), CUP divide (`monto / tasa`). Confirmar que el backend aplica la misma lógica o los montos USD en EUR serán incorrectos.
+  - **[URGENTE] Endpoints de paginación server-side:** Verificar existencia de `/cobros-paginado` y `/personalizadas/pendientes-paginado` con parámetros `skip`, `limit`, `q`, `estado_pendiente`, filtros de fecha y devoluciones. Sin ellos, las tabs de cobros y anticipos/finales pendientes rompen completamente.
+  - **[URGENTE] Endpoint eliminar pago:** Confirmar que existe y aplica el rollback contable correcto (reversa de saldo en billetera si aplica).
+  - **Pendientes acumulados anteriores:** Endpoints wallet (`ensure`, `pending-transfers`, `accept`, `reject`, `DELETE`), campo `recibido_por_ci` en pagos, campos editables de RRHH (`nombre`, `telefono`), diferenciación de `available_orders_for_delivery`, flag `sin_recargo` en link de pago Stripe.
+
+---
+
 ## 📅 15 de Mayo, 2026
 
 ### Resumen de cambios (últimas 24h)
