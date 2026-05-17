@@ -2,6 +2,27 @@
 
 ---
 
+## 📅 17 de Mayo, 2026
+
+### Resumen de cambios (últimas 24h)
+
+Sin commits de desarrollo nuevos en el backend. Solo el commit automático de "Analisis diario Claude".
+
+#### Consideraciones del día
+
+- Sin actividad directa en el backend hoy.
+- Seguimientos vigentes de días anteriores:
+  - **`aumento_porcentaje` y `aumento_tipo` en ofertas:** Verificar que el endpoint de creación/actualización de ofertas acepta y persiste estos campos en el modelo de materiales.
+  - **Tasa de cambio EUR vs CUP:** Convención final del frontend: EUR multiplica (`monto × tasa`), CUP divide (`monto / tasa`). Confirmar que el backend aplica la misma lógica.
+  - **Endpoints de paginación:** `GET /cobros-paginado` y `GET /personalizadas/pendientes-paginado` deben existir con parámetros `skip`, `limit`, `q`, `estado_pendiente`, filtros de fecha y devoluciones.
+  - **Rollback de pago:** Verificar que el endpoint de eliminación de pago revierte correctamente el saldo de billetera cuando aplica.
+  - **`recibido_por_ci` en pagos:** Confirmar que el endpoint auto-acredita la billetera del trabajador correspondiente.
+  - **Endpoints de transferencias del wallet:** `POST /wallet/wallets/ensure`, `POST /wallet/pending-transfers`, `PUT .../accept`, `PUT .../reject`, `DELETE .../` — confirmar que todos existen.
+  - **RRHH — nombre y teléfono editables:** Confirmar que el endpoint de actualización acepta y persiste ambos campos.
+  - **`available_orders_for_delivery`:** Verificar que el frontend diferencia correctamente el primer ítem (entrega activa) del resto de pins.
+
+---
+
 ## 📅 15 de Mayo, 2026
 
 ### Resumen de cambios (últimas 24h)
@@ -54,21 +75,6 @@ Sin commits de desarrollo nuevos. Solo el commit automático de "Analisis diario
 ---
 
 ## 📅 10 de Mayo, 2026
-
-### Resumen de cambios (últimas 24h)
-
-Sin commits de desarrollo nuevos. Solo el commit automático de "Analisis diario Claude".
-
-#### Consideraciones del día
-
-- Sin actividad de backend hoy.
-- Seguimiento vigente: verificar que el frontend diferencia correctamente el primer ítem (entrega activa) del resto de pins en `available_orders_for_delivery` (fix del 30 de abril).
-- SunCarWeb agregó el flag `sin_recargo` en solicitudes-ventas. Verificar que el backend maneja correctamente ese flag en el route de generación de link de pago y omite la comisión Stripe cuando está presente.
-- No hay riesgos nuevos propios del backend que reportar.
-
----
-
-## 📅 9 de Mayo, 2026
 
 ### Resumen de cambios (últimas 24h)
 
