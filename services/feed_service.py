@@ -6,11 +6,13 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
 
+from domain.orders import OrderStatus
 from repositories import (
     branch_likes_repo,
     branches_repo,
     businesses_repo,
     favorites_cart_repo,
+    orders_repo,
     products_repo,
     searches_repo,
 )
@@ -86,6 +88,29 @@ class FeedService:
     GUSTAR_NOVELTY = 0.15
     GUSTAR_PROXIMITY = 0.15
     GUSTAR_RECENT_POPULARITY = 0.10
+
+    # --- Section: Pide de Nuevo ---
+    PIDE_NUEVO_RECENCY = 0.55
+    PIDE_NUEVO_FREQUENCY = 0.35
+    PIDE_NUEVO_PROXIMITY = 0.10
+
+    # --- Section: Hora del Día ---
+    HORA_DIA_RECENT_POPULARITY = 0.60
+    HORA_DIA_PROXIMITY = 0.30
+    HORA_DIA_FRESHNESS = 0.10
+
+    @staticmethod
+    def get_meal_context() -> tuple[str, str]:
+        """Return a time-of-day section title and description based on the current UTC hour."""
+        hour = datetime.now(timezone.utc).hour
+        if 7 <= hour < 12:
+            return "Desayunos Populares", "Los más pedidos para el desayuno"
+        elif 12 <= hour < 16:
+            return "Para el Almuerzo", "Los favoritos a la hora del almuerzo"
+        elif 16 <= hour < 20:
+            return "Para Merendar", "Lo más popular para la merienda"
+        else:
+            return "Para la Cena", "Los más pedidos en la noche"
 
     async def get_branch_ids_by_tipo(self, branch_tipo: str) -> Set[str]:
         """Fetch branch IDs filtered by tipo, restricted to approved businesses."""
@@ -202,11 +227,18 @@ class FeedService:
 
     async def _build_para_ti_user_profile(self, user_id: str) -> Dict[str, Any]:
         """Build lightweight affinity maps and direct interaction sets for feed ranking."""
-        searches, favorite_items, cart_items, liked_branches = await asyncio.gather(
+        (
+            searches,
+            favorite_items,
+            cart_items,
+            liked_branches,
+            (delivered_orders, _),
+        ) = await asyncio.gather(
             searches_repo.get_user_searches(user_id, limit=100),
             favorites_cart_repo.get_by_user(user_id, "favorite"),
             favorites_cart_repo.get_by_user(user_id, "cart"),
             branch_likes_repo.get_by_user(user_id),
+            orders_repo.get_by_customer(user_id, status=OrderStatus.DELIVERED, limit=50),
         )
 
         interacted_product_ids: Set[str] = set()
@@ -285,6 +317,17 @@ class FeedService:
                     getattr(branch_like, "createdAt", None), half_life_days=45.0
                 )
             )
+
+        # Completed orders are the strongest purchase signal (weight 3.5, 60-day half-life)
+        for order in delivered_orders:
+            order_time = getattr(order, "completedAt", None) or getattr(order, "createdAt", None)
+            for item in order.items:
+                if item.itemType != "product":
+                    continue
+                add_product_signal(
+                    item.itemId,
+                    3.5 * self._decay_factor(order_time, half_life_days=60.0),
+                )
 
         return {
             "product_intent": self._normalize_score_map(product_intent_raw),
@@ -899,6 +942,155 @@ class FeedService:
                 )
 
         # Sort and limit
+        self._sort_scored_products(scored_products)
+        return scored_products[: self._candidate_limit(limit)]
+
+    async def get_pide_de_nuevo_section(
+        self,
+        user_id: str,
+        user_location: Optional[tuple],
+        branch_ids: Set[str],
+        limit: int = 10,
+        radius_km: Optional[float] = None,
+        all_products: Optional[List[Any]] = None,
+    ) -> List[ScoredFeedProduct]:
+        """
+        Section: Pide de Nuevo
+        Products the user has previously ordered, ranked by recency (55%) + frequency (35%)
+        + proximity (10%). Only shows available products still in the catalog.
+        """
+        delivered_orders, _ = await orders_repo.get_by_customer(
+            user_id, status=OrderStatus.DELIVERED, limit=50
+        )
+        if not delivered_orders:
+            return []
+
+        # Build per-product signals from order history
+        product_signals: Dict[str, Dict[str, Any]] = {}
+        for order in delivered_orders:
+            order_time = getattr(order, "completedAt", None) or getattr(order, "createdAt", None)
+            for item in order.items:
+                if item.itemType != "product":
+                    continue
+                pid = str(item.itemId)
+                if pid not in product_signals:
+                    product_signals[pid] = {"latest_at": order_time, "count": 0}
+                else:
+                    if order_time and (
+                        product_signals[pid]["latest_at"] is None
+                        or order_time > product_signals[pid]["latest_at"]
+                    ):
+                        product_signals[pid]["latest_at"] = order_time
+                product_signals[pid]["count"] += 1
+
+        if not product_signals:
+            return []
+
+        max_count = max(sig["count"] for sig in product_signals.values())
+        ordered_ids = set(product_signals.keys())
+
+        products = [
+            p
+            for p in (all_products or [])
+            if (
+                str(p.id) in ordered_ids
+                and str(p.branchId) in branch_ids
+                and getattr(p, "availability", False)
+            )
+        ]
+        if not products:
+            return []
+
+        products, proximity_map = await self._prepare_products_with_proximity(
+            products, user_location, radius_km=radius_km
+        )
+        if not products:
+            return []
+
+        scored_products = []
+        for product in products:
+            pid = str(product.id)
+            signal = product_signals[pid]
+            recency = self._decay_factor(signal["latest_at"], half_life_days=30.0)
+            frequency = signal["count"] / max_count
+            proximity = proximity_map.get(pid, 0.0)
+
+            final_score = (
+                recency * self.PIDE_NUEVO_RECENCY
+                + frequency * self.PIDE_NUEVO_FREQUENCY
+                + proximity * self.PIDE_NUEVO_PROXIMITY
+            )
+
+            scored_products.append(
+                ScoredFeedProduct(
+                    product=product,
+                    score=final_score,
+                    section_scores={
+                        "recency": recency,
+                        "frequency": frequency,
+                        "proximity": proximity,
+                    },
+                )
+            )
+
+        self._sort_scored_products(scored_products)
+        return scored_products[: self._candidate_limit(limit)]
+
+    async def get_hora_del_dia_section(
+        self,
+        user_location: Optional[tuple],
+        branch_ids: Set[str],
+        limit: int = 10,
+        radius_km: Optional[float] = None,
+        all_products: Optional[List[Any]] = None,
+    ) -> List[ScoredFeedProduct]:
+        """
+        Section: Hora del Día
+        Available products ranked by last-24h activity (60%) + proximity (30%)
+        + freshness (10%). Title is time-contextual (see get_meal_context).
+        """
+        products = [
+            p
+            for p in (all_products or [])
+            if str(p.branchId) in branch_ids and getattr(p, "availability", False)
+        ]
+        if not products:
+            return []
+
+        recent_popularity, (products, proximity_map) = await asyncio.gather(
+            self._build_recent_popularity_scores(days=1),
+            self._prepare_products_with_proximity(products, user_location, radius_km=radius_km),
+        )
+        if not products:
+            return []
+
+        freshness_scores = products_repo.calculate_freshness_scores(products)
+
+        scored_products = []
+        for product in products:
+            pid = str(product.id)
+            recent_pop = recent_popularity.get(pid, 0.0)
+            proximity = proximity_map.get(pid, 0.0)
+            freshness = freshness_scores.get(pid, 0.0)
+
+            final_score = (
+                recent_pop * self.HORA_DIA_RECENT_POPULARITY
+                + proximity * self.HORA_DIA_PROXIMITY
+                + freshness * self.HORA_DIA_FRESHNESS
+            )
+
+            scored_products.append(
+                ScoredFeedProduct(
+                    product=product,
+                    score=final_score,
+                    section_scores={
+                        "recent_popularity_24h": recent_pop,
+                        "proximity": proximity,
+                        "freshness": freshness,
+                    },
+                )
+            )
+
         self._sort_scored_products(scored_products)
         return scored_products[: self._candidate_limit(limit)]
 

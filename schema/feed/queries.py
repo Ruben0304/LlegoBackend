@@ -40,6 +40,10 @@ class FeedQuery:
                 Available: ["para_ti", "populares_cerca", "trending", "basado_busquedas",
                            "nuevos_lugares_favoritos", "mas_favoriteados", "cerca_ti", "te_podria_gustar"]
             jwt: JWT token for authentication (optional, but required for personalized sections)
+                Available sections include: ["para_ti", "pide_de_nuevo", "populares_cerca",
+                           "trending", "hora_del_dia", "basado_busquedas",
+                           "nuevos_lugares_favoritos", "mas_favoriteados", "cerca_ti",
+                           "te_podria_gustar"]
 
         Returns:
             FeedResponse with multiple sections of scored products
@@ -106,13 +110,19 @@ class FeedQuery:
             )
 
         # Default sections if not specified
+        meal_title, meal_description = feed_service.get_meal_context()
         available_sections = {
             "para_ti": ("Para Ti", "Productos personalizados según tus preferencias"),
+            "pide_de_nuevo": (
+                "Pide de Nuevo",
+                "Tus pedidos anteriores, listos para repetir",
+            ),
             "populares_cerca": (
                 "Populares Cerca de Ti",
                 "Los más populares en tu zona",
             ),
             "trending": ("Trending Ahora", "Productos con mayor actividad reciente"),
+            "hora_del_dia": (meal_title, meal_description),
             "basado_busquedas": ("Basado en tus Búsquedas", "Según lo que has buscado"),
             "nuevos_lugares_favoritos": (
                 "Nuevos en tus Lugares Favoritos",
@@ -184,6 +194,31 @@ class FeedQuery:
                             total_after_dedup=0,
                         )
                     )
+            elif section_id == "pide_de_nuevo":
+                if user_id:
+                    tasks.append(
+                        feed_service.get_pide_de_nuevo_section(
+                            user_id,
+                            user_location,
+                            branch_ids,
+                            first,
+                            radius_km=radius_km,
+                            all_products=all_products,
+                        )
+                    )
+                    section_keys.append(section_id)
+                else:
+                    title, _ = requested_sections[section_id]
+                    section_diagnostics.append(
+                        FeedSectionDiagnostic(
+                            section_id=section_id,
+                            title=title,
+                            status="omitted",
+                            reason="Requiere JWT válido (sin historial de pedidos del usuario)",
+                            total_before_dedup=0,
+                            total_after_dedup=0,
+                        )
+                    )
             elif section_id == "populares_cerca":
                 tasks.append(
                     feed_service.get_populares_cerca_section(
@@ -198,6 +233,17 @@ class FeedQuery:
             elif section_id == "trending":
                 tasks.append(
                     feed_service.get_trending_section(
+                        user_location,
+                        branch_ids,
+                        first,
+                        radius_km=radius_km,
+                        all_products=all_products,
+                    )
+                )
+                section_keys.append(section_id)
+            elif section_id == "hora_del_dia":
+                tasks.append(
+                    feed_service.get_hora_del_dia_section(
                         user_location,
                         branch_ids,
                         first,
