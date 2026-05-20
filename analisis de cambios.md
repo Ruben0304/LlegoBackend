@@ -2,6 +2,38 @@
 
 ---
 
+## 📅 20 de Mayo, 2026
+
+### Resumen de cambios (últimas 24h)
+
+**1 commit** de Brian (`brianmojena`):
+
+- **`feat: "Pide de Nuevo" y "Hora del Día"`** — Dos nuevas secciones en el feed del usuario:
+  - **"Pide de Nuevo"**: muestra productos previamente pedidos por el usuario, requiere autenticación, ranking por recencia + frecuencia + proximidad.
+  - **"Hora del Día"**: ajusta título y descripción según la hora UTC actual, ranking por popularidad reciente + proximidad + frescura del producto.
+
+#### Puede dar bateo
+
+- **Timezone UTC hardcodeado**: "Hora del Día" usa la hora UTC para determinar el tramo del día. Los usuarios en Cuba (UTC-5) podrían ver "buenas tardes" cuando aún es mañana. Valorar tomar la hora local del cliente en el request o configurar la zona horaria del servidor según la región objetivo.
+- **Ranking de proximidad sin coordenadas**: Si el request no incluye lat/lng (permiso de ubicación denegado o no enviado por el cliente), el ranking de proximidad puede fallar con 500 o devolver resultados sin orden. Verificar el fallback cuando las coordenadas son `null`.
+- **"Pide de Nuevo" sin autenticación no debe romper el feed**: Si el token ha expirado o el endpoint falla, la respuesta debe retornar un array vacío para esta sección y no propagar una excepción que haga fallar todo el feed.
+- **Performance — ranking multi-factor sobre historial de órdenes**: Combinar recencia + frecuencia + proximidad requiere agregar órdenes por usuario. Si la tabla de órdenes no tiene índice en `(user_id, created_at)`, la query puede ser lenta bajo carga alta.
+
+#### Seguimientos vigentes
+
+- **`aumento_porcentaje` y `aumento_tipo` en ofertas**: Verificar que el endpoint de creación/actualización de ofertas acepta y persiste estos campos por material.
+- **Tasa de cambio EUR vs CUP**: Convención final: EUR multiplica (`monto × tasa`), CUP divide (`monto / tasa`). Confirmar que el backend aplica la misma lógica.
+- **Endpoints de paginación**: `GET /cobros-paginado` y `GET /personalizadas/pendientes-paginado` — verificar parámetros `skip`, `limit`, `q`, `estado_pendiente`, filtros de fecha y devoluciones.
+- **Rollback de pago**: Confirmar que el endpoint de eliminación de pago revierte correctamente el saldo de billetera cuando aplica.
+- **`recibido_por_ci` en pagos**: Confirmar que el endpoint auto-acredita la billetera del trabajador correspondiente.
+- **Endpoints de transferencias del wallet**: `POST /wallet/wallets/ensure`, `POST /wallet/pending-transfers`, `PUT .../accept`, `PUT .../reject`, `DELETE .../` — confirmar que todos existen.
+- **RRHH — nombre y teléfono editables**: Confirmar que el endpoint de actualización acepta y persiste ambos campos.
+- **`available_orders_for_delivery`**: Verificar que el frontend diferencia correctamente el primer ítem (entrega activa) del resto de pins.
+- **`averia_id` en trabajos diarios**: Confirmar que el backend acepta este campo en POST/PATCH de `/trabajos-diarios/` y lo indexa para búsquedas eficientes por avería.
+- **Permiso `gestionar_banco_global`**: Si el backend no valida este permiso en los endpoints de banco/wallet, el control de acceso queda roto.
+
+---
+
 ## 📅 18 de Mayo, 2026
 
 ### Resumen de cambios (últimas 24h)
@@ -73,28 +105,5 @@ Sin commits de desarrollo nuevos en el backend. Solo el commit automático de "A
   - **Endpoints de transferencias pendientes del wallet:** `POST /wallet/wallets/ensure`, `POST /wallet/pending-transfers`, `PUT .../accept`, `PUT .../reject`, `DELETE .../` — confirmar que todos existen.
   - **RRHH — nombre y teléfono editables:** Confirmar que el endpoint de actualización de trabajadores acepta y persiste ambos campos.
   - **`available_orders_for_delivery`:** Verificar que el frontend diferencia correctamente el primer ítem (entrega activa) del resto de pins.
-
----
-
-## 📅 11 de Mayo, 2026
-
-### Resumen de cambios (últimas 24h)
-
-Sin commits de desarrollo nuevos. Solo el commit automático de "Analisis diario Claude".
-
-#### Consideraciones del día
-
-- Sin actividad directa en el backend hoy.
-- **Alerta por cambios en SunCarWeb:** El frontend implementó hoy un módulo wallet con flujo de transferencias pendientes que asume la existencia de los siguientes endpoints en el backend:
-  - `POST /wallet/wallets/ensure` — crear billetera automáticamente si el destinatario no tiene una
-  - `POST /wallet/pending-transfers` — crear transferencia pendiente
-  - `PUT /wallet/pending-transfers/{id}/accept`
-  - `PUT /wallet/pending-transfers/{id}/reject`
-  - `DELETE /wallet/pending-transfers/{id}` (cancelar)
-  - Endpoint de lookup de trabajadores (búsqueda por nombre o CI)
-  - Si alguno no existe, el flujo de transferencias del frontend fallará silenciosamente con 404.
-- **Campo `recibido_por_ci` en pagos**: El frontend ahora envía este campo al registrar un pago para que el backend auto-acredite la billetera del trabajador correspondiente. Verificar que el endpoint de pagos lo implementa.
-- **RRHH — nombre y teléfono editables**: El frontend permite editar `nombre` y `telefono` de trabajadores directamente en la tabla. Confirmar que el endpoint de actualización acepta y persiste ambos campos.
-- Seguimiento vigente: verificar que el frontend diferencia correctamente el primer ítem (entrega activa) del resto de pins en `available_orders_for_delivery` (fix del 30 de abril).
 
 ---
