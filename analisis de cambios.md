@@ -2,6 +2,32 @@
 
 ---
 
+## 📅 21 de Mayo, 2026
+
+### Resumen de cambios (últimas 24h)
+
+Sin commits de desarrollo nuevos desde el último análisis. El commit de Brian del 20/05 ("Pide de Nuevo" y "Hora del Día") ya fue registrado ayer.
+
+#### Seguimientos vigentes
+
+- **Timezone UTC en "Hora del Día"**: Usuarios en Cuba (UTC-5) verán el tramo del día desfasado 5h. Tomar la hora local del cliente en el request o configurar TZ del servidor.
+- **Ranking sin coordenadas**: Si lat/lng es `null`, verificar que el fallback de proximidad no genere 500 en el feed.
+- **"Pide de Nuevo" con token expirado**: El feed completo no debe romper; la sección debe retornar array vacío.
+- **Performance ranking multi-factor**: Verificar índice en `(user_id, created_at)` en la tabla de órdenes.
+- **`aumento_porcentaje` y `aumento_tipo` en ofertas**: Confirmar que el endpoint persiste estos campos por material.
+- **Tasa de cambio EUR vs CUP**: EUR multiplica, CUP divide. Confirmar que el backend aplica la misma convención.
+- **Endpoints de paginación**: `GET /cobros-paginado` y `GET /personalizadas/pendientes-paginado` con params `skip`, `limit`, `q`, `estado_pendiente`, filtros de fecha.
+- **Rollback de pago**: Confirmar que eliminar un pago revierte correctamente el saldo de billetera.
+- **`recibido_por_ci` en pagos**: Confirmar auto-acreditación de billetera del trabajador.
+- **Endpoints wallet**: `POST /wallet/wallets/ensure`, `POST /wallet/pending-transfers`, `PUT .../accept`, `PUT .../reject`, `DELETE .../` — confirmar que todos existen.
+- **RRHH — nombre y teléfono editables**: Confirmar que el endpoint de actualización persiste ambos campos.
+- **`available_orders_for_delivery`**: Verificar diferenciación entre entrega activa y pins adicionales.
+- **`averia_id` en trabajos diarios**: Confirmar que el backend acepta este campo en POST/PATCH y lo indexa.
+- **Permiso `gestionar_banco_global`**: Si el backend no valida este permiso, el control de acceso de banco/wallet queda roto.
+- **Campos SunCarWeb → backend pendientes**: `motivo` y `nota` en asignaciones; `foto` y `ficha_tecnica_url` en materiales; `oferta_venta_id`, `descuento_free`, `motivo_descuento_free`, `precio` en solicitudes desde oferta.
+
+---
+
 ## 📅 20 de Mayo, 2026
 
 ### Resumen de cambios (últimas 24h)
