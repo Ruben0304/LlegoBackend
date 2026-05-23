@@ -2,6 +2,32 @@
 
 ---
 
+## 📅 23 de Mayo, 2026
+
+### Resumen de cambios (últimas 24h)
+
+Sin commits de desarrollo nuevos. Solo el commit automático "Analisis diario Claude" del 22/05.
+
+#### Seguimientos vigentes
+
+- **Timezone UTC en "Hora del Día"**: Usuarios en Cuba (UTC-5) verán el tramo del día desfasado 5h. Tomar la hora local del cliente en el request o configurar TZ del servidor.
+- **Ranking sin coordenadas**: Si lat/lng es `null`, verificar que el fallback de proximidad no genere 500 en el feed.
+- **"Pide de Nuevo" con token expirado**: El feed completo no debe romper; la sección debe retornar array vacío.
+- **Performance ranking multi-factor**: Verificar índice en `(user_id, created_at)` en la tabla de órdenes.
+- **`aumento_porcentaje` y `aumento_tipo` en ofertas**: Confirmar que el endpoint persiste estos campos por material.
+- **Tasa de cambio EUR vs CUP**: EUR multiplica, CUP divide. Confirmar que el backend aplica la misma convención.
+- **Endpoints de paginación**: `GET /cobros-paginado` y `GET /personalizadas/pendientes-paginado` con params `skip`, `limit`, `q`, `estado_pendiente`, filtros de fecha.
+- **Rollback de pago**: Confirmar que eliminar un pago revierte correctamente el saldo de billetera.
+- **`recibido_por_ci` en pagos**: Confirmar auto-acreditación de billetera del trabajador.
+- **Endpoints wallet**: `POST /wallet/wallets/ensure`, `POST /wallet/pending-transfers`, `PUT .../accept`, `PUT .../reject`, `DELETE .../` — confirmar que todos existen.
+- **RRHH — nombre y teléfono editables**: Confirmar que el endpoint de actualización persiste ambos campos.
+- **`available_orders_for_delivery`**: Verificar diferenciación entre entrega activa y pins adicionales.
+- **`averia_id` en trabajos diarios**: Confirmar que el backend acepta este campo en POST/PATCH y lo indexa.
+- **Permiso `gestionar_banco_global`**: Si el backend no valida este permiso, el control de acceso de banco/wallet queda roto.
+- **Campos SunCarWeb → backend pendientes**: `motivo` y `nota` en asignaciones; `foto` y `ficha_tecnica_url` en materiales; `oferta_venta_id`, `descuento_free`, `motivo_descuento_free`, `precio` en solicitudes desde oferta.
+
+---
+
 ## 📅 22 de Mayo, 2026
 
 ### Resumen de cambios (últimas 24h)
@@ -128,34 +154,6 @@ Sin commits de desarrollo nuevos en el backend. Solo el commit automático de "A
   - **`recibido_por_ci` en pagos:** Confirmar que el endpoint auto-acredita la billetera del trabajador correspondiente.
   - **Endpoints de transferencias del wallet:** `POST /wallet/wallets/ensure`, `POST /wallet/pending-transfers`, `PUT .../accept`, `PUT .../reject`, `DELETE .../` — confirmar que todos existen.
   - **RRHH — nombre y teléfono editables:** Confirmar que el endpoint de actualización acepta y persiste ambos campos.
-  - **`available_orders_for_delivery`:** Verificar que el frontend diferencia correctamente el primer ítem (entrega activa) del resto de pins.
-
----
-
-## 📅 15 de Mayo, 2026
-
-### Resumen de cambios (últimas 24h)
-
-Sin commits de desarrollo nuevos en el backend. Solo el commit automático de "Analisis diario Claude".
-
-#### Consideraciones del día
-
-- Sin actividad directa en el backend hoy.
-- **Alerta por cambios en SunCarWeb — campo `aumento_porcentaje` en ofertas:** El frontend implementó un nuevo campo de aumento por material (simétrico al descuento) con fórmula `precio × (1 - desc/100) × (1 + aum/100)`. El backend debe aceptar y persistir `aumento_porcentaje` y `aumento_tipo` (% o $) por cada material en las ofertas. Si el backend los ignora, el precio que muestra el frontend diferirá del que procesa el backend.
-  - **Acción urgente:** Verificar que el endpoint de creación/actualización de ofertas incluye estos campos en el modelo y los persiste.
-
-- **Alerta por cambios en SunCarWeb — tasa de cambio EUR vs CUP:** Hubo 3 commits consecutivos sobre la lógica de tasa (fix → revert → fix final). La conclusión final es: para CUP la tasa se divide (CUP por 1 USD) y para EUR se multiplica (USD por 1 EUR). El backend debe aplicar la misma convención o recibirá montos USD incorrectos para pagos en EUR.
-  - **Acción urgente:** Confirmar cómo espera el backend la tasa en cada moneda y que el frontend envía el valor correcto tras el último fix.
-
-- **Alerta — paginación server-side en cobros y anticipos/finales pendientes:** El frontend ahora consume los endpoints `/cobros-paginado` y `/personalizadas/pendientes-paginado`. Si estos no existen en el backend, las tabs de cobros y pagos pendientes romperán completamente.
-  - **Acción urgente:** Verificar que ambos endpoints existen y paginan correctamente con los parámetros `skip`, `limit`, `q`, `estado_pendiente`, filtros de fecha y devoluciones.
-
-- **Alerta — rollback manual de pago si falla la creación de factura:** El frontend ahora llama a un nuevo método `PagoVentaService.eliminarPago` si `crearFactura` lanza error. Verificar que el endpoint de eliminar pago existe y aplica correctamente el rollback contable (revertir saldo de billetera si aplica).
-
-- Seguimientos vigentes de días anteriores:
-  - **`recibido_por_ci` en pagos:** Verificar que el endpoint de pagos maneja este campo y auto-acredita la billetera del trabajador correspondiente.
-  - **Endpoints de transferencias pendientes del wallet:** `POST /wallet/wallets/ensure`, `POST /wallet/pending-transfers`, `PUT .../accept`, `PUT .../reject`, `DELETE .../` — confirmar que todos existen.
-  - **RRHH — nombre y teléfono editables:** Confirmar que el endpoint de actualización de trabajadores acepta y persiste ambos campos.
   - **`available_orders_for_delivery`:** Verificar que el frontend diferencia correctamente el primer ítem (entrega activa) del resto de pins.
 
 ---
