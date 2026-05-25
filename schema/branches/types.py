@@ -137,6 +137,7 @@ class BranchType:
     cashKycTtlDays: int = 30
     forceReverify: bool = False
     code: Optional[str] = None
+    isDemoStore: bool = False
     createdAt: datetime
     wallet: WalletBalanceType
     walletStatus: str = "active"
