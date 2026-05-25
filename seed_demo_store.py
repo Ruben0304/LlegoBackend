@@ -209,7 +209,7 @@ async def seed():
             "useAppMessaging": True,
             "catalogOnly": False,
             "pickupEnabled": True,          # Supports pickup
-            "vehicles": ["moto", "bicicleta", "a_pie"],
+            "vehicles": ["moto", "bicicleta", "caminando"],  # must match BranchVehicle enum
             "deliveryRadius": 10.0,
             "acceptedCurrency": "USD",
             "acceptsQvapay": False,
