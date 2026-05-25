@@ -202,6 +202,9 @@ class Branch(BaseModel):
 
     code: Optional[str] = None  # Auto-generated short code, e.g. "mir", "fou.par"
 
+    # Demo mode: marks this branch as the App Store review demo store
+    isDemoStore: bool = False
+
     createdAt: datetime
 
     class Config:

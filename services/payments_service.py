@@ -300,6 +300,15 @@ class PaymentService:
             sendsSmsNotification=sends_sms_notification,
         )
 
+        # --- Demo store: skip real payment processing, auto-complete ---
+        branch = await self._get_branch(order.get("branchId"))
+        if branch and branch.get("isDemoStore", False):
+            payment_attempt.status = PaymentAttemptStatus.COMPLETED
+            await self.payment_attempts_repo.create(payment_attempt)
+            await self._update_order_payment_attempt(order_id, attempt_id)
+            await self._complete_order_payment(order_id, attempt_id)
+            return payment_attempt
+
         # Handle based on payment method type
         method_type = payment_method.get("method", "").lower()
 

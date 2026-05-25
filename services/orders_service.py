@@ -1,5 +1,6 @@
 """Order service with business logic."""
 
+import asyncio
 import re
 import unicodedata
 import uuid
@@ -1306,7 +1307,148 @@ class OrderService:
             created_order, branch, business
         )
 
+        # 9. Demo mode: auto-progress order if placed at the demo store
+        if getattr(branch, "isDemoStore", False):
+            order_id_str = str(created_order.id)
+            asyncio.create_task(
+                self._demo_auto_progress(
+                    order_id=order_id_str,
+                    payment_method_code=payment_method_code,
+                    is_pickup=is_pickup,
+                )
+            )
+
         return created_order
+
+    # ------------------------------------------------------------------
+    # DEMO MODE  (App Store review account)
+    # ------------------------------------------------------------------
+
+    async def _demo_auto_progress(
+        self, order_id: str, payment_method_code: str, is_pickup: bool
+    ) -> None:
+        """Auto-progress a demo-store order through all statuses so Apple's
+        reviewer can experience the full flow without any manual store action.
+
+        Timeline (approximate):
+          +4 s  → store accepts (PENDING_ACCEPTANCE → next)
+          +4 s  → delivery person assigned if delivery mode
+          +6 s  → ACCEPTED (payment auto-completed for Stripe)
+          +6 s  → PREPARING
+          +8 s  → READY_FOR_PICKUP  (pickup) / ON_THE_WAY (delivery)
+        """
+        try:
+            # --- Step 1: store auto-accepts after a realistic pause ---
+            await asyncio.sleep(4)
+
+            order = await self.orders_repo.get_by_id(order_id)
+            if not order or order.status != OrderStatus.PENDING_ACCEPTANCE:
+                return
+
+            is_cash = payment_method_code.lower() in self.CASH_PAYMENT_METHODS
+
+            if is_pickup:
+                # pickup + cash → ACCEPTED directly (standard iOS flow)
+                # pickup + stripe → PENDING_PAYMENT (iOS will call initiatePayment)
+                next_status = (
+                    OrderStatus.ACCEPTED if is_cash else OrderStatus.PENDING_PAYMENT
+                )
+            else:
+                # delivery → always AWAITING_DELIVERY_ACCEPTANCE first
+                next_status = OrderStatus.AWAITING_DELIVERY_ACCEPTANCE
+
+            await self.update_status(
+                order_id,
+                next_status,
+                OrderActor.SYSTEM,
+                "[Demo] Pedido aceptado automáticamente por la tienda",
+                extra_fields={"estimatedMinutes": 10},
+            )
+
+            # --- Step 2: for delivery, auto-assign a courier ---
+            if not is_pickup:
+                await asyncio.sleep(4)
+                order = await self.orders_repo.get_by_id(order_id)
+                if not order or order.status != OrderStatus.AWAITING_DELIVERY_ACCEPTANCE:
+                    return
+
+                # cash delivery → ACCEPTED; stripe delivery → PENDING_PAYMENT
+                courier_next = (
+                    OrderStatus.ACCEPTED if is_cash else OrderStatus.PENDING_PAYMENT
+                )
+                await self.update_status(
+                    order_id,
+                    courier_next,
+                    OrderActor.SYSTEM,
+                    "[Demo] Mensajero asignado automáticamente",
+                )
+
+            # --- Step 3: for Stripe, auto-complete payment so no card entry needed ---
+            if not is_cash:
+                await asyncio.sleep(3)
+                order = await self.orders_repo.get_by_id(order_id)
+                if not order or order.status != OrderStatus.PENDING_PAYMENT:
+                    return
+
+                from clients.mongodb_client import get_database
+                db = get_database()
+                try:
+                    oid = ObjectId(order_id)
+                except Exception:
+                    oid = order_id
+
+                await db.orders.update_one(
+                    {"_id": oid, "status": "pending_payment"},
+                    {
+                        "$set": {
+                            "paymentStatus": "completed",
+                            "paidAt": datetime.utcnow(),
+                            "status": "accepted",
+                            "updatedAt": datetime.utcnow(),
+                        }
+                    },
+                )
+                # Refresh local var so the rest of the flow continues correctly
+                order = await self.orders_repo.get_by_id(order_id)
+                if not order or order.status != OrderStatus.ACCEPTED:
+                    return
+
+            # --- Step 4: move through PREPARING ---
+            await asyncio.sleep(6)
+            order = await self.orders_repo.get_by_id(order_id)
+            if not order or order.status != OrderStatus.ACCEPTED:
+                return
+
+            await self.update_status(
+                order_id,
+                OrderStatus.PREPARING,
+                OrderActor.SYSTEM,
+                "[Demo] Preparando tu pedido",
+                force=True,  # bypass payment check since we already completed it
+            )
+
+            # --- Step 5: final status (READY_FOR_PICKUP or ON_THE_WAY) ---
+            await asyncio.sleep(8)
+            order = await self.orders_repo.get_by_id(order_id)
+            if not order or order.status != OrderStatus.PREPARING:
+                return
+
+            final_status = (
+                OrderStatus.READY_FOR_PICKUP if is_pickup else OrderStatus.ON_THE_WAY
+            )
+            await self.update_status(
+                order_id,
+                final_status,
+                OrderActor.SYSTEM,
+                "[Demo] Pedido listo" if is_pickup else "[Demo] Pedido en camino",
+            )
+
+        except Exception as exc:  # noqa: BLE001
+            # Never let background task crash silently
+            import logging
+            logging.getLogger(__name__).warning(
+                "[Demo] Auto-progress failed for order %s: %s", order_id, exc
+            )
 
     def _validate_transition(
         self, current_status: OrderStatus, new_status: OrderStatus
