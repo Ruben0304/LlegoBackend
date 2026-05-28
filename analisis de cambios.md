@@ -2,6 +2,51 @@
 
 ---
 
+## 📅 28 de Mayo, 2026
+
+### Resumen de cambios (últimas 24h)
+
+Sin commits de desarrollo nuevos en el backend. Solo el commit automático "Analisis diario Claude" del 27/05.
+
+---
+
+### Consideraciones del día
+
+- Sin novedades nuevas hoy. Los agregados de solicitudes-ventas implementados ayer en SunCarWeb siguen pendientes de validación en backend.
+- El sticky header de la tabla solicitudes-ventas fue intentado dos veces y revertido el 27/05 en SunCarWeb. El problema raíz (`overflow: auto` en un ancestro) probablemente reaparecerá en el próximo intento.
+
+---
+
+#### Seguimientos vigentes
+
+- **Credenciales demo hardcodeadas**: `demo@llego.app / LlegoDemo2025!` en el código fuente y en mensajes de commit. Rotar o desactivar la cuenta tras la aprobación del App Store.
+- **Bypass de Stripe activo en producción**: Si `isDemoStore` se activa por error en una branch real, órdenes reales quedarán marcadas como pagadas sin cobro. Agregar doble guarda (verificar también `business_id` del negocio demo).
+- **Timers de `asyncio.sleep` sin cancelación**: Las tareas de auto-progreso de órdenes demo siguen vivas aunque la orden sea cancelada antes. Bajo carga, pueden acumularse tareas huérfanas.
+- **`seed_demo_store.py` sin idempotencia**: Ejecutarlo de nuevo creará duplicados en producción. Agregar verificación previa o upsert.
+- **`isDemoStore` no debe aparecer en feed público**: Verificar que el flag no se expone en búsqueda de tiendas ni en respuestas de la API pública.
+- **Timezone UTC en "Hora del Día"**: Usuarios en Cuba (UTC-5) verán el tramo del día desfasado 5h. Tomar la hora local del cliente en el request o configurar TZ del servidor.
+- **Ranking sin coordenadas**: Si lat/lng es `null`, verificar que el fallback de proximidad no genere 500 en el feed.
+- **"Pide de Nuevo" con token expirado**: El feed completo no debe romper; la sección debe retornar array vacío.
+- **Performance ranking multi-factor**: Verificar índice en `(user_id, created_at)` en la tabla de órdenes.
+- **`aumento_porcentaje` y `aumento_tipo` en ofertas**: Confirmar que el endpoint persiste estos campos por material.
+- **Tasa de cambio EUR vs CUP**: EUR multiplica, CUP divide. Confirmar que el backend aplica la misma convención.
+- **Endpoints de paginación**: `GET /cobros-paginado` y `GET /personalizadas/pendientes-paginado` con params `skip`, `limit`, `q`, `estado_pendiente`, filtros de fecha.
+- **Rollback de pago**: Confirmar que eliminar un pago revierte correctamente el saldo de billetera.
+- **`recibido_por_ci` en pagos**: Confirmar auto-acreditación de billetera del trabajador correspondiente.
+- **Endpoints wallet**: `POST /wallet/wallets/ensure`, `POST /wallet/pending-transfers`, `PUT .../accept`, `PUT .../reject`, `DELETE .../` — confirmar que todos existen.
+- **RRHH — nombre y teléfono editables**: Confirmar que el endpoint de actualización persiste ambos campos.
+- **`available_orders_for_delivery`**: Verificar diferenciación entre entrega activa y pins adicionales.
+- **`averia_id` en trabajos diarios**: Confirmar que el backend acepta este campo en POST/PATCH y lo indexa.
+- **Permiso `gestionar_banco_global`**: Si el backend no valida este permiso, el control de acceso de banco/wallet queda roto.
+- **Campos SunCarWeb → backend pendientes**: `motivo` y `nota` en asignaciones; `foto` y `ficha_tecnica_url` en materiales; `oferta_venta_id`, `descuento_free`, `motivo_descuento_free`, `precio` en solicitudes desde oferta.
+- **Campos de cambio real (SunCarWeb)**: `cambio_real_monto`, `cambio_real_moneda`, `cambio_real_tasa` en `/pagos-ventas/` — confirmar que el backend acepta estos campos.
+- **Endpoint lazy load obras terminadas (SunCarWeb)**: `GET /obras-terminadas/oferta/{id}/facturas-cliente` — confirmar que existe en el backend.
+- **Endpoints de notificaciones SunCarWeb**: `GET /mis-notificaciones` debe devolver `{ success, data, total }`; soportar filtro bulk por tipo; incluir `dias_alerta` y `link_cliente` en la respuesta.
+- **`GET /inventario/stock-historico`**: Confirmar que existe y acepta params de almacén, material y fecha.
+- **Agregados solicitudes-ventas**: Los endpoints de solicitudes, pagos y facturas deben devolver campos de agregados (`total_cobrado`, `total_pendiente`, etc.) y campos por ítem (`total_sin_descuento`, `total_con_aumento`, `aumento_monto`) o los totales del frontend serán incorrectos en vistas paginadas.
+
+---
+
 ## 📅 27 de Mayo, 2026
 
 ### Resumen de cambios (últimas 24h)
@@ -263,36 +308,4 @@ Sin commits de desarrollo nuevos desde el último análisis. El commit de Brian 
 
 ---
 
-## 📅 20 de Mayo, 2026
-
-### Resumen de cambios (últimas 24h)
-
-**1 commit** de Brian (`brianmojena`):
-
-- **`feat: "Pide de Nuevo" y "Hora del Día"`** — Dos nuevas secciones en el feed del usuario:
-  - **"Pide de Nuevo"**: muestra productos previamente pedidos por el usuario, requiere autenticación, ranking por recencia + frecuencia + proximidad.
-  - **"Hora del Día"**: ajusta título y descripción según la hora UTC actual, ranking por popularidad reciente + proximidad + frescura del producto.
-
-#### Puede dar bateo
-
-- **Timezone UTC hardcodeado**: "Hora del Día" usa la hora UTC para determinar el tramo del día. Los usuarios en Cuba (UTC-5) podrían ver "buenas tardes" cuando aún es mañana. Valorar tomar la hora local del cliente en el request o configurar la zona horaria del servidor según la región objetivo.
-- **Ranking de proximidad sin coordenadas**: Si el request no incluye lat/lng (permiso de ubicación denegado o no enviado por el cliente), el ranking de proximidad puede fallar con 500 o devolver resultados sin orden. Verificar el fallback cuando las coordenadas son `null`.
-- **"Pide de Nuevo" sin autenticación no debe romper el feed**: Si el token ha expirado o el endpoint falla, la respuesta debe retornar un array vacío para esta sección y no propagar una excepción que haga fallar todo el feed.
-- **Performance — ranking multi-factor sobre historial de órdenes**: Combinar recencia + frecuencia + proximidad requiere agregar órdenes por usuario. Si la tabla de órdenes no tiene índice en `(user_id, created_at)`, la query puede ser lenta bajo carga alta.
-
-#### Seguimientos vigentes
-
-- **`aumento_porcentaje` y `aumento_tipo` en ofertas**: Verificar que el endpoint de creación/actualización de ofertas acepta y persiste estos campos por material.
-- **Tasa de cambio EUR vs CUP**: Convención final: EUR multiplica (`monto × tasa`), CUP divide (`monto / tasa`). Confirmar que el backend aplica la misma lógica.
-- **Endpoints de paginación**: `GET /cobros-paginado` y `GET /personalizadas/pendientes-paginado` — verificar parámetros `skip`, `limit`, `q`, `estado_pendiente`, filtros de fecha y devoluciones.
-- **Rollback de pago**: Confirmar que el endpoint de eliminación de pago revierte correctamente el saldo de billetera cuando aplica.
-- **`recibido_por_ci` en pagos**: Confirmar que el endpoint auto-acredita la billetera del trabajador correspondiente.
-- **Endpoints de transferencias del wallet**: `POST /wallet/wallets/ensure`, `POST /wallet/pending-transfers`, `PUT .../accept`, `PUT .../reject`, `DELETE .../` — confirmar que todos existen.
-- **RRHH — nombre y teléfono editables**: Confirmar que el endpoint de actualización acepta y persiste ambos campos.
-- **`available_orders_for_delivery`**: Verificar que el frontend diferencia correctamente el primer ítem (entrega activa) del resto de pins.
-- **`averia_id` en trabajos diarios**: Confirmar que el backend acepta este campo en POST/PATCH de `/trabajos-diarios/` y lo indexa para búsquedas eficientes por avería.
-- **Permiso `gestionar_banco_global`**: Si el backend no valida este permiso en los endpoints de banco/wallet, el control de acceso queda roto.
-
----
-
-> ⚠️ **Nota de mantenimiento**: La entrada del **18 de Mayo** fue eliminada al superar los 7 días de antigüedad (política de retención semanal).
+> ⚠️ **Nota de mantenimiento**: La entrada del **20 de Mayo** fue eliminada al superar los 7 días de antigüedad (política de retención semanal).
