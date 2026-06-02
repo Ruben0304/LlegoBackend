@@ -2,6 +2,63 @@
 
 ---
 
+## 📅 2 de Junio, 2026
+
+### Resumen de cambios (últimas 24h)
+
+Sin commits de desarrollo nuevos en el backend. Solo el commit automático "Analisis diario Claude" del 01/06.
+
+---
+
+### Consideraciones del día
+
+- Sin novedades en el backend hoy. SunCarWeb tuvo 23 commits — el día más activo del mes: refactor profundo de la ficha de costos de compras, traspaso entre pools de inventario, fix crítico de `reserva_id` en solicitudes de venta, nuevos filtros y exportación Excel en vales de salida, y mejoras en el procesamiento de facturas.
+- Se agregan cinco seguimientos nuevos derivados de cambios en SunCarWeb que requieren soporte o confirmación del backend.
+
+---
+
+#### Seguimientos vigentes
+
+- **Credenciales demo hardcodeadas**: `demo@llego.app / LlegoDemo2025!` en el código fuente y en mensajes de commit. Rotar o desactivar la cuenta tras la aprobación del App Store.
+- **Bypass de Stripe activo en producción**: Si `isDemoStore` se activa por error en una branch real, órdenes reales quedarán marcadas como pagadas sin cobro. Agregar doble guarda (verificar también `business_id` del negocio demo).
+- **Timers de `asyncio.sleep` sin cancelación**: Las tareas de auto-progreso de órdenes demo siguen vivas aunque la orden sea cancelada antes. Bajo carga, pueden acumularse tareas huérfanas.
+- **`seed_demo_store.py` sin idempotencia**: Ejecutarlo de nuevo creará duplicados en producción. Agregar verificación previa o upsert.
+- **`isDemoStore` no debe aparecer en feed público**: Verificar que el flag no se expone en búsqueda de tiendas ni en respuestas de la API pública.
+- **Timezone UTC en "Hora del Día"**: Usuarios en Cuba (UTC-5) verán el tramo del día desfasado 5h. Tomar la hora local del cliente en el request o configurar TZ del servidor.
+- **Ranking sin coordenadas**: Si lat/lng es `null`, verificar que el fallback de proximidad no genere 500 en el feed.
+- **"Pide de Nuevo" con token expirado**: El feed completo no debe romper; la sección debe retornar array vacío.
+- **Performance ranking multi-factor**: Verificar índice en `(user_id, created_at)` en la tabla de órdenes.
+- **`aumento_porcentaje` y `aumento_tipo` en ofertas**: Confirmar que el endpoint persiste estos campos por material.
+- **Tasa de cambio EUR vs CUP**: EUR multiplica, CUP divide. Confirmar que el backend aplica la misma convención.
+- **Endpoints de paginación**: `GET /cobros-paginado` y `GET /personalizadas/pendientes-paginado` con params `skip`, `limit`, `q`, `estado_pendiente`, filtros de fecha.
+- **Rollback de pago**: Confirmar que eliminar un pago revierte correctamente el saldo de billetera.
+- **`recibido_por_ci` en pagos**: Confirmar auto-acreditación de billetera del trabajador correspondiente.
+- **Endpoints wallet**: `POST /wallet/wallets/ensure`, `POST /wallet/pending-transfers`, `PUT .../accept`, `PUT .../reject`, `DELETE .../` — confirmar que todos existen.
+- **RRHH — nombre y teléfono editables**: Confirmar que el endpoint de actualización persiste ambos campos.
+- **`available_orders_for_delivery`**: Verificar diferenciación entre entrega activa y pins adicionales.
+- **`averia_id` en trabajos diarios**: Confirmar que el backend acepta este campo en POST/PATCH y lo indexa.
+- **Permiso `gestionar_banco_global`**: Si el backend no valida este permiso, el control de acceso de banco/wallet queda roto.
+- **Campos SunCarWeb → backend pendientes**: `motivo` y `nota` en asignaciones; `foto` y `ficha_tecnica_url` en materiales; `oferta_venta_id`, `descuento_free`, `motivo_descuento_free`, `precio` en solicitudes desde oferta.
+- **Campos de cambio real (SunCarWeb)**: `cambio_real_monto`, `cambio_real_moneda`, `cambio_real_tasa` en `/pagos-ventas/` — confirmar que el backend acepta estos campos.
+- **Endpoint lazy load obras terminadas (SunCarWeb)**: `GET /obras-terminadas/oferta/{id}/facturas-cliente` — confirmar que existe en el backend.
+- **Endpoints de notificaciones SunCarWeb**: `GET /mis-notificaciones` debe devolver `{ success, data, total }`; soportar filtro bulk por tipo; incluir `dias_alerta` y `link_cliente` en la respuesta.
+- **`GET /inventario/stock-historico`**: Confirmar que existe y acepta params de almacén, material y fecha.
+- **Agregados solicitudes-ventas**: Los endpoints de solicitudes, pagos y facturas deben devolver campos de agregados (`total_cobrado`, `total_pendiente`, etc.) y campos por ítem (`total_sin_descuento`, `total_con_aumento`, `aumento_monto`) o los totales del frontend serán incorrectos en vistas paginadas.
+- **`updateSolicitudTransferencia` — validación de estado en backend**: El backend debe validar que la solicitud esté en estado `pendiente` antes de permitir la modificación; de lo contrario se pueden editar solicitudes ya aprobadas o en tránsito.
+- **Búsqueda por `numero_serie` (SunCarWeb)**: `SalidaLoteForm` y `CreateValeSalidaDialog` buscan materiales por `numero_serie`. Confirmar que el endpoint indexa este campo; de lo contrario las consultas devolverán resultados vacíos o serán lentas bajo carga.
+- **`stock_disponible_actual` — consistencia entre endpoints**: Confirmar que todos los endpoints de inventario devuelven este campo de forma consistente; de lo contrario habrá discrepancias entre vistas del mismo almacén.
+- **Excel export de facturas sin cota de registros (SunCarWeb)**: El servicio `export-facturas-excel-service.ts` no tiene límite de registros; con grandes volúmenes puede generar timeout en el endpoint de consulta o saturar memoria del navegador.
+- **`'zelle'` como método de pago — soporte en backend (SunCarWeb)**: Confirmar que el backend acepta `'zelle'` en filtros de facturas y en el registro de pagos; de lo contrario los filtros no devolverán resultados y los POSTs de pagos con zelle fallarán con 422.
+- **Sort client-side de solicitudes pendientes en ValesSalida (SunCarWeb)**: El `useMemo` ordena solo los datos ya cargados; con paginación server-side el orden global no está garantizado.
+- **Parsing UTC→local en otras tablas (SunCarWeb)**: Verificar que otros componentes con filtros de mes/año usen el mismo parser local aplicado en `VentasPorComercialTable` y `ValesSalida`.
+- **Tasas MLC/CUP sin persistencia entre sesiones (SunCarWeb, nuevo)**: `tasaMlcUsd` y `tasaCupUsd` se reinician en cada sesión (default = 1). El backend acepta `tasa_conversion_mlc_usd` y `tasa_conversion_cup_usd` en PATCH de compra — confirmar que se leen correctamente al reabrir la ficha para evitar recálculos incorrectos.
+- **`PonderarCostoResponse` campos nuevos (SunCarWeb, nuevo)**: La respuesta de POST `/ponderar-costo` debe incluir `sin_costo_ficha`, `no_aplicables` y `costos_catalogo_propagados`; de lo contrario la actualización in-place del catálogo y los toasts de ponderar fallarán silenciosamente.
+- **`GET /api/kardex-costo/costo-actual` (SunCarWeb, nuevo)**: Nuevo endpoint consumido en `PoolsDistributionDialog` con params `material_id + almacen_id`. Si no existe, el dialog mostrará siempre "Sin kardex" sin indicar error de API.
+- **`materiales` en respuesta de facturas de solicitudes-ventas (SunCarWeb, nuevo)**: El nuevo procesamiento de facturas espera el campo `materiales` por factura. Confirmar que el endpoint lo devuelve o la columna quedará vacía silenciosamente.
+- **Filtros de vales de salida — `fecha_desde`, `fecha_hasta`, creador (SunCarWeb, nuevo)**: Los nuevos params de filtrado en el endpoint de vales deben ser soportados en el backend; de lo contrario retornarán resultados no filtrados o error 422.
+
+---
+
 ## 📅 1 de Junio, 2026
 
 ### Resumen de cambios (últimas 24h)
@@ -331,69 +388,4 @@ Sin commits de desarrollo nuevos en el backend. El modo demo para revisión del 
 
 ---
 
-## 📅 25 de Mayo, 2026
-
-### Resumen de cambios (últimas 24h)
-
-**3 commits** de Ruben0304 — todos relacionados con el **modo demo para revisión del App Store de Apple**.
-
----
-
-#### 1. `feat: add App Store review demo mode`
-
-- Campo `isDemoStore: bool` en el modelo `Branch` (marca la tienda de revisión del App Store).
-- **`orders_service`**: auto-acepta y auto-progresa órdenes demo por todos los estados con timers en background (`asyncio.sleep`): accept ~4s, payment complete ~7s, preparing ~13s, estado final ~21s.
-- **`payments_service`**: bypass completo de Stripe para órdenes de una branch con `isDemoStore=True`; marca el pago como completado inmediatamente.
-- **`seed_demo_store.py`**: script one-time para crear usuario demo, negocio, branch (24/7, `isDemoStore=True`) y productos directamente en la BD de producción.
-- Credenciales demo: `demo@llego.app` / `LlegoDemo2025!` — Tienda: _Llego Demo Store_.
-
-#### 2. `fix: add isDemoStore field to BranchType GraphQL schema`
-
-- El tipo Strawberry `BranchType` no tenía el campo `isDemoStore` que sí existía en el modelo Pydantic, causando errores `__init__() got an unexpected keyword argument 'is_demo_store'`.
-
-#### 3. `fix: use valid BranchVehicle enum value 'caminando' instead of 'a_pie'`
-
-- El enum `BranchVehicle` no tiene el valor `a_pie`; el seed usaba ese valor inválido. Corregido a `caminando`.
-- Además se parchó directamente la rama demo en la BD de producción.
-
----
-
-### Puede dar bateo
-
-1. **Credenciales demo hardcodeadas en repositorio público**: `demo@llego.app / LlegoDemo2025!` están en el código fuente y en el mensaje del commit. Cualquier persona con acceso al repo puede autenticarse en la app de producción con esas credenciales. Después de la aprobación del App Store deberían rotarse o desactivarse.
-
-2. **Bypass de Stripe activo en producción**: Si `isDemoStore` se activa por error en una branch real, o si hay un bug en la verificación del flag, órdenes reales quedarían marcadas como pagadas sin haber cobrado. Alto riesgo financiero. Considerar una doble guarda (e.g., verificar también que el `business_id` sea el demo registrado).
-
-3. **Timers de `asyncio.sleep` en background sin cancelación**: El auto-progreso de órdenes lanza tareas con `asyncio.sleep`. Si la orden es cancelada antes de que los timers completen, las tareas siguen vivas e intentarán actualizar un estado de orden ya cancelada. Bajo carga (múltiples revisores de Apple abriendo la app simultáneamente), pueden acumularse tareas huérfanas.
-
-4. **`seed_demo_store.py` sin idempotencia**: El script crea usuario, negocio, branch y productos directamente. Si se ejecuta de nuevo (accidentalmente), creará duplicados en producción. Debería verificar si ya existen antes de insertar (`upsert` o check previo).
-
-5. **Desarrollo en caliente sobre producción**: El patrón `feat` (18:38) → `fix GraphQL` (18:56) → `fix enum` (19:01) en 22 minutos sugiere que el seed fue ejecutado contra la BD de producción antes de validar el esquema GraphQL y los valores de enum. Los dos fixes post-deploy son señal de que hubo errores en producción durante esa ventana.
-
-6. **`isDemoStore` no debe ser visible para usuarios normales**: Verificar que el campo no aparezca en el feed público de tiendas ni en las respuestas de búsqueda. Un usuario malicioso que vea el flag en la respuesta de la API podría intentar explotarlo.
-
----
-
-#### Seguimientos vigentes
-
-- **Timezone UTC en "Hora del Día"**: Usuarios en Cuba (UTC-5) verán el tramo del día desfasado 5h. Tomar la hora local del cliente en el request o configurar TZ del servidor.
-- **Ranking sin coordenadas**: Si lat/lng es `null`, verificar que el fallback de proximidad no genere 500 en el feed.
-- **"Pide de Nuevo" con token expirado**: El feed completo no debe romper; la sección debe retornar array vacío.
-- **Performance ranking multi-factor**: Verificar índice en `(user_id, created_at)` en la tabla de órdenes.
-- **`aumento_porcentaje` y `aumento_tipo` en ofertas**: Confirmar que el endpoint persiste estos campos por material.
-- **Tasa de cambio EUR vs CUP**: EUR multiplica, CUP divide. Confirmar que el backend aplica la misma convención.
-- **Endpoints de paginación**: `GET /cobros-paginado` y `GET /personalizadas/pendientes-paginado` con params `skip`, `limit`, `q`, `estado_pendiente`, filtros de fecha.
-- **Rollback de pago**: Confirmar que eliminar un pago revierte correctamente el saldo de billetera.
-- **`recibido_por_ci` en pagos**: Confirmar auto-acreditación de billetera del trabajador.
-- **Endpoints wallet**: `POST /wallet/wallets/ensure`, `POST /wallet/pending-transfers`, `PUT .../accept`, `PUT .../reject`, `DELETE .../` — confirmar que todos existen.
-- **RRHH — nombre y teléfono editables**: Confirmar que el endpoint de actualización persiste ambos campos.
-- **`available_orders_for_delivery`**: Verificar diferenciación entre entrega activa y pins adicionales.
-- **`averia_id` en trabajos diarios**: Confirmar que el backend acepta este campo en POST/PATCH y lo indexa.
-- **Permiso `gestionar_banco_global`**: Si el backend no valida este permiso, el control de acceso de banco/wallet queda roto.
-- **Campos SunCarWeb → backend pendientes**: `motivo` y `nota` en asignaciones; `foto` y `ficha_tecnica_url` en materiales; `oferta_venta_id`, `descuento_free`, `motivo_descuento_free`, `precio` en solicitudes desde oferta.
-- **Nuevos campos de cambio real (SunCarWeb)**: `cambio_real_monto`, `cambio_real_moneda`, `cambio_real_tasa` en `/pagos-ventas/` — confirmar que el backend acepta estos campos.
-- **Endpoint lazy load obras terminadas (SunCarWeb)**: `GET /obras-terminadas/oferta/{id}/facturas-cliente` — confirmar que existe en el backend.
-
----
-
-> ⚠️ **Nota de mantenimiento**: La entrada del **24 de Mayo** fue eliminada al superar los 7 días de antigüedad (política de retención semanal).
+> ⚠️ **Nota de mantenimiento**: La entrada del **25 de Mayo** fue eliminada al superar los 7 días de antigüedad (política de retención semanal).
