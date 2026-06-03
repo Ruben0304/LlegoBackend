@@ -37,6 +37,7 @@ from .payout_repository import PayoutRepository, payouts_repo
 from .platform_repository import PlatformRepository, platform_repo
 from .product_category_repository import ProductCategoryRepository
 from .product_repository import ProductRepository
+from .promotional_video_repository import PromotionalVideoRepository
 from .qvapay_repository import QvaPayRepository, qvapay_invoices_repo
 from .searches_repository import SearchesRepository
 from .showcase_repository import ShowcaseRepository, showcases_repo
@@ -72,6 +73,7 @@ chat_memory_repo = ChatMemoryRepository()
 draft_orders_repo = DraftOrderRepository()
 branch_likes_repo = BranchLikesRepository()
 tutorials_repo = TutorialRepository()
+promotional_videos_repo = PromotionalVideoRepository()
 delivery_zones_repo = DeliveryZoneRepository()
 
 # Imported after singletons to avoid circular import with domain/models.py
@@ -127,6 +129,8 @@ __all__ = [
     "DraftOrderRepository",
     "BranchLikesRepository",
     "TutorialRepository",
+    "PromotionalVideoRepository",
+    "promotional_videos_repo",
     "feedbacks_repo",
     "surveys_repo",
     "survey_responses_repo",

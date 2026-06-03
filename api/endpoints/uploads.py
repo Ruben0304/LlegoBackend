@@ -833,3 +833,89 @@ async def upload_tutorial_thumbnail(
         "thumbnail_path": image_path,
         "thumbnail_url": generate_presigned_url(image_path),
     }
+
+
+@router.post("/promotion/video", status_code=status.HTTP_200_OK)
+@limiter.limit(RATE_LIMIT_UPLOADS)
+async def upload_promotion_video(
+    request: Request,
+    video: UploadFile = File(...),
+    user_id: str = Depends(get_current_user_id_from_header),
+):
+    """
+    Upload video for a promotional video (stories-style player).
+    Max size: 100MB | Allowed formats: .mp4, .mov, .avi, .webm
+
+    Uploads the video to S3 and returns the path and presigned URL.
+    Use the returned video_path in the createPromotionalVideo or
+    updatePromotionalVideo mutation.
+
+    Note: Only admins should use this endpoint (validated in the GraphQL mutation).
+    """
+    if not user_id:
+        raise HTTPException(status_code=401, detail="No autorizado")
+
+    # TODO: Add admin role check when implemented
+
+    file_content, extension = await validate_video_upload(
+        video, MAX_FILE_SIZES["video"]
+    )
+
+    entity_id = str(ObjectId())
+
+    try:
+        video_path = await upload_file(
+            file_content, "promotions/videos", entity_id, extension
+        )
+    except Exception:
+        raise HTTPException(status_code=500, detail="Error subiendo video")
+
+    return {"video_path": video_path, "video_url": generate_presigned_url(video_path)}
+
+
+@router.post("/promotion/thumbnail", status_code=status.HTTP_200_OK)
+@limiter.limit(RATE_LIMIT_UPLOADS)
+async def upload_promotion_thumbnail(
+    request: Request,
+    image: UploadFile = File(...),
+    user_id: str = Depends(get_current_user_id_from_header),
+):
+    """
+    Upload thumbnail image for a promotional video.
+    Max size: 5MB | Output: Optimized image
+
+    Uploads the thumbnail to S3 and returns the path and presigned URL.
+    Use the returned thumbnail_path in the createPromotionalVideo or
+    updatePromotionalVideo mutation.
+
+    Note: Only admins should use this endpoint (validated in the GraphQL mutation).
+    """
+    if not user_id:
+        raise HTTPException(status_code=401, detail="No autorizado")
+
+    # TODO: Add admin role check when implemented
+
+    file_content = await validate_upload(
+        image, "thumbnail", MAX_FILE_SIZES["thumbnail"]
+    )
+
+    try:
+        processed_content, extension = await process_image_for_store_async(
+            file_content, "promotion_thumbnail", convert_to_jpg=True
+        )
+    except Exception:
+        raise HTTPException(status_code=400, detail="Error procesando imagen")
+
+    entity_id = str(ObjectId())
+
+    try:
+        image_path = await upload_file(
+            processed_content, "promotions/thumbnails", entity_id, extension
+        )
+    except Exception:
+        raise HTTPException(status_code=500, detail="Error subiendo thumbnail")
+
+    return {
+        "thumbnail_path": image_path,
+        "thumbnail_url": generate_presigned_url(image_path),
+    }

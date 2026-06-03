@@ -37,6 +37,8 @@ from .payments.queries import PaymentMethodQuery
 from .product_categories.queries import ProductCategoryQuery
 from .products.mutations import ProductMutation
 from .products.queries import ProductQuery
+from .promotional_videos.mutations import PromotionalVideoMutation
+from .promotional_videos.queries import PromotionalVideoQuery
 from .searches.mutations import SearchesMutation
 from .showcases.mutations import ShowcaseMutation
 from .showcases.queries import ShowcaseQuery
@@ -75,6 +77,7 @@ class Query(
     SurveyQuery,
     FeedQuery,
     TutorialQuery,
+    PromotionalVideoQuery,
     ShortcutTransferQuery,
     VariantListQuery,
     SyncQuery,
@@ -111,6 +114,7 @@ class Mutation(
     SearchesMutation,
     BranchLikesMutation,
     TutorialMutation,
+    PromotionalVideoMutation,
     VariantListMutation,
 ):
     pass

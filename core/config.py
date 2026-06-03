@@ -150,6 +150,9 @@ class Settings(BaseSettings):
     # Service fee rate charged on every order (e.g. 0.10 = 10%)
     service_fee_rate: float = 0.10
 
+    # Reduced service fee rate applied after watching promotional videos
+    discounted_service_fee_rate: float = 0.05
+
     # Admin API key for /admin/* endpoints (simple bearer token)
     admin_api_key: str = ""
 

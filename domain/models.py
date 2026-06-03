@@ -797,6 +797,31 @@ class Tutorial(BaseModel):
         json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
+class PromotionalVideo(BaseModel):
+    """
+    Promotional video shown in an Instagram-stories style player.
+    Optionally attributed to a branch (sucursal) for profile metadata.
+    """
+
+    id: PyObjectId = Field(alias="_id")
+    title: str  # Promo title
+    description: str  # Promo description
+    videoUrl: str  # S3 path to video (without signature)
+    duration: int  # Video duration in seconds
+    appTarget: str  # Target app: "customer", "merchant", "both"
+    thumbnailUrl: Optional[str] = None  # S3 path to thumbnail image
+    branchId: Optional[PyObjectId] = None  # Branch that uploaded the promo (optional)
+    order: int = 0  # Display order (lower = first)
+    isActive: bool = True  # Whether the promo is active/published
+    tags: List[str] = []  # Tags for categorization
+    createdAt: datetime = Field(default_factory=datetime.utcnow)
+    updatedAt: Optional[datetime] = None
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
+
+
 class ComboModifier(BaseModel):
     """Modificador para un producto dentro del combo (ej: sin cebolla, extra queso)."""
 
