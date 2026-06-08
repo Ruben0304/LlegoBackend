@@ -55,6 +55,7 @@ class UserType:
     savedAddresses: List[SavedAddressType] = strawberry.field(default_factory=list)
     defaultAddressId: Optional[str] = None
     deliveredOrdersCount: int = 0
+    scheduledDeletionAt: Optional[datetime] = None
 
     @strawberry.field(description="URL firmada del avatar del usuario")
     def avatar_url(self) -> Optional[str]:

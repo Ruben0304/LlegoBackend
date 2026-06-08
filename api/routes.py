@@ -17,6 +17,7 @@ from .endpoints.apple_auth import router as apple_auth_router
 from .endpoints.device_tokens import router as device_tokens_router
 from .endpoints.error_logs import router as error_logs_router
 from .endpoints.kyc import router as kyc_router
+from .endpoints.legal import router as legal_router
 from .endpoints.product_detection import router as product_detection_router
 from .endpoints.push_notifications import router as push_notifications_router
 from .endpoints.qvapay_webhooks import router as qvapay_webhooks_router
@@ -40,6 +41,7 @@ router.include_router(shortcuts_router)
 router.include_router(qvapay_webhooks_router)
 router.include_router(trondealer_webhooks_router)
 router.include_router(admin_payouts_router)
+router.include_router(legal_router)
 
 
 # =============================================================================

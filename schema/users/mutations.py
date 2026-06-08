@@ -1,5 +1,6 @@
 """GraphQL mutations for User entity."""
 import uuid
+from datetime import datetime, timedelta, timezone
 import strawberry
 from typing import Optional
 from strawberry.types import Info
@@ -61,6 +62,7 @@ def _user_to_type(u) -> UserType:
             for a in getattr(u, 'savedAddresses', [])
         ],
         defaultAddressId=getattr(u, 'defaultAddressId', None),
+        scheduledDeletionAt=getattr(u, 'scheduledDeletionAt', None),
     )
 
 
@@ -264,6 +266,60 @@ class UserMutation:
             raise Exception("Error al eliminar el usuario")
 
         return True
+
+    @strawberry.mutation(description="Programar la eliminación de la cuenta con 30 días de gracia (Apple Guideline 5.1.1(v))")
+    async def request_account_deletion(
+        self,
+        info: Info,
+        jwt: Optional[str] = None,
+    ) -> UserType:
+        """
+        Marca la cuenta para borrado real en 30 días.
+        El usuario puede cancelar la solicitud iniciando sesión y llamando a cancel_account_deletion.
+        Un background worker (cuentas vencidas) ejecuta el borrado definitivo.
+        """
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+
+        user = await users_repo.get_by_id(user_id)
+        if not user:
+            raise Exception("Usuario no encontrado")
+
+        scheduled_at = datetime.now(timezone.utc) + timedelta(days=30)
+        updated_user = await users_repo.update(user_id, {"scheduledDeletionAt": scheduled_at})
+        if not updated_user:
+            raise Exception("Error al programar la eliminación de la cuenta")
+
+        return _user_to_type(updated_user)
+
+    @strawberry.mutation(description="Cancelar una solicitud de eliminación de cuenta pendiente")
+    async def cancel_account_deletion(
+        self,
+        info: Info,
+        jwt: Optional[str] = None,
+    ) -> UserType:
+        """
+        Cancela una solicitud de eliminación pendiente, restaurando el acceso normal del usuario.
+        """
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+
+        user = await users_repo.get_by_id(user_id)
+        if not user:
+            raise Exception("Usuario no encontrado")
+
+        if not getattr(user, "scheduledDeletionAt", None):
+            return _user_to_type(user)
+
+        updated_user = await users_repo.update(user_id, {"scheduledDeletionAt": None})
+        if not updated_user:
+            raise Exception("Error al cancelar la eliminación")
+
+        return _user_to_type(updated_user)
 
 
     @strawberry.mutation(description="Actualizar ubicación del usuario")

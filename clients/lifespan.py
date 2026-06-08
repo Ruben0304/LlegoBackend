@@ -82,6 +82,31 @@ async def lifespan(app):
         logger.error(f"Warning: Could not start order timeout worker: {e}")
         print(f"Warning: Could not start order timeout worker: {e}")
 
+    try:
+        from services.account_deletion_worker import delete_expired_accounts
+
+        async def run_account_deletion_worker():
+            """Background task that hard-deletes accounts past their 30-day grace period (Apple Guideline 5.1.1(v)). Runs every 24h."""
+            while True:
+                try:
+                    logger.info("Running account deletion worker...")
+                    removed = await delete_expired_accounts()
+                    if removed:
+                        logger.info(
+                            f"Account deletion worker removed {removed} expired account(s)"
+                        )
+                except Exception as e:
+                    logger.error(f"Error in account deletion worker: {e}", exc_info=True)
+
+                await asyncio.sleep(86400)
+
+        logger.info("Starting account deletion worker...")
+        background_tasks.append(asyncio.create_task(run_account_deletion_worker()))
+        logger.info("Account deletion worker task created")
+    except Exception as e:
+        logger.error(f"Warning: Could not start account deletion worker: {e}")
+        print(f"Warning: Could not start account deletion worker: {e}")
+
     # Seed the vehicles catalog (idempotent — skips if records already exist)
     try:
         from repositories.vehicle_repository import VehicleRepository

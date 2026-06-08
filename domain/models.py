@@ -85,6 +85,8 @@ class User(BaseModel):
     defaultAddressId: Optional[str] = None  # ID of the default address
     # Denormalized counter of successfully delivered orders
     deliveredOrdersCount: int = 0
+    # Account deletion scheduled at (Apple Guideline 5.1.1(v) — 30-day grace period)
+    scheduledDeletionAt: Optional[datetime] = None
 
     class Config:
         populate_by_name = True
