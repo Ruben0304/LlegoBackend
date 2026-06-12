@@ -105,6 +105,32 @@ def get_s3_exists_cache_key(object_name: str) -> str:
     """Generate cache key for S3 object existence checks."""
     return f"cache:s3:exists:{object_name}"
 
+def get_public_url(key: str) -> str:
+    """Return a URL for an S3 object with no head_object/existence checks.
+
+    Uses presigned URL generation (local crypto, no network call).
+    If the bucket is ever made public, swap the body to:
+        return f"{settings.aws_endpoint_url}/{settings.s3_bucket_name}/{key}"
+    """
+    if not key:
+        return ""
+    if key.startswith("http"):
+        return key
+    return generate_presigned_url(key)
+
+
+def get_public_image_variant_url(key: str, variant) -> str:
+    """Return a URL for a derived image variant with no head_object/existence checks.
+
+    Uses presigned URL generation (local crypto, no network call).
+    """
+    if not key:
+        return ""
+    if key.startswith("http"):
+        return key
+    return generate_presigned_url(get_image_variant_path(key, variant))
+
+
 def generate_presigned_url(object_name: str, expiration: int = 3600) -> str:
     """
     Generate a presigned URL to share an S3 object with caching.
@@ -129,7 +155,6 @@ def generate_presigned_url(object_name: str, expiration: int = 3600) -> str:
     # Generate new presigned URL
     s3_client = get_s3_client()
     try:
-        print(f"→ Generating presigned URL for {object_name}")
         response = s3_client.generate_presigned_url(
             'get_object',
             Params={'Bucket': settings.s3_bucket_name, 'Key': object_name},

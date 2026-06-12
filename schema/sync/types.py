@@ -7,7 +7,7 @@ from typing import List, Optional
 import strawberry
 
 from schema.branches.types import BranchScheduleType
-from utils.s3 import generate_presigned_url
+from utils.s3 import get_public_url
 
 
 @strawberry.enum
@@ -56,13 +56,13 @@ class BranchSyncType:
     @strawberry.field(description="Presigned URL for the branch avatar")
     def avatar_url(self) -> Optional[str]:
         if self.avatar:
-            return generate_presigned_url(self.avatar)
+            return get_public_url(self.avatar)
         return None
 
     @strawberry.field(description="Presigned URL for the branch cover image")
     def cover_url(self) -> Optional[str]:
         if self.coverImage:
-            return generate_presigned_url(self.coverImage)
+            return get_public_url(self.coverImage)
         return None
 
 
@@ -83,7 +83,7 @@ class BusinessSyncType:
     @strawberry.field(description="Presigned URL for the business avatar")
     def avatar_url(self) -> Optional[str]:
         if self.avatar:
-            return generate_presigned_url(self.avatar)
+            return get_public_url(self.avatar)
         return None
 
 
@@ -106,7 +106,7 @@ class ProductSyncType:
 
     @strawberry.field(description="Presigned URL for the product image")
     def image_url(self) -> str:
-        return generate_presigned_url(self.image)
+        return get_public_url(self.image)
 
 
 @strawberry.type

@@ -6,7 +6,7 @@ from typing import Annotated, Optional
 import strawberry
 from strawberry.types import Info
 
-from utils.s3 import generate_presigned_url
+from utils.s3 import get_public_url
 
 
 @strawberry.type
@@ -32,7 +32,7 @@ class ShowcaseType:
 
     @strawberry.field(description="Presigned URL for the showcase image")
     def image_url(self) -> str:
-        return generate_presigned_url(self.image)
+        return get_public_url(self.image)
 
     @strawberry.field(description="Branch associated with this showcase")
     async def branch(

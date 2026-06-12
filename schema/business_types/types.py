@@ -4,7 +4,7 @@ from typing import List, Optional
 from datetime import datetime
 from enum import Enum
 
-from utils.s3 import generate_presigned_url
+from utils.s3 import get_public_url
 
 
 @strawberry.enum
@@ -73,7 +73,7 @@ class BusinessTypeConfigType:
         if self.model3d_url.startswith("http"):
             return self.model3d_url
         # Generate presigned URL for S3 path
-        return generate_presigned_url(self.model3d_url)
+        return get_public_url(self.model3d_url)
 
 
 @strawberry.type

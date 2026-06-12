@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Annotated, List, Optional
 import strawberry
 from strawberry.types import Info
 
-from utils.s3 import generate_presigned_url
+from utils.s3 import get_public_url
 from utils.serialization import to_strawberry_dict
 
 if TYPE_CHECKING:
@@ -106,12 +106,9 @@ class ComboType:
     createdAt: datetime
     updatedAt: datetime
 
-    @strawberry.field(description="Presigned URL for combo image (optional)")
+    @strawberry.field(description="Public URL for combo image (optional)")
     def image_url(self) -> Optional[str]:
-        """Generate presigned URL for combo image."""
-        if self.image:
-            return generate_presigned_url(self.image)
-        return None
+        return get_public_url(self.image) if self.image else None
 
     @strawberry.field(
         description="Representative products for frontend composition (max 4 products)"

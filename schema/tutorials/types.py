@@ -5,7 +5,7 @@ from datetime import datetime
 from enum import Enum
 from strawberry.types import Info
 
-from utils.s3 import generate_presigned_url
+from utils.s3 import get_public_url
 
 
 @strawberry.enum
@@ -32,14 +32,10 @@ class TutorialType:
     createdAt: datetime
     updatedAt: Optional[datetime]
 
-    @strawberry.field(description="Presigned URL for the tutorial video")
+    @strawberry.field(description="Public URL for the tutorial video")
     def video_url_signed(self) -> str:
-        """Generate presigned URL for video."""
-        return generate_presigned_url(self.videoUrl)
+        return get_public_url(self.videoUrl)
 
-    @strawberry.field(description="Presigned URL for the tutorial thumbnail")
+    @strawberry.field(description="Public URL for the tutorial thumbnail")
     def thumbnail_url_signed(self) -> Optional[str]:
-        """Generate presigned URL for thumbnail."""
-        if self.thumbnailUrl:
-            return generate_presigned_url(self.thumbnailUrl)
-        return None
+        return get_public_url(self.thumbnailUrl) if self.thumbnailUrl else None

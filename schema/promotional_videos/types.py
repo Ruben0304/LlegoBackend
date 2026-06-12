@@ -4,7 +4,7 @@ from typing import List, Optional
 from datetime import datetime
 from strawberry.types import Info
 
-from utils.s3 import generate_presigned_url
+from utils.s3 import get_public_url
 
 from ..tutorials.types import AppTarget
 
@@ -29,13 +29,13 @@ class PromotionalVideoType:
     @strawberry.field(description="Presigned URL for the promo video")
     def video_url_signed(self) -> str:
         """Generate presigned URL for video."""
-        return generate_presigned_url(self.videoUrl)
+        return get_public_url(self.videoUrl)
 
     @strawberry.field(description="Presigned URL for the promo thumbnail")
     def thumbnail_url_signed(self) -> Optional[str]:
         """Generate presigned URL for thumbnail."""
         if self.thumbnailUrl:
-            return generate_presigned_url(self.thumbnailUrl)
+            return get_public_url(self.thumbnailUrl)
         return None
 
     @strawberry.field(description="Name of the branch that uploaded the promo (optional)")
@@ -64,5 +64,5 @@ class PromotionalVideoType:
 
         avatar_path = await _resolve_branch_avatar_path(branch.businessId, branch.avatar)
         if avatar_path:
-            return generate_presigned_url(avatar_path)
+            return get_public_url(avatar_path)
         return None

@@ -6,7 +6,7 @@ from typing import Annotated, Optional
 import strawberry
 from strawberry.types import Info
 
-from utils.s3 import generate_image_variant_url, generate_presigned_url
+from utils.s3 import get_public_image_variant_url, get_public_url
 from utils.serialization import to_strawberry_dict
 
 
@@ -27,27 +27,27 @@ class ProductType:
 
     @strawberry.field(description="Presigned URL for the product image")
     def image_url(self) -> str:
-        return generate_presigned_url(self.image)
+        return get_public_url(self.image)
 
     @strawberry.field(description="Presigned URL for the very low quality product image (200x200)")
     def image_url_muy_baja(self) -> str:
-        return generate_image_variant_url(self.image, "muy_baja")
+        return get_public_image_variant_url(self.image,"muy_baja")
 
     @strawberry.field(description="Presigned URL for the low quality product image (720x540)")
     def image_url_baja(self) -> str:
-        return generate_image_variant_url(self.image, "baja")
+        return get_public_image_variant_url(self.image,"baja")
 
     @strawberry.field(description="Presigned URL for the medium quality product image (1080x1350)")
     def image_url_media(self) -> str:
-        return generate_image_variant_url(self.image, "media")
+        return get_public_image_variant_url(self.image,"media")
 
     @strawberry.field(description="Presigned URL for the high quality product image (1440x1800)")
     def image_url_alta(self) -> str:
-        return generate_image_variant_url(self.image, "alta")
+        return get_public_image_variant_url(self.image,"alta")
 
     @strawberry.field(description="Presigned URL for the original product image")
     def image_url_original(self) -> str:
-        return generate_presigned_url(self.image)
+        return get_public_url(self.image)
 
     @strawberry.field(description="Precio convertido a la otra moneda (si la sucursal acepta ambas)")
     async def converted_price(self, info: Info) -> Optional[float]:
@@ -221,27 +221,27 @@ class ScoredProductType:
 
     @strawberry.field(description="Presigned URL for the product image")
     def image_url(self) -> str:
-        return generate_presigned_url(self.image)
+        return get_public_url(self.image)
 
     @strawberry.field(description="Presigned URL for the very low quality product image (200x200)")
     def image_url_muy_baja(self) -> str:
-        return generate_image_variant_url(self.image, "muy_baja")
+        return get_public_image_variant_url(self.image,"muy_baja")
 
     @strawberry.field(description="Presigned URL for the low quality product image (720x540)")
     def image_url_baja(self) -> str:
-        return generate_image_variant_url(self.image, "baja")
+        return get_public_image_variant_url(self.image,"baja")
 
     @strawberry.field(description="Presigned URL for the medium quality product image (1080x1350)")
     def image_url_media(self) -> str:
-        return generate_image_variant_url(self.image, "media")
+        return get_public_image_variant_url(self.image,"media")
 
     @strawberry.field(description="Presigned URL for the high quality product image (1440x1800)")
     def image_url_alta(self) -> str:
-        return generate_image_variant_url(self.image, "alta")
+        return get_public_image_variant_url(self.image,"alta")
 
     @strawberry.field(description="Presigned URL for the original product image")
     def image_url_original(self) -> str:
-        return generate_presigned_url(self.image)
+        return get_public_url(self.image)
 
     @strawberry.field(description="Distance in kilometers from user")
     def distance_km(self) -> Optional[float]:

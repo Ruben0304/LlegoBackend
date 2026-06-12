@@ -7,7 +7,7 @@ import strawberry
 from strawberry.scalars import JSON
 
 from schema.wallet.types import WalletBalanceType
-from utils.s3 import generate_presigned_url
+from utils.s3 import get_public_url
 
 
 @strawberry.type
@@ -61,5 +61,5 @@ class UserType:
     def avatar_url(self) -> Optional[str]:
         """Generate presigned URL for user avatar."""
         if self.avatar:
-            return generate_presigned_url(self.avatar)
+            return get_public_url(self.avatar)
         return None
