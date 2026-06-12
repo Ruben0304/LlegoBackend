@@ -105,7 +105,7 @@ def get_s3_exists_cache_key(object_name: str) -> str:
     """Generate cache key for S3 object existence checks."""
     return f"cache:s3:exists:{object_name}"
 
-def get_public_url(key: str) -> str:
+def get_public_url(key: str, expiration: int = 3600) -> str:
     """Return a URL for an S3 object with no head_object/existence checks.
 
     Uses presigned URL generation (local crypto, no network call).
@@ -116,7 +116,7 @@ def get_public_url(key: str) -> str:
         return ""
     if key.startswith("http"):
         return key
-    return generate_presigned_url(key)
+    return generate_presigned_url(key, expiration=expiration)
 
 
 def get_public_image_variant_url(key: str, variant, expiration: int = 3600) -> str:
