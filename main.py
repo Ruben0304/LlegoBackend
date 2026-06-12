@@ -5,6 +5,7 @@ from typing import Optional, Union
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import PlainTextResponse, Response
 from slowapi.errors import RateLimitExceeded
 from starlette.websockets import WebSocket
@@ -51,6 +52,8 @@ app.add_exception_handler(HTTPException, http_exception_handler)
 # CORS configuration
 # Mobile apps (iOS/Android) don't need CORS - they make native requests
 # Only web origins need to be whitelisted
+app.add_middleware(GZipMiddleware, minimum_size=500)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -58,6 +61,29 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+
+# Body size limit middleware — reject oversized JSON bodies before they are
+# buffered into RAM. Upload endpoints are excluded because they enforce their
+# own per-type limits via streaming chunk validation.
+MAX_JSON_BODY_BYTES = 1 * 1024 * 1024  # 1 MB
+
+
+@app.middleware("http")
+async def limit_body_size(request: Request, call_next):
+    if not request.url.path.startswith("/upload"):
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > MAX_JSON_BODY_BYTES:
+                    from fastapi.responses import JSONResponse
+                    return JSONResponse(
+                        status_code=413,
+                        content={"detail": "Request body too large. Maximum 1 MB."},
+                    )
+            except ValueError:
+                pass
+    return await call_next(request)
 
 
 # Request logging middleware
