@@ -978,15 +978,12 @@ class FeedService:
         Products the user has previously ordered, ranked by recency (55%) + frequency (35%)
         + proximity (10%). Only shows available products still in the catalog.
         """
-        all_orders, _ = await orders_repo.get_by_customer(
+        orders, _ = await orders_repo.get_by_customer(
             user_id, status=None, limit=50
         )
-        # Exclude cancelled orders — the user didn't go through with those
-        orders = [o for o in all_orders if getattr(o, "status", None) != OrderStatus.CANCELLED]
         if not orders:
             return []
 
-        # Build per-product signals from order history
         product_signals: Dict[str, Dict[str, Any]] = {}
         for order in orders:
             order_time = getattr(order, "completedAt", None) or getattr(order, "createdAt", None)
