@@ -17,6 +17,20 @@ from utils.rate_limit import rate_limit_graphql
 from .types import FeedProductType, FeedResponse, FeedSection, FeedSectionDiagnostic
 
 
+def _meal_extra_title(meal_title: str) -> str:
+    """Return a 'more of the same meal moment' variant title for page > 0."""
+    mapping = {
+        "Desayunos Populares": "Más cositas para el desayuno",
+        "Desayunos del Finde": "Más para arrancar el finde",
+        "Para el Almuerzo": "Más opciones para el almuerzo",
+        "El Almuerzo del Finde": "Más para el almuerzo del finde",
+        "Para Merendar": "Más cositas que puedes merendar",
+        "Para la Cena": "Más opciones para la cena",
+        "Antojos de Noche": "Más antojos de noche",
+    }
+    return mapping.get(meal_title, f"Más {meal_title.lower()}")
+
+
 @strawberry.type
 class FeedQuery:
     @strawberry.field(description="Get personalized feed with multiple sections")
@@ -99,33 +113,54 @@ class FeedQuery:
 
         # Default sections if not specified
         meal_title, meal_description = feed_service.get_meal_context()
-        available_sections = {
-            "para_ti": ("Para Ti", "Productos personalizados según tus preferencias"),
-            "pide_de_nuevo": (
-                "Pide de Nuevo",
-                "Tus pedidos anteriores, listos para repetir",
-            ),
-            "populares_cerca": (
-                "Populares Cerca de Ti",
-                "Los más populares en tu zona",
-            ),
-            "trending": ("Trending Ahora", "Productos con mayor actividad reciente"),
-            "hora_del_dia": (meal_title, meal_description),
-            "basado_busquedas": ("Basado en tus Búsquedas", "Según lo que has buscado"),
-            "nuevos_lugares_favoritos": (
-                "Nuevos en tus Lugares Favoritos",
-                "Productos recientes de tus branches favoritos",
-            ),
-            "mas_favoriteados": (
-                "Los Más Favoriteados",
-                "Los productos más guardados en favoritos",
-            ),
-            "cerca_ti": ("Cerca de Ti", "Productos disponibles cerca de tu ubicación"),
-            "te_podria_gustar": (
-                "Te Podría Gustar",
-                "Recomendaciones basadas en tus preferencias",
-            ),
-        }
+
+        # For page > 0 the same section types reappear but with fresh titles
+        # so the scroll feels like new content, not a repeat.
+        if page == 0:
+            available_sections = {
+                "para_ti": ("Para Ti", "Productos personalizados según tus preferencias"),
+                "pide_de_nuevo": ("Pide de Nuevo", "Tus pedidos anteriores, listos para repetir"),
+                "populares_cerca": ("Populares Cerca de Ti", "Los más populares en tu zona"),
+                "trending": ("Trending Ahora", "Productos con mayor actividad reciente"),
+                "hora_del_dia": (meal_title, meal_description),
+                "basado_busquedas": ("Basado en tus Búsquedas", "Según lo que has buscado"),
+                "nuevos_lugares_favoritos": (
+                    "Nuevos en tus Lugares Favoritos",
+                    "Productos recientes de tus negocios favoritos",
+                ),
+                "mas_favoriteados": (
+                    "Los Más Favoriteados",
+                    "Los productos más guardados en favoritos",
+                ),
+                "cerca_ti": ("Cerca de Ti", "Productos disponibles cerca de tu ubicación"),
+                "te_podria_gustar": (
+                    "Te Podría Gustar",
+                    "Recomendaciones basadas en tus preferencias",
+                ),
+            }
+        else:
+            _meal_extra = _meal_extra_title(meal_title)
+            available_sections = {
+                "para_ti": ("Más para Ti", "Más opciones que se ajustan a tus gustos"),
+                "pide_de_nuevo": ("Más para Repetir", "Otros que ya pediste y seguro se te antojan"),
+                "populares_cerca": ("Más cositas cerca de ti", "Más opciones populares en tu zona"),
+                "trending": ("Más de lo que está en tendencia", "Más productos con mucha actividad"),
+                "hora_del_dia": (_meal_extra, meal_description),
+                "basado_busquedas": ("Más según lo que buscas", "Más opciones relacionadas con tus búsquedas"),
+                "nuevos_lugares_favoritos": (
+                    "Más de tus lugares favoritos",
+                    "Más novedades de los negocios que te gustan",
+                ),
+                "mas_favoriteados": (
+                    "Más de los más queridos",
+                    "Más productos con muchos favoritos",
+                ),
+                "cerca_ti": ("Más cerquita de ti", "Más opciones a pocos pasos"),
+                "te_podria_gustar": (
+                    "Más que te podría gustar",
+                    "Sigue explorando, hay más por descubrir",
+                ),
+            }
 
         # Filter sections if specified
         section_diagnostics: List[FeedSectionDiagnostic] = []
