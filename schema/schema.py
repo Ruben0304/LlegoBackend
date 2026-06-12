@@ -7,6 +7,8 @@ from strawberry.types import Info
 
 from utils.graphql_auth import apply_optional_jwt
 
+from .ads.mutations import AdCampaignMutation
+from .ads.queries import AdCampaignQuery
 from .ai_assistant.queries import AiAssistantQuery
 from .ai_assistant.subscriptions import AiAssistantSubscription
 from .app_config.mutations import AppConfigMutations
@@ -81,6 +83,7 @@ class Query(
     ShortcutTransferQuery,
     VariantListQuery,
     SyncQuery,
+    AdCampaignQuery,
 ):
     @strawberry.field(description="Saludo de ejemplo")
     def hello(self, info: Info, jwt: Optional[str] = None) -> str:
@@ -116,6 +119,7 @@ class Mutation(
     TutorialMutation,
     PromotionalVideoMutation,
     VariantListMutation,
+    AdCampaignMutation,
 ):
     pass
 

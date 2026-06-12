@@ -7,6 +7,8 @@ from typing import List, Optional, Set
 import strawberry
 from strawberry.types import Info
 
+from schema.ads.types import creative_to_type
+from services.ads_service import ads_service
 from services.feed_service import feed_service
 from services.scoring_service import scoring_service
 from utils.cache import mem_cache
@@ -14,7 +16,14 @@ from utils.graphql_auth import apply_optional_jwt
 from utils.serialization import to_strawberry_dict
 from utils.rate_limit import rate_limit_graphql
 
-from .types import FeedProductType, FeedResponse, FeedSection, FeedSectionDiagnostic
+from .types import (
+    FeedCreativeSection,
+    FeedCreativeType,
+    FeedProductType,
+    FeedResponse,
+    FeedSection,
+    FeedSectionDiagnostic,
+)
 
 
 def _meal_extra_title(meal_title: str) -> str:
@@ -530,10 +539,43 @@ class FeedQuery:
                 )
             )
 
+        # --- Paid creative sections (Destacados / Ofertas) ---
+        # Additive and non-breaking: organic `sections` are untouched. Only
+        # active campaigns whose branch is in this feed's (approved) branch set
+        # are eligible.
+        creative_sections: List[FeedCreativeSection] = []
+        try:
+            for placement, title, sid in (
+                ("destacado", "Negocios Destacados", "destacados"),
+                ("oferta", "Ofertas", "ofertas"),
+            ):
+                campaigns = await ads_service.get_feed_campaigns(
+                    placement, branch_ids, limit=8
+                )
+                if not campaigns:
+                    continue
+                items = [
+                    FeedCreativeType(
+                        campaignId=str(c.id),
+                        branchId=str(c.branchId),
+                        businessId=str(c.businessId),
+                        placement=c.placement,
+                        creative=creative_to_type(c.creative),
+                        ctaDeeplink=c.creative.cta.deeplink if c.creative.cta else None,
+                    )
+                    for c in campaigns
+                ]
+                creative_sections.append(
+                    FeedCreativeSection(title=title, section_id=sid, items=items)
+                )
+        except Exception as e:
+            print(f"[ADS] Error building creative sections: {e}")
+
         return FeedResponse(
             sections=final_sections,
             section_diagnostics=section_diagnostics,
             timestamp=datetime.now(timezone.utc),
             has_more=has_more,
             explorar_has_more=explorar_has_more,
+            creative_sections=creative_sections,
         )
