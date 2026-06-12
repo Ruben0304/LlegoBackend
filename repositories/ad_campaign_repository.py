@@ -70,9 +70,11 @@ class AdCampaignRepository:
         branch_ids: Iterable[str],
         limit: int = 20,
     ) -> List[AdCampaign]:
-        """Active campaigns of a placement whose branch is in ``branch_ids``.
+        """Visible campaigns of a placement whose branch is in ``branch_ids``.
 
-        "Active" = status == 'active' and now within [startAt, endAt] (when set).
+        Shows pending_payment, pending_review and active campaigns so businesses
+        can see their creatives in the feed immediately after submitting.
+        Excludes draft, paused, rejected and ended.
         """
         now = datetime.utcnow()
         oid_branches: List[Any] = []
@@ -82,14 +84,14 @@ class AdCampaignRepository:
 
         query = {
             "placement": placement,
-            "status": "active",
+            "status": {"$in": ["pending_payment", "pending_review", "active"]},
             "branchId": {"$in": oid_branches},
             "$and": [
                 {"$or": [{"startAt": None}, {"startAt": {"$lte": now}}]},
                 {"$or": [{"endAt": None}, {"endAt": {"$gte": now}}]},
             ],
         }
-        cursor = self._col().find(query).sort("approvedAt", -1).limit(limit)
+        cursor = self._col().find(query).sort("createdAt", -1).limit(limit)
         docs = await cursor.to_list(length=limit)
         return [AdCampaign(**self._convert_id(d)) for d in docs]
 
