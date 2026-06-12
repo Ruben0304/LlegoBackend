@@ -1157,6 +1157,9 @@ class FeedService:
             p for p in all_products
             if str(p.id) not in seen_ids and getattr(p, "availability", False)
         ]
+        # Fallback: if every product was already shown in other sections, show all of them.
+        if not remaining:
+            remaining = [p for p in all_products if getattr(p, "availability", False)]
         if not remaining:
             return []
 
