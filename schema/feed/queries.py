@@ -9,6 +9,7 @@ from strawberry.types import Info
 
 from services.feed_service import feed_service
 from services.scoring_service import scoring_service
+from utils.cache import mem_cache
 from utils.graphql_auth import apply_optional_jwt
 from utils.serialization import to_strawberry_dict
 from utils.rate_limit import rate_limit_graphql
@@ -56,9 +57,6 @@ class FeedQuery:
 
         # Fetch branch IDs for the requested tipo once — all sections share this filter
         branch_ids = await feed_service.get_branch_ids_by_tipo(branch_tipo)
-        print(f"[DEBUG] Feed - branch_tipo: {branch_tipo}")
-        print(f"[DEBUG] Feed - branch_ids found: {len(branch_ids)} branches")
-        print(f"[DEBUG] Feed - branch_ids: {list(branch_ids)[:5]}")  # Show first 5
 
         # Narrow branch_ids by product category if specified
         if product_category_id:
@@ -70,7 +68,6 @@ class FeedQuery:
                 )
             )
             branch_ids = branch_ids & category_branch_ids
-            print(f"[DEBUG] Feed - After category filter: {len(branch_ids)} branches")
 
         # Get user context
         user_id = info.context.get("user_id")
@@ -78,36 +75,26 @@ class FeedQuery:
 
         if user_id:
             user_location = await scoring_service.get_user_location(user_id)
-            print(f"[DEBUG] Feed - user_id: {user_id}")
-            print(f"[DEBUG] Feed - user_location: {user_location}")
 
-        # Fetch ALL products ONCE — shared across all feed sections
+        # Fetch ALL products ONCE — shared across all feed sections (2-min in-process cache)
         from repositories import products_repo
 
-        all_products = await products_repo.get_feed_products(
-            branch_ids=list(branch_ids),
-            apply_category_filter=True,
-            requested_branch_tipo=branch_tipo.lower(),
-        )
-        print(
-            "[DEBUG] Feed - all_products after branch_tipo category filter: "
-            f"{len(all_products)} products"
-        )
+        _products_cache_key = f"feed:products:{branch_tipo.lower()}:{','.join(sorted(branch_ids))}"
+        all_products = mem_cache.get(_products_cache_key)
+        if all_products is None:
+            all_products = await products_repo.get_feed_products(
+                branch_ids=list(branch_ids),
+                apply_category_filter=True,
+                requested_branch_tipo=branch_tipo.lower(),
+            )
+            mem_cache.set(_products_cache_key, all_products, ttl=120)
+
         if product_category_id:
             all_products = [
                 product
                 for product in all_products
                 if str(product.categoryId) == product_category_id
             ]
-            print(
-                "[DEBUG] Feed - all_products after product_category_id filter: "
-                f"{len(all_products)} products"
-            )
-        print(f"[DEBUG] Feed - all_products fetched: {len(all_products)} products")
-        if len(all_products) > 0:
-            print(
-                f"[DEBUG] Feed - Sample product: {all_products[0].model_dump() if hasattr(all_products[0], 'model_dump') else all_products[0]}"
-            )
 
         # Default sections if not specified
         meal_title, meal_description = feed_service.get_meal_context()

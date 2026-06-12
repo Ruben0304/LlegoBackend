@@ -17,6 +17,7 @@ from repositories import (
     searches_repo,
 )
 from services.scoring_service import scoring_service
+from utils.cache import mem_cache
 
 
 @dataclass
@@ -114,13 +115,15 @@ class FeedService:
 
     async def get_branch_ids_by_tipo(self, branch_tipo: str) -> Set[str]:
         """Fetch branch IDs filtered by tipo, restricted to approved businesses."""
-        print(f"[DEBUG] get_branch_ids_by_tipo - Fetching branch IDs for tipo: {branch_tipo}")
+        cache_key = f"feed:branch_ids:{branch_tipo}"
+        cached = mem_cache.get(cache_key)
+        if cached is not None:
+            return cached
         approved_business_ids = await businesses_repo.get_ids_by_approval_status("approved")
         ids = await branches_repo.get_ids_by_tipo(branch_tipo.lower(), business_ids=approved_business_ids)
-        print(f"[DEBUG] get_branch_ids_by_tipo - Found {len(ids)} branches for tipo {branch_tipo}")
-        if len(ids) > 0:
-            print(f"[DEBUG] get_branch_ids_by_tipo - Sample branch IDs (first 5): {list(ids)[:5]}")
-        return set(ids)
+        result = set(ids)
+        mem_cache.set(cache_key, result, ttl=300)
+        return result
 
     def _normalize_score_map(self, raw_scores: Dict[str, float]) -> Dict[str, float]:
         """Normalize a score dictionary into the 0-1 range."""
@@ -205,6 +208,11 @@ class FeedService:
         self, days: int = 30
     ) -> Dict[str, float]:
         """Build recent popularity scores from clicks, favorites, and cart activity."""
+        cache_key = f"feed:popularity_scores:{days}"
+        cached = mem_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         recent_clicks_data, recent_favorites, recent_cart = await asyncio.gather(
             searches_repo.get_recent_activity(days),
             favorites_cart_repo.get_recent_activity("favorite", days),
@@ -223,7 +231,9 @@ class FeedService:
         for pid, count in recent_cart.items():
             raw_scores[str(pid)] = raw_scores.get(str(pid), 0.0) + count * 1.4
 
-        return self._normalize_score_map(raw_scores)
+        result = self._normalize_score_map(raw_scores)
+        mem_cache.set(cache_key, result, ttl=120)
+        return result
 
     async def _build_para_ti_user_profile(self, user_id: str) -> Dict[str, Any]:
         """Build lightweight affinity maps and direct interaction sets for feed ranking."""
