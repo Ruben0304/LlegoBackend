@@ -1143,6 +1143,51 @@ class FeedService:
 
         return deduplicated_sections
 
+    async def get_explorar_section(
+        self,
+        all_products: List[Any],
+        seen_ids: Set[str],
+        page: int = 0,
+        limit: int = 20,
+        user_location: Optional[tuple] = None,
+        radius_km: Optional[float] = None,
+    ) -> List[ScoredFeedProduct]:
+        """Catch-all section: remaining products not shown elsewhere, scored by popularity + freshness + proximity."""
+        remaining = [
+            p for p in all_products
+            if str(p.id) not in seen_ids and getattr(p, "availability", False)
+        ]
+        if not remaining:
+            return []
+
+        recent_popularity, (remaining, proximity_map) = await asyncio.gather(
+            self._build_recent_popularity_scores(days=7),
+            self._prepare_products_with_proximity(remaining, user_location, radius_km=radius_km),
+        )
+        if not remaining:
+            return []
+
+        freshness_scores = products_repo.calculate_freshness_scores(remaining)
+
+        scored: List[ScoredFeedProduct] = []
+        for product in remaining:
+            pid = str(product.id)
+            pop = recent_popularity.get(pid, 0.0)
+            fresh = freshness_scores.get(pid, 0.0)
+            prox = proximity_map.get(pid, 0.0)
+            scored.append(
+                ScoredFeedProduct(
+                    product=product,
+                    score=pop * 0.50 + fresh * 0.30 + prox * 0.20,
+                    section_scores={"recent_popularity": pop, "freshness": fresh, "proximity": prox},
+                )
+            )
+
+        self._sort_scored_products(scored)
+        offset = page * limit
+        # Return limit+1 so the caller can detect whether more pages exist
+        return scored[offset: offset + limit + 1]
+
 
 # Singleton instance
 feed_service = FeedService()

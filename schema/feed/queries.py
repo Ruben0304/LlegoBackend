@@ -2,7 +2,7 @@
 
 import asyncio
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Set
 
 import strawberry
 from strawberry.types import Info
@@ -40,6 +40,7 @@ class FeedQuery:
         branch_tipo: str,
         first: int = 10,
         page: int = 0,
+        explorar_page: int = 0,
         radius_km: Optional[float] = None,
         sections: Optional[List[str]] = None,
         product_category_id: Optional[str] = None,
@@ -169,7 +170,7 @@ class FeedQuery:
                 k: v for k, v in available_sections.items() if k in sections
             }
             print(f"[DEBUG] Feed - sections requested: {sections}")
-            unknown_sections = [s for s in sections if s not in available_sections]
+            unknown_sections = [s for s in sections if s not in available_sections and s != "explorar"]
             for unknown_section in unknown_sections:
                 section_diagnostics.append(
                     FeedSectionDiagnostic(
@@ -495,9 +496,44 @@ class FeedQuery:
                     )
                 )
 
+        # --- Explorar section: all remaining products not shown in other sections ---
+        EXPLORAR_LIMIT = 20
+        seen_in_feed: Set[str] = set()
+        for scored_list in deduplicated_sections:
+            for sp in scored_list:
+                seen_in_feed.add(str(sp.product.id))
+
+        explorar_scored = await feed_service.get_explorar_section(
+            all_products=all_products,
+            seen_ids=seen_in_feed,
+            page=explorar_page,
+            limit=EXPLORAR_LIMIT,
+            user_location=user_location,
+            radius_km=radius_km,
+        )
+        explorar_has_more = len(explorar_scored) > EXPLORAR_LIMIT
+        explorar_page_products = explorar_scored[:EXPLORAR_LIMIT]
+
+        if explorar_page_products:
+            products = []
+            for sp in explorar_page_products:
+                product_data = to_strawberry_dict(sp.product)
+                products.append(FeedProductType(**product_data, score=sp.score, distance_m=None))
+
+            final_sections.append(
+                FeedSection(
+                    title="Explora otras opciones",
+                    section_id="explorar",
+                    description="Todos los productos disponibles",
+                    products=products,
+                    total_count=len(products),
+                )
+            )
+
         return FeedResponse(
             sections=final_sections,
             section_diagnostics=section_diagnostics,
             timestamp=datetime.now(timezone.utc),
             has_more=has_more,
+            explorar_has_more=explorar_has_more,
         )

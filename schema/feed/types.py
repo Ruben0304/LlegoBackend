@@ -107,6 +107,7 @@ class FeedResponse:
     section_diagnostics: List["FeedSectionDiagnostic"]
     timestamp: datetime
     has_more: bool = False
+    explorar_has_more: bool = False
 
 
 @strawberry.type
