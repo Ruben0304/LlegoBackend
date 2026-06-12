@@ -146,13 +146,18 @@ class AdsService:
     # -- Moderation ------------------------------------------------------------
 
     async def approve(self, campaign: AdCampaign) -> AdCampaign:
-        """Approve a paid campaign and open its active window now."""
+        """Admit a campaign into the feed and open its active window now.
+
+        ``approved`` is the sole feed-visibility gate, decoupled from payment —
+        an admin may admit a campaign even if it is not paid yet.
+        """
         now = datetime.utcnow()
         start = campaign.startAt or now
         end = campaign.endAt or (start + timedelta(days=campaign.durationDays))
         return await ad_campaigns_repo.update(
             str(campaign.id),
             {
+                "approved": True,
                 "status": "active",
                 "rejectionReason": None,
                 "approvedAt": now,
@@ -166,6 +171,7 @@ class AdsService:
         return await ad_campaigns_repo.update(
             str(campaign.id),
             {
+                "approved": False,
                 "status": "rejected",
                 "rejectionReason": reason,
                 "rejectedAt": datetime.utcnow(),

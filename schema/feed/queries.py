@@ -7,12 +7,12 @@ from typing import List, Optional, Set
 import strawberry
 from strawberry.types import Info
 
-from schema.ads.types import creative_to_type
 from services.ads_service import ads_service
 from services.feed_service import feed_service
 from services.scoring_service import scoring_service
 from utils.cache import mem_cache
 from utils.graphql_auth import apply_optional_jwt
+from utils.s3 import get_public_url
 from utils.serialization import to_strawberry_dict
 from utils.rate_limit import rate_limit_graphql
 
@@ -562,11 +562,14 @@ class FeedQuery:
                         branchId=str(c.branchId),
                         businessId=str(c.businessId),
                         placement=c.placement,
-                        creative=creative_to_type(c.creative),
-                        ctaDeeplink=c.creative.cta.deeplink if c.creative.cta else None,
+                        imageUrl=get_public_url(c.creativeImagePath),
+                        ctaDeeplink=f"llego://branch/{c.branchId}",
                     )
                     for c in campaigns
+                    if c.creativeImagePath
                 ]
+                if not items:
+                    continue
                 creative_sections.append(
                     FeedCreativeSection(title=title, section_id=sid, items=items)
                 )

@@ -881,11 +881,12 @@ async def upload_ad_campaign_creative(
     user_id: str = Depends(get_current_user_id_from_header),
 ):
     """
-    Upload the optional image layer for an ad campaign creative.
+    Upload the exported ad-campaign creative photo (the Canva-style card the
+    business designed and flattened to a single image in LlegoBusiness).
     Max size: 10MB | Preserves transparency (PNG/WebP supported).
 
-    Returns the S3 path; set it on CreativeSpecInput.background.imagePath
-    (with background.type = "image") in the createAdCampaign mutation.
+    Returns the S3 path; set it on CreateAdCampaignInput.creativeImagePath in
+    the createAdCampaign mutation.
     """
     if not user_id:
         raise HTTPException(status_code=401, detail="No autorizado")

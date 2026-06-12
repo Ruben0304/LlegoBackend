@@ -13,7 +13,6 @@ from utils.graphql_auth import apply_optional_jwt
 from .inputs import (
     CreateAdCampaignInput,
     UpdateAdCampaignInput,
-    creative_input_to_dict,
 )
 from .types import AdCampaignType, campaign_to_type
 
@@ -65,12 +64,13 @@ class AdCampaignMutation:
             "ownerId": user_id,
             "name": input.name,
             "placement": input.placement,
-            "creative": creative_input_to_dict(input.creative),
+            "creativeImagePath": input.creativeImagePath,
             "durationDays": input.durationDays,
             "price": pricing.price,
             "currency": pricing.currency,
             "paymentStatus": "unpaid",
             "status": "draft",
+            "approved": False,
             "impressions": 0,
             "clicks": 0,
         }
@@ -92,8 +92,8 @@ class AdCampaignMutation:
         updates: dict = {}
         if input.name is not None:
             updates["name"] = input.name
-        if input.creative is not None:
-            updates["creative"] = creative_input_to_dict(input.creative)
+        if input.creativeImagePath is not None:
+            updates["creativeImagePath"] = input.creativeImagePath
         if input.durationDays is not None and input.durationDays != campaign.durationDays:
             pricing = await ads_service.quote(campaign.placement, input.durationDays)
             updates["durationDays"] = input.durationDays
@@ -145,7 +145,9 @@ class AdCampaignMutation:
 
     # -- Admin moderation ------------------------------------------------------
 
-    @strawberry.mutation(description="[Admin] Aprobar una campaña pagada")
+    @strawberry.mutation(
+        description="[Admin] Admitir una campaña en el feed (aunque no esté pagada)"
+    )
     async def approve_ad_campaign(
         self, info: Info, id: str, admin_key: str
     ) -> AdCampaignType:
@@ -154,8 +156,10 @@ class AdCampaignMutation:
         campaign = await ad_campaigns_repo.get_by_id(id)
         if not campaign:
             raise Exception("Campaña no encontrada")
-        if campaign.status != "pending_review":
-            raise Exception("Solo se aprueban campañas pagadas en revisión")
+        if campaign.status == "ended":
+            raise Exception("La campaña ya terminó")
+        if not campaign.creativeImagePath:
+            raise Exception("La campaña no tiene creativo (foto) para mostrar")
         updated = await ads_service.approve(campaign)
         return campaign_to_type(updated)
 

@@ -6,7 +6,6 @@ from typing import Annotated, List, Optional
 import strawberry
 from strawberry.types import Info
 
-from schema.ads.types import CreativeSpecType
 from utils.s3 import get_public_image_variant_url, get_public_url
 
 
@@ -104,34 +103,17 @@ class FeedSection:
 class FeedCreativeType:
     """A paid, business-designed creative (Destacado / Oferta) for the feed.
 
-    The creative is a declarative spec that the client renders natively; this
-    type also exposes the owning branch so the card can show its name/avatar.
+    The creative is a single exported photo (the branch avatar and texts are
+    baked into it by the Canva-style editor); the client just shows the image
+    and opens ``ctaDeeplink`` on tap.
     """
 
     campaignId: str
     branchId: str
     businessId: str
     placement: str
-    creative: CreativeSpecType
+    imageUrl: str
     ctaDeeplink: Optional[str] = None
-
-    @strawberry.field(description="Name of the branch behind this creative")
-    async def branch_name(self, info: Info) -> Optional[str]:
-        from repositories import branches_repo
-
-        branch = await branches_repo.get_by_id(self.branchId)
-        return branch.name if branch else None
-
-    @strawberry.field(description="Presigned avatar URL of the branch")
-    async def branch_avatar_url(self, info: Info) -> Optional[str]:
-        from repositories import branches_repo
-        from ..branches.types import _resolve_branch_avatar_path
-
-        branch = await branches_repo.get_by_id(self.branchId)
-        if not branch:
-            return None
-        avatar_path = await _resolve_branch_avatar_path(branch.businessId, branch.avatar)
-        return get_public_url(avatar_path) if avatar_path else None
 
 
 @strawberry.type

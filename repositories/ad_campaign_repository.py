@@ -64,17 +64,31 @@ class AdCampaignRepository:
         docs = await cursor.to_list(length=None)
         return [AdCampaign(**self._convert_id(d)) for d in docs]
 
+    async def list_pending_review(self) -> List[AdCampaign]:
+        """Moderation queue: not-yet-approved campaigns awaiting an admin.
+
+        Includes unpaid ones (``pending_payment``) so an admin can admit a
+        campaign even before it is paid.
+        """
+        query = {
+            "approved": {"$ne": True},
+            "status": {"$in": ["pending_payment", "pending_review"]},
+        }
+        cursor = self._col().find(query).sort("createdAt", 1)
+        docs = await cursor.to_list(length=None)
+        return [AdCampaign(**self._convert_id(d)) for d in docs]
+
     async def list_active_for_feed(
         self,
         placement: str,
         branch_ids: Iterable[str],
         limit: int = 20,
     ) -> List[AdCampaign]:
-        """Visible campaigns of a placement whose branch is in ``branch_ids``.
+        """Feed-visible campaigns of a placement whose branch is in ``branch_ids``.
 
-        Shows pending_payment, pending_review and active campaigns so businesses
-        can see their creatives in the feed immediately after submitting.
-        Excludes draft, paused, rejected and ended.
+        Visibility gate is the ``approved`` boolean (set by an admin), decoupled
+        from payment. A campaign must also have an exported photo, be inside its
+        [startAt, endAt] window, and not be paused/ended.
         """
         now = datetime.utcnow()
         oid_branches: List[Any] = []
@@ -84,7 +98,9 @@ class AdCampaignRepository:
 
         query = {
             "placement": placement,
-            "status": {"$in": ["pending_payment", "pending_review", "active"]},
+            "approved": True,
+            "creativeImagePath": {"$nin": [None, ""]},
+            "status": {"$nin": ["paused", "ended"]},
             "branchId": {"$in": oid_branches},
             "$and": [
                 {"$or": [{"startAt": None}, {"startAt": {"$lte": now}}]},

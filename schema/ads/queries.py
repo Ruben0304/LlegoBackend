@@ -50,11 +50,11 @@ class AdCampaignQuery:
             raise Exception("No autorizado")
         return campaign_to_type(campaign)
 
-    @strawberry.field(description="[Admin] Campañas pendientes de revisión")
+    @strawberry.field(description="[Admin] Campañas pendientes de admisión")
     async def pending_ad_campaigns(
         self, info: Info, admin_key: str
     ) -> List[AdCampaignType]:
         if not settings.admin_api_key or admin_key != settings.admin_api_key:
             raise Exception("No autorizado")
-        campaigns = await ad_campaigns_repo.list_by_status("pending_review")
+        campaigns = await ad_campaigns_repo.list_pending_review()
         return [campaign_to_type(c) for c in campaigns]
