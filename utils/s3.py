@@ -119,7 +119,7 @@ def get_public_url(key: str) -> str:
     return generate_presigned_url(key)
 
 
-def get_public_image_variant_url(key: str, variant) -> str:
+def get_public_image_variant_url(key: str, variant, expiration: int = 3600) -> str:
     """Return a URL for a derived image variant with no head_object/existence checks.
 
     Uses presigned URL generation (local crypto, no network call).
@@ -128,7 +128,7 @@ def get_public_image_variant_url(key: str, variant) -> str:
         return ""
     if key.startswith("http"):
         return key
-    return generate_presigned_url(get_image_variant_path(key, variant))
+    return generate_presigned_url(get_image_variant_path(key, variant), expiration=expiration)
 
 
 def generate_presigned_url(object_name: str, expiration: int = 3600) -> str:

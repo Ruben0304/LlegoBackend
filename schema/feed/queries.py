@@ -545,6 +545,7 @@ class FeedQuery:
         # are eligible.
         creative_sections: List[FeedCreativeSection] = []
         try:
+            print(f"[ADS] Fetching creative sections for {len(branch_ids)} branches (tipo={branch_tipo})")
             for placement, title, sid in (
                 ("destacado", "Negocios Destacados", "destacados"),
                 ("oferta", "Ofertas", "ofertas"),
@@ -552,6 +553,7 @@ class FeedQuery:
                 campaigns = await ads_service.get_feed_campaigns(
                     placement, branch_ids, limit=8
                 )
+                print(f"[ADS] {placement}: {len(campaigns)} active campaigns found")
                 if not campaigns:
                     continue
                 items = [
@@ -569,7 +571,9 @@ class FeedQuery:
                     FeedCreativeSection(title=title, section_id=sid, items=items)
                 )
         except Exception as e:
+            import traceback
             print(f"[ADS] Error building creative sections: {e}")
+            traceback.print_exc()
 
         return FeedResponse(
             sections=final_sections,
