@@ -25,6 +25,7 @@ class FeedQuery:
         info: Info,
         branch_tipo: str,
         first: int = 10,
+        page: int = 0,
         radius_km: Optional[float] = None,
         sections: Optional[List[str]] = None,
         product_category_id: Optional[str] = None,
@@ -340,6 +341,11 @@ class FeedQuery:
                         )
                     )
 
+        # Each section fetches candidate_limit = max(first*3, 30) products.
+        # Page N serves a different slice of those candidates so scroll feels infinite.
+        candidate_limit = feed_service._candidate_limit(first)
+        has_more = (page + 1) * first < candidate_limit
+
         # Execute all sections in parallel
         if tasks:
             results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -367,6 +373,12 @@ class FeedQuery:
                 continue
             raw_sections.append(result)
             valid_keys.append(section_id)
+
+        # For pages > 0, skip the first `page * first` candidates so each page
+        # shows a fresh slice without repeating products from earlier pages.
+        if page > 0:
+            offset = page * first
+            raw_sections = [section[offset:] for section in raw_sections]
 
         # Deduplicate products across sections using backfill from extra candidates.
         deduplicated_sections = feed_service._deduplicate_sections(
@@ -452,4 +464,5 @@ class FeedQuery:
             sections=final_sections,
             section_diagnostics=section_diagnostics,
             timestamp=datetime.now(timezone.utc),
+            has_more=has_more,
         )

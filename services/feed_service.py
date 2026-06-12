@@ -102,16 +102,25 @@ class FeedService:
 
     @staticmethod
     def get_meal_context() -> tuple[str, str]:
-        """Return a time-of-day section title and description based on the current UTC hour."""
-        hour = datetime.now(timezone.utc).hour
+        """Return a situational section title/description based on time of day and day of week."""
+        now = datetime.now(timezone.utc)
+        hour = now.hour
+        is_weekend = now.weekday() >= 5  # Saturday=5, Sunday=6
+
         if 7 <= hour < 12:
+            if is_weekend:
+                return "Desayunos del Finde", "Para arrancar bien el fin de semana"
             return "Desayunos Populares", "Los más pedidos para el desayuno"
         elif 12 <= hour < 16:
+            if is_weekend:
+                return "El Almuerzo del Finde", "Los más pedidos los fines de semana"
             return "Para el Almuerzo", "Los favoritos a la hora del almuerzo"
         elif 16 <= hour < 20:
             return "Para Merendar", "Lo más popular para la merienda"
-        else:
+        elif 20 <= hour < 24:
             return "Para la Cena", "Los más pedidos en la noche"
+        else:
+            return "Antojos de Noche", "Para los que no se duermen con hambre"
 
     async def get_branch_ids_by_tipo(self, branch_tipo: str) -> Set[str]:
         """Fetch branch IDs filtered by tipo, restricted to approved businesses."""
