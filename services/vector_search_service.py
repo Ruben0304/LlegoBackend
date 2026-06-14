@@ -1,4 +1,5 @@
 """Vector search service using Qdrant."""
+import asyncio
 from typing import List, Optional, Dict, Any
 from dataclasses import dataclass
 
@@ -41,9 +42,10 @@ class VectorSearchService:
             List of VectorSearchResult with mongo_id, score, name, and metadata
         """
         # Generate query embedding with RETRIEVAL_QUERY task type
-        query_embedding = self.embedding_service.generate_embedding(
+        query_embedding = await asyncio.to_thread(
+            self.embedding_service.generate_embedding,
             query,
-            task_type="RETRIEVAL_QUERY"
+            "RETRIEVAL_QUERY",
         )
 
         # Search in Qdrant with minimum score threshold using query_points (v1.10+)
@@ -106,9 +108,10 @@ class VectorSearchService:
             List of VectorSearchResult with mongo_id, score, name, and metadata
         """
         # Generate query embedding with RETRIEVAL_QUERY task type
-        query_embedding = self.embedding_service.generate_embedding(
+        query_embedding = await asyncio.to_thread(
+            self.embedding_service.generate_embedding,
             query,
-            task_type="RETRIEVAL_QUERY"
+            "RETRIEVAL_QUERY",
         )
 
         # Search in Qdrant with minimum score threshold using query_points (v1.10+)
@@ -171,9 +174,10 @@ class VectorSearchService:
             List of VectorSearchResult with mongo_id, score, name, and metadata
         """
         # Generate query embedding with RETRIEVAL_QUERY task type
-        query_embedding = self.embedding_service.generate_embedding(
+        query_embedding = await asyncio.to_thread(
+            self.embedding_service.generate_embedding,
             query,
-            task_type="RETRIEVAL_QUERY"
+            "RETRIEVAL_QUERY",
         )
 
         # Search in Qdrant with minimum score threshold using query_points (v1.10+)

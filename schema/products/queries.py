@@ -279,8 +279,13 @@ class ProductQuery:
             vector_scores = {r.mongo_id: r.score for r in product_results}
             all_products = []
 
+            # Batch-fetch all products in a single query instead of N round-trips
+            mongo_ids = [r.mongo_id for r in product_results]
+            fetched_products = await products_repo.get_by_ids(mongo_ids)
+            products_by_id = {str(p.id): p for p in fetched_products}
+
             for result in product_results:
-                product = await products_repo.get_by_id(result.mongo_id)
+                product = products_by_id.get(result.mongo_id)
                 if product:
                     if (
                         allowed_branch_ids is not None
