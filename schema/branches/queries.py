@@ -268,11 +268,15 @@ class BranchQuery:
             vector_service = VectorSearchService()
             branch_results = await vector_service.search_branches(query, limit=200)
 
-            all_branches = []
-            for result in branch_results:
-                branch = await branches_repo.get_by_id(result.mongo_id)
-                if branch:
-                    all_branches.append(branch)
+            # Batch-fetch all branches in a single query instead of N round-trips
+            mongo_ids = [r.mongo_id for r in branch_results]
+            fetched_branches = await branches_repo.get_by_ids(mongo_ids)
+            branches_by_id = {str(b.id): b for b in fetched_branches}
+            all_branches = [
+                branches_by_id[r.mongo_id]
+                for r in branch_results
+                if r.mongo_id in branches_by_id
+            ]
         else:
             all_branches = await branches_repo.search(query)
 

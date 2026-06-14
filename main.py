@@ -52,7 +52,7 @@ app.add_exception_handler(HTTPException, http_exception_handler)
 # CORS configuration
 # Mobile apps (iOS/Android) don't need CORS - they make native requests
 # Only web origins need to be whitelisted
-app.add_middleware(GZipMiddleware, minimum_size=500)
+app.add_middleware(GZipMiddleware, minimum_size=200)
 
 app.add_middleware(
     CORSMiddleware,

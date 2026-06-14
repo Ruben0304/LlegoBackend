@@ -6,6 +6,7 @@ Hybrid repository pattern:
 - Create/Update/Delete: Sync both databases
 """
 
+import asyncio
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -310,7 +311,9 @@ class ProductRepository:
         try:
             # Generate embedding for query
             embedding_service = GeminiEmbeddingService()
-            query_vector = embedding_service.generate_embedding(query)
+            query_vector = await asyncio.to_thread(
+                embedding_service.generate_embedding, query
+            )
 
             qdrant_client = get_qdrant_client()
 
