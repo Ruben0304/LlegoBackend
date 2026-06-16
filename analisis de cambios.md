@@ -2,6 +2,163 @@
 
 ---
 
+## 📅 16 de Junio, 2026
+
+### Resumen de cambios (últimas 24h)
+
+**14 commits** de Ruben0304 y Fabian1820 — día de alta actividad en tres ejes: (1) estabilización completa de la integración Qdrant con 6 fixes críticos, incluyendo el reemplazo del método `.search()` deprecado que causaba vacíos silenciosos en producción; (2) nuevas features de recomendaciones personalizadas vía Qdrant (productos similares, branches similares, sección "Especialmente para Ti" en el feed); y (3) nueva funcionalidad de horarios excepcionales por día en branches con posibilidad de pausar pedidos temporalmente.
+
+---
+
+### Área 1: Qdrant — estabilización crítica (6 commits — Ruben0304)
+
+- **`fix(qdrant): lazy client init + refactor ads auth to use require_role`** (14:46) — `VectorSearchService` obtiene `qdrant_client` lazily vía propiedad en lugar de en `__init__`, de modo que una caída de Qdrant en startup no rompe búsquedas futuras una vez que se recupera. Ads mutations/queries migran de `admin_api_key` a `require_role` para que managers también puedan moderar campañas.
+- **`fix(startup): replace blocking Qdrant probe with async wait_for (5s cap)`** (14:50) — `socket.getaddrinfo` era síncrono y bloqueaba el event loop durante startup. Ahora usa `asyncio.wait_for` con cap de 5s para que la app arranque rápido independientemente de la disponibilidad de Qdrant.
+- **`fix(search): mensaje de error amigable cuando Qdrant no está disponible`** (15:19) — Captura `RuntimeError("Qdrant client not initialized")` y lanza excepción con mensaje legible; el SearchView lo muestra con ícono y botón Reintentar.
+- **`fix(qdrant): retry startup probe and bump client to 1.18.x`** (15:30) — 3 reintentos con 5s de delay, `check_compatibility=False`, bumped a `qdrant-client >=1.18.0`.
+- **`test(qdrant): suite de integración completa contra Railway`** (15:46) — Cubre conectividad, insert/read/delete, rendimiento de búsqueda, consistencia MongoDB↔Qdrant y flujo real de creación de producto vía `ProductRepository`.
+- **`fix(qdrant): reemplazar .search() deprecated por .query_points() en repositorios`** (16:49) — **Fix crítico**: `qdrant-client 1.16+` eliminó `.search()`; los tres repositorios (products, branches, businesses) retornaban `[]` silenciosamente en producción. Causa raíz del bug donde `searchProducts` devolvía vacío.
+
+---
+
+### Área 2: Recomendaciones y feed personalizado (2 commits — Ruben0304)
+
+- **`feat(feed): sección 'Especialmente para Ti' usando Qdrant recommend API`** (17:03) — Promedia vectores de productos en favoritos/carrito del usuario y devuelve los más similares vía `query_points + RecommendInput`. Auth-gated; falla silenciosamente si Qdrant no está disponible o el usuario no tiene historial.
+- **`feat(recommendations): getSimilarProducts, getSimilarBranches, getBranchesForProduct vía Qdrant`** (17:13) — `getSimilarProducts(productId)` y `getSimilarBranches(branchId)` usan `recommend` de Qdrant con UUID como positivo preservando orden Qdrant. `getBranchesForProduct(productId)` recomienda top-50 productos similares → agrupa por `branchId` desde MongoDB → puntúa branches por suma de scores → devuelve top-K sin el branch origen.
+
+---
+
+### Área 3: Panel de pruebas admin (2 commits — Ruben0304)
+
+- **`feat(admin): panel nativo de pruebas de experiencia de cliente`** (16:56) — Endpoints `/admin/tests/suites` y `/admin/tests/run`, protegidos por JWT con `role=admin`. 9 suites (Qdrant, feed scoring, feed performance, combos, push notifications) ejecutables desde la app Llego BI en iOS.
+- **`feat(admin/tests): soporte node_ids + categorías agrupadas`** (17:07) — `RunRequest` acepta `suite_id` o `node_ids` para ejecutar tests individuales. `/admin/tests/suites` devuelve categorías (Qdrant, Feed, Combos, Push) con suites embebidas para construir UI jerárquica en iOS. `_NODE_META` centraliza labels/impact por node ID.
+
+---
+
+### Área 4: MongoDB indexes + limpieza de logging (3 commits — Ruben0304/Fabian1820)
+
+- **`perf: add missing MongoDB indexes and clean up verbose logging`** (18:01 — Ruben0304) — `_create_order_indexes()`: índices en orders por `(branchId+status+date)`, `(businessId+date)`, `(status+deadline)` y compound de reparto; también en `delivery_persons` y `order_location_updates`. `_create_branch_indexes()`: `businessId` y `(businessId+isActive)` en branches (faltaban, causando collection scans en cada carga de la app de negocios). Reemplaza `print()` de nivel info en hot paths de `branch_repository` y `product_repository` con `logger.error`/`logger.warning`.
+- **`Merge remote branch: resolve conflicts, add order/branch/search indexes, clean up logging`** (18:05 — Fabian1820) — Merge manual que preserva `maxPoolSize=150` y `_create_search_perf_indexes()` del branch remoto junto con los nuevos índices de orden y branch.
+
+---
+
+### Área 5: Threshold de búsqueda y control de pedidos en branches (2 commits)
+
+- **`fix(search): bajar threshold de productos de 0.60 a 0.45`** (17:45 — Ruben0304) — Captura más resultados de búsqueda vectorial a expensas de menor precisión media.
+- **`feat(branches): pausar pedidos + horario excepcional por día`** (21:32 — Fabian1820) — Nuevo campo `acceptingOrders: bool=True` en domain `Branch`, `BranchType` y `UpdateBranchInput`. Mutation `setAcceptingOrders(branchId, accepting)` para toggle rápido. `create_order` valida `acceptingOrders==True` y lanza `BRANCH_NOT_ACCEPTING_ORDERS`. `TemporaryStatus` extendido con `dailyOverride` (campos opcionales: `date YYYY-MM-DD`, `openTime`, `closeTime`). Mutations `setBranchDailyOverride` y `clearBranchDailyOverride`.
+
+---
+
+### Puede dar bateo
+
+1. **`acceptingOrders` — retrocompatibilidad con documentos sin el campo en MongoDB**: `branch_to_dict` hace default a `True`, pero si alguna query filtra directamente en MongoDB por `acceptingOrders == True`, los branches creados antes de este commit (sin el campo) quedarán excluidos y parecerán cerrados sin serlo.
+
+2. **`dailyOverride.date` sin timezone explícita**: La convención exige ignorar el override si `date != hoy`, pero `date` es string `YYYY-MM-DD` sin TZ. Backend en UTC y clientes en Cuba (UTC-5) pueden tener "hoy" diferente justo a medianoche local.
+
+3. **`setBranchDailyOverride` — sin validación de rango de horas confirmada**: Si `openTime > closeTime`, el horario resultante es inválido. Confirmar que la mutation valida la coherencia del intervalo.
+
+4. **Threshold 0.60 → 0.45 — aumento de ruido en resultados de búsqueda**: Más resultados pero potencialmente menos relevantes. Monitorear si usuarios reportan irrelevancia o si el CTR de búsqueda baja.
+
+5. **`getBranchesForProduct` — doble query Qdrant + MongoDB con top-50**: Recomendar top-50 productos en Qdrant y luego agrupar por `branchId` en MongoDB puede ser lento con catálogos grandes. Confirmar timeout adecuado e índice en `branchId` en la colección de productos.
+
+6. **`getSimilarProducts/Branches` — UUID no encontrado en Qdrant**: Si el UUID del producto/branch no existe en Qdrant (producto creado antes de la integración vectorial), el endpoint puede lanzar error o devolver vacío. Confirmar degradación elegante.
+
+7. **`Especialmente para Ti` — vector promedio sin normalización explícita**: Promediar vectores de favoritos/carrito sin re-normalizar puede sesgar los resultados si los embeddings de Gemini no son vectores unitarios. El centroide puede apuntar a un espacio denso incorrecto.
+
+8. **Ads auth migrado de `admin_api_key` a `require_role`**: Managers ahora pueden aprobar/rechazar campañas. Confirmar que el flujo de negocio permite esta moderación y que el role `manager` está correctamente asignado en los JWTs emitidos.
+
+9. **`check_compatibility=False` en qdrant-client**: Desactiva la verificación de versión cliente-servidor. Si hay incompatibilidad real en futuras actualizaciones, los errores serán menos descriptivos.
+
+10. **Merge manual de conflictos (18:05)**: Confirmar que el merge no perdió cambios del branch remoto, especialmente `maxPoolSize=150` y `_create_search_perf_indexes()`.
+
+11. **`_create_order_indexes()` y `_create_branch_indexes()` en colecciones con datos existentes**: Crear índices en colecciones con muchos documentos puede bloquear escrituras. Confirmar que se usó opción de construcción en background en el tier de Atlas.
+
+---
+
+#### Seguimientos vigentes
+
+- **`asyncio.to_thread` — pool de threads por defecto (Jun 15)**: Confirmar capacidad del executor bajo picos de búsquedas concurrentes. Considerar `ThreadPoolExecutor` explícito.
+- **`get_by_ids()` en repositorios de vector search (Jun 15)**: Si falta en algún repositorio, el resolver rompe con `AttributeError` sin degradación elegante.
+- **GZip umbral 200 bytes — exclusión de binarios y presigned URLs (Jun 15)**: Confirmar que el middleware excluye `application/octet-stream` y redirects 302 de S3.
+- **`minPoolSize` en Atlas tier bajo con escalado horizontal (Jun 15)**: Confirmar `minPoolSize` 0 o cercano a 0 para evitar agotar el pool en despliegues multi-instancia.
+- **`apiRequest success:false` — monitorear regresiones post-deploy (SunCarWeb)**.
+- **`showContableFields` en MaterialForm (SunCarWeb)**.
+- **`costo` y `material_id` en tipo `Material` (SunCarWeb)**.
+- **Wallet historial por miembro — filtros params (SunCarWeb)**.
+- **Excel Fichas de Costo sin cota de registros (SunCarWeb)**.
+- **Credenciales demo hardcodeadas**: `demo@llego.app / LlegoDemo2025!` en el código fuente.
+- **Bypass de Stripe activo en producción**: Si `isDemoStore` se activa por error, órdenes reales quedan marcadas como pagadas sin cobro.
+- **Timers de `asyncio.sleep` sin cancelación**: Tareas de auto-progreso de órdenes demo acumulándose bajo carga.
+- **`seed_demo_store.py` sin idempotencia**: Ejecutarlo de nuevo crea duplicados en producción.
+- **`isDemoStore` no debe aparecer en feed público**.
+- **Timezone UTC en "Hora del Día"**: Usuarios en Cuba (UTC-5) ven el tramo desfasado 5h.
+- **Ranking sin coordenadas**: Si lat/lng es `null`, verificar que el fallback no genere 500 en el feed.
+- **"Pide de Nuevo" con token expirado**: El feed completo no debe romper; la sección debe retornar array vacío.
+- **Performance ranking multi-factor**: Verificar índice en `(user_id, created_at)` en la tabla de órdenes.
+- **`aumento_porcentaje` y `aumento_tipo` en ofertas**: Confirmar que el endpoint persiste estos campos por material.
+- **Tasa de cambio EUR vs CUP**: EUR multiplica, CUP divide. Confirmar convención en backend.
+- **Endpoints de paginación**: `GET /cobros-paginado` y `GET /personalizadas/pendientes-paginado`.
+- **Rollback de pago**: Confirmar que eliminar un pago revierte correctamente el saldo de billetera.
+- **`recibido_por_ci` en pagos**: Confirmar auto-acreditación de billetera del trabajador correspondiente.
+- **Endpoints wallet**: `POST /wallet/wallets/ensure`, `POST /wallet/pending-transfers`, `PUT .../accept`, `PUT .../reject`, `DELETE .../`.
+- **RRHH — nombre y teléfono editables**: Confirmar que el endpoint de actualización persiste ambos campos.
+- **`available_orders_for_delivery`**: Verificar diferenciación entre entrega activa y pins adicionales.
+- **`averia_id` en trabajos diarios**: Confirmar que el backend acepta este campo en POST/PATCH y lo indexa.
+- **Permiso `gestionar_banco_global`**: Si el backend no valida este permiso, el control de acceso de banco/wallet queda roto.
+- **Campos SunCarWeb → backend pendientes**: `motivo` y `nota` en asignaciones; `foto` y `ficha_tecnica_url` en materiales; `oferta_venta_id`, `descuento_free`, `motivo_descuento_free`, `precio` en solicitudes desde oferta.
+- **Campos de cambio real (SunCarWeb)**: `cambio_real_monto`, `cambio_real_moneda`, `cambio_real_tasa` en `/pagos-ventas/`.
+- **Endpoint lazy load obras terminadas (SunCarWeb)**: `GET /obras-terminadas/oferta/{id}/facturas-cliente`.
+- **Endpoints de notificaciones SunCarWeb**: `GET /mis-notificaciones` con `{ success, data, total }`, filtro bulk por tipo.
+- **`GET /inventario/stock-historico`**: Confirmar que existe y acepta params.
+- **Agregados solicitudes-ventas**: Confirmar `total_cobrado`, `total_pendiente`, `total_sin_descuento`, `total_con_aumento`, `aumento_monto` en endpoints.
+- **`updateSolicitudTransferencia` — validación de estado en backend**.
+- **Búsqueda por `numero_serie` (SunCarWeb)**.
+- **`stock_disponible_actual` — consistencia entre endpoints**.
+- **Excel export de facturas sin cota de registros (SunCarWeb)**.
+- **`'zelle'` como método de pago — soporte en backend (SunCarWeb)**.
+- **Sort client-side de solicitudes pendientes en ValesSalida (SunCarWeb)**.
+- **Parsing UTC→local en otras tablas (SunCarWeb)**.
+- **Tasas MLC/CUP sin persistencia entre sesiones (SunCarWeb)**.
+- **`PonderarCostoResponse` campos nuevos (SunCarWeb)**.
+- **`GET /api/kardex-costo/costo-actual` (SunCarWeb)**.
+- **`materiales` en respuesta de facturas de solicitudes-ventas (SunCarWeb)**.
+- **Filtros de vales de salida — `fecha_desde`, `fecha_hasta`, creador (SunCarWeb)**.
+- **`discounted_service_fee_rate` sin validación de rango**.
+- **Signed URLs de S3 para videos promotores sin renovación**.
+- **Race condition del descuento por video**.
+- **Videos/thumbnails huérfanos en S3 en error parcial**.
+- **`almacenes-suncar/admin` — gating solo en frontend (SunCarWeb)**.
+- **Estados de transferencia no mapeados en `ESTADO_CONFIG` (SunCarWeb)**.
+- **Campos de dimensionamiento en calculadora sin persistencia confirmada (SunCarWeb)**.
+- **Badges de disponibilidad por pool — snapshot estático (SunCarWeb)**.
+- **Endpoint cumpleaños de la semana (SunCarWeb)**.
+- **Endpoint contador de instalaciones solares (SunCarWeb)**.
+- **Widget de paneles — estado único vs respuesta del backend (SunCarWeb)**.
+- **`window.history.pushState` + Next.js App Router desync (SunCarWeb)**.
+- **Export Excel merge vertical — heterogeneidad de materiales (SunCarWeb)**.
+- **Rebrand paleta — componentes con clases hardcoded (SunCarWeb)**.
+- **`POST /solicitudes-transferencia/{id}/resolver` — endpoint pendiente (SunCarWeb)**.
+- **Worker de borrado de cuentas — sin recuperación tras reinicios**.
+- **`scheduledDeletionAt` — campo nuevo en documentos existentes**.
+- **URL prefirmada de APK — TTL del cache vs TTL de la firma**.
+- **ADS — `ad_pricing` sin datos iniciales en producción**.
+- **ADS — `approved` desacoplado del pago sin verificación**.
+- **Cache TTL en proceso — inconsistencia en deploys multi-instancia**.
+- **`chore` auth/rate-limit/admin-payouts sin auditoría detallada**.
+- **`acceptingOrders` — retrocompatibilidad con documentos sin el campo (nuevo)**.
+- **`dailyOverride.date` sin timezone explícita (nuevo)**.
+- **`setBranchDailyOverride` — sin validación de rango de horas (nuevo)**.
+- **Threshold 0.60 → 0.45 — aumento de ruido en búsqueda (nuevo)**.
+- **`getBranchesForProduct` — doble query Qdrant + MongoDB (nuevo)**.
+- **`getSimilarProducts/Branches` — UUID no encontrado en Qdrant (nuevo)**.
+- **`Especialmente para Ti` — vector promedio sin normalización (nuevo)**.
+- **Ads auth migrado a `require_role` para managers (nuevo)**.
+- **`check_compatibility=False` en qdrant-client (nuevo)**.
+- **Merge manual de conflictos — verificar integridad (nuevo)**.
+- **Índices en colecciones existentes — confirmar background build (nuevo)**.
+
+---
+
 ## 📅 15 de Junio, 2026
 
 ### Resumen de cambios (últimas 24h)
@@ -93,19 +250,19 @@
 - **`window.history.pushState` + Next.js App Router desync (SunCarWeb)**.
 - **Export Excel merge vertical — heterogeneidad de materiales (SunCarWeb)**.
 - **Rebrand paleta — componentes con clases hardcoded (SunCarWeb)**.
-- **`POST /solicitudes-transferencia/{id}/resolver` — endpoint pendiente (SunCarWeb)**.
-- **Worker de borrado de cuentas — sin recuperación tras reinicios**: Confirmar que al arrancar se procesan las cuentas ya vencidas inmediatamente.
-- **`scheduledDeletionAt` — campo nuevo en documentos existentes**: Confirmar manejo de `null`/campo ausente (`$exists` / `is not None`).
-- **URL prefirmada de APK — TTL del cache vs TTL de la firma**: Confirmar que `cache_ttl < presigned_url_ttl`.
-- **ADS — `ad_pricing` sin datos iniciales en producción**: Confirmar que la colección tiene al menos un precio base seedeado.
-- **ADS — `approved` desacoplado del pago sin verificación**: Agregar validación de pago en la mutation de aprobación.
-- **Cache TTL en proceso — inconsistencia en deploys multi-instancia**: Feeds inconsistentes entre pods durante 2-5 min de TTL.
-- **`chore` auth/rate-limit/admin-payouts sin auditoría detallada**: Revisar diff completo del commit agrupado.
-- **`asyncio.to_thread` — pool de threads por defecto (nuevo)**: Confirmar que el executor tiene capacidad suficiente para picos de búsquedas concurrentes. Considerar `ThreadPoolExecutor` explícito.
-- **`get_by_ids()` en repositorios de vector search — confirmar existencia (nuevo)**: Si falta en algún repositorio, el resolver rompe con `AttributeError` en producción sin degradación elegante.
-- **Índices de MongoDB — construcción sin bloquear escrituras (nuevo)**: Confirmar que se usó opción `background` o que se ejecutó en horario de baja carga sobre colecciones existentes.
-- **GZip umbral 200 bytes — exclusión de binarios y presigned URLs (nuevo)**: Confirmar que el middleware excluye `application/octet-stream` y redirects 302 de S3 (agravado ahora que el umbral bajó).
-- **`minPoolSize` en Atlas tier bajo con escalado horizontal (nuevo)**: Confirmar que `minPoolSize` es 0 o cercano a 0 para evitar agotar el pool de conexiones en despliegues multi-instancia.
+- **`POST /solicitudes-transferencia/{id}/resolver` — endpoint pendiente de confirmación (SunCarWeb)**.
+- **Worker de borrado de cuentas — sin recuperación tras reinicios (nuevo)**: Confirmar que al arrancar se procesan las cuentas ya vencidas inmediatamente.
+- **`scheduledDeletionAt` — campo nuevo en documentos existentes (nuevo)**: Confirmar manejo de `null`/campo ausente.
+- **URL prefirmada de APK — TTL del cache vs TTL de la firma (nuevo)**: Confirmar que `cache_ttl < presigned_url_ttl`.
+- **ADS — `ad_pricing` sin datos iniciales en producción (nuevo)**.
+- **ADS — `approved` desacoplado del pago sin verificación (nuevo)**.
+- **Cache TTL en proceso — inconsistencia en deploys multi-instancia (nuevo)**.
+- **`chore` auth/rate-limit/admin-payouts sin auditoría detallada (nuevo)**.
+- **`asyncio.to_thread` — pool de threads por defecto (nuevo)**: Confirmar capacidad suficiente o configurar `ThreadPoolExecutor` explícito.
+- **`get_by_ids()` en repositorios de vector search — confirmar existencia (nuevo)**.
+- **Índices de MongoDB — construcción sin bloquear escrituras (nuevo)**.
+- **GZip umbral 200 bytes — exclusión de binarios y presigned URLs (nuevo)**.
+- **`minPoolSize` en Atlas tier bajo con escalado horizontal (nuevo)**.
 
 ---
 
