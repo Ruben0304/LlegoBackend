@@ -6,10 +6,13 @@ Hybrid repository pattern:
 - Create/Update/Delete: Sync both databases
 """
 
+import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import uuid
+
+logger = logging.getLogger(__name__)
 
 from bson import ObjectId
 from qdrant_client.http import models as qdrant_models
@@ -61,8 +64,8 @@ class ProductRepository:
             except Exception as parse_error:
                 doc_id = doc.get("_id")
                 branch_id = doc.get("branchId")
-                print(
-                    f"⚠ Skipping invalid product doc in {context} "
+                logger.warning(
+                    f"Skipping invalid product doc in {context} "
                     f"(id={doc_id}, branchId={branch_id}): {parse_error}"
                 )
         return products
@@ -80,7 +83,6 @@ class ProductRepository:
         effective_limit = limit if limit is not None else self.DEFAULT_LIMIT
 
         try:
-            print(f"→ Fetching products from MongoDB (limit={effective_limit})")
             db = get_database()
             cursor = db[self.mongo_collection_name].find().limit(effective_limit)
             documents = await cursor.to_list(length=effective_limit)
@@ -89,7 +91,7 @@ class ProductRepository:
             return products
 
         except Exception as e:
-            print(f"Error fetching all products from MongoDB: {e}")
+            logger.error(f"Error fetching all products from MongoDB: {e}")
             return []
 
     async def get_by_id(self, product_id: str) -> Optional[Product]:
@@ -105,7 +107,7 @@ class ProductRepository:
             return None
 
         except Exception as e:
-            print(f"Error fetching product {product_id} from MongoDB: {e}")
+            logger.error(f"Error fetching product {product_id} from MongoDB: {e}")
             return None
 
     async def has_other_products_with_image(
@@ -127,7 +129,7 @@ class ProductRepository:
             doc = await db[self.mongo_collection_name].find_one(query, {"_id": 1})
             return doc is not None
         except Exception as e:
-            print(f"Error checking shared product image {image_path}: {e}")
+            logger.error(f"Error checking shared product image {image_path}: {e}")
             # Be conservative: if we cannot verify, assume it's shared.
             return True
 
@@ -139,7 +141,6 @@ class ProductRepository:
         ids = [str(x) for x in product_ids]
 
         try:
-            print(f"→ Fetching {len(ids)} products by IDs from MongoDB")
             db = get_database()
             object_ids = self._to_object_ids(ids)
             cursor = db[self.mongo_collection_name].find({"_id": {"$in": object_ids}})
@@ -149,7 +150,7 @@ class ProductRepository:
             return products
 
         except Exception as e:
-            print(f"Error fetching products from MongoDB: {e}")
+            logger.error(f"Error fetching products from MongoDB: {e}")
             return []
 
     async def get_by_branch(self, branch_id: str) -> List[Product]:
@@ -157,18 +158,9 @@ class ProductRepository:
         normalized_branch_id = str(branch_id).strip()
 
         try:
-            print(f"→ Fetching products for branch {normalized_branch_id} from MongoDB")
             db = get_database()
 
             branch_oid = self._to_object_id(normalized_branch_id)
-            print(
-                "[DEBUG] get_by_branch - branch_id input: "
-                f"{normalized_branch_id} (type: {type(normalized_branch_id)})"
-            )
-            print(
-                "[DEBUG] get_by_branch - converted to: "
-                f"{branch_oid} (type: {type(branch_oid)})"
-            )
 
             # Support datasets where branchId may be stored as ObjectId or string.
             cursor = db[self.mongo_collection_name].find(
@@ -180,10 +172,6 @@ class ProductRepository:
                 }
             )
             documents = await cursor.to_list(length=None)
-            print(
-                "[DEBUG] get_by_branch - Found "
-                f"{len(documents)} products with mixed-type query"
-            )
 
             products = self._deserialize_products(
                 documents, context=f"get_by_branch:{normalized_branch_id}"
@@ -192,7 +180,7 @@ class ProductRepository:
             return products
 
         except Exception as e:
-            print(f"Error fetching products by branch from MongoDB: {e}")
+            logger.error(f"Error fetching products by branch from MongoDB: {e}")
             return []
 
     async def get_by_branch_ids(self, branch_ids: List[Any]) -> List[Product]:
@@ -202,25 +190,15 @@ class ProductRepository:
             branch_ids: List of branch IDs (can be strings or ObjectIds)
         """
         if not branch_ids:
-            print(
-                f"[DEBUG] get_by_branch_ids - No branch_ids provided, returning empty list"
-            )
             return []
 
         # Convert to strings (handles both str and ObjectId)
         ids = [str(x).strip() for x in branch_ids]
 
         try:
-            print(f"→ Fetching products for {len(branch_ids)} branches from MongoDB")
-            print(
-                f"[DEBUG] get_by_branch_ids - Input branch_ids (first 5): {branch_ids[:5]}"
-            )
             db = get_database()
             converted_ids = self._to_object_ids(branch_ids)
             object_ids = [oid for oid in converted_ids if isinstance(oid, ObjectId)]
-            print(
-                f"[DEBUG] get_by_branch_ids - Converted to ObjectIds (first 5): {object_ids[:5]}"
-            )
 
             query_conditions: List[Dict[str, Any]] = []
             if object_ids:
@@ -239,16 +217,6 @@ class ProductRepository:
 
             cursor = db[self.mongo_collection_name].find(query)
             documents = await cursor.to_list(length=None)
-            print(
-                f"[DEBUG] get_by_branch_ids - Found {len(documents)} products in MongoDB"
-            )
-
-            if len(documents) > 0:
-                # Show sample branchIds from results
-                sample_branch_ids = [doc.get("branchId") for doc in documents[:3]]
-                print(
-                    f"[DEBUG] get_by_branch_ids - Sample branchIds from results: {sample_branch_ids}"
-                )
 
             products = self._deserialize_products(
                 documents, context="get_by_branch_ids"
@@ -257,7 +225,7 @@ class ProductRepository:
             return products
 
         except Exception as e:
-            print(f"Error fetching products by branch IDs from MongoDB: {e}")
+            logger.error(f"Error fetching products by branch IDs from MongoDB: {e}")
             return []
 
     async def get_available(self) -> List[Product]:
@@ -270,7 +238,7 @@ class ProductRepository:
             return [Product(**doc) for doc in documents]
 
         except Exception as e:
-            print(f"Error fetching available products from MongoDB: {e}")
+            logger.error(f"Error fetching available products from MongoDB: {e}")
             return []
 
     async def get_by_category(self, category_id: str) -> List[Product]:
@@ -285,7 +253,7 @@ class ProductRepository:
             return [Product(**doc) for doc in documents]
 
         except Exception as e:
-            print(f"Error fetching products by category from MongoDB: {e}")
+            logger.error(f"Error fetching products by category from MongoDB: {e}")
             return []
 
     async def get_distinct_branch_ids_by_category(self, category_id: str) -> set:
@@ -300,7 +268,7 @@ class ProductRepository:
             )
             return {str(bid) for bid in branch_ids}
         except Exception as e:
-            print(f"Error fetching distinct branch IDs by category: {e}")
+            logger.error(f"Error fetching distinct branch IDs by category: {e}")
             return set()
 
     # --- Search Method (Qdrant Vector Similarity) ---
@@ -338,7 +306,7 @@ class ProductRepository:
             return []
 
         except Exception as e:
-            print(f"Error searching products in Qdrant: {e}")
+            logger.warning(f"Error searching products in Qdrant: {e}")
             return []
 
     # --- Create Method (MongoDB + Qdrant) ---
@@ -369,7 +337,7 @@ class ProductRepository:
             return product
 
         except Exception as e:
-            print(f"Error creating product: {e}")
+            logger.error(f"Error creating product: {e}")
             raise e
 
     # --- Update Method (MongoDB + Qdrant if RAG fields changed) ---
@@ -425,7 +393,7 @@ class ProductRepository:
             return await self.get_by_id(product_id)
 
         except Exception as e:
-            print(f"Error updating product {product_id}: {e}")
+            logger.error(f"Error updating product {product_id}: {e}")
             raise e
 
     async def update_field(
@@ -464,7 +432,7 @@ class ProductRepository:
             return True
 
         except Exception as e:
-            print(f"Error deleting product {product_id}: {e}")
+            logger.error(f"Error deleting product {product_id}: {e}")
             return False
 
     # --- Qdrant Helper Methods ---
@@ -503,7 +471,7 @@ class ProductRepository:
             )
 
         except Exception as e:
-            print(f"Error upserting product to Qdrant: {e}")
+            logger.warning(f"Error upserting product to Qdrant: {e}")
             # Don't raise - MongoDB is the source of truth
 
     async def _delete_from_qdrant(self, product_id: str):
@@ -520,7 +488,7 @@ class ProductRepository:
                 )
 
         except Exception as e:
-            print(f"Error deleting product from Qdrant: {e}")
+            logger.warning(f"Error deleting product from Qdrant: {e}")
             # Don't raise - MongoDB is the source of truth
 
     async def _find_qdrant_point(self, mongo_id: str):
@@ -547,7 +515,7 @@ class ProductRepository:
             return points[0] if points else None
 
         except Exception as e:
-            print(f"Error finding Qdrant point: {e}")
+            logger.warning(f"Error finding Qdrant point: {e}")
             return None
 
     async def remove_variant_list_from_products(self, variant_list_id: str) -> int:
@@ -600,11 +568,7 @@ class ProductRepository:
             return products
 
         # Apply feed category filtering
-        import logging
-
         from repositories import product_categories_repo
-
-        logger = logging.getLogger(__name__)
 
         # Batch-fetch all unique category IDs in a single query
         unique_category_ids = list({p.categoryId for p in products if p.categoryId})
@@ -672,7 +636,7 @@ class ProductRepository:
             return [Product(**doc) for doc in documents]
 
         except Exception as e:
-            print(f"Error fetching recent products: {e}")
+            logger.error(f"Error fetching recent products: {e}")
             return []
 
     def calculate_freshness_scores(self, products: List[Product]) -> Dict[str, float]:

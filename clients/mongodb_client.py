@@ -31,6 +31,8 @@ async def connect_to_mongo():
         await _create_delivery_zone_indexes()
         await _create_branch_delivery_request_indexes()
         await _create_crypto_payment_indexes()
+        await _create_order_indexes()
+        await _create_branch_indexes()
     except Exception as e:
         print(f"✗ Error connecting to MongoDB: {e}")
         raise
@@ -362,6 +364,107 @@ async def _create_crypto_payment_indexes():
         print("✓ Crypto payment indexes created/verified")
     except Exception as e:
         print(f"⚠ Warning: Could not create crypto payment indexes: {e}")
+
+
+async def _create_order_indexes():
+    """Create indexes for orders and delivery collections."""
+    try:
+        orders = database["orders"]
+
+        await orders.create_index(
+            [("customerId", 1), ("createdAt", -1)],
+            name="idx_orders_customer_date",
+            background=True,
+        )
+        await orders.create_index(
+            [("branchId", 1), ("status", 1), ("createdAt", -1)],
+            name="idx_orders_branch_status_date",
+            background=True,
+        )
+        await orders.create_index(
+            [("businessId", 1), ("createdAt", -1)],
+            name="idx_orders_business_date",
+            background=True,
+        )
+        await orders.create_index(
+            "orderNumber",
+            unique=True,
+            name="idx_orders_order_number_unique",
+            background=True,
+        )
+        await orders.create_index(
+            "status",
+            name="idx_orders_status",
+            background=True,
+        )
+        await orders.create_index(
+            [("paymentStatus", 1), ("status", 1)],
+            name="idx_orders_payment_status",
+            background=True,
+        )
+        await orders.create_index(
+            [("status", 1), ("deadlineAt", 1)],
+            name="idx_orders_status_deadline",
+            background=True,
+        )
+        await orders.create_index(
+            [("status", 1), ("deliveryPersonId", 1), ("branchH3", 1)],
+            name="idx_orders_status_dp_h3",
+            background=True,
+        )
+        await orders.create_index(
+            [("deliveryPersonId", 1), ("completedAt", -1), ("_id", -1)],
+            name="idx_orders_dp_completed",
+            background=True,
+        )
+
+        delivery_persons = database["delivery_persons"]
+
+        await delivery_persons.create_index(
+            [("isActive", 1), ("isOnline", 1)],
+            name="idx_dp_active_online",
+            background=True,
+        )
+        await delivery_persons.create_index(
+            "userId",
+            unique=True,
+            name="idx_dp_user_id_unique",
+            background=True,
+        )
+
+        order_locations = database["order_location_updates"]
+        await order_locations.create_index("orderId", name="idx_oloc_order_id", background=True)
+        await order_locations.create_index(
+            "timestamp",
+            name="idx_oloc_timestamp_ttl",
+            expireAfterSeconds=86400,
+            background=True,
+        )
+
+        print("✓ Order indexes created/verified")
+    except Exception as e:
+        print(f"⚠ Warning: Could not create order indexes: {e}")
+
+
+async def _create_branch_indexes():
+    """Create indexes for branches collection."""
+    try:
+        branches = database["branches"]
+
+        await branches.create_index(
+            [("businessId", 1)],
+            name="idx_branches_business_id",
+            background=True,
+        )
+        await branches.create_index(
+            [("businessId", 1), ("isActive", 1)],
+            name="idx_branches_business_active",
+            background=True,
+        )
+
+        print("✓ Branch indexes created/verified")
+    except Exception as e:
+        print(f"⚠ Warning: Could not create branch indexes: {e}")
 
 
 async def close_mongo_connection():

@@ -6,9 +6,12 @@ Hybrid repository pattern:
 - Create/Update/Delete: Sync both databases
 """
 
+import logging
 import re
 import uuid
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 from bson import ObjectId
 from qdrant_client.http import models as qdrant_models
@@ -41,7 +44,6 @@ class BranchRepository:
     async def get_all(self) -> List[Branch]:
         """Get all branches from MongoDB."""
         try:
-            print("→ Fetching all branches from MongoDB")
             db = get_database()
             cursor = db[self.mongo_collection_name].find()
             documents = await cursor.to_list(length=None)
@@ -50,13 +52,12 @@ class BranchRepository:
             return branches
 
         except Exception as e:
-            print(f"Error fetching all branches from MongoDB: {e}")
+            logger.error(f"Error fetching all branches from MongoDB: {e}")
             return []
 
     async def get_by_id(self, branch_id: str) -> Optional[Branch]:
         """Get branch by ID from MongoDB."""
         try:
-            print(f"→ Fetching branch {branch_id} from MongoDB")
             db = get_database()
             doc = await db[self.mongo_collection_name].find_one(
                 {"_id": ObjectId(branch_id)}
@@ -68,7 +69,7 @@ class BranchRepository:
             return None
 
         except Exception as e:
-            print(f"Error fetching branch {branch_id} from MongoDB: {e}")
+            logger.error(f"Error fetching branch {branch_id} from MongoDB: {e}")
             return None
 
     async def get_by_ids(self, branch_ids: List[str]) -> List[Branch]:
@@ -79,7 +80,6 @@ class BranchRepository:
         ids = [str(x) for x in branch_ids]
 
         try:
-            print(f"→ Fetching {len(ids)} branches from MongoDB")
             db = get_database()
             object_ids = [ObjectId(bid) for bid in ids]
             cursor = db[self.mongo_collection_name].find({"_id": {"$in": object_ids}})
@@ -89,7 +89,7 @@ class BranchRepository:
             return branches
 
         except Exception as e:
-            print(f"Error fetching branches from MongoDB: {e}")
+            logger.error(f"Error fetching branches from MongoDB: {e}")
             return []
 
     async def get_by_business(self, business_id: str) -> List[Branch]:
@@ -104,7 +104,7 @@ class BranchRepository:
             return [self._dict_to_branch(doc) for doc in documents]
 
         except Exception as e:
-            print(f"Error fetching branches by business from MongoDB: {e}")
+            logger.error(f"Error fetching branches by business from MongoDB: {e}")
             return []
 
     async def get_by_business_ids(self, business_ids: List[str]) -> List[Branch]:
@@ -123,7 +123,7 @@ class BranchRepository:
             return [self._dict_to_branch(doc) for doc in documents]
 
         except Exception as e:
-            print(f"Error fetching branches by business IDs from MongoDB: {e}")
+            logger.error(f"Error fetching branches by business IDs from MongoDB: {e}")
             return []
 
     async def get_by_tipo(self, tipo: str) -> List[Branch]:
@@ -147,7 +147,7 @@ class BranchRepository:
             return [self._dict_to_branch(doc) for doc in documents]
 
         except Exception as e:
-            print(f"Error fetching branches by tipo from MongoDB: {e}")
+            logger.error(f"Error fetching branches by tipo from MongoDB: {e}")
             return []
 
     async def get_ids_by_tipo(
@@ -179,7 +179,7 @@ class BranchRepository:
             return [str(doc["_id"]) for doc in documents]
 
         except Exception as e:
-            print(f"Error fetching branch IDs by tipo from MongoDB: {e}")
+            logger.error(f"Error fetching branch IDs by tipo from MongoDB: {e}")
             return []
 
     # --- Search Method (Qdrant Vector Similarity) ---
@@ -217,7 +217,7 @@ class BranchRepository:
             return []
 
         except Exception as e:
-            print(f"Error searching branches in Qdrant: {e}")
+            logger.warning(f"Error searching branches in Qdrant: {e}")
             return []
 
     # --- Create Method (MongoDB + Qdrant) ---
@@ -256,7 +256,7 @@ class BranchRepository:
             return branch
 
         except Exception as e:
-            print(f"Error creating branch: {e}")
+            logger.error(f"Error creating branch: {e}")
             raise e
 
     # --- Update Method (MongoDB + Qdrant if RAG fields changed) ---
@@ -313,7 +313,7 @@ class BranchRepository:
             return await self.get_by_id(branch_id)
 
         except Exception as e:
-            print(f"Error updating branch {branch_id}: {e}")
+            logger.error(f"Error updating branch {branch_id}: {e}")
             raise e
 
     async def update_field(
@@ -354,7 +354,7 @@ class BranchRepository:
             return True
 
         except Exception as e:
-            print(f"Error deleting branch {branch_id}: {e}")
+            logger.error(f"Error deleting branch {branch_id}: {e}")
             raise e
 
     # --- Wallet Methods (MongoDB) ---
@@ -391,7 +391,7 @@ class BranchRepository:
                 return self._dict_to_branch(result)
             return None
         except Exception as e:
-            print(f"Error updating wallet for branch {branch_id}: {e}")
+            logger.error(f"Error updating wallet for branch {branch_id}: {e}")
             return None
 
     async def increment_wallet(
@@ -421,7 +421,7 @@ class BranchRepository:
                 return self._dict_to_branch(result)
             return None
         except Exception as e:
-            print(f"Error incrementing wallet for branch {branch_id}: {e}")
+            logger.error(f"Error incrementing wallet for branch {branch_id}: {e}")
             return None
 
     async def update_wallet_status(
@@ -474,7 +474,7 @@ class BranchRepository:
             )
 
         except Exception as e:
-            print(f"Error upserting branch to Qdrant: {e}")
+            logger.warning(f"Error upserting branch to Qdrant: {e}")
             # Don't raise - MongoDB is the source of truth
 
     async def _delete_from_qdrant(self, branch_id: str):
@@ -491,7 +491,7 @@ class BranchRepository:
                 )
 
         except Exception as e:
-            print(f"Error deleting branch from Qdrant: {e}")
+            logger.warning(f"Error deleting branch from Qdrant: {e}")
             # Don't raise - MongoDB is the source of truth
 
     async def _find_qdrant_point(self, mongo_id: str):
@@ -518,7 +518,7 @@ class BranchRepository:
             return points[0] if points else None
 
         except Exception as e:
-            print(f"Error finding Qdrant point: {e}")
+            logger.warning(f"Error finding Qdrant point: {e}")
             return None
 
     # --- Helper Methods ---
