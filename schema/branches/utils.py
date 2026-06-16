@@ -56,12 +56,18 @@ def schedule_to_type(schedule) -> BranchScheduleType:
                 temporallyClosed=ts_raw.temporallyClosed,
                 temporallyOpen=ts_raw.temporallyOpen,
                 reason=ts_raw.reason,
+                date=getattr(ts_raw, "date", None),
+                openTime=getattr(ts_raw, "openTime", None),
+                closeTime=getattr(ts_raw, "closeTime", None),
             )
         else:
             temporary_status = TemporaryStatusType(
                 temporallyClosed=ts_raw.get("temporallyClosed", False),
                 temporallyOpen=ts_raw.get("temporallyOpen", False),
                 reason=ts_raw.get("reason"),
+                date=ts_raw.get("date"),
+                openTime=ts_raw.get("openTime"),
+                closeTime=ts_raw.get("closeTime"),
             )
 
     return BranchScheduleType(days=days, temporaryStatus=temporary_status)
@@ -90,6 +96,7 @@ def branch_to_dict(branch: Branch) -> dict:
     branch_dict.setdefault("qvapayUsername", None)
     branch_dict.setdefault("zelleEmail", None)
     branch_dict.setdefault("pickupEnabled", False)
+    branch_dict.setdefault("acceptingOrders", True)
     # Keep a stable string value for status to avoid null decoding failures in clients.
     if not branch_dict.get("status"):
         branch_dict["status"] = "active" if getattr(branch, "isActive", False) else "inactive"

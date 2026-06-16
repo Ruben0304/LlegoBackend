@@ -77,6 +77,9 @@ class TemporaryStatusType:
     temporallyClosed: bool
     temporallyOpen: bool
     reason: Optional[str]
+    date: Optional[str] = None
+    openTime: Optional[str] = None
+    closeTime: Optional[str] = None
 
 
 @strawberry.type
@@ -125,6 +128,7 @@ class BranchType:
     paymentMethodIds: List[str]
     useAppMessaging: bool = True
     catalogOnly: bool = False
+    acceptingOrders: bool = True
     pickupEnabled: bool = False
     vehicles: List[BranchVehicle] = strawberry.field(default_factory=list)
     accounts: List[TransferAccountType] = strawberry.field(default_factory=list)
@@ -258,6 +262,7 @@ class NearbyBranchType:
     tipos: List[BranchTipo]
     paymentMethodIds: List[str]
     useAppMessaging: bool = True
+    acceptingOrders: bool = True
     pickupEnabled: bool = False
     vehicles: List[BranchVehicle] = strawberry.field(default_factory=list)
     accounts: List[TransferAccountType] = strawberry.field(default_factory=list)
@@ -394,6 +399,7 @@ class ScoredBranchType:
     paymentMethodIds: List[str]
     useAppMessaging: bool = True
     catalogOnly: bool = False
+    acceptingOrders: bool = True
     pickupEnabled: bool = False
     vehicles: List[BranchVehicle] = strawberry.field(default_factory=list)
     accounts: List[TransferAccountType] = strawberry.field(default_factory=list)

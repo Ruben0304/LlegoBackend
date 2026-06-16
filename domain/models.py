@@ -139,11 +139,19 @@ class DaySchedule(BaseModel):
 
 
 class TemporaryStatus(BaseModel):
-    """Temporary override for branch open/closed status."""
+    """Temporary override for branch open/closed status.
+
+    Si `date` está presente (YYYY-MM-DD), el override aplica solo ese día. Si la
+    fecha no coincide con el día actual, los consumidores deben ignorar el override
+    y usar el horario semanal regular.
+    """
 
     temporallyClosed: bool = False  # Closed despite being within open hours
     temporallyOpen: bool = False    # Open despite being outside open hours
     reason: Optional[str] = None
+    date: Optional[str] = None       # YYYY-MM-DD; el override aplica solo ese día
+    openTime: Optional[str] = None   # "HH:MM" 24h, horario especial de ese día
+    closeTime: Optional[str] = None  # "HH:MM" 24h, horario especial de ese día
 
 
 class BranchSchedule(BaseModel):
@@ -179,6 +187,7 @@ class Branch(BaseModel):
         True  # True = mensajeria por la app, False = mensajeria por cuenta propia
     )
     catalogOnly: bool = False  # True = solo catálogo, sin pedidos ni mensajería
+    acceptingOrders: bool = True  # False = pausa temporal de pedidos (cocina saturada, etc.)
     pickupEnabled: bool = False  # Click & collect enabled for this branch
     vehicles: List[str] = []  # ["moto", "bicicleta", "carro", "camion", "a_pie"]
     deliveryRadius: Optional[float] = None  # Radio de entrega en km

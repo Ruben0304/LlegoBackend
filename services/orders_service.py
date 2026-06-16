@@ -1004,6 +1004,11 @@ class OrderService:
             raise ValueError("La sucursal no está activa")
         if branch.catalogOnly:
             raise ValueError("Esta sucursal solo muestra su catálogo y no acepta pedidos")
+        if getattr(branch, "acceptingOrders", True) is False:
+            raise OrderValidationError(
+                "La sucursal pausó temporalmente la recepción de pedidos. Inténtalo más tarde.",
+                code="BRANCH_NOT_ACCEPTING_ORDERS",
+            )
 
         # Validate business is approved
         from repositories import businesses_repo
