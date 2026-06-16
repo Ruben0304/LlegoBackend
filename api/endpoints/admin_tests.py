@@ -232,8 +232,43 @@ SUITES = [
     },
 ]
 
-# Índice por ID para búsqueda rápida
+# Categorías que agrupan suites relacionadas
+CATEGORIES = [
+    {
+        "id": "qdrant",
+        "title": "Qdrant",
+        "suite_ids": [
+            "qdrant_online",
+            "qdrant_write_read",
+            "qdrant_performance",
+            "qdrant_consistency",
+            "qdrant_product_creation",
+        ],
+    },
+    {
+        "id": "feed",
+        "title": "Feed",
+        "suite_ids": ["feed_scoring", "feed_performance"],
+    },
+    {
+        "id": "combos",
+        "title": "Combos",
+        "suite_ids": ["combo_pricing"],
+    },
+    {
+        "id": "push",
+        "title": "Notificaciones push",
+        "suite_ids": ["push_notifications"],
+    },
+]
+
+# Índices para búsqueda rápida
 _SUITE_BY_ID = {s["id"]: s for s in SUITES}
+_NODE_META: dict[str, dict] = {
+    t["node"]: t
+    for s in SUITES
+    for t in s["tests"]
+}
 
 
 # ---------------------------------------------------------------------------
@@ -361,37 +396,41 @@ async def _run_suite_tests(node_ids: list[str]) -> dict:
 
 
 class RunRequest(BaseModel):
-    suite_id: str
+    suite_id: Optional[str] = None
+    node_ids: Optional[list] = None  # lista de pytest node IDs individuales
 
 
 @router.get("/tests/suites", dependencies=[Depends(_require_admin)])
 async def list_suites():
-    """Lista todos los suites disponibles con sus tests (sin ejecutarlos)."""
-    return {"suites": SUITES}
+    """Lista categorías y suites con sus tests (sin ejecutarlos)."""
+    categories = []
+    for cat in CATEGORIES:
+        suites = [_SUITE_BY_ID[sid] for sid in cat["suite_ids"] if sid in _SUITE_BY_ID]
+        categories.append({**cat, "suites": suites})
+    return {"categories": categories, "suites": SUITES}
 
 
 @router.post("/tests/run", dependencies=[Depends(_require_admin)])
-async def run_suite(body: RunRequest):
-    """Ejecuta todos los tests de un suite y devuelve los resultados."""
-    suite = _SUITE_BY_ID.get(body.suite_id)
-    if not suite:
-        raise HTTPException(status_code=404, detail=f"Suite '{body.suite_id}' no encontrado.")
+async def run_tests(body: RunRequest):
+    """Ejecuta un suite completo o una lista de tests individuales."""
+    if body.suite_id:
+        suite = _SUITE_BY_ID.get(body.suite_id)
+        if not suite:
+            raise HTTPException(status_code=404, detail=f"Suite '{body.suite_id}' no encontrado.")
+        node_ids = [t["node"] for t in suite["tests"]]
+    elif body.node_ids:
+        node_ids = body.node_ids
+    else:
+        raise HTTPException(status_code=400, detail="Proporciona suite_id o node_ids.")
 
-    node_ids = [t["node"] for t in suite["tests"]]
     result = await _run_suite_tests(node_ids)
 
-    # Enriquecer resultados con label e impact del catálogo
-    label_map = {t["node"]: t for t in suite["tests"]}
     for r in result["results"]:
-        meta = label_map.get(r["node"], {})
+        meta = _NODE_META.get(r["node"], {})
         r["label"] = meta.get("label", r["node"].split("::")[-1])
         r["impact"] = meta.get("impact", "")
 
-    return {
-        "suite_id": body.suite_id,
-        "suite_title": suite["title"],
-        **result,
-    }
+    return result
 
 
 # ---------------------------------------------------------------------------
