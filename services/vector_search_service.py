@@ -21,8 +21,11 @@ class VectorSearchService:
 
     def __init__(self):
         """Initialize vector search service."""
-        self.qdrant_client = get_qdrant_client()
         self.embedding_service = GeminiEmbeddingService()
+
+    @property
+    def qdrant_client(self):
+        return get_qdrant_client()
 
     async def search_products(
         self,

@@ -5,10 +5,9 @@ from typing import Optional
 import strawberry
 from strawberry.types import Info
 
-from core.config import settings
 from repositories import ad_campaigns_repo, branches_repo, businesses_repo
 from services.ads_service import ads_service
-from utils.graphql_auth import apply_optional_jwt
+from utils.graphql_auth import apply_optional_jwt, require_role
 
 from .inputs import (
     CreateAdCampaignInput,
@@ -146,13 +145,12 @@ class AdCampaignMutation:
     # -- Admin moderation ------------------------------------------------------
 
     @strawberry.mutation(
-        description="[Admin] Admitir una campaña en el feed (aunque no esté pagada)"
+        description="[Admin/Manager] Admitir una campaña en el feed (aunque no esté pagada)"
     )
     async def approve_ad_campaign(
-        self, info: Info, id: str, admin_key: str
+        self, info: Info, id: str, jwt: Optional[str] = None
     ) -> AdCampaignType:
-        if not settings.admin_api_key or admin_key != settings.admin_api_key:
-            raise Exception("No autorizado")
+        require_role(jwt, info, ["admin", "manager"])
         campaign = await ad_campaigns_repo.get_by_id(id)
         if not campaign:
             raise Exception("Campaña no encontrada")
@@ -163,12 +161,11 @@ class AdCampaignMutation:
         updated = await ads_service.approve(campaign)
         return campaign_to_type(updated)
 
-    @strawberry.mutation(description="[Admin] Rechazar una campaña")
+    @strawberry.mutation(description="[Admin/Manager] Rechazar una campaña")
     async def reject_ad_campaign(
-        self, info: Info, id: str, admin_key: str, reason: Optional[str] = None
+        self, info: Info, id: str, jwt: Optional[str] = None, reason: Optional[str] = None
     ) -> AdCampaignType:
-        if not settings.admin_api_key or admin_key != settings.admin_api_key:
-            raise Exception("No autorizado")
+        require_role(jwt, info, ["admin", "manager"])
         campaign = await ad_campaigns_repo.get_by_id(id)
         if not campaign:
             raise Exception("Campaña no encontrada")
