@@ -52,7 +52,7 @@ class VectorSearchService:
         )
 
         # Search in Qdrant with minimum score threshold using query_points (v1.10+)
-        threshold = score_threshold if score_threshold is not None else 0.60
+        threshold = score_threshold if score_threshold is not None else 0.45
         response = await self.qdrant_client.query_points(
             collection_name="products",
             query=query_embedding,
