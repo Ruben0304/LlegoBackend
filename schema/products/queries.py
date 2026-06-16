@@ -463,3 +463,59 @@ class ProductQuery:
 
         # Convert to GraphQL types
         return [ProductType(**to_strawberry_dict(p)) for p in filtered_products]
+
+    @strawberry.field(
+        description="Productos similares al dado usando Qdrant recommend (vector del producto indexado)"
+    )
+    async def get_similar_products(
+        self,
+        info: Info,
+        product_id: str,
+        limit: int = 8,
+        jwt: Optional[str] = None,
+    ) -> List[ProductType]:
+        """
+        Find products similar to the given one using Qdrant's recommend API.
+        Uses the product's stored embedding as positive example — no Gemini call needed.
+        Returns empty list silently if Qdrant is unavailable.
+        """
+        import uuid as _uuid
+        from clients import get_qdrant_client
+        from qdrant_client.models import RecommendInput, RecommendQuery
+
+        apply_optional_jwt(jwt, info)
+        rate_limit_graphql(info, "graphql")
+
+        _UUID_NS = _uuid.UUID("b1e7a000-0000-0000-0000-000000000000")
+
+        try:
+            qdrant_client = get_qdrant_client()
+            product_uuid = str(_uuid.uuid5(_UUID_NS, product_id))
+
+            response = await qdrant_client.query_points(
+                collection_name="products",
+                query=RecommendQuery(
+                    recommend=RecommendInput(positive=[product_uuid])
+                ),
+                limit=limit + 1,  # +1 to account for the product itself appearing
+            )
+            results = response.points if hasattr(response, "points") else response
+
+            mongo_ids = [
+                r.payload.get("mongo_id")
+                for r in results
+                if r.payload.get("mongo_id") and r.payload.get("mongo_id") != product_id
+            ][:limit]
+
+            if not mongo_ids:
+                return []
+
+            products = await products_repo.get_by_ids(mongo_ids)
+            products_by_id = {str(p.id): p for p in products}
+            # Preserve Qdrant ranking order
+            ordered = [products_by_id[mid] for mid in mongo_ids if mid in products_by_id]
+            return [ProductType(**to_strawberry_dict(p)) for p in ordered]
+
+        except Exception as e:
+            print(f"[get_similar_products] Qdrant error: {type(e).__name__}: {e}")
+            return []
