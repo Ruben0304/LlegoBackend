@@ -6,7 +6,7 @@ from typing import Annotated, List, Optional
 import strawberry
 from strawberry.types import Info
 
-from utils.s3 import generate_image_variant_url, generate_presigned_url
+from utils.s3 import get_public_image_variant_url, get_public_url
 
 
 @strawberry.type
@@ -28,29 +28,29 @@ class FeedProductType:
     score: float
     distance_m: Optional[float] = None
 
-    @strawberry.field(description="Presigned URL for the product image")
+    @strawberry.field(description="Public URL for the product image")
     def image_url(self) -> str:
-        return generate_presigned_url(self.image)
+        return get_public_url(self.image)
 
-    @strawberry.field(description="Presigned URL for the very low quality product image (200x200)")
+    @strawberry.field(description="Public URL for the very low quality product image (200x200)")
     def image_url_muy_baja(self) -> str:
-        return generate_image_variant_url(self.image, "muy_baja")
+        return get_public_image_variant_url(self.image, "muy_baja")
 
-    @strawberry.field(description="Presigned URL for the low quality product image (720x540)")
+    @strawberry.field(description="Public URL for the low quality product image (720x540)")
     def image_url_baja(self) -> str:
-        return generate_image_variant_url(self.image, "baja")
+        return get_public_image_variant_url(self.image, "baja")
 
-    @strawberry.field(description="Presigned URL for the medium quality product image (1080x1350)")
+    @strawberry.field(description="Public URL for the medium quality product image (1080x1350)")
     def image_url_media(self) -> str:
-        return generate_image_variant_url(self.image, "media")
+        return get_public_image_variant_url(self.image, "media")
 
-    @strawberry.field(description="Presigned URL for the high quality product image (1440x1800)")
+    @strawberry.field(description="Public URL for the high quality product image (1440x1800)")
     def image_url_alta(self) -> str:
-        return generate_image_variant_url(self.image, "alta")
+        return get_public_image_variant_url(self.image, "alta")
 
-    @strawberry.field(description="Presigned URL for the original product image")
+    @strawberry.field(description="Public URL for the original product image")
     def image_url_original(self) -> str:
-        return generate_presigned_url(self.image)
+        return get_public_url(self.image)
 
     @strawberry.field(description="Product category name")
     async def category_name(self, info: Info) -> Optional[str]:
@@ -100,12 +100,43 @@ class FeedSection:
 
 
 @strawberry.type
+class FeedCreativeType:
+    """A paid, business-designed creative (Destacado / Oferta) for the feed.
+
+    The creative is a single exported photo (the branch avatar and texts are
+    baked into it by the Canva-style editor); the client just shows the image
+    and opens ``ctaDeeplink`` on tap.
+    """
+
+    campaignId: str
+    branchId: str
+    businessId: str
+    placement: str
+    imageUrl: str
+    ctaDeeplink: Optional[str] = None
+
+
+@strawberry.type
+class FeedCreativeSection:
+    """A feed section made of paid creatives instead of products."""
+
+    title: str
+    section_id: str
+    items: List[FeedCreativeType]
+
+
+@strawberry.type
 class FeedResponse:
     """Complete feed response with multiple sections."""
 
     sections: List[FeedSection]
     section_diagnostics: List["FeedSectionDiagnostic"]
     timestamp: datetime
+    has_more: bool = False
+    explorar_has_more: bool = False
+    creative_sections: List[FeedCreativeSection] = strawberry.field(
+        default_factory=list
+    )
 
 
 @strawberry.type

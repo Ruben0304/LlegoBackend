@@ -1,8 +1,54 @@
 """Redis cache utilities for data caching."""
 import json
+import time
 from typing import Optional, Any, List, Callable
 from utils.rate_limit import redis_client
 from core.config import settings
+
+
+# =============================================================================
+# In-Process TTL Cache (no Redis dependency)
+# =============================================================================
+
+class _TTLEntry:
+    __slots__ = ("value", "expires_at")
+
+    def __init__(self, value: Any, ttl: float):
+        self.value = value
+        self.expires_at = time.monotonic() + ttl
+
+
+class InMemoryTTLCache:
+    """
+    Simple in-process TTL cache backed by a plain dict.
+    Thread-safe for reads; writes use GIL protection (CPython).
+    Ideal for caching heavy DB queries that don't need per-user isolation.
+    """
+
+    def __init__(self):
+        self._store: dict[str, _TTLEntry] = {}
+
+    def get(self, key: str) -> Any:
+        entry = self._store.get(key)
+        if entry is None:
+            return None
+        if time.monotonic() > entry.expires_at:
+            del self._store[key]
+            return None
+        return entry.value
+
+    def set(self, key: str, value: Any, ttl: float) -> None:
+        self._store[key] = _TTLEntry(value, ttl)
+
+    def invalidate(self, key: str) -> None:
+        self._store.pop(key, None)
+
+    def clear(self) -> None:
+        self._store.clear()
+
+
+# Shared instance — import this everywhere
+mem_cache = InMemoryTTLCache()
 
 
 # =============================================================================

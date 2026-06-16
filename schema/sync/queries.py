@@ -8,7 +8,7 @@ from strawberry.types import Info
 from repositories import branches_repo, businesses_repo, products_repo
 from schema.branches.utils import schedule_to_type
 from utils.graphql_auth import apply_optional_jwt
-from utils.s3 import generate_presigned_url, get_image_variant_path
+from utils.s3 import get_image_variant_path, get_public_url
 
 from .types import (
     BusinessSyncType,
@@ -277,23 +277,23 @@ class SyncQuery:
             # Generate presigned URLs based on requested qualities
             for quality in qualities:
                 if quality == ImageQuality.MUY_BAJA:
-                    urls.muy_baja = generate_presigned_url(
+                    urls.muy_baja = get_public_url(
                         get_image_variant_path(img["image_path"], "muy_baja")
                     )
                 elif quality == ImageQuality.BAJA:
-                    urls.baja = generate_presigned_url(
+                    urls.baja = get_public_url(
                         get_image_variant_path(img["image_path"], "baja")
                     )
                 elif quality == ImageQuality.MEDIA:
-                    urls.media = generate_presigned_url(
+                    urls.media = get_public_url(
                         get_image_variant_path(img["image_path"], "media")
                     )
                 elif quality == ImageQuality.ALTA:
-                    urls.alta = generate_presigned_url(
+                    urls.alta = get_public_url(
                         get_image_variant_path(img["image_path"], "alta")
                     )
                 elif quality == ImageQuality.ORIGINAL:
-                    urls.original = generate_presigned_url(img["image_path"])
+                    urls.original = get_public_url(img["image_path"])
 
             image_sync = ImageSyncType(
                 entity_id=img["entity_id"],

@@ -268,19 +268,27 @@ class ProductQuery:
             from services.reranking_service import reranking_service
             from services.vector_search_service import VectorSearchService
 
-            vector_service = VectorSearchService()
-            # Request more results for filtering and pagination
-            search_limit = 200
-            product_results = await vector_service.search_products(
-                query, limit=search_limit
-            )
+            try:
+                vector_service = VectorSearchService()
+                search_limit = 200
+                product_results = await vector_service.search_products(
+                    query, limit=search_limit
+                )
+            except RuntimeError:
+                raise Exception(
+                    "El buscador inteligente no está disponible en este momento. "
+                    "Disculpa las molestias, inténtalo de nuevo más tarde."
+                )
 
-            # Build vector scores map and product list
             vector_scores = {r.mongo_id: r.score for r in product_results}
             all_products = []
 
+            mongo_ids = [r.mongo_id for r in product_results]
+            fetched_products = await products_repo.get_by_ids(mongo_ids)
+            products_by_id = {str(p.id): p for p in fetched_products}
+
             for result in product_results:
-                product = await products_repo.get_by_id(result.mongo_id)
+                product = products_by_id.get(result.mongo_id)
                 if product:
                     if (
                         allowed_branch_ids is not None
@@ -294,7 +302,6 @@ class ProductQuery:
                         continue
                     all_products.append(product)
 
-            # RE-RANK: Combine vector search with popularity, proximity, and personalization
             user_location = None
             if user_id:
                 user_location = await scoring_service.get_user_location(user_id)
@@ -307,12 +314,11 @@ class ProductQuery:
                 vector_scores=vector_scores,
             )
 
-            # Convert to ScoredProductType
             scored_products = [
                 ScoredProductType(
                     **to_strawberry_dict(rp.product),
                     score=rp.final_score,
-                    distance_m=None,  # Could extract from proximity_score if needed
+                    distance_m=None,
                 )
                 for rp in ranked_products
             ]
@@ -325,7 +331,6 @@ class ProductQuery:
             if allowed_category_ids is not None:
                 all_products = [p for p in all_products if p.id in allowed_category_ids]
 
-            # Fallback: simple scoring without re-ranking
             scored_products = [
                 ScoredProductType(
                     **to_strawberry_dict(p), score=0.0, distance_m=None
@@ -458,3 +463,59 @@ class ProductQuery:
 
         # Convert to GraphQL types
         return [ProductType(**to_strawberry_dict(p)) for p in filtered_products]
+
+    @strawberry.field(
+        description="Productos similares al dado usando Qdrant recommend (vector del producto indexado)"
+    )
+    async def get_similar_products(
+        self,
+        info: Info,
+        product_id: str,
+        limit: int = 8,
+        jwt: Optional[str] = None,
+    ) -> List[ProductType]:
+        """
+        Find products similar to the given one using Qdrant's recommend API.
+        Uses the product's stored embedding as positive example — no Gemini call needed.
+        Returns empty list silently if Qdrant is unavailable.
+        """
+        import uuid as _uuid
+        from clients import get_qdrant_client
+        from qdrant_client.models import RecommendInput, RecommendQuery
+
+        apply_optional_jwt(jwt, info)
+        rate_limit_graphql(info, "graphql")
+
+        _UUID_NS = _uuid.UUID("b1e7a000-0000-0000-0000-000000000000")
+
+        try:
+            qdrant_client = get_qdrant_client()
+            product_uuid = str(_uuid.uuid5(_UUID_NS, product_id))
+
+            response = await qdrant_client.query_points(
+                collection_name="products",
+                query=RecommendQuery(
+                    recommend=RecommendInput(positive=[product_uuid])
+                ),
+                limit=limit + 1,  # +1 to account for the product itself appearing
+            )
+            results = response.points if hasattr(response, "points") else response
+
+            mongo_ids = [
+                r.payload.get("mongo_id")
+                for r in results
+                if r.payload.get("mongo_id") and r.payload.get("mongo_id") != product_id
+            ][:limit]
+
+            if not mongo_ids:
+                return []
+
+            products = await products_repo.get_by_ids(mongo_ids)
+            products_by_id = {str(p.id): p for p in products}
+            # Preserve Qdrant ranking order
+            ordered = [products_by_id[mid] for mid in mongo_ids if mid in products_by_id]
+            return [ProductType(**to_strawberry_dict(p)) for p in ordered]
+
+        except Exception as e:
+            print(f"[get_similar_products] Qdrant error: {type(e).__name__}: {e}")
+            return []

@@ -1,5 +1,5 @@
 """Qdrant client singleton."""
-import sys
+import asyncio
 import logging
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.http import models
@@ -7,147 +7,79 @@ from qdrant_client.models import Distance, VectorParams
 from typing import Optional, Dict, Any
 from core.config import settings
 
-# Configurar logger
 logger = logging.getLogger(__name__)
 
-# Global Qdrant client instance
 qdrant_client: Optional[AsyncQdrantClient] = None
+
+# Max seconds to wait for the startup connection test.
+# Railway cold starts can take 10-15s, so we give enough margin without
+# blocking the health-check indefinitely.
+_STARTUP_PROBE_TIMEOUT = 20
+
+
+_MAX_RETRIES = 3
+_RETRY_DELAY = 5  # seconds between attempts
 
 
 async def connect_to_qdrant():
-    """Connect to Qdrant (optional - won't fail startup if unavailable)"""
+    """Connect to Qdrant (optional — won't fail startup if unavailable)."""
     global qdrant_client
 
-    # Log de variables de entorno para debug
-    import os
-    logger.info("🔧 Environment variables check:")
-    logger.info(f"   QDRANT_HOST env: {os.getenv('QDRANT_HOST', 'NOT SET')}")
-    logger.info(f"   QDRANT_PORT env: {os.getenv('QDRANT_PORT', 'NOT SET')}")
-    logger.info(f"   QDRANT_HTTPS env: {os.getenv('QDRANT_HTTPS', 'NOT SET')}")
+    host = settings.qdrant_host
+    for prefix in ("https://", "http://"):
+        if host.startswith(prefix):
+            host = host[len(prefix):]
+    host = host.rstrip("/")
 
-    try:
-        # Sanitize host: remove http:// or https:// if present
-        host = settings.qdrant_host
-        if host.startswith("https://"):
-            host = host[8:]
-        elif host.startswith("http://"):
-            host = host[7:]
-        
-        # Remove trailing slash if present
-        if host.endswith("/"):
-            host = host[:-1]
+    protocol = "https" if settings.qdrant_https else "http"
+    logger.info(
+        f"🔌 Connecting to Qdrant at {protocol}://{host}:{settings.qdrant_port} "
+        f"(api_key={'yes' if settings.qdrant_api_key else 'no'})"
+    )
 
-        # Preparar parámetros de conexión
-        connection_params = {
-            "host": host,
-            "port": settings.qdrant_port,
-            "grpc_port": settings.qdrant_grpc_port,
-            "prefer_grpc": settings.qdrant_prefer_grpc,
-            "https": settings.qdrant_https,
-            "timeout": settings.qdrant_timeout
-        }
+    connection_params: Dict[str, Any] = {
+        "host": host,
+        "port": settings.qdrant_port,
+        "grpc_port": settings.qdrant_grpc_port,
+        "prefer_grpc": settings.qdrant_prefer_grpc,
+        "https": settings.qdrant_https,
+        "timeout": settings.qdrant_timeout,
+        "check_compatibility": False,
+    }
+    if settings.qdrant_api_key:
+        connection_params["api_key"] = settings.qdrant_api_key
 
-        # Agregar API key solo si está configurada
-        if settings.qdrant_api_key:
-            connection_params["api_key"] = "***"  # No mostrar la key completa
-            logger.info("🔑 Qdrant API key configured")
-
-        # Log de configuración de conexión
-        protocol = "https" if settings.qdrant_https else "http"
-        connection_url = f"{protocol}://{host}:{settings.qdrant_port}"
-
-        logger.info("=" * 60)
-        logger.info("🔌 Connecting to Qdrant...")
-        logger.info(f"   Host: {host}")
-        logger.info(f"   HTTP Port: {settings.qdrant_port}")
-        logger.info(f"   gRPC Port: {settings.qdrant_grpc_port}")
-        logger.info(f"   HTTPS: {settings.qdrant_https}")
-        logger.info(f"   Prefer gRPC: {settings.qdrant_prefer_grpc}")
-        logger.info(f"   Timeout: {settings.qdrant_timeout}s")
-        logger.info(f"   API Key: {'Yes' if settings.qdrant_api_key else 'No'}")
-        logger.info(f"   Full URL: {connection_url}")
-        logger.info("=" * 60)
-
-        # Test DNS resolution primero
-        import socket
+    for attempt in range(1, _MAX_RETRIES + 1):
         try:
-            logger.info(f"🔍 Resolving DNS for {host}...")
-            ip_addresses = socket.getaddrinfo(host, settings.qdrant_port, socket.AF_UNSPEC, socket.SOCK_STREAM)
-            logger.info(f"✓ DNS resolved to: {[addr[4][0] for addr in ip_addresses]}")
-        except socket.gaierror as dns_error:
-            logger.error(f"❌ DNS resolution failed: {dns_error}")
-            logger.error(f"   Cannot resolve host: {host}")
-            return False
-        except Exception as dns_error:
-            logger.warning(f"⚠️ DNS check error (continuing anyway): {dns_error}")
+            client = AsyncQdrantClient(**connection_params)
 
-        # Usar la API key real para la conexión
-        if settings.qdrant_api_key:
-            connection_params["api_key"] = settings.qdrant_api_key
-
-        qdrant_client = AsyncQdrantClient(**connection_params)
-        logger.info("✓ Qdrant client instance created")
-
-        # Test connection con timeout
-        try:
-            logger.info("🔍 Testing connection...")
-            collections = await qdrant_client.get_collections()
-            collection_names = [c.name for c in collections.collections]
-
-            logger.info("=" * 60)
-            logger.info("✅ Successfully connected to Qdrant!")
-            logger.info(f"   Total collections: {len(collection_names)}")
-            if collection_names:
-                logger.info(f"   Collections: {', '.join(collection_names)}")
-            else:
-                logger.info("   Collections: (none yet)")
-            logger.info("=" * 60)
+            collections = await asyncio.wait_for(
+                client.get_collections(),
+                timeout=_STARTUP_PROBE_TIMEOUT,
+            )
+            names = [c.name for c in collections.collections]
+            logger.info(f"✅ Qdrant connected — collections: {names or '(none)'}")
+            qdrant_client = client
             return True
-        except Exception as test_error:
-            logger.error("=" * 60)
-            logger.error("❌ Connection test FAILED")
-            logger.error(f"   Error type: {type(test_error).__name__}")
-            logger.error(f"   Error message: {str(test_error)}")
-            logger.error(f"   Error repr: {repr(test_error)}")
 
-            # Log del traceback completo
-            import traceback
-            logger.error(f"   Full traceback:")
-            for line in traceback.format_exception(type(test_error), test_error, test_error.__traceback__):
-                logger.error(f"     {line.rstrip()}")
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"⚠️ Qdrant probe timed out after {_STARTUP_PROBE_TIMEOUT}s "
+                f"(attempt {attempt}/{_MAX_RETRIES})"
+            )
+        except Exception as e:
+            logger.warning(
+                f"⚠️ Qdrant unavailable ({type(e).__name__}: {e}) "
+                f"(attempt {attempt}/{_MAX_RETRIES})"
+            )
 
-            logger.error("=" * 60)
-            await qdrant_client.close()
-            qdrant_client = None
-            return False
+        if attempt < _MAX_RETRIES:
+            logger.info(f"Retrying Qdrant connection in {_RETRY_DELAY}s...")
+            await asyncio.sleep(_RETRY_DELAY)
 
-    except Exception as e:
-        error_type = type(e).__name__
-        logger.error("=" * 60)
-        logger.error("❌ Failed to initialize Qdrant client")
-        logger.error(f"   Host: {settings.qdrant_host}")
-        logger.error(f"   HTTP Port: {settings.qdrant_port}")
-        logger.error(f"   gRPC Port: {settings.qdrant_grpc_port}")
-        logger.error(f"   Error type: {error_type}")
-        logger.error(f"   Error details: {str(e)}")
-        logger.error("=" * 60)
-
-        # Información adicional basada en el tipo de error
-        if "ConnectionRefusedError" in error_type:
-            logger.error("💡 Troubleshooting:")
-            logger.error("   - Verify Qdrant service is running")
-            logger.error("   - Check host and port configuration")
-            logger.error("   - Verify firewall/network allows connection")
-        elif "Timeout" in error_type:
-            logger.error("💡 Troubleshooting:")
-            logger.error("   - Check if Qdrant is reachable from this network")
-            logger.error("   - Verify there are no network issues")
-            logger.error("   - Check if server is overloaded")
-
-        logger.debug(f"Full traceback:", exc_info=True)
-
-        qdrant_client = None
-        return False
+    logger.warning("⚠️ Qdrant unreachable after all retries — vector search disabled")
+    qdrant_client = None
+    return False
 
 
 async def close_qdrant_connection():
@@ -166,8 +98,10 @@ async def close_qdrant_connection():
 def get_qdrant_client() -> AsyncQdrantClient:
     """Get Qdrant client instance"""
     if qdrant_client is None:
-        logger.error("Qdrant client not initialized. Call connect_to_qdrant() first.")
-        raise RuntimeError("Qdrant client not initialized. Call connect_to_qdrant() first.")
+        raise RuntimeError(
+            "Qdrant client not initialized — startup probe failed. "
+            "Check QDRANT_HOST/PORT/HTTPS env vars and Qdrant service health."
+        )
 
     return qdrant_client
 

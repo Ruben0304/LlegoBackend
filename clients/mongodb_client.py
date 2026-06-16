@@ -15,7 +15,15 @@ async def connect_to_mongo():
     """Connect to MongoDB"""
     global mongo_client, database
     try:
-        mongo_client = AsyncIOMotorClient(settings.mongodb_url)
+        mongo_client = AsyncIOMotorClient(
+            settings.mongodb_url,
+            maxPoolSize=150,
+            minPoolSize=20,
+            serverSelectionTimeoutMS=5000,
+            connectTimeoutMS=10000,
+            socketTimeoutMS=30000,
+            retryWrites=True,
+        )
         database = mongo_client[settings.mongodb_database]
         # Test connection
         await mongo_client.admin.command("ping")
@@ -31,6 +39,7 @@ async def connect_to_mongo():
         await _create_delivery_zone_indexes()
         await _create_branch_delivery_request_indexes()
         await _create_crypto_payment_indexes()
+        await _create_search_perf_indexes()
         await _create_order_indexes()
         await _create_branch_indexes()
     except Exception as e:
@@ -364,6 +373,43 @@ async def _create_crypto_payment_indexes():
         print("✓ Crypto payment indexes created/verified")
     except Exception as e:
         print(f"⚠ Warning: Could not create crypto payment indexes: {e}")
+
+
+async def _create_search_perf_indexes():
+    """Create indexes that back filter/search queries which otherwise full-scan.
+
+    These complement the existing feed indexes and target queries that grow
+    linearly with collection size (availability filters, regex lookups, search).
+    """
+    try:
+        await database["products"].create_index(
+            [("availability", 1)],
+            name="idx_products_availability",
+            background=True,
+        )
+
+        await database["branches"].create_index(
+            [("tipos", 1)],
+            name="idx_branches_tipos",
+            background=True,
+        )
+
+        await database["payment_methods"].create_index(
+            [("code", 1)],
+            name="idx_payment_methods_code",
+            background=True,
+        )
+
+        await database["tutorials"].create_index(
+            [("title", "text"), ("description", "text"), ("tags", "text")],
+            name="idx_tutorials_text_search",
+            default_language="spanish",
+            background=True,
+        )
+
+        print("✓ Search performance indexes created/verified")
+    except Exception as e:
+        print(f"⚠ Warning: Could not create search performance indexes: {e}")
 
 
 async def _create_order_indexes():

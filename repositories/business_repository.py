@@ -6,6 +6,7 @@ Hybrid repository pattern:
 - Create/Update/Delete: Sync both databases
 """
 
+import asyncio
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -180,16 +181,19 @@ class BusinessRepository:
         try:
             # Generate embedding for query
             embedding_service = GeminiEmbeddingService()
-            query_vector = embedding_service.generate_embedding(query)
+            query_vector = await asyncio.to_thread(
+                embedding_service.generate_embedding, query
+            )
 
             qdrant_client = get_qdrant_client()
 
-            # Vector similarity search
-            results = await qdrant_client.search(
+            # Vector similarity search (query_points replaces deprecated .search() in 1.16+)
+            response = await qdrant_client.query_points(
                 collection_name=self.qdrant_collection_name,
-                query_vector=query_vector,
+                query=query_vector,
                 limit=limit,
             )
+            results = response.points if hasattr(response, "points") else response
 
             if not results:
                 return []

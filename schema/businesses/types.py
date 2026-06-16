@@ -3,7 +3,7 @@ import strawberry
 from typing import Optional, List
 from datetime import datetime
 
-from utils.s3 import generate_image_variant_url_with_fallback, generate_presigned_url
+from utils.s3 import get_public_image_variant_url, get_public_url
 
 
 @strawberry.type
@@ -25,7 +25,7 @@ class BusinessType:
     @strawberry.field(description="Presigned URL for the business avatar")
     def avatar_url(self) -> Optional[str]:
         if self.avatar:
-            return generate_presigned_url(self.avatar)
+            return get_public_url(self.avatar)
         return None
 
     @strawberry.field(
@@ -33,7 +33,7 @@ class BusinessType:
     )
     def avatar_url_baja(self) -> Optional[str]:
         if self.avatar:
-            return generate_image_variant_url_with_fallback(self.avatar, "avatar_baja")
+            return get_public_image_variant_url(self.avatar, "avatar_baja")
         return None
 
     @strawberry.field(
@@ -41,5 +41,5 @@ class BusinessType:
     )
     def avatar_url_alta(self) -> Optional[str]:
         if self.avatar:
-            return generate_image_variant_url_with_fallback(self.avatar, "avatar_alta")
+            return get_public_image_variant_url(self.avatar, "avatar_alta")
         return None

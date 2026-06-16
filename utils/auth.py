@@ -114,7 +114,7 @@ def hash_password(password: str) -> str:
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
-    Verify a password against its bcrypt hash with legacy fallback support.
+    Verify a password against its bcrypt hash.
     """
     if plain_password is None or hashed_password is None:
         return False
@@ -126,15 +126,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
     try:
         prepared = _prepare_password(plain_password)
-        if bcrypt.checkpw(prepared, hashed_bytes):
-            return True
-    except Exception:
-        # Fall back to legacy handling below
-        pass
-
-    try:
-        legacy_candidate = plain_password.encode("utf-8")[:MAX_BCRYPT_BYTES]
-        return bcrypt.checkpw(legacy_candidate, hashed_bytes)
+        return bcrypt.checkpw(prepared, hashed_bytes)
     except Exception:
         return False
 

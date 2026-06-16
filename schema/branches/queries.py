@@ -268,11 +268,15 @@ class BranchQuery:
             vector_service = VectorSearchService()
             branch_results = await vector_service.search_branches(query, limit=200)
 
-            all_branches = []
-            for result in branch_results:
-                branch = await branches_repo.get_by_id(result.mongo_id)
-                if branch:
-                    all_branches.append(branch)
+            # Batch-fetch all branches in a single query instead of N round-trips
+            mongo_ids = [r.mongo_id for r in branch_results]
+            fetched_branches = await branches_repo.get_by_ids(mongo_ids)
+            branches_by_id = {str(b.id): b for b in fetched_branches}
+            all_branches = [
+                branches_by_id[r.mongo_id]
+                for r in branch_results
+                if r.mongo_id in branches_by_id
+            ]
         else:
             all_branches = await branches_repo.search(query)
 
@@ -579,3 +583,141 @@ class BranchQuery:
 
         # 5. Convert to BranchType
         return [BranchType(**branch_to_dict(branch)) for branch in all_branches]
+
+    @strawberry.field(
+        description="Sucursales similares a la dada usando Qdrant recommend"
+    )
+    async def get_similar_branches(
+        self,
+        info: Info,
+        branch_id: str,
+        limit: int = 6,
+        jwt: Optional[str] = None,
+    ) -> List[BranchType]:
+        """
+        Find branches similar to the given one using Qdrant's recommend API.
+        Uses the branch's stored embedding as positive example.
+        Returns empty list silently if Qdrant is unavailable.
+        """
+        import uuid as _uuid
+        from clients import get_qdrant_client
+        from qdrant_client.models import RecommendInput, RecommendQuery
+
+        apply_optional_jwt(jwt, info)
+        rate_limit_graphql(info, "graphql")
+
+        _UUID_NS = _uuid.UUID("b1e7a000-0000-0000-0000-000000000000")
+
+        try:
+            qdrant_client = get_qdrant_client()
+            branch_uuid = str(_uuid.uuid5(_UUID_NS, branch_id))
+
+            response = await qdrant_client.query_points(
+                collection_name="branches",
+                query=RecommendQuery(
+                    recommend=RecommendInput(positive=[branch_uuid])
+                ),
+                limit=limit + 1,
+            )
+            results = response.points if hasattr(response, "points") else response
+
+            mongo_ids = [
+                r.payload.get("mongo_id")
+                for r in results
+                if r.payload.get("mongo_id") and r.payload.get("mongo_id") != branch_id
+            ][:limit]
+
+            if not mongo_ids:
+                return []
+
+            branches = await branches_repo.get_by_ids(mongo_ids)
+            branches_by_id = {str(b.id): b for b in branches}
+            ordered = [branches_by_id[mid] for mid in mongo_ids if mid in branches_by_id]
+            return [BranchType(**branch_to_dict(b)) for b in ordered]
+
+        except Exception as e:
+            print(f"[get_similar_branches] Qdrant error: {type(e).__name__}: {e}")
+            return []
+
+    @strawberry.field(
+        description="Sucursales con más productos similares al producto dado (cross-collection via Qdrant)"
+    )
+    async def get_branches_for_product(
+        self,
+        info: Info,
+        product_id: str,
+        limit: int = 6,
+        jwt: Optional[str] = None,
+    ) -> List[BranchType]:
+        """
+        Find branches that carry the most products similar to the given product.
+        Steps:
+          1. Qdrant recommend on 'products' collection (top 50 similar products)
+          2. Group results by branchId, summing similarity scores
+          3. Exclude the product's own branch
+          4. Return top K branches by accumulated score
+        """
+        import uuid as _uuid
+        from collections import defaultdict
+        from clients import get_qdrant_client
+        from qdrant_client.models import RecommendInput, RecommendQuery
+
+        apply_optional_jwt(jwt, info)
+        rate_limit_graphql(info, "graphql")
+
+        _UUID_NS = _uuid.UUID("b1e7a000-0000-0000-0000-000000000000")
+
+        try:
+            from repositories import products_repo as _products_repo
+            qdrant_client = get_qdrant_client()
+            product_uuid = str(_uuid.uuid5(_UUID_NS, product_id))
+
+            # Get the product's own branchId to exclude later
+            ref_product = await _products_repo.get_by_id(product_id)
+            own_branch_id = str(ref_product.branchId) if ref_product else None
+
+            # Fetch top 50 similar products from Qdrant (more candidates = better branch scoring)
+            response = await qdrant_client.query_points(
+                collection_name="products",
+                query=RecommendQuery(
+                    recommend=RecommendInput(positive=[product_uuid])
+                ),
+                limit=50,
+            )
+            results = response.points if hasattr(response, "points") else response
+
+            if not results:
+                return []
+
+            # Build score map: mongo_id → qdrant score
+            qdrant_scores = {
+                r.payload.get("mongo_id"): float(r.score)
+                for r in results
+                if r.payload.get("mongo_id")
+            }
+            similar_mongo_ids = list(qdrant_scores.keys())
+
+            # Fetch products from MongoDB to get their branchIds
+            similar_products = await _products_repo.get_by_ids(similar_mongo_ids)
+
+            # Accumulate Qdrant scores per branch
+            branch_scores: dict = defaultdict(float)
+            for p in similar_products:
+                bid = str(p.branchId)
+                if bid != own_branch_id:
+                    branch_scores[bid] += qdrant_scores.get(str(p.id), 0.0)
+
+            if not branch_scores:
+                return []
+
+            # Top K branch IDs ranked by accumulated similarity score
+            top_branch_ids = sorted(branch_scores, key=branch_scores.__getitem__, reverse=True)[:limit]
+
+            branches = await branches_repo.get_by_ids(top_branch_ids)
+            branches_by_id = {str(b.id): b for b in branches}
+            ordered = [branches_by_id[bid] for bid in top_branch_ids if bid in branches_by_id]
+            return [BranchType(**branch_to_dict(b)) for b in ordered]
+
+        except Exception as e:
+            print(f"[get_branches_for_product] Qdrant error: {type(e).__name__}: {e}")
+            return []

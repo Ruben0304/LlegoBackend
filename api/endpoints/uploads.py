@@ -873,6 +873,54 @@ async def upload_promotion_video(
     return {"video_path": video_path, "video_url": generate_presigned_url(video_path)}
 
 
+@router.post("/ad-campaign/creative", status_code=status.HTTP_200_OK)
+@limiter.limit(RATE_LIMIT_UPLOADS)
+async def upload_ad_campaign_creative(
+    request: Request,
+    image: UploadFile = File(...),
+    user_id: str = Depends(get_current_user_id_from_header),
+):
+    """
+    Upload the exported ad-campaign creative photo (the Canva-style card the
+    business designed and flattened to a single image in LlegoBusiness).
+    Max size: 10MB | Preserves transparency (PNG/WebP supported).
+
+    Returns the S3 path; set it on CreateAdCampaignInput.creativeImagePath in
+    the createAdCampaign mutation.
+    """
+    if not user_id:
+        raise HTTPException(status_code=401, detail="No autorizado")
+
+    file_content = await validate_upload(image, "ad_creative", MAX_FILE_SIZES["product"])
+
+    filename = image.filename or "image.png"
+    original_ext = "." + filename.split(".")[-1].lower() if "." in filename else ".png"
+    if original_ext not in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
+        original_ext = ".png"
+
+    try:
+        processed_content, extension = await process_product_image_async(
+            file_content, original_ext
+        )
+    except Exception:
+        raise HTTPException(status_code=400, detail="Error procesando imagen")
+
+    entity_id = str(ObjectId())
+
+    try:
+        image_path = await upload_file(
+            processed_content,
+            "ad_campaigns",
+            entity_id,
+            extension,
+            thumbnail_variants=("baja", "media"),
+        )
+    except Exception:
+        raise HTTPException(status_code=500, detail="Error subiendo imagen")
+
+    return {"image_path": image_path, "image_url": generate_presigned_url(image_path)}
+
+
 @router.post("/promotion/thumbnail", status_code=status.HTTP_200_OK)
 @limiter.limit(RATE_LIMIT_UPLOADS)
 async def upload_promotion_thumbnail(

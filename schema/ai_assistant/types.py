@@ -9,7 +9,7 @@ import strawberry
 from schema.branches.types import BranchType
 from schema.businesses.types import BusinessType
 from schema.products.types import ProductType
-from utils.s3 import generate_presigned_url
+from utils.s3 import get_public_url
 
 # ============================================================================
 # Semantic Search types
@@ -49,7 +49,7 @@ class SemanticSearchProductResult:
     @strawberry.field(description="Presigned URL for the branch avatar")
     def branch_avatar_url(self) -> Optional[str]:
         if self.branch_avatar:
-            return generate_presigned_url(self.branch_avatar)
+            return get_public_url(self.branch_avatar)
         return None
 
 
@@ -121,7 +121,7 @@ class ProductSuggestionType:
     @strawberry.field(description="Presigned URL for the branch avatar")
     def branch_avatar_url(self) -> Optional[str]:
         if self.branch_avatar:
-            return generate_presigned_url(self.branch_avatar)
+            return get_public_url(self.branch_avatar)
         return None
 
 

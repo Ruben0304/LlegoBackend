@@ -4,15 +4,18 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 from core.config import settings
 from repositories import auth_repo
+from utils.s3 import generate_presigned_url
 from services.payments import validate_payment_image_with_transfer_id
 from utils.auth import create_access_token
 from utils.rate_limit import RATE_LIMIT_AUTH, limiter
 
 from .endpoints.admin_payouts import router as admin_payouts_router
+from .endpoints.admin_tests import router as admin_tests_router
 from .endpoints.apple_auth import router as apple_auth_router
 from .endpoints.device_tokens import router as device_tokens_router
 from .endpoints.error_logs import router as error_logs_router
@@ -41,6 +44,7 @@ router.include_router(shortcuts_router)
 router.include_router(qvapay_webhooks_router)
 router.include_router(trondealer_webhooks_router)
 router.include_router(admin_payouts_router)
+router.include_router(admin_tests_router)
 router.include_router(legal_router)
 
 
@@ -216,3 +220,21 @@ async def validate_payment_image(
             else None
         ),
     )
+
+
+# =============================================================================
+# App Downloads
+# =============================================================================
+
+
+@router.get("/download/android", tags=["Downloads"])
+async def download_android():
+    """
+    Redirect to a presigned S3 URL for the Android APK download.
+    The presigned URL is cached in Redis for 50 minutes to avoid regenerating
+    it on every request.
+    """
+    url = generate_presigned_url("apps/llego.apk")
+    if not url:
+        raise HTTPException(status_code=404, detail="APK no disponible")
+    return RedirectResponse(url=url, status_code=302)

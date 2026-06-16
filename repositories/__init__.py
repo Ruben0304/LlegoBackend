@@ -1,5 +1,7 @@
 """Repository instances for database operations."""
 
+from .ad_campaign_repository import AdCampaignRepository
+from .ad_pricing_repository import AdPricingRepository
 from .app_config_repository import AppConfigRepository, BusinessAppConfigRepository
 from .auth_repository import AuthRepository
 from .branch_invitation_repository import (
@@ -75,6 +77,8 @@ branch_likes_repo = BranchLikesRepository()
 tutorials_repo = TutorialRepository()
 promotional_videos_repo = PromotionalVideoRepository()
 delivery_zones_repo = DeliveryZoneRepository()
+ad_campaigns_repo = AdCampaignRepository()
+ad_pricing_repo = AdPricingRepository()
 
 # Imported after singletons to avoid circular import with domain/models.py
 from .shortcut_transfer_repository import (
@@ -169,4 +173,8 @@ __all__ = [
     "payouts_repo",
     "VehicleRepository",
     "vehicles_repo",
+    "AdCampaignRepository",
+    "AdPricingRepository",
+    "ad_campaigns_repo",
+    "ad_pricing_repo",
 ]

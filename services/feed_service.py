@@ -17,6 +17,7 @@ from repositories import (
     searches_repo,
 )
 from services.scoring_service import scoring_service
+from utils.cache import mem_cache
 
 
 @dataclass
@@ -101,26 +102,37 @@ class FeedService:
 
     @staticmethod
     def get_meal_context() -> tuple[str, str]:
-        """Return a time-of-day section title and description based on the current UTC hour."""
-        hour = datetime.now(timezone.utc).hour
+        """Return a situational section title/description based on time of day and day of week."""
+        now = datetime.now(timezone.utc)
+        hour = now.hour
+        is_weekend = now.weekday() >= 5  # Saturday=5, Sunday=6
+
         if 7 <= hour < 12:
+            if is_weekend:
+                return "Desayunos del Finde", "Para arrancar bien el fin de semana"
             return "Desayunos Populares", "Los más pedidos para el desayuno"
         elif 12 <= hour < 16:
+            if is_weekend:
+                return "El Almuerzo del Finde", "Los más pedidos los fines de semana"
             return "Para el Almuerzo", "Los favoritos a la hora del almuerzo"
         elif 16 <= hour < 20:
             return "Para Merendar", "Lo más popular para la merienda"
-        else:
+        elif 20 <= hour < 24:
             return "Para la Cena", "Los más pedidos en la noche"
+        else:
+            return "Antojos de Noche", "Para los que no se duermen con hambre"
 
     async def get_branch_ids_by_tipo(self, branch_tipo: str) -> Set[str]:
         """Fetch branch IDs filtered by tipo, restricted to approved businesses."""
-        print(f"[DEBUG] get_branch_ids_by_tipo - Fetching branch IDs for tipo: {branch_tipo}")
+        cache_key = f"feed:branch_ids:{branch_tipo}"
+        cached = mem_cache.get(cache_key)
+        if cached is not None:
+            return cached
         approved_business_ids = await businesses_repo.get_ids_by_approval_status("approved")
         ids = await branches_repo.get_ids_by_tipo(branch_tipo.lower(), business_ids=approved_business_ids)
-        print(f"[DEBUG] get_branch_ids_by_tipo - Found {len(ids)} branches for tipo {branch_tipo}")
-        if len(ids) > 0:
-            print(f"[DEBUG] get_branch_ids_by_tipo - Sample branch IDs (first 5): {list(ids)[:5]}")
-        return set(ids)
+        result = set(ids)
+        mem_cache.set(cache_key, result, ttl=300)
+        return result
 
     def _normalize_score_map(self, raw_scores: Dict[str, float]) -> Dict[str, float]:
         """Normalize a score dictionary into the 0-1 range."""
@@ -205,6 +217,11 @@ class FeedService:
         self, days: int = 30
     ) -> Dict[str, float]:
         """Build recent popularity scores from clicks, favorites, and cart activity."""
+        cache_key = f"feed:popularity_scores:{days}"
+        cached = mem_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         recent_clicks_data, recent_favorites, recent_cart = await asyncio.gather(
             searches_repo.get_recent_activity(days),
             favorites_cart_repo.get_recent_activity("favorite", days),
@@ -223,7 +240,9 @@ class FeedService:
         for pid, count in recent_cart.items():
             raw_scores[str(pid)] = raw_scores.get(str(pid), 0.0) + count * 1.4
 
-        return self._normalize_score_map(raw_scores)
+        result = self._normalize_score_map(raw_scores)
+        mem_cache.set(cache_key, result, ttl=120)
+        return result
 
     async def _build_para_ti_user_profile(self, user_id: str) -> Dict[str, Any]:
         """Build lightweight affinity maps and direct interaction sets for feed ranking."""
@@ -945,6 +964,100 @@ class FeedService:
         self._sort_scored_products(scored_products)
         return scored_products[: self._candidate_limit(limit)]
 
+    async def get_qdrant_recomendado_section(
+        self,
+        user_id: str,
+        branch_ids: Set[str],
+        limit: int = 10,
+        all_products: Optional[List[Any]] = None,
+    ) -> List[ScoredFeedProduct]:
+        """
+        Section: Especialmente para Ti (Qdrant Vector Similarity)
+        Uses Qdrant's native recommend API: averages the embeddings of the user's
+        favorited and cart products and returns the nearest neighbors.
+        Falls back silently to [] if Qdrant is unavailable or the user has no history.
+        """
+        try:
+            import uuid as _uuid
+            from clients import get_qdrant_client
+            from qdrant_client.models import RecommendInput, RecommendQuery
+
+            _UUID_NS = _uuid.UUID("b1e7a000-0000-0000-0000-000000000000")
+
+            user_profile = await self._build_para_ti_user_profile(user_id)
+
+            # Favorites are the strongest purchase-intent signal; cart adds breadth
+            positive_mongo_ids: List[str] = list(user_profile["favorite_products"])
+            for pid in user_profile["cart_products"]:
+                if pid not in positive_mongo_ids:
+                    positive_mongo_ids.append(pid)
+
+            if not positive_mongo_ids:
+                return []
+
+            # Cap at 10 positives — enough for Qdrant vector averaging
+            positive_mongo_ids = positive_mongo_ids[:10]
+
+            positive_uuids = [
+                str(_uuid.uuid5(_UUID_NS, mid)) for mid in positive_mongo_ids
+            ]
+
+            qdrant_client = get_qdrant_client()
+
+            response = await qdrant_client.query_points(
+                collection_name="products",
+                query=RecommendQuery(
+                    recommend=RecommendInput(positive=positive_uuids)
+                ),
+                limit=limit * 3,
+            )
+            results = response.points if hasattr(response, "points") else response
+
+            if not results:
+                return []
+
+            # Exclude products the user already explicitly interacted with
+            excluded_ids = user_profile["favorite_products"] | user_profile["cart_products"]
+
+            qdrant_score_map: Dict[str, float] = {}
+            recommended_order: List[str] = []
+            for r in results:
+                mongo_id = r.payload.get("mongo_id")
+                if mongo_id and mongo_id not in excluded_ids:
+                    qdrant_score_map[mongo_id] = float(r.score)
+                    recommended_order.append(mongo_id)
+
+            if not recommended_order:
+                return []
+
+            # Intersect with all_products pool (respects branch_tipo filter + availability)
+            products_by_id = {
+                str(p.id): p
+                for p in (all_products or [])
+                if str(p.branchId) in branch_ids and getattr(p, "availability", False)
+            }
+
+            scored_products = []
+            for mongo_id in recommended_order:
+                product = products_by_id.get(mongo_id)
+                if product:
+                    score = qdrant_score_map[mongo_id]
+                    scored_products.append(
+                        ScoredFeedProduct(
+                            product=product,
+                            score=score,
+                            section_scores={"qdrant_similarity": score},
+                        )
+                    )
+                if len(scored_products) >= self._candidate_limit(limit):
+                    break
+
+            return scored_products
+
+        except Exception as e:
+            print(f"[Feed] Qdrant recommend error: {type(e).__name__}: {e}")
+            return []
+
     async def get_pide_de_nuevo_section(
         self,
         user_id: str,
@@ -959,15 +1072,14 @@ class FeedService:
         Products the user has previously ordered, ranked by recency (55%) + frequency (35%)
         + proximity (10%). Only shows available products still in the catalog.
         """
-        delivered_orders, _ = await orders_repo.get_by_customer(
-            user_id, status=OrderStatus.DELIVERED, limit=50
+        orders, _ = await orders_repo.get_by_customer(
+            user_id, status=None, limit=50
         )
-        if not delivered_orders:
+        if not orders:
             return []
 
-        # Build per-product signals from order history
         product_signals: Dict[str, Dict[str, Any]] = {}
-        for order in delivered_orders:
+        for order in orders:
             order_time = getattr(order, "completedAt", None) or getattr(order, "createdAt", None)
             for item in order.items:
                 if item.itemType != "product":
@@ -1124,6 +1236,54 @@ class FeedService:
             deduplicated_sections.append(deduplicated_section)
 
         return deduplicated_sections
+
+    async def get_explorar_section(
+        self,
+        all_products: List[Any],
+        seen_ids: Set[str],
+        page: int = 0,
+        limit: int = 20,
+        user_location: Optional[tuple] = None,
+        radius_km: Optional[float] = None,
+    ) -> List[ScoredFeedProduct]:
+        """Catch-all section: remaining products not shown elsewhere, scored by popularity + freshness + proximity."""
+        remaining = [
+            p for p in all_products
+            if str(p.id) not in seen_ids and getattr(p, "availability", False)
+        ]
+        # Fallback: if every product was already shown in other sections, show all of them.
+        if not remaining:
+            remaining = [p for p in all_products if getattr(p, "availability", False)]
+        if not remaining:
+            return []
+
+        recent_popularity, (remaining, proximity_map) = await asyncio.gather(
+            self._build_recent_popularity_scores(days=7),
+            self._prepare_products_with_proximity(remaining, user_location, radius_km=radius_km),
+        )
+        if not remaining:
+            return []
+
+        freshness_scores = products_repo.calculate_freshness_scores(remaining)
+
+        scored: List[ScoredFeedProduct] = []
+        for product in remaining:
+            pid = str(product.id)
+            pop = recent_popularity.get(pid, 0.0)
+            fresh = freshness_scores.get(pid, 0.0)
+            prox = proximity_map.get(pid, 0.0)
+            scored.append(
+                ScoredFeedProduct(
+                    product=product,
+                    score=pop * 0.50 + fresh * 0.30 + prox * 0.20,
+                    section_scores={"recent_popularity": pop, "freshness": fresh, "proximity": prox},
+                )
+            )
+
+        self._sort_scored_products(scored)
+        offset = page * limit
+        # Return limit+1 so the caller can detect whether more pages exist
+        return scored[offset: offset + limit + 1]
 
 
 # Singleton instance

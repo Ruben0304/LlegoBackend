@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Annotated, List, Optional
 import strawberry
 from strawberry.types import Info
 
-from utils.s3 import generate_presigned_url
+from utils.s3 import get_public_url
 from utils.serialization import to_strawberry_dict
 
 if TYPE_CHECKING:
@@ -106,12 +106,9 @@ class ComboType:
     createdAt: datetime
     updatedAt: datetime
 
-    @strawberry.field(description="Presigned URL for combo image (optional)")
+    @strawberry.field(description="Public URL for combo image (optional)")
     def image_url(self) -> Optional[str]:
-        """Generate presigned URL for combo image."""
-        if self.image:
-            return generate_presigned_url(self.image)
-        return None
+        return get_public_url(self.image) if self.image else None
 
     @strawberry.field(
         description="Representative products for frontend composition (max 4 products)"
@@ -190,36 +187,33 @@ class ComboType:
     async def _compute_starting_base_price(self, info: Info) -> float:
         """
         Calcula el precio base mínimo válido para armar el combo.
-        Respeta minSelections y maxSelections de cada slot.
-        Construye la combinación válida más barata posible.
+        Usa mem_cache para evitar re-cargar el mismo producto cuando múltiples
+        combos comparten opciones (muy común en restaurantes).
         """
         from repositories import products_repo
+        from utils.cache import mem_cache
 
         total = 0.0
 
         for slot in self.slots:
             if getattr(slot, "isFree", False):
                 continue
-            # Determinar cuántos productos seleccionar (mínimo requerido)
             num_selections = slot.minSelections
-
             if num_selections == 0:
-                # Si no es obligatorio, no incluir en el precio "desde"
                 continue
 
-            # Obtener precios de todas las opciones
             option_prices = []
             for option in slot.options:
-                product = await products_repo.get_by_id(option.productId)
-                if product:
-                    # Precio del producto + ajuste de precio de la opción
-                    option_price = product.price + option.priceAdjustment
-                    option_prices.append(option_price)
+                cache_key = f"combo:product_price:{option.productId}"
+                price = mem_cache.get(cache_key)
+                if price is None:
+                    product = await products_repo.get_by_id(option.productId)
+                    price = product.price if product else 0.0
+                    mem_cache.set(cache_key, price, ttl=300)
+                option_prices.append(price + option.priceAdjustment)
 
-            # Ordenar por precio y tomar las más baratas según minSelections
             option_prices.sort()
-            slot_total = sum(option_prices[:num_selections])
-            total += slot_total
+            total += sum(option_prices[:num_selections])
 
         return round(total, 2)
 
@@ -258,14 +252,19 @@ class ComboType:
     async def branch(
         self, info: Info
     ) -> Optional[Annotated["BranchType", strawberry.lazy("schema.branches.types")]]:
-        """Resolve branch relationship."""
-        from repositories import branches_repo
+        """Resolve branch relationship using DataLoader to batch across combos."""
         from schema.branches.types import BranchType
         from schema.branches.utils import branch_to_dict
 
-        branch = await branches_repo.get_by_id(self.branchId)
-        if branch:
-            return BranchType(**branch_to_dict(branch))
+        loader = info.context.get("branch_loader")
+        if loader:
+            branch_data = await loader.load(str(self.branchId))
+        else:
+            from repositories import branches_repo
+            branch_data = await branches_repo.get_by_id(self.branchId)
+
+        if branch_data:
+            return BranchType(**branch_to_dict(branch_data))
         return None
 
 
