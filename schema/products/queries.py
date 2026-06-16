@@ -268,18 +268,21 @@ class ProductQuery:
             from services.reranking_service import reranking_service
             from services.vector_search_service import VectorSearchService
 
-            vector_service = VectorSearchService()
-            # Request more results for filtering and pagination
-            search_limit = 200
-            product_results = await vector_service.search_products(
-                query, limit=search_limit
-            )
+            try:
+                vector_service = VectorSearchService()
+                search_limit = 200
+                product_results = await vector_service.search_products(
+                    query, limit=search_limit
+                )
+            except RuntimeError:
+                raise Exception(
+                    "El buscador inteligente no está disponible en este momento. "
+                    "Disculpa las molestias, inténtalo de nuevo más tarde."
+                )
 
-            # Build vector scores map and product list
             vector_scores = {r.mongo_id: r.score for r in product_results}
             all_products = []
 
-            # Batch-fetch all products in a single query instead of N round-trips
             mongo_ids = [r.mongo_id for r in product_results]
             fetched_products = await products_repo.get_by_ids(mongo_ids)
             products_by_id = {str(p.id): p for p in fetched_products}
@@ -299,7 +302,6 @@ class ProductQuery:
                         continue
                     all_products.append(product)
 
-            # RE-RANK: Combine vector search with popularity, proximity, and personalization
             user_location = None
             if user_id:
                 user_location = await scoring_service.get_user_location(user_id)
@@ -312,12 +314,11 @@ class ProductQuery:
                 vector_scores=vector_scores,
             )
 
-            # Convert to ScoredProductType
             scored_products = [
                 ScoredProductType(
                     **to_strawberry_dict(rp.product),
                     score=rp.final_score,
-                    distance_m=None,  # Could extract from proximity_score if needed
+                    distance_m=None,
                 )
                 for rp in ranked_products
             ]
@@ -330,7 +331,6 @@ class ProductQuery:
             if allowed_category_ids is not None:
                 all_products = [p for p in all_products if p.id in allowed_category_ids]
 
-            # Fallback: simple scoring without re-ranking
             scored_products = [
                 ScoredProductType(
                     **to_strawberry_dict(p), score=0.0, distance_m=None
