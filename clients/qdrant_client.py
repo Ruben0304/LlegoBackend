@@ -11,9 +11,14 @@ logger = logging.getLogger(__name__)
 
 qdrant_client: Optional[AsyncQdrantClient] = None
 
-# Max seconds to wait for the startup connection test — must be short so it
-# doesn't block Railway's health-check and cause 502s.
-_STARTUP_PROBE_TIMEOUT = 5
+# Max seconds to wait for the startup connection test.
+# Railway cold starts can take 10-15s, so we give enough margin without
+# blocking the health-check indefinitely.
+_STARTUP_PROBE_TIMEOUT = 20
+
+
+_MAX_RETRIES = 3
+_RETRY_DELAY = 5  # seconds between attempts
 
 
 async def connect_to_qdrant():
@@ -39,37 +44,42 @@ async def connect_to_qdrant():
         "prefer_grpc": settings.qdrant_prefer_grpc,
         "https": settings.qdrant_https,
         "timeout": settings.qdrant_timeout,
+        "check_compatibility": False,
     }
     if settings.qdrant_api_key:
         connection_params["api_key"] = settings.qdrant_api_key
 
-    try:
-        client = AsyncQdrantClient(**connection_params)
+    for attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            client = AsyncQdrantClient(**connection_params)
 
-        # Probe with a hard cap so a dead Qdrant never blocks startup.
-        collections = await asyncio.wait_for(
-            client.get_collections(),
-            timeout=_STARTUP_PROBE_TIMEOUT,
-        )
-        names = [c.name for c in collections.collections]
-        logger.info(f"✅ Qdrant connected — collections: {names or '(none)'}")
-        qdrant_client = client
-        return True
+            collections = await asyncio.wait_for(
+                client.get_collections(),
+                timeout=_STARTUP_PROBE_TIMEOUT,
+            )
+            names = [c.name for c in collections.collections]
+            logger.info(f"✅ Qdrant connected — collections: {names or '(none)'}")
+            qdrant_client = client
+            return True
 
-    except asyncio.TimeoutError:
-        logger.warning(
-            f"⚠️ Qdrant probe timed out after {_STARTUP_PROBE_TIMEOUT}s — "
-            "vector search disabled until Qdrant is reachable"
-        )
-        qdrant_client = None
-        return False
-    except Exception as e:
-        logger.warning(
-            f"⚠️ Qdrant unavailable ({type(e).__name__}: {e}) — "
-            "vector search disabled until Qdrant is reachable"
-        )
-        qdrant_client = None
-        return False
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"⚠️ Qdrant probe timed out after {_STARTUP_PROBE_TIMEOUT}s "
+                f"(attempt {attempt}/{_MAX_RETRIES})"
+            )
+        except Exception as e:
+            logger.warning(
+                f"⚠️ Qdrant unavailable ({type(e).__name__}: {e}) "
+                f"(attempt {attempt}/{_MAX_RETRIES})"
+            )
+
+        if attempt < _MAX_RETRIES:
+            logger.info(f"Retrying Qdrant connection in {_RETRY_DELAY}s...")
+            await asyncio.sleep(_RETRY_DELAY)
+
+    logger.warning("⚠️ Qdrant unreachable after all retries — vector search disabled")
+    qdrant_client = None
+    return False
 
 
 async def close_qdrant_connection():
@@ -88,8 +98,10 @@ async def close_qdrant_connection():
 def get_qdrant_client() -> AsyncQdrantClient:
     """Get Qdrant client instance"""
     if qdrant_client is None:
-        logger.error("Qdrant client not initialized. Call connect_to_qdrant() first.")
-        raise RuntimeError("Qdrant client not initialized. Call connect_to_qdrant() first.")
+        raise RuntimeError(
+            "Qdrant client not initialized — startup probe failed. "
+            "Check QDRANT_HOST/PORT/HTTPS env vars and Qdrant service health."
+        )
 
     return qdrant_client
 
