@@ -15,6 +15,7 @@ from utils.auth import create_access_token
 from utils.rate_limit import RATE_LIMIT_AUTH, limiter
 
 from .endpoints.admin_payouts import router as admin_payouts_router
+from .endpoints.admin_tests import router as admin_tests_router
 from .endpoints.apple_auth import router as apple_auth_router
 from .endpoints.device_tokens import router as device_tokens_router
 from .endpoints.error_logs import router as error_logs_router
@@ -43,6 +44,7 @@ router.include_router(shortcuts_router)
 router.include_router(qvapay_webhooks_router)
 router.include_router(trondealer_webhooks_router)
 router.include_router(admin_payouts_router)
+router.include_router(admin_tests_router)
 router.include_router(legal_router)
 
 
