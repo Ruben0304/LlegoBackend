@@ -147,6 +147,10 @@ class FeedQuery:
                     "Te Podría Gustar",
                     "Recomendaciones basadas en tus preferencias",
                 ),
+                "recomendado_qdrant": (
+                    "Especialmente para Ti",
+                    "Productos similares a los que más te gustan",
+                ),
             }
         else:
             _meal_extra = _meal_extra_title(meal_title)
@@ -169,6 +173,10 @@ class FeedQuery:
                 "te_podria_gustar": (
                     "Más que te podría gustar",
                     "Sigue explorando, hay más por descubrir",
+                ),
+                "recomendado_qdrant": (
+                    "Más para Ti",
+                    "Más productos similares a tus favoritos",
                 ),
             }
 
@@ -381,6 +389,29 @@ class FeedQuery:
                             title=title,
                             status="omitted",
                             reason="Requiere JWT válido (personalización no disponible)",
+                            total_before_dedup=0,
+                            total_after_dedup=0,
+                        )
+                    )
+            elif section_id == "recomendado_qdrant":
+                if user_id:
+                    tasks.append(
+                        feed_service.get_qdrant_recomendado_section(
+                            user_id,
+                            branch_ids,
+                            first,
+                            all_products=all_products,
+                        )
+                    )
+                    section_keys.append(section_id)
+                else:
+                    title, _ = requested_sections[section_id]
+                    section_diagnostics.append(
+                        FeedSectionDiagnostic(
+                            section_id=section_id,
+                            title=title,
+                            status="omitted",
+                            reason="Requiere JWT válido (recomendación vectorial no disponible)",
                             total_before_dedup=0,
                             total_after_dedup=0,
                         )

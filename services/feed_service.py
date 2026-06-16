@@ -964,6 +964,100 @@ class FeedService:
         self._sort_scored_products(scored_products)
         return scored_products[: self._candidate_limit(limit)]
 
+    async def get_qdrant_recomendado_section(
+        self,
+        user_id: str,
+        branch_ids: Set[str],
+        limit: int = 10,
+        all_products: Optional[List[Any]] = None,
+    ) -> List[ScoredFeedProduct]:
+        """
+        Section: Especialmente para Ti (Qdrant Vector Similarity)
+        Uses Qdrant's native recommend API: averages the embeddings of the user's
+        favorited and cart products and returns the nearest neighbors.
+        Falls back silently to [] if Qdrant is unavailable or the user has no history.
+        """
+        try:
+            import uuid as _uuid
+            from clients import get_qdrant_client
+            from qdrant_client.models import RecommendInput, RecommendQuery
+
+            _UUID_NS = _uuid.UUID("b1e7a000-0000-0000-0000-000000000000")
+
+            user_profile = await self._build_para_ti_user_profile(user_id)
+
+            # Favorites are the strongest purchase-intent signal; cart adds breadth
+            positive_mongo_ids: List[str] = list(user_profile["favorite_products"])
+            for pid in user_profile["cart_products"]:
+                if pid not in positive_mongo_ids:
+                    positive_mongo_ids.append(pid)
+
+            if not positive_mongo_ids:
+                return []
+
+            # Cap at 10 positives — enough for Qdrant vector averaging
+            positive_mongo_ids = positive_mongo_ids[:10]
+
+            positive_uuids = [
+                str(_uuid.uuid5(_UUID_NS, mid)) for mid in positive_mongo_ids
+            ]
+
+            qdrant_client = get_qdrant_client()
+
+            response = await qdrant_client.query_points(
+                collection_name="products",
+                query=RecommendQuery(
+                    recommend=RecommendInput(positive=positive_uuids)
+                ),
+                limit=limit * 3,
+            )
+            results = response.points if hasattr(response, "points") else response
+
+            if not results:
+                return []
+
+            # Exclude products the user already explicitly interacted with
+            excluded_ids = user_profile["favorite_products"] | user_profile["cart_products"]
+
+            qdrant_score_map: Dict[str, float] = {}
+            recommended_order: List[str] = []
+            for r in results:
+                mongo_id = r.payload.get("mongo_id")
+                if mongo_id and mongo_id not in excluded_ids:
+                    qdrant_score_map[mongo_id] = float(r.score)
+                    recommended_order.append(mongo_id)
+
+            if not recommended_order:
+                return []
+
+            # Intersect with all_products pool (respects branch_tipo filter + availability)
+            products_by_id = {
+                str(p.id): p
+                for p in (all_products or [])
+                if str(p.branchId) in branch_ids and getattr(p, "availability", False)
+            }
+
+            scored_products = []
+            for mongo_id in recommended_order:
+                product = products_by_id.get(mongo_id)
+                if product:
+                    score = qdrant_score_map[mongo_id]
+                    scored_products.append(
+                        ScoredFeedProduct(
+                            product=product,
+                            score=score,
+                            section_scores={"qdrant_similarity": score},
+                        )
+                    )
+                if len(scored_products) >= self._candidate_limit(limit):
+                    break
+
+            return scored_products
+
+        except Exception as e:
+            print(f"[Feed] Qdrant recommend error: {type(e).__name__}: {e}")
+            return []
+
     async def get_pide_de_nuevo_section(
         self,
         user_id: str,
