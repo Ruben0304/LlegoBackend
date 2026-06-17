@@ -2,6 +2,20 @@
 
 ---
 
+## 📅 17 de Junio, 2026
+
+### Resumen de cambios (últimas 24h)
+
+Sin commits nuevos desde el análisis del 16/06. Los seguimientos del 16/06 siguen vigentes.
+
+---
+
+### Puede dar bateo
+
+Sin cambios nuevos — sin riesgos nuevos.
+
+---
+
 ## 📅 16 de Junio, 2026
 
 ### Resumen de cambios (últimas 24h)
@@ -145,17 +159,17 @@
 - **ADS — `approved` desacoplado del pago sin verificación**.
 - **Cache TTL en proceso — inconsistencia en deploys multi-instancia**.
 - **`chore` auth/rate-limit/admin-payouts sin auditoría detallada**.
-- **`acceptingOrders` — retrocompatibilidad con documentos sin el campo (nuevo)**.
-- **`dailyOverride.date` sin timezone explícita (nuevo)**.
-- **`setBranchDailyOverride` — sin validación de rango de horas (nuevo)**.
-- **Threshold 0.60 → 0.45 — aumento de ruido en búsqueda (nuevo)**.
-- **`getBranchesForProduct` — doble query Qdrant + MongoDB (nuevo)**.
-- **`getSimilarProducts/Branches` — UUID no encontrado en Qdrant (nuevo)**.
-- **`Especialmente para Ti` — vector promedio sin normalización (nuevo)**.
-- **Ads auth migrado a `require_role` para managers (nuevo)**.
-- **`check_compatibility=False` en qdrant-client (nuevo)**.
-- **Merge manual de conflictos — verificar integridad (nuevo)**.
-- **Índices en colecciones existentes — confirmar background build (nuevo)**.
+- **`acceptingOrders` — retrocompatibilidad con documentos sin el campo**.
+- **`dailyOverride.date` sin timezone explícita**.
+- **`setBranchDailyOverride` — sin validación de rango de horas**.
+- **Threshold 0.60 → 0.45 — aumento de ruido en búsqueda**.
+- **`getBranchesForProduct` — doble query Qdrant + MongoDB**.
+- **`getSimilarProducts/Branches` — UUID no encontrado en Qdrant**.
+- **`Especialmente para Ti` — vector promedio sin normalización**.
+- **Ads auth migrado a `require_role` para managers**.
+- **`check_compatibility=False` en qdrant-client**.
+- **Merge manual de conflictos — verificar integridad**.
+- **Índices en colecciones existentes — confirmar background build**.
 
 ---
 
@@ -251,18 +265,18 @@
 - **Export Excel merge vertical — heterogeneidad de materiales (SunCarWeb)**.
 - **Rebrand paleta — componentes con clases hardcoded (SunCarWeb)**.
 - **`POST /solicitudes-transferencia/{id}/resolver` — endpoint pendiente de confirmación (SunCarWeb)**.
-- **Worker de borrado de cuentas — sin recuperación tras reinicios (nuevo)**: Confirmar que al arrancar se procesan las cuentas ya vencidas inmediatamente.
-- **`scheduledDeletionAt` — campo nuevo en documentos existentes (nuevo)**: Confirmar manejo de `null`/campo ausente.
-- **URL prefirmada de APK — TTL del cache vs TTL de la firma (nuevo)**: Confirmar que `cache_ttl < presigned_url_ttl`.
-- **ADS — `ad_pricing` sin datos iniciales en producción (nuevo)**.
-- **ADS — `approved` desacoplado del pago sin verificación (nuevo)**.
-- **Cache TTL en proceso — inconsistencia en deploys multi-instancia (nuevo)**.
-- **`chore` auth/rate-limit/admin-payouts sin auditoría detallada (nuevo)**.
-- **`asyncio.to_thread` — pool de threads por defecto (nuevo)**: Confirmar capacidad suficiente o configurar `ThreadPoolExecutor` explícito.
-- **`get_by_ids()` en repositorios de vector search — confirmar existencia (nuevo)**.
-- **Índices de MongoDB — construcción sin bloquear escrituras (nuevo)**.
-- **GZip umbral 200 bytes — exclusión de binarios y presigned URLs (nuevo)**.
-- **`minPoolSize` en Atlas tier bajo con escalado horizontal (nuevo)**.
+- **Worker de borrado de cuentas — sin recuperación tras reinicios**: Confirmar que al arrancar se procesan las cuentas ya vencidas inmediatamente.
+- **`scheduledDeletionAt` — campo nuevo en documentos existentes**: Confirmar manejo de `null`/campo ausente.
+- **URL prefirmada de APK — TTL del cache vs TTL de la firma**: Confirmar que `cache_ttl < presigned_url_ttl`.
+- **ADS — `ad_pricing` sin datos iniciales en producción**.
+- **ADS — `approved` desacoplado del pago sin verificación**.
+- **Cache TTL en proceso — inconsistencia en deploys multi-instancia**.
+- **`chore` auth/rate-limit/admin-payouts sin auditoría detallada**.
+- **`asyncio.to_thread` — pool de threads por defecto**: Confirmar capacidad suficiente o configurar `ThreadPoolExecutor` explícito.
+- **`get_by_ids()` en repositorios de vector search — confirmar existencia**.
+- **Índices de MongoDB — construcción sin bloquear escrituras**.
+- **GZip umbral 200 bytes — exclusión de binarios y presigned URLs**.
+- **`minPoolSize` en Atlas tier bajo con escalado horizontal**.
 
 ---
 
@@ -382,13 +396,13 @@
 - **Export Excel merge vertical — heterogeneidad de materiales (SunCarWeb)**.
 - **Rebrand paleta — componentes con clases hardcoded (SunCarWeb)**.
 - **`POST /solicitudes-transferencia/{id}/resolver` — endpoint pendiente de confirmación (SunCarWeb)**.
-- **Worker de borrado de cuentas — sin recuperación tras reinicios (nuevo)**: El worker de lifespan no captura cuentas vencidas durante los reinicios del servidor.
-- **`scheduledDeletionAt` — campo nuevo en documentos existentes (nuevo)**: Confirmar que las queries manejan el caso de documentos sin el campo.
-- **URL prefirmada de APK — TTL del cache vs TTL de la firma (nuevo)**: Confirmar que `cache_ttl < presigned_url_ttl`.
-- **ADS — `ad_pricing` sin datos iniciales en producción (nuevo)**.
-- **ADS — `approved` desacoplado del pago sin verificación (nuevo)**.
-- **Cache TTL en proceso — inconsistencia en deploys multi-instancia (nuevo)**.
-- **`chore` auth/rate-limit/admin-payouts sin auditoría detallada (nuevo)**.
+- **Worker de borrado de cuentas — sin recuperación tras reinicios**: El worker de lifespan no captura cuentas vencidas durante los reinicios del servidor.
+- **`scheduledDeletionAt` — campo nuevo en documentos existentes**: Confirmar que las queries manejan el caso de documentos sin el campo.
+- **URL prefirmada de APK — TTL del cache vs TTL de la firma**: Confirmar que `cache_ttl < presigned_url_ttl`.
+- **ADS — `ad_pricing` sin datos iniciales en producción**.
+- **ADS — `approved` desacoplado del pago sin verificación**.
+- **Cache TTL en proceso — inconsistencia en deploys multi-instancia**.
+- **`chore` auth/rate-limit/admin-payouts sin auditoría detallada**.
 
 ---
 
@@ -468,99 +482,4 @@ Sin cambios nuevos — sin riesgos nuevos. Los seguimientos del 9/06 siguen vige
 
 ---
 
-## 📅 9 de Junio, 2026
-
-### Resumen de cambios (últimas 24h)
-
-**2 commits** — cumplimiento del App Store (Apple): período de gracia para borrado de cuentas con worker en background, páginas legales servidas desde el backend, y nuevo endpoint de descarga del APK con URL prefirmada de S3 cacheada.
-
----
-
-### Área 1: Borrado de cuentas con gracia + páginas legales (1 commit — Fabian1820, 15:10)
-
-- **`feat(legal): add account deletion grace period + Privacy/Terms pages`** — Agrega `scheduledDeletionAt` al dominio `User` y al `UserType` de GraphQL. Mutations `requestAccountDeletion` / `cancelAccountDeletion`: programan período de gracia de 30 días en lugar de borrar de inmediato. Worker en background que hard-deletes las cuentas cuyo período expiró (corre cada 24h vía tarea de lifespan). Sirve `/privacy` y `/terms` como HTML desde el backend.
-
----
-
-### Área 2: Descarga del APK con URL prefirmada de S3 (1 commit — Ruben0304, 18:27)
-
-- **`feat: add GET /download/android endpoint for APK presigned URL`** — Genera una URL prefirmada de S3 cacheada para `apps/llego.apk` y retorna una redirección 302.
-
----
-
-### Puede dar bateo
-
-1. **Worker de borrado — sin recuperación tras reinicios**: El worker corre como tarea de lifespan cada 24h. Si el servidor se reinicia, las cuentas que vencieron en el intervalo no se borran hasta el próximo ciclo.
-2. **`scheduledDeletionAt` — campo nuevo en documentos existentes**: Usuarios creados antes de este commit no tienen el campo. Confirmar que el worker y las queries GraphQL manejan `null` / campo ausente correctamente.
-3. **`/privacy` y `/terms` como HTML hardcodeado**: Cualquier actualización legal requiere un nuevo deploy.
-4. **URL prefirmada de S3 — TTL del cache vs TTL de la firma**: Si el TTL del cache es mayor que el TTL de la URL prefirmada, el endpoint servirá URLs expiradas.
-5. **APK sin versión en la ruta**: Siempre sirve `apps/llego.apk`. Con el redirect cacheado localmente, los clientes pueden descargar el APK viejo tras una actualización.
-
----
-
-#### Seguimientos vigentes
-
-- **`apiRequest success:false` — monitorear regresiones post-deploy (SunCarWeb)**.
-- **`showContableFields` en MaterialForm (SunCarWeb)**.
-- **`costo` y `material_id` en tipo `Material` (SunCarWeb)**.
-- **Wallet historial por miembro — filtros params (SunCarWeb)**.
-- **Excel Fichas de Costo sin cota de registros (SunCarWeb)**.
-- **Credenciales demo hardcodeadas**: `demo@llego.app / LlegoDemo2025!`.
-- **Bypass de Stripe activo en producción**.
-- **Timers de `asyncio.sleep` sin cancelación**.
-- **`seed_demo_store.py` sin idempotencia**.
-- **`isDemoStore` no debe aparecer en feed público**.
-- **Timezone UTC en "Hora del Día"**.
-- **Ranking sin coordenadas**.
-- **"Pide de Nuevo" con token expirado**.
-- **Performance ranking multi-factor**.
-- **`aumento_porcentaje` y `aumento_tipo` en ofertas**.
-- **Tasa de cambio EUR vs CUP**.
-- **Endpoints de paginación**.
-- **Rollback de pago**.
-- **`recibido_por_ci` en pagos**.
-- **Endpoints wallet**.
-- **RRHH — nombre y teléfono editables**.
-- **`available_orders_for_delivery`**.
-- **`averia_id` en trabajos diarios**.
-- **Permiso `gestionar_banco_global`**.
-- **Campos SunCarWeb → backend pendientes**.
-- **Campos de cambio real (SunCarWeb)**.
-- **Endpoint lazy load obras terminadas (SunCarWeb)**.
-- **Endpoints de notificaciones SunCarWeb**.
-- **`GET /inventario/stock-historico`**.
-- **Agregados solicitudes-ventas**.
-- **`updateSolicitudTransferencia` — validación de estado en backend**.
-- **Búsqueda por `numero_serie` (SunCarWeb)**.
-- **`stock_disponible_actual` — consistencia entre endpoints**.
-- **Excel export de facturas sin cota de registros (SunCarWeb)**.
-- **`'zelle'` como método de pago — soporte en backend (SunCarWeb)**.
-- **Sort client-side de solicitudes pendientes en ValesSalida (SunCarWeb)**.
-- **Parsing UTC→local en otras tablas (SunCarWeb)**.
-- **Tasas MLC/CUP sin persistencia entre sesiones (SunCarWeb)**.
-- **`PonderarCostoResponse` campos nuevos (SunCarWeb)**.
-- **`GET /api/kardex-costo/costo-actual` (SunCarWeb)**.
-- **`materiales` en respuesta de facturas de solicitudes-ventas (SunCarWeb)**.
-- **Filtros de vales de salida — `fecha_desde`, `fecha_hasta`, creador (SunCarWeb)**.
-- **`discounted_service_fee_rate` sin validación de rango**.
-- **Signed URLs de S3 para videos promotores sin renovación**.
-- **Race condition del descuento por video**.
-- **Videos/thumbnails huérfanos en S3 en error parcial**.
-- **`almacenes-suncar/admin` — gating solo en frontend (SunCarWeb)**.
-- **Estados de transferencia no mapeados en `ESTADO_CONFIG` (SunCarWeb)**.
-- **Campos de dimensionamiento en calculadora sin persistencia confirmada (SunCarWeb)**.
-- **Badges de disponibilidad por pool — snapshot estático (SunCarWeb)**.
-- **Endpoint cumpleaños de la semana (SunCarWeb)**.
-- **Endpoint contador de instalaciones solares (SunCarWeb)**.
-- **Widget de paneles — estado único vs respuesta del backend (SunCarWeb)**.
-- **`window.history.pushState` + Next.js App Router desync (SunCarWeb)**.
-- **Export Excel merge vertical — heterogeneidad de materiales (SunCarWeb)**.
-- **Rebrand paleta — componentes con clases hardcoded (SunCarWeb)**.
-- **`POST /solicitudes-transferencia/{id}/resolver` — endpoint pendiente de confirmación (SunCarWeb)**.
-- **Worker de borrado de cuentas — sin recuperación tras reinicios (nuevo)**.
-- **`scheduledDeletionAt` — campo nuevo en documentos existentes (nuevo)**.
-- **URL prefirmada de APK — TTL del cache vs TTL de la firma (nuevo)**.
-
----
-
-> ⚠️ **Nota de mantenimiento**: Las entradas del **5, 6 y 7 de Junio** fueron eliminadas al superar los 7 días de antigüedad (política de retención semanal). Anteriores eliminadas: 27, 28, 29, 30 de Mayo, 31 de Mayo, 1, 2, 3 y 4 de Junio.
+> ⚠️ **Nota de mantenimiento**: Las entradas del **5, 6, 7 y 9 de Junio** fueron eliminadas al superar los 7 días de antigüedad (política de retención semanal). Anteriores eliminadas: 27, 28, 29, 30 de Mayo, 31 de Mayo, 1, 2, 3 y 4 de Junio.
