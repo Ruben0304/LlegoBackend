@@ -2,6 +2,20 @@
 
 ---
 
+## 📅 18 de Junio, 2026
+
+### Resumen de cambios (últimas 24h)
+
+Sin commits de código nuevos. El único commit en el rango de las últimas 24h es "Analisis diario Claude" del 17/06 (generado automáticamente). No hay cambios en producción.
+
+---
+
+### Puede dar bateo
+
+Sin cambios nuevos — sin riesgos nuevos.
+
+---
+
 ## 📅 17 de Junio, 2026
 
 ### Resumen de cambios (últimas 24h)
@@ -218,7 +232,7 @@ Sin cambios nuevos — sin riesgos nuevos.
 - **Timers de `asyncio.sleep` sin cancelación**: Las tareas de auto-progreso de órdenes demo siguen vivas aunque la orden sea cancelada. Bajo carga, pueden acumularse tareas huérfanas.
 - **`seed_demo_store.py` sin idempotencia**: Ejecutarlo de nuevo creará duplicados en producción.
 - **`isDemoStore` no debe aparecer en feed público**.
-- **Timezone UTC en "Hora del Día"**: Usuarios en Cuba (UTC-5) ven el tramo desfasado 5h.
+- **Timezone UTC en "Hora del Día"**: Usuarios en Cuba (UTC-5) ven el tramo del día desfasado 5h.
 - **Ranking sin coordenadas**: Si lat/lng es `null`, verificar que el fallback no genere 500 en el feed.
 - **"Pide de Nuevo" con token expirado**: El feed completo no debe romper; la sección debe retornar array vacío.
 - **Performance ranking multi-factor**: Verificar índice en `(user_id, created_at)` en la tabla de órdenes.
@@ -249,7 +263,7 @@ Sin cambios nuevos — sin riesgos nuevos.
 - **`PonderarCostoResponse` campos nuevos (SunCarWeb)**: Confirmar que POST `/ponderar-costo` incluye `sin_costo_ficha`, `no_aplicables` y `costos_catalogo_propagados`.
 - **`GET /api/kardex-costo/costo-actual` (SunCarWeb)**: Confirmar params `material_id + almacen_id`.
 - **`materiales` en respuesta de facturas de solicitudes-ventas (SunCarWeb)**.
-- **Filtros de vales de salida — `fecha_desde`, `fecha_hasta`, creador (SunCarWeb)**.
+- **Filtros de vales de salida — `fecha_desde`, `fecha_hasta`, creador (SunCarWeb)**: Confirmar soporte en el backend.
 - **`discounted_service_fee_rate` sin validación de rango**: Solo valores entre 0 y 1.
 - **Signed URLs de S3 para videos promotores sin renovación**.
 - **Race condition del descuento por video**.
