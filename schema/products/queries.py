@@ -481,7 +481,11 @@ class ProductQuery:
         """
         import uuid as _uuid
         from clients import get_qdrant_client
-        from qdrant_client.models import RecommendInput, RecommendQuery
+        from qdrant_client.models import (
+            RecommendInput,
+            RecommendQuery,
+            RecommendStrategy,
+        )
 
         apply_optional_jwt(jwt, info)
         rate_limit_graphql(info, "graphql")
@@ -495,7 +499,10 @@ class ProductQuery:
             response = await qdrant_client.query_points(
                 collection_name="products",
                 query=RecommendQuery(
-                    recommend=RecommendInput(positive=[product_uuid])
+                    recommend=RecommendInput(
+                        positive=[product_uuid],
+                        strategy=RecommendStrategy.BEST_SCORE,
+                    )
                 ),
                 limit=limit + 1,  # +1 to account for the product itself appearing
             )
