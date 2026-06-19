@@ -980,7 +980,11 @@ class FeedService:
         try:
             import uuid as _uuid
             from clients import get_qdrant_client
-            from qdrant_client.models import RecommendInput, RecommendQuery
+            from qdrant_client.models import (
+                RecommendInput,
+                RecommendQuery,
+                RecommendStrategy,
+            )
 
             _UUID_NS = _uuid.UUID("b1e7a000-0000-0000-0000-000000000000")
 
@@ -1007,7 +1011,14 @@ class FeedService:
             response = await qdrant_client.query_points(
                 collection_name="products",
                 query=RecommendQuery(
-                    recommend=RecommendInput(positive=positive_uuids)
+                    # BEST_SCORE scores each candidate by its max similarity to ANY
+                    # positive (favorite/cart) instead of to their averaged centroid.
+                    # This respects diverse tastes (e.g. sushi AND cake) instead of
+                    # recommending the muddy middle.
+                    recommend=RecommendInput(
+                        positive=positive_uuids,
+                        strategy=RecommendStrategy.BEST_SCORE,
+                    )
                 ),
                 limit=limit * 3,
             )

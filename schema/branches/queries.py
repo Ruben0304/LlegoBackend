@@ -601,7 +601,11 @@ class BranchQuery:
         """
         import uuid as _uuid
         from clients import get_qdrant_client
-        from qdrant_client.models import RecommendInput, RecommendQuery
+        from qdrant_client.models import (
+            RecommendInput,
+            RecommendQuery,
+            RecommendStrategy,
+        )
 
         apply_optional_jwt(jwt, info)
         rate_limit_graphql(info, "graphql")
@@ -615,7 +619,10 @@ class BranchQuery:
             response = await qdrant_client.query_points(
                 collection_name="branches",
                 query=RecommendQuery(
-                    recommend=RecommendInput(positive=[branch_uuid])
+                    recommend=RecommendInput(
+                        positive=[branch_uuid],
+                        strategy=RecommendStrategy.BEST_SCORE,
+                    )
                 ),
                 limit=limit + 1,
             )
@@ -660,7 +667,11 @@ class BranchQuery:
         import uuid as _uuid
         from collections import defaultdict
         from clients import get_qdrant_client
-        from qdrant_client.models import RecommendInput, RecommendQuery
+        from qdrant_client.models import (
+            RecommendInput,
+            RecommendQuery,
+            RecommendStrategy,
+        )
 
         apply_optional_jwt(jwt, info)
         rate_limit_graphql(info, "graphql")
@@ -680,7 +691,10 @@ class BranchQuery:
             response = await qdrant_client.query_points(
                 collection_name="products",
                 query=RecommendQuery(
-                    recommend=RecommendInput(positive=[product_uuid])
+                    recommend=RecommendInput(
+                        positive=[product_uuid],
+                        strategy=RecommendStrategy.BEST_SCORE,
+                    )
                 ),
                 limit=50,
             )
