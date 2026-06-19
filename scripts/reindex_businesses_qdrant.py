@@ -17,7 +17,12 @@ from clients import (
 )
 from repositories import branches_repo, businesses_repo
 from services.embeddings.gemini_service import GeminiEmbeddingService
-from services.qdrant_payloads import branch_payload, business_payload
+from services.qdrant_payloads import (
+    branch_embedding_text,
+    branch_payload,
+    business_embedding_text,
+    business_payload,
+)
 
 # Deterministic UUID namespace — MUST match the repositories / indexing service
 # so this reindex updates the same points instead of creating duplicates.
@@ -76,8 +81,7 @@ async def _upsert_points(collection_name: str, points: List[PointStruct]) -> Non
 
 
 def _to_business_point(embedding_service: GeminiEmbeddingService, business: Any) -> PointStruct:
-    text_to_embed = f"{business.name} {business.description or ''}"
-    embedding = embedding_service.generate_embedding(text_to_embed)
+    embedding = embedding_service.generate_embedding(business_embedding_text(business))
     return PointStruct(
         id=_mongo_id_to_uuid(str(business.id)),
         vector=embedding,
@@ -86,9 +90,7 @@ def _to_business_point(embedding_service: GeminiEmbeddingService, business: Any)
 
 
 def _to_branch_point(embedding_service: GeminiEmbeddingService, branch: Any) -> PointStruct:
-    tipos_str = " ".join(branch.tipos or [])
-    text_to_embed = f"{branch.name} {tipos_str}"
-    embedding = embedding_service.generate_embedding(text_to_embed)
+    embedding = embedding_service.generate_embedding(branch_embedding_text(branch))
     return PointStruct(
         id=_mongo_id_to_uuid(str(branch.id)),
         vector=embedding,

@@ -26,6 +26,7 @@ from services.embeddings.gemini_service import GeminiEmbeddingService
 from services.qdrant_payloads import (
     BUSINESS_PAYLOAD_FIELDS,
     BUSINESS_TEXT_FIELDS,
+    business_embedding_text,
     business_payload,
 )
 from utils.cache import (
@@ -327,7 +328,7 @@ class BusinessRepository:
         """Upsert business to Qdrant with the enriched payload + fresh embedding."""
         try:
             embedding_service = GeminiEmbeddingService()
-            text_to_embed = f"{business.name} {business.description or ''}"
+            text_to_embed = business_embedding_text(business)
             embedding = embedding_service.generate_embedding(text_to_embed)
 
             qdrant_client = get_qdrant_client()

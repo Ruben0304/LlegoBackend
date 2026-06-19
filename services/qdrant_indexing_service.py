@@ -7,8 +7,11 @@ from qdrant_client.models import PointStruct
 from clients import get_qdrant_client
 from services.embeddings.gemini_service import GeminiEmbeddingService
 from services.qdrant_payloads import (
+    branch_embedding_text,
     branch_payload,
+    business_embedding_text,
     business_payload,
+    product_embedding_text,
     product_payload,
 )
 from domain.models import Product, Branch, Business
@@ -45,6 +48,20 @@ class QdrantIndexingService:
             logger.warning("Qdrant client not available, skipping indexing")
             return None
 
+    async def _resolve_category_name(self, product: Product):
+        """Look up the product's category name to enrich the embedding text."""
+        category_id = getattr(product, "categoryId", None)
+        if not category_id:
+            return None
+        try:
+            from repositories import product_categories_repo
+
+            category = await product_categories_repo.get_by_id(str(category_id))
+            return category.name if category else None
+        except Exception as e:
+            logger.debug(f"Could not resolve category {category_id}: {e}")
+            return None
+
     async def index_product(self, product: Product) -> bool:
         """
         Index a product in Qdrant after it's created in MongoDB.
@@ -62,8 +79,9 @@ class QdrantIndexingService:
         try:
             logger.info(f"[Qdrant] Indexing product: {product.name} (ID: {product.id})")
 
-            # Generate text for embedding
-            embedding_text = f"{product.name}. {product.description or ''}"
+            # Generate text for embedding (enriched with category name)
+            category_name = await self._resolve_category_name(product)
+            embedding_text = product_embedding_text(product, category_name)
 
             # Generate embedding using Gemini with RETRIEVAL_DOCUMENT task type
             embedding = self.embedding_service.generate_embedding(
@@ -110,8 +128,7 @@ class QdrantIndexingService:
             logger.info(f"[Qdrant] Indexing branch: {branch.name} (ID: {branch.id})")
 
             # Generate text for embedding
-            tipos_str = ", ".join(branch.tipos or [])
-            embedding_text = f"{branch.name}. Tipos: {tipos_str}. {branch.address or ''}"
+            embedding_text = branch_embedding_text(branch)
 
             # Generate embedding
             embedding = self.embedding_service.generate_embedding(
@@ -158,7 +175,7 @@ class QdrantIndexingService:
             logger.info(f"[Qdrant] Indexing business: {business.name} (ID: {business.id})")
 
             # Generate text for embedding
-            embedding_text = f"{business.name}. {business.description or ''}"
+            embedding_text = business_embedding_text(business)
 
             # Generate embedding
             embedding = self.embedding_service.generate_embedding(
