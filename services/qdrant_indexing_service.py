@@ -4,7 +4,7 @@ import uuid
 from typing import Optional, List
 from qdrant_client.models import PointStruct
 
-from clients import get_qdrant_client
+from clients import delete_by_mongo_id, get_qdrant_client
 from services.embeddings.gemini_service import GeminiEmbeddingService
 from services.qdrant_payloads import (
     branch_embedding_text,
@@ -205,33 +205,16 @@ class QdrantIndexingService:
             return False
 
     async def delete_product(self, product_id: str) -> bool:
-        """
-        Delete a product from Qdrant by mongo_id.
+        """Delete a product from Qdrant by mongo_id (all matching points)."""
+        return await delete_by_mongo_id("products", str(product_id))
 
-        Args:
-            product_id: MongoDB product ID
+    async def delete_branch(self, branch_id: str) -> bool:
+        """Delete a branch from Qdrant by mongo_id (all matching points)."""
+        return await delete_by_mongo_id("branches", str(branch_id))
 
-        Returns:
-            bool: True if deleted successfully, False otherwise
-        """
-        qdrant_client = self._get_qdrant_client()
-        if not qdrant_client:
-            return False
-
-        try:
-            logger.info(f"[Qdrant] Deleting product with mongo_id: {product_id}")
-
-            # Search for points with this mongo_id
-            # Note: This requires scrolling through points or using a filter
-            # For simplicity, we'll skip deletion or implement later
-            # Qdrant doesn't support easy deletion by payload field
-
-            logger.warning(f"[Qdrant] Product deletion not fully implemented yet")
-            return False
-
-        except Exception as e:
-            logger.error(f"[Qdrant] ✗ Error deleting product: {e}")
-            return False
+    async def delete_business(self, business_id: str) -> bool:
+        """Delete a business from Qdrant by mongo_id (all matching points)."""
+        return await delete_by_mongo_id("businesses", str(business_id))
 
 
 # Singleton instance

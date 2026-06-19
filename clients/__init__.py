@@ -5,6 +5,7 @@ from clients.qdrant_client import (
     connect_to_qdrant,
     close_qdrant_connection,
     create_collection,
+    delete_by_mongo_id,
     ensure_collections_and_indexes,
     ensure_payload_indexes,
 )
@@ -21,6 +22,7 @@ __all__ = [
     "connect_to_qdrant",
     "close_qdrant_connection",
     "create_collection",
+    "delete_by_mongo_id",
     "ensure_collections_and_indexes",
     "ensure_payload_indexes",
     # Gemini

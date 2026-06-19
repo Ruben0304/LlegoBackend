@@ -203,6 +203,41 @@ async def create_collection(
         raise
 
 
+async def delete_by_mongo_id(collection_name: str, mongo_id: str) -> bool:
+    """Delete every point whose payload.mongo_id matches.
+
+    Uses a filter selector so it removes ALL matching points in one call —
+    robust to duplicates and to legacy points stored under either a raw
+    ObjectId or a uuid5 id. Requires the mongo_id payload index for speed.
+    Never raises (MongoDB stays the source of truth).
+    """
+    try:
+        client = get_qdrant_client()
+    except RuntimeError:
+        return False
+    try:
+        await client.delete(
+            collection_name=collection_name,
+            points_selector=models.FilterSelector(
+                filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="mongo_id",
+                            match=models.MatchValue(value=str(mongo_id)),
+                        )
+                    ]
+                )
+            ),
+        )
+        return True
+    except Exception as e:
+        logger.error(
+            f"Error deleting {collection_name} mongo_id={mongo_id} from Qdrant: "
+            f"{type(e).__name__}: {e}"
+        )
+        return False
+
+
 async def ensure_payload_indexes(collection_name: str) -> None:
     """Create the configured payload indexes for a collection (idempotent)."""
     indexes = PAYLOAD_INDEXES.get(collection_name)
