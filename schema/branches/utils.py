@@ -87,6 +87,8 @@ def branch_to_dict(branch: Branch) -> dict:
             "qrPayments",
             "phones",
             "schedule",
+            # Internal field, not exposed via GraphQL — would break BranchType(**...)
+            "pricePositioningUpdatedAt",
         },
     )
     branch_dict["schedule"] = schedule_to_type(branch.schedule)
