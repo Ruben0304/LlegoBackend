@@ -6,6 +6,11 @@ from qdrant_client.models import PointStruct
 
 from clients import get_qdrant_client
 from services.embeddings.gemini_service import GeminiEmbeddingService
+from services.qdrant_payloads import (
+    branch_payload,
+    business_payload,
+    product_payload,
+)
 from domain.models import Product, Branch, Business
 
 logger = logging.getLogger(__name__)
@@ -66,19 +71,11 @@ class QdrantIndexingService:
                 task_type="RETRIEVAL_DOCUMENT"
             )
 
-            # Create payload with MongoDB ID (flat structure)
-            payload = {
-                "mongo_id": str(product.id),
-                "name": product.name,
-                "price": product.price,
-                "description": product.description or "",
-            }
-
             # Create point (UUID derived from mongo_id — Qdrant requires UUID or int)
             point = PointStruct(
                 id=_mongo_id_to_uuid(str(product.id)),
                 vector=embedding,
-                payload=payload
+                payload=product_payload(product)
             )
 
             # Upsert to Qdrant
@@ -122,18 +119,11 @@ class QdrantIndexingService:
                 task_type="RETRIEVAL_DOCUMENT"
             )
 
-            # Create payload with MongoDB ID (flat structure)
-            payload = {
-                "mongo_id": str(branch.id),
-                "name": branch.name,
-                "tipos": branch.tipos or [],
-            }
-
             # Create point (UUID derived from mongo_id — Qdrant requires UUID or int)
             point = PointStruct(
                 id=_mongo_id_to_uuid(str(branch.id)),
                 vector=embedding,
-                payload=payload
+                payload=branch_payload(branch)
             )
 
             # Upsert to Qdrant
@@ -176,18 +166,11 @@ class QdrantIndexingService:
                 task_type="RETRIEVAL_DOCUMENT"
             )
 
-            # Create payload with MongoDB ID (flat structure)
-            payload = {
-                "mongo_id": str(business.id),
-                "name": business.name,
-                "description": business.description or "",
-            }
-
             # Create point (UUID derived from mongo_id — Qdrant requires UUID or int)
             point = PointStruct(
                 id=_mongo_id_to_uuid(str(business.id)),
                 vector=embedding,
-                payload=payload
+                payload=business_payload(business)
             )
 
             # Upsert to Qdrant

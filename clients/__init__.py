@@ -1,6 +1,13 @@
 """Clients module exports."""
 from clients.mongodb_client import get_database, connect_to_mongo, close_mongo_connection
-from clients.qdrant_client import get_qdrant_client, connect_to_qdrant, close_qdrant_connection, create_collection
+from clients.qdrant_client import (
+    get_qdrant_client,
+    connect_to_qdrant,
+    close_qdrant_connection,
+    create_collection,
+    ensure_collections_and_indexes,
+    ensure_payload_indexes,
+)
 from clients.gemini_client import get_gemini_client, connect_to_gemini, close_gemini_connection
 from clients.lifespan import lifespan
 
@@ -14,6 +21,8 @@ __all__ = [
     "connect_to_qdrant",
     "close_qdrant_connection",
     "create_collection",
+    "ensure_collections_and_indexes",
+    "ensure_payload_indexes",
     # Gemini
     "get_gemini_client",
     "connect_to_gemini",

@@ -3,13 +3,40 @@ import asyncio
 import logging
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.http import models
-from qdrant_client.models import Distance, VectorParams
-from typing import Optional, Dict, Any
+from qdrant_client.models import Distance, PayloadSchemaType, VectorParams
+from typing import Optional, Dict, Any, List, Tuple
 from core.config import settings
 
 logger = logging.getLogger(__name__)
 
 qdrant_client: Optional[AsyncQdrantClient] = None
+
+# Collections expected by the app. Created idempotently on startup.
+EXPECTED_COLLECTIONS: Tuple[str, ...] = ("products", "branches", "businesses", "users")
+
+# Payload indexes per collection: (field_name, schema). Required for fast
+# server-side filtering (by branchId, category, availability, geo, ...) and for
+# the mongo_id lookups the repositories do on every write.
+PAYLOAD_INDEXES: Dict[str, Tuple[Tuple[str, PayloadSchemaType], ...]] = {
+    "products": (
+        ("mongo_id", PayloadSchemaType.KEYWORD),
+        ("branchId", PayloadSchemaType.KEYWORD),
+        ("categoryId", PayloadSchemaType.KEYWORD),
+        ("availability", PayloadSchemaType.BOOL),
+    ),
+    "branches": (
+        ("mongo_id", PayloadSchemaType.KEYWORD),
+        ("businessId", PayloadSchemaType.KEYWORD),
+        ("tipos", PayloadSchemaType.KEYWORD),
+        ("isActive", PayloadSchemaType.BOOL),
+        ("location", PayloadSchemaType.GEO),
+    ),
+    "businesses": (
+        ("mongo_id", PayloadSchemaType.KEYWORD),
+        ("approvalStatus", PayloadSchemaType.KEYWORD),
+        ("isActive", PayloadSchemaType.BOOL),
+    ),
+}
 
 # Max seconds to wait for the startup connection test.
 # Railway cold starts can take 10-15s, so we give enough margin without
@@ -174,3 +201,62 @@ async def create_collection(
 
         # Relanzar la excepción para manejo externo
         raise
+
+
+async def ensure_payload_indexes(collection_name: str) -> None:
+    """Create the configured payload indexes for a collection (idempotent)."""
+    indexes = PAYLOAD_INDEXES.get(collection_name)
+    if not indexes:
+        return
+
+    client = get_qdrant_client()
+    for field_name, schema in indexes:
+        try:
+            await client.create_payload_index(
+                collection_name=collection_name,
+                field_name=field_name,
+                field_schema=schema,
+            )
+        except Exception as e:
+            # Already-exists is expected and harmless; log anything else.
+            msg = str(e).lower()
+            if "already exists" not in msg and "already" not in msg:
+                logger.warning(
+                    f"Could not create payload index {collection_name}.{field_name}: "
+                    f"{type(e).__name__}: {e}"
+                )
+
+
+async def ensure_collections_and_indexes() -> None:
+    """Create expected collections + payload indexes if missing (idempotent).
+
+    Safe to call on every startup: existing collections are left untouched and
+    re-creating an existing payload index is a no-op. Never raises — vector
+    features degrade gracefully if Qdrant is unavailable.
+    """
+    try:
+        client = get_qdrant_client()
+    except RuntimeError:
+        logger.warning("Qdrant unavailable — skipping collection/index bootstrap")
+        return
+
+    try:
+        existing = {c.name for c in (await client.get_collections()).collections}
+    except Exception as e:
+        logger.warning(f"Could not list Qdrant collections: {type(e).__name__}: {e}")
+        return
+
+    for collection_name in EXPECTED_COLLECTIONS:
+        try:
+            if collection_name not in existing:
+                await create_collection(
+                    collection_name=collection_name,
+                    vector_size=settings.embedding_dimension,
+                    distance=Distance.COSINE,
+                )
+            await ensure_payload_indexes(collection_name)
+        except Exception as e:
+            logger.warning(
+                f"Could not bootstrap collection '{collection_name}': "
+                f"{type(e).__name__}: {e}"
+            )

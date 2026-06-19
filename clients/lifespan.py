@@ -6,7 +6,11 @@ from contextlib import asynccontextmanager
 
 from clients.gemini_client import close_gemini_connection, connect_to_gemini
 from clients.mongodb_client import close_mongo_connection, connect_to_mongo
-from clients.qdrant_client import close_qdrant_connection, connect_to_qdrant
+from clients.qdrant_client import (
+    close_qdrant_connection,
+    connect_to_qdrant,
+    ensure_collections_and_indexes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +31,8 @@ async def lifespan(app):
 
     logger.info("Connecting to Qdrant...")
     await connect_to_qdrant()
+    # Create missing collections + payload indexes (idempotent, never fails startup)
+    await ensure_collections_and_indexes()
     logger.info("Qdrant connected")
 
     logger.info("Connecting to Gemini...")

@@ -28,6 +28,11 @@ def _mongo_id_to_uuid(mongo_id: str) -> str:
 from clients import get_database, get_qdrant_client
 from domain.models import Product
 from services.embeddings.gemini_service import GeminiEmbeddingService
+from services.qdrant_payloads import (
+    PRODUCT_PAYLOAD_FIELDS,
+    PRODUCT_TEXT_FIELDS,
+    product_payload,
+)
 from utils.cache import (
     invalidate_product_cache,
 )
@@ -36,9 +41,6 @@ from utils.cache import (
 class ProductRepository:
     mongo_collection_name = "products"
     qdrant_collection_name = "products"
-
-    # RAG fields stored in Qdrant
-    rag_fields = {"name", "price", "description"}
 
     @staticmethod
     def _to_object_id(value: Any) -> Any:
@@ -381,11 +383,18 @@ class ProductRepository:
                 {"_id": self._to_object_id(product_id)}, {"$set": normalized_updates}
             )
 
-            # 2. If RAG fields changed, update Qdrant
-            if self.rag_fields.intersection(normalized_updates.keys()):
+            # 2. Sync Qdrant. Re-embed only when text fields changed; otherwise
+            #    do a cheap payload-only update (keeps availability/category/price
+            #    filterable without burning a Gemini call).
+            changed = set(normalized_updates.keys())
+            if changed & PRODUCT_TEXT_FIELDS:
                 updated_product = await self.get_by_id(product_id)
                 if updated_product:
                     await self._upsert_to_qdrant(updated_product)
+            elif changed & PRODUCT_PAYLOAD_FIELDS:
+                updated_product = await self.get_by_id(product_id)
+                if updated_product:
+                    await self._set_qdrant_payload(updated_product)
 
             # Invalidate cache
             branch_id = normalized_updates.get("branchId", current.branchId)
@@ -442,7 +451,7 @@ class ProductRepository:
     # --- Qdrant Helper Methods ---
 
     async def _upsert_to_qdrant(self, product: Product):
-        """Upsert product to Qdrant with RAG-only payload."""
+        """Upsert product to Qdrant with the enriched payload + fresh embedding."""
         try:
             embedding_service = GeminiEmbeddingService()
             text_to_embed = f"{product.name} {product.description or ''}"
@@ -450,23 +459,15 @@ class ProductRepository:
 
             qdrant_client = get_qdrant_client()
 
-            # First, try to find existing point
+            # First, try to find existing point (reuses legacy point ids if any)
             mongo_id = str(product.id)
             existing = await self._find_qdrant_point(mongo_id)
-
-            # RAG-only payload
-            payload = {
-                "mongo_id": mongo_id,
-                "name": product.name,
-                "price": product.price,
-                "description": product.description,
-            }
 
             point_id = existing.id if existing else _mongo_id_to_uuid(mongo_id)
             point = PointStruct(
                 id=point_id,
                 vector=embedding,
-                payload=payload,
+                payload=product_payload(product),
             )
 
             await qdrant_client.upsert(
@@ -476,6 +477,22 @@ class ProductRepository:
 
         except Exception as e:
             logger.warning(f"Error upserting product to Qdrant: {e}")
+            # Don't raise - MongoDB is the source of truth
+
+    async def _set_qdrant_payload(self, product: Product):
+        """Update only the payload of an existing point (no re-embedding)."""
+        try:
+            qdrant_client = get_qdrant_client()
+            mongo_id = str(product.id)
+            existing = await self._find_qdrant_point(mongo_id)
+            point_id = existing.id if existing else _mongo_id_to_uuid(mongo_id)
+            await qdrant_client.set_payload(
+                collection_name=self.qdrant_collection_name,
+                payload=product_payload(product),
+                points=[point_id],
+            )
+        except Exception as e:
+            print(f"Error setting product payload in Qdrant: {e}")
             # Don't raise - MongoDB is the source of truth
 
     async def _delete_from_qdrant(self, product_id: str):
