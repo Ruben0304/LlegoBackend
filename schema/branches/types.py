@@ -147,6 +147,10 @@ class BranchType:
     forceReverify: bool = False
     code: Optional[str] = None
     isDemoStore: bool = False
+    # Price positioning within its niche (recomputed nightly).
+    priceTier: Optional[str] = None      # "economica" | "promedio" | "cara"
+    priceIndex: Optional[float] = None   # ~1.0 market; >1 pricier, <1 cheaper
+    priceConfidence: Optional[int] = None
     createdAt: datetime
     wallet: WalletBalanceType
     walletStatus: str = "active"
@@ -282,6 +286,10 @@ class NearbyBranchType:
     distance_m: float
     wallet: WalletBalanceType
     walletStatus: str = "active"
+    # Price positioning within its niche (recomputed nightly).
+    priceTier: Optional[str] = None
+    priceIndex: Optional[float] = None
+    priceConfidence: Optional[int] = None
 
     @strawberry.field(description="Public URL for the branch avatar")
     def avatar_url(self) -> Optional[str]:
@@ -415,6 +423,10 @@ class ScoredBranchType:
     distance_m: Optional[float] = None
     wallet: WalletBalanceType
     walletStatus: str = "active"
+    # Price positioning within its niche (recomputed nightly).
+    priceTier: Optional[str] = None
+    priceIndex: Optional[float] = None
+    priceConfidence: Optional[int] = None
 
     @strawberry.field(description="Public URL for the branch avatar")
     def avatar_url(self) -> Optional[str]:

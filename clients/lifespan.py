@@ -115,9 +115,10 @@ async def lifespan(app):
 
     try:
         from services.taste_vector_service import recompute_all_taste_vectors
+        from services.price_positioning_service import compute_price_positioning
 
-        async def run_taste_vector_worker():
-            """Recompute per-user taste vectors daily for "Especialmente para Ti".
+        async def run_recommendation_nightly_worker():
+            """Nightly recommender pass: user taste vectors + store price tiers.
 
             Sleeps a short warmup first so a restart does not trigger a full
             recompute mid cold-start, then runs every 24h.
@@ -131,14 +132,21 @@ async def lifespan(app):
                 except Exception as e:
                     logger.error(f"Error in taste vector worker: {e}", exc_info=True)
 
+                try:
+                    logger.info("Running price positioning worker...")
+                    pstats = await compute_price_positioning()
+                    logger.info(f"Price positioning worker completed: {pstats}")
+                except Exception as e:
+                    logger.error(f"Error in price positioning worker: {e}", exc_info=True)
+
                 await asyncio.sleep(86400)
 
-        logger.info("Starting taste vector worker...")
-        background_tasks.append(asyncio.create_task(run_taste_vector_worker()))
-        logger.info("Taste vector worker task created")
+        logger.info("Starting nightly recommendation worker...")
+        background_tasks.append(asyncio.create_task(run_recommendation_nightly_worker()))
+        logger.info("Nightly recommendation worker task created")
     except Exception as e:
-        logger.error(f"Warning: Could not start taste vector worker: {e}")
-        print(f"Warning: Could not start taste vector worker: {e}")
+        logger.error(f"Warning: Could not start nightly recommendation worker: {e}")
+        print(f"Warning: Could not start nightly recommendation worker: {e}")
 
     # Seed the vehicles catalog (idempotent — skips if records already exist)
     try:

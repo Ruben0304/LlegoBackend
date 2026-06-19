@@ -216,6 +216,14 @@ class Branch(BaseModel):
     # Demo mode: marks this branch as the App Store review demo store
     isDemoStore: bool = False
 
+    # Price positioning within its niche (recomputed by a nightly job).
+    # priceTier: "economica" | "promedio" | "cara" (None = not enough data yet).
+    # priceIndex: ~1.0 = market price; >1 pricier, <1 cheaper than similar products.
+    priceTier: Optional[str] = None
+    priceIndex: Optional[float] = None
+    priceConfidence: Optional[int] = None  # how many products backed the verdict
+    pricePositioningUpdatedAt: Optional[datetime] = None
+
     createdAt: datetime
 
     class Config:

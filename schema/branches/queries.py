@@ -73,6 +73,9 @@ def _to_scored_branch_data(branch_data: dict) -> dict:
         "createdAt",
         "wallet",
         "walletStatus",
+        "priceTier",
+        "priceIndex",
+        "priceConfidence",
     }
     return {key: value for key, value in branch_data.items() if key in allowed_fields}
 
