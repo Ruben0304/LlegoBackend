@@ -2,6 +2,156 @@
 
 ---
 
+## 📅 19 de Junio, 2026
+
+### Resumen de cambios (últimas 24h)
+
+**10 commits** de Ruben0304 y brianmojena — día de máxima actividad en la capa Qdrant: (1) infraestructura completa de payloads enriquecidos e índices server-side; (2) mejoras de calidad en recomendaciones (BEST_SCORE, embedding con contexto semántico, borrado robusto por `mongo_id`, diversidad MMR-lite); (3) vector de gusto por usuario precalculado con job nocturno; (4) clasificación de tiendas por posición de precio (económica/promedio/cara); y (5) fix crítico de `deliveredOrdersCount` que se reseteaba a 0 al editar el teléfono del repartidor.
+
+---
+
+### Área 1: Qdrant — payloads enriquecidos + payload indexes + sync consistente (1 commit — Ruben0304, 16:59)
+
+- **`feat(qdrant): enriquecer payloads + payload indexes + sync consistente (#1)`** — `qdrant_payloads.py` como única fuente de verdad. Payload enriquecido: productos (+`branchId`, `categoryId`, `currency`, `availability`), branches (+`businessId`, `isActive`, `deliveryRadius`, `location` geo), businesses (+`globalRating`, `approvalStatus`, `isActive`, `tags`). `ensure_collections_and_indexes()` idempotente en lifespan. `update()` en repos: re-embebe solo si cambian campos de texto; si cambian campos de payload hace `set_payload` (sin gastar Gemini). Script `reindex_qdrant_payloads.py` para backfill sin re-embeber. Fix: `reindex_businesses_qdrant.py` usaba `id=mongo_id` crudo → ahora uuid5 consistente (causa raíz de duplicados anteriores).
+
+---
+
+### Área 2: Calidad de recomendaciones (4 commits — Ruben0304, 17:01–17:09)
+
+- **`feat(qdrant): usar estrategia BEST_SCORE en recommend (#2)`** — `BEST_SCORE` puntúa cada candidato por su máxima similitud a CUALQUIER positivo (vs centroide promediado). Respeta gustos diversos (usuario que consume sushi Y pasteles). Aplicado en "Especialmente para Ti", `getSimilarProducts`, `getSimilarBranches`, `getBranchesForProduct`.
+- **`feat(qdrant): enriquecer el texto del embedding (#3)`** — Productos: +"Categoría: <nombre>" (resuelve `categoryId → nombre`). Branches: +dirección. Negocios: +"Tags: ...". `categoryId` y `tags` pasan a `TEXT_FIELDS`: un cambio dispara re-embedding, no solo `set_payload`. Para datos existentes: scripts de reindex dedicados.
+- **`feat(qdrant): borrado robusto por filtro de mongo_id (#4)`** — `clients.delete_by_mongo_id()`: borra TODOS los puntos con ese `mongo_id` en una sola llamada (`FilterSelector`). Robusto ante duplicados y puntos con id crudo o uuid5. `qdrant_indexing_service`: `delete_product`, `delete_branch`, `delete_business` ahora reales (antes eran stubs "no implementado").
+- **`feat(qdrant): re-ranking por diversidad (MMR-lite) en "Especialmente para Ti" (#5)`** — `recommendation_diversity.py` penaliza claves repetidas (`branchId`/`categoryId`) en un greedy: la relevancia sigue mandando pero los repetidos bajan, intercalando tiendas y categorías. Solo aplicado al feed personalizado; `getSimilarProducts` se deja como similitud pura.
+
+---
+
+### Área 3: Vector de gusto por usuario + job nocturno (1 commit — Ruben0304, 17:14)
+
+- **`feat(qdrant): vector de gusto por usuario + job nocturno (#6)`** — `taste_vector_service.py`: promedio ponderado y decaído de embeddings de productos con que el usuario interactuó (clicks/favoritos/carrito/órdenes con half-life). Vectores RECUPERADOS de Qdrant (cero llamadas Gemini). Guardado en colección `users`. Feed: "Especialmente para Ti" usa el vector de gusto si existe (1 query), con fallback al recommend en vivo para usuarios nuevos sin historial. Worker nocturno (cada 24h, con warmup) en lifespan. Script `recompute_taste_vectors.py` on-demand.
+
+---
+
+### Área 4: Robustez de backfill (1 commit — Ruben0304, 17:42)
+
+- **`fix(qdrant): backfill robusto ante docs inválidos + reindex businesses con Gemini`** — `qdrant_payloads`: builders tolerantes a objeto-o-dict (`_get/_entity_id`). Productos sin `weight/image` en prod se backfillean leyendo docs crudos de Mongo sin `Product(**doc)`. `reindex_qdrant_payloads`: lee documentos crudos por colección. `reindex_businesses_qdrant`: añadido `connect_to_gemini()` (crasheaba sin él) + `sys.path` para ejecución directa.
+
+---
+
+### Área 5: Posicionamiento de precios por tienda (2 commits — Ruben0304, 18:11 y 18:30)
+
+- **`feat(qdrant): posicionamiento de precios por tienda (económica/promedio/cara)`** — `price_positioning_service.py`: `precio_relativo = precio / mediana(precios de similares en misma categoría, otra tienda)`, normalizado a USD vía `exchangeRate`. Índice de tienda = mediana de relativos. Umbrales: ≥1.10 cara, ≤0.90 económica, resto promedio. Muestra mínima: ≥3 vecinos por producto, ≥3 productos por tienda. Campos nuevos en Branch/`BranchType`/`NearbyBranchType`/`ScoredBranchType`: `priceTier`, `priceIndex`, `priceConfidence`. Worker nocturno junto al de vectores de gusto. Script on-demand.
+- **`fix(branches): excluir pricePositioningUpdatedAt de branch_to_dict`** — `pricePositioningUpdatedAt` fue añadido al modelo Branch pero no a `BranchType`. `branch_to_dict` lo volcaba → `BranchType(**branch_to_dict(branch))` reventaba con "unexpected keyword argument" al entrar a cualquier tienda. Se excluye del dict; `priceTier`/`priceIndex`/`priceConfidence` siguen expuestos.
+
+---
+
+### Área 6: Fix de repartidores (1 commit — brianmojena, 06:48)
+
+- **`Fix updateUser mutation missing deliveredOrdersCount in response`** — `update_user`, `add_branch_to_user`, `remove_branch_from_user` construían `UserType` manualmente omitiendo `deliveredOrdersCount`. Al actualizar el teléfono, el contador de entregas del repartidor se reseteaba a 0 en su perfil. Fix: `_user_to_type()` helper centraliza la construcción con el campo incluido.
+
+---
+
+### Puede dar bateo
+
+1. **Dos workers nocturnos simultáneos — contención en Qdrant**: Lifespan lanza el worker de vectores de gusto Y el de posicionamiento de precios. Ambos hacen queries intensivas a Qdrant. Confirmar que el tier contratado de Qdrant aguanta la carga combinada sin rate limiting ni timeouts cruzados.
+
+2. **`priceConfidence` no verificado antes de usar `priceTier`**: Tiendas nuevas o con catálogos pequeños (<3 productos elegibles por categoría) no obtienen clasificación (`priceTier=null`). Si el frontend/app mobile muestra el badge de precio sin verificar `priceConfidence > 0`, mostrará valores nulos o el valor por defecto incorrecto.
+
+3. **MMR-lite penaliza tiendas mono-categoría**: Una tienda especializada (solo carnes, solo tecnología) tiene todos sus productos con el mismo `categoryId`. La penalización de diversidad los bajará sistemáticamente en el ranking personalizado aunque el usuario tenga historial claro con esa categoría.
+
+4. **Colección `users` en Qdrant — existencia no garantizada**: Si `ensure_collections_and_indexes()` no crea la colección `users`, el worker de gusto fallará silenciosamente al hacer upsert. Confirmar que la colección se inicializa en el lifespan antes de que el worker arranque.
+
+5. **`exchangeRate` cero o ausente en posicionamiento de precios**: Si un producto tiene `exchangeRate=0` o el campo falta, la normalización a USD resultará en división por cero o `inf/nan`. Confirmar guard explícito en `price_positioning_service.py` antes de normalizar.
+
+6. **`_user_to_type()` — potencial N+1 en contexto de lista**: Si el helper hace una query adicional para `deliveredOrdersCount` y se llama en un resolver que devuelve lista de usuarios, cada usuario genera una query extra. Confirmar que usa el documento ya cargado sin round-trip adicional.
+
+7. **Re-embedding por `TEXT_FIELDS` — costo Gemini en edición masiva de categorías**: Si se cambia la categoría de muchos productos a la vez (ej. renombrar una categoría), se dispara re-embedding vía Gemini por cada uno. Confirmar throttling o cap de llamadas para evitar costo descontrolado.
+
+8. **`reindex_businesses_qdrant` ahora re-embebe al ejecutarse**: Con el fix de `connect_to_gemini()`, el script re-embebe todos los negocios. Confirmar que no se dispara involuntariamente en CI, scripts de migración o arranques de dev, generando costo Gemini innecesario.
+
+9. **Backfill con docs crudos — tipos no validados silenciosamente**: Si un doc tiene un campo con tipo incorrecto (ej. `branchId` como string en vez de ObjectId), el payload se construye con tipo incorrecto y los filtros de Qdrant por ese campo no funcionarán hasta corregir el doc.
+
+10. **`delete_by_mongo_id` depende del payload index de `mongo_id`**: Sin el index (que crea `ensure_collections_and_indexes()`), la operación hace full scan en Qdrant. Confirmar que el lifespan siempre crea los indexes antes de que cualquier código de borrado sea invocado.
+
+---
+
+#### Seguimientos vigentes
+
+- **Workers nocturnos coexistiendo — contención Qdrant (Jun 19)**.
+- **`priceConfidence` antes de usar `priceTier` en frontend (Jun 19)**.
+- **MMR-lite penaliza tiendas mono-categoría (Jun 19)**.
+- **Colección `users` en Qdrant para vectores de gusto (Jun 19)**.
+- **`exchangeRate` cero/ausente en posicionamiento de precios (Jun 19)**.
+- **`_user_to_type()` potencial N+1 en lista de usuarios (Jun 19)**.
+- **Re-embedding masivo por `TEXT_FIELDS` — costo Gemini (Jun 19)**.
+- **`reindex_businesses_qdrant` puede dispararse involuntariamente (Jun 19)**.
+- **Backfill con docs crudos — tipos incorrectos silenciosos (Jun 19)**.
+- **`delete_by_mongo_id` requiere payload index de `mongo_id` (Jun 19)**.
+- **`acceptingOrders` — retrocompatibilidad con documentos sin el campo**.
+- **`dailyOverride.date` sin timezone explícita — desfase UTC vs Cuba**.
+- **`setBranchDailyOverride` — sin validación de rango de horas confirmada**.
+- **Threshold 0.60 → 0.45 — aumento de ruido en resultados de búsqueda**.
+- **`getBranchesForProduct` — doble query Qdrant + MongoDB con top-50**.
+- **`getSimilarProducts/Branches` — UUID no encontrado en Qdrant**.
+- **`Especialmente para Ti` — vector promedio sin normalización explícita**.
+- **Ads auth migrado a `require_role` para managers**.
+- **`check_compatibility=False` en qdrant-client**.
+- **Merge manual de conflictos (Jun 16) — verificar integridad**.
+- **Índices en colecciones existentes — confirmar background build**.
+- **`asyncio.to_thread` — pool de threads por defecto agotado bajo alta concurrencia**.
+- **`get_by_ids()` en repositorios de vector search — confirmar existencia**.
+- **GZip umbral 200 bytes — exclusión de binarios y presigned URLs**.
+- **`minPoolSize` en Atlas tier bajo con escalado horizontal**.
+- **Credenciales demo hardcodeadas**: `demo@llego.app / LlegoDemo2025!`.
+- **Bypass de Stripe activo en producción con `isDemoStore`**.
+- **Timers de `asyncio.sleep` sin cancelación en órdenes demo**.
+- **`seed_demo_store.py` sin idempotencia**.
+- **`isDemoStore` no debe aparecer en feed público**.
+- **Timezone UTC en "Hora del Día" — desfase 5h para Cuba**.
+- **Ranking sin coordenadas — confirmar fallback sin 500**.
+- **"Pide de Nuevo" con token expirado — feed no debe romper**.
+- **Performance ranking multi-factor — índice en `(user_id, created_at)`**.
+- **`discounted_service_fee_rate` sin validación de rango**.
+- **Signed URLs de S3 para videos promotores sin renovación**.
+- **Race condition del descuento por video**.
+- **Videos/thumbnails huérfanos en S3 en error parcial**.
+- **Worker de borrado de cuentas — sin recuperación tras reinicios**.
+- **`scheduledDeletionAt` — campo nuevo en documentos existentes**.
+- **URL prefirmada de APK — TTL del cache vs TTL de la firma**.
+- **ADS — `ad_pricing` sin datos iniciales en producción**.
+- **ADS — `approved` desacoplado del pago sin verificación**.
+- **Cache TTL en proceso — inconsistencia en deploys multi-instancia**.
+- **`chore` auth/rate-limit/admin-payouts sin auditoría detallada**.
+- **`apiRequest success:false` — monitorear regresiones post-deploy (SunCarWeb)**.
+- **`showContableFields` en MaterialForm (SunCarWeb)**.
+- **`costo` y `material_id` en tipo `Material` (SunCarWeb)**.
+- **Wallet historial por miembro — filtros params (SunCarWeb)**.
+- **Excel Fichas de Costo sin cota de registros (SunCarWeb)**.
+- **Permiso `gestionar_banco_global` — validación en backend**.
+- **`aumento_porcentaje` y `aumento_tipo` en ofertas (SunCarWeb)**.
+- **Tasa de cambio EUR vs CUP — confirmar convención en backend**.
+- **Endpoints de paginación `GET /cobros-paginado` y `/personalizadas/pendientes-paginado`**.
+- **Rollback de pago — confirmar reversión de saldo de billetera**.
+- **`recibido_por_ci` en pagos — auto-acreditación de billetera**.
+- **Endpoints wallet: ensure, pending-transfers, accept, reject, delete**.
+- **`averia_id` en trabajos diarios — confirmar aceptación en POST/PATCH**.
+- **Campos SunCarWeb → backend pendientes: `motivo`, `nota`, `foto`, `ficha_tecnica_url`, `oferta_venta_id`, `descuento_free`**.
+- **Campos cambio real SunCarWeb: `cambio_real_monto`, `cambio_real_moneda`, `cambio_real_tasa`**.
+- **Endpoint lazy load obras terminadas: `GET /obras-terminadas/oferta/{id}/facturas-cliente`**.
+- **Endpoints notificaciones SunCarWeb: `GET /mis-notificaciones`**.
+- **`GET /inventario/stock-historico` — confirmar existencia y params**.
+- **Agregados solicitudes-ventas — campos de totales en endpoints**.
+- **`stock_disponible_actual` — consistencia entre endpoints**.
+- **`'zelle'` como método de pago — soporte en backend (SunCarWeb)**.
+- **Tasas MLC/CUP sin persistencia entre sesiones (SunCarWeb)**.
+- **`PonderarCostoResponse` campos nuevos (SunCarWeb)**.
+- **`GET /api/kardex-costo/costo-actual` — confirmar params (SunCarWeb)**.
+- **Filtros de vales de salida — `fecha_desde`, `fecha_hasta`, creador (SunCarWeb)**.
+- **Badges de disponibilidad por pool — snapshot estático (SunCarWeb)**.
+- **`window.history.pushState` + Next.js App Router desync (SunCarWeb)**.
+- **`POST /solicitudes-transferencia/{id}/resolver` — endpoint pendiente (SunCarWeb)**.
+
+---
+
 ## 📅 18 de Junio, 2026
 
 ### Resumen de cambios (últimas 24h)
@@ -59,131 +209,37 @@ Sin cambios nuevos — sin riesgos nuevos.
 ### Área 3: Panel de pruebas admin (2 commits — Ruben0304)
 
 - **`feat(admin): panel nativo de pruebas de experiencia de cliente`** (16:56) — Endpoints `/admin/tests/suites` y `/admin/tests/run`, protegidos por JWT con `role=admin`. 9 suites (Qdrant, feed scoring, feed performance, combos, push notifications) ejecutables desde la app Llego BI en iOS.
-- **`feat(admin/tests): soporte node_ids + categorías agrupadas`** (17:07) — `RunRequest` acepta `suite_id` o `node_ids` para ejecutar tests individuales. `/admin/tests/suites` devuelve categorías (Qdrant, Feed, Combos, Push) con suites embebidas para construir UI jerárquica en iOS. `_NODE_META` centraliza labels/impact por node ID.
+- **`feat(admin/tests): soporte node_ids + categorías agrupadas`** (17:07) — `RunRequest` acepta `suite_id` o `node_ids` para ejecutar tests individuales. `/admin/tests/suites` devuelve categorías con suites embebidas para UI jerárquica en iOS. `_NODE_META` centraliza labels/impact por node ID.
 
 ---
 
 ### Área 4: MongoDB indexes + limpieza de logging (3 commits — Ruben0304/Fabian1820)
 
-- **`perf: add missing MongoDB indexes and clean up verbose logging`** (18:01 — Ruben0304) — `_create_order_indexes()`: índices en orders por `(branchId+status+date)`, `(businessId+date)`, `(status+deadline)` y compound de reparto; también en `delivery_persons` y `order_location_updates`. `_create_branch_indexes()`: `businessId` y `(businessId+isActive)` en branches (faltaban, causando collection scans en cada carga de la app de negocios). Reemplaza `print()` de nivel info en hot paths de `branch_repository` y `product_repository` con `logger.error`/`logger.warning`.
-- **`Merge remote branch: resolve conflicts, add order/branch/search indexes, clean up logging`** (18:05 — Fabian1820) — Merge manual que preserva `maxPoolSize=150` y `_create_search_perf_indexes()` del branch remoto junto con los nuevos índices de orden y branch.
+- **`perf: add missing MongoDB indexes and clean up verbose logging`** (18:01) — `_create_order_indexes()`: índices compound en orders. `_create_branch_indexes()`: `businessId` y `(businessId+isActive)` en branches. Reemplaza `print()` de nivel info en hot paths con `logger.error`/`logger.warning`.
+- **`Merge remote branch: resolve conflicts`** (18:05) — Merge manual que preserva `maxPoolSize=150` y `_create_search_perf_indexes()` del branch remoto.
 
 ---
 
 ### Área 5: Threshold de búsqueda y control de pedidos en branches (2 commits)
 
-- **`fix(search): bajar threshold de productos de 0.60 a 0.45`** (17:45 — Ruben0304) — Captura más resultados de búsqueda vectorial a expensas de menor precisión media.
-- **`feat(branches): pausar pedidos + horario excepcional por día`** (21:32 — Fabian1820) — Nuevo campo `acceptingOrders: bool=True` en domain `Branch`, `BranchType` y `UpdateBranchInput`. Mutation `setAcceptingOrders(branchId, accepting)` para toggle rápido. `create_order` valida `acceptingOrders==True` y lanza `BRANCH_NOT_ACCEPTING_ORDERS`. `TemporaryStatus` extendido con `dailyOverride` (campos opcionales: `date YYYY-MM-DD`, `openTime`, `closeTime`). Mutations `setBranchDailyOverride` y `clearBranchDailyOverride`.
+- **`fix(search): bajar threshold de productos de 0.60 a 0.45`** (17:45) — Captura más resultados de búsqueda vectorial a expensas de menor precisión media.
+- **`feat(branches): pausar pedidos + horario excepcional por día`** (21:32) — `acceptingOrders: bool=True` en Branch. Mutation `setAcceptingOrders`. `create_order` valida `acceptingOrders==True`. `TemporaryStatus` extendido con `dailyOverride`. Mutations `setBranchDailyOverride` y `clearBranchDailyOverride`.
 
 ---
 
 ### Puede dar bateo
 
-1. **`acceptingOrders` — retrocompatibilidad con documentos sin el campo en MongoDB**: `branch_to_dict` hace default a `True`, pero si alguna query filtra directamente en MongoDB por `acceptingOrders == True`, los branches creados antes de este commit (sin el campo) quedarán excluidos y parecerán cerrados sin serlo.
-
-2. **`dailyOverride.date` sin timezone explícita**: La convención exige ignorar el override si `date != hoy`, pero `date` es string `YYYY-MM-DD` sin TZ. Backend en UTC y clientes en Cuba (UTC-5) pueden tener "hoy" diferente justo a medianoche local.
-
-3. **`setBranchDailyOverride` — sin validación de rango de horas confirmada**: Si `openTime > closeTime`, el horario resultante es inválido. Confirmar que la mutation valida la coherencia del intervalo.
-
-4. **Threshold 0.60 → 0.45 — aumento de ruido en resultados de búsqueda**: Más resultados pero potencialmente menos relevantes. Monitorear si usuarios reportan irrelevancia o si el CTR de búsqueda baja.
-
-5. **`getBranchesForProduct` — doble query Qdrant + MongoDB con top-50**: Recomendar top-50 productos en Qdrant y luego agrupar por `branchId` en MongoDB puede ser lento con catálogos grandes. Confirmar timeout adecuado e índice en `branchId` en la colección de productos.
-
-6. **`getSimilarProducts/Branches` — UUID no encontrado en Qdrant**: Si el UUID del producto/branch no existe en Qdrant (producto creado antes de la integración vectorial), el endpoint puede lanzar error o devolver vacío. Confirmar degradación elegante.
-
-7. **`Especialmente para Ti` — vector promedio sin normalización explícita**: Promediar vectores de favoritos/carrito sin re-normalizar puede sesgar los resultados si los embeddings de Gemini no son vectores unitarios. El centroide puede apuntar a un espacio denso incorrecto.
-
-8. **Ads auth migrado de `admin_api_key` a `require_role`**: Managers ahora pueden aprobar/rechazar campañas. Confirmar que el flujo de negocio permite esta moderación y que el role `manager` está correctamente asignado en los JWTs emitidos.
-
-9. **`check_compatibility=False` en qdrant-client**: Desactiva la verificación de versión cliente-servidor. Si hay incompatibilidad real en futuras actualizaciones, los errores serán menos descriptivos.
-
-10. **Merge manual de conflictos (18:05)**: Confirmar que el merge no perdió cambios del branch remoto, especialmente `maxPoolSize=150` y `_create_search_perf_indexes()`.
-
-11. **`_create_order_indexes()` y `_create_branch_indexes()` en colecciones con datos existentes**: Crear índices en colecciones con muchos documentos puede bloquear escrituras. Confirmar que se usó opción de construcción en background en el tier de Atlas.
-
----
-
-#### Seguimientos vigentes
-
-- **`asyncio.to_thread` — pool de threads por defecto (Jun 15)**: Confirmar capacidad del executor bajo picos de búsquedas concurrentes. Considerar `ThreadPoolExecutor` explícito.
-- **`get_by_ids()` en repositorios de vector search (Jun 15)**: Si falta en algún repositorio, el resolver rompe con `AttributeError` sin degradación elegante.
-- **GZip umbral 200 bytes — exclusión de binarios y presigned URLs (Jun 15)**: Confirmar que el middleware excluye `application/octet-stream` y redirects 302 de S3.
-- **`minPoolSize` en Atlas tier bajo con escalado horizontal (Jun 15)**: Confirmar `minPoolSize` 0 o cercano a 0 para evitar agotar el pool en despliegues multi-instancia.
-- **`apiRequest success:false` — monitorear regresiones post-deploy (SunCarWeb)**.
-- **`showContableFields` en MaterialForm (SunCarWeb)**.
-- **`costo` y `material_id` en tipo `Material` (SunCarWeb)**.
-- **Wallet historial por miembro — filtros params (SunCarWeb)**.
-- **Excel Fichas de Costo sin cota de registros (SunCarWeb)**.
-- **Credenciales demo hardcodeadas**: `demo@llego.app / LlegoDemo2025!` en el código fuente.
-- **Bypass de Stripe activo en producción**: Si `isDemoStore` se activa por error, órdenes reales quedan marcadas como pagadas sin cobro.
-- **Timers de `asyncio.sleep` sin cancelación**: Tareas de auto-progreso de órdenes demo acumulándose bajo carga.
-- **`seed_demo_store.py` sin idempotencia**: Ejecutarlo de nuevo crea duplicados en producción.
-- **`isDemoStore` no debe aparecer en feed público**.
-- **Timezone UTC en "Hora del Día"**: Usuarios en Cuba (UTC-5) ven el tramo desfasado 5h.
-- **Ranking sin coordenadas**: Si lat/lng es `null`, verificar que el fallback no genere 500 en el feed.
-- **"Pide de Nuevo" con token expirado**: El feed completo no debe romper; la sección debe retornar array vacío.
-- **Performance ranking multi-factor**: Verificar índice en `(user_id, created_at)` en la tabla de órdenes.
-- **`aumento_porcentaje` y `aumento_tipo` en ofertas**: Confirmar que el endpoint persiste estos campos por material.
-- **Tasa de cambio EUR vs CUP**: EUR multiplica, CUP divide. Confirmar convención en backend.
-- **Endpoints de paginación**: `GET /cobros-paginado` y `GET /personalizadas/pendientes-paginado`.
-- **Rollback de pago**: Confirmar que eliminar un pago revierte correctamente el saldo de billetera.
-- **`recibido_por_ci` en pagos**: Confirmar auto-acreditación de billetera del trabajador correspondiente.
-- **Endpoints wallet**: `POST /wallet/wallets/ensure`, `POST /wallet/pending-transfers`, `PUT .../accept`, `PUT .../reject`, `DELETE .../`.
-- **RRHH — nombre y teléfono editables**: Confirmar que el endpoint de actualización persiste ambos campos.
-- **`available_orders_for_delivery`**: Verificar diferenciación entre entrega activa y pins adicionales.
-- **`averia_id` en trabajos diarios**: Confirmar que el backend acepta este campo en POST/PATCH y lo indexa.
-- **Permiso `gestionar_banco_global`**: Si el backend no valida este permiso, el control de acceso de banco/wallet queda roto.
-- **Campos SunCarWeb → backend pendientes**: `motivo` y `nota` en asignaciones; `foto` y `ficha_tecnica_url` en materiales; `oferta_venta_id`, `descuento_free`, `motivo_descuento_free`, `precio` en solicitudes desde oferta.
-- **Campos de cambio real (SunCarWeb)**: `cambio_real_monto`, `cambio_real_moneda`, `cambio_real_tasa` en `/pagos-ventas/`.
-- **Endpoint lazy load obras terminadas (SunCarWeb)**: `GET /obras-terminadas/oferta/{id}/facturas-cliente`.
-- **Endpoints de notificaciones SunCarWeb**: `GET /mis-notificaciones` con `{ success, data, total }`, filtro bulk por tipo.
-- **`GET /inventario/stock-historico`**: Confirmar que existe y acepta params.
-- **Agregados solicitudes-ventas**: Confirmar `total_cobrado`, `total_pendiente`, `total_sin_descuento`, `total_con_aumento`, `aumento_monto` en endpoints.
-- **`updateSolicitudTransferencia` — validación de estado en backend**.
-- **Búsqueda por `numero_serie` (SunCarWeb)**.
-- **`stock_disponible_actual` — consistencia entre endpoints**.
-- **Excel export de facturas sin cota de registros (SunCarWeb)**.
-- **`'zelle'` como método de pago — soporte en backend (SunCarWeb)**.
-- **Sort client-side de solicitudes pendientes en ValesSalida (SunCarWeb)**.
-- **Parsing UTC→local en otras tablas (SunCarWeb)**.
-- **Tasas MLC/CUP sin persistencia entre sesiones (SunCarWeb)**.
-- **`PonderarCostoResponse` campos nuevos (SunCarWeb)**.
-- **`GET /api/kardex-costo/costo-actual` (SunCarWeb)**.
-- **`materiales` en respuesta de facturas de solicitudes-ventas (SunCarWeb)**.
-- **Filtros de vales de salida — `fecha_desde`, `fecha_hasta`, creador (SunCarWeb)**.
-- **`discounted_service_fee_rate` sin validación de rango**.
-- **Signed URLs de S3 para videos promotores sin renovación**.
-- **Race condition del descuento por video**.
-- **Videos/thumbnails huérfanos en S3 en error parcial**.
-- **`almacenes-suncar/admin` — gating solo en frontend (SunCarWeb)**.
-- **Estados de transferencia no mapeados en `ESTADO_CONFIG` (SunCarWeb)**.
-- **Campos de dimensionamiento en calculadora sin persistencia confirmada (SunCarWeb)**.
-- **Badges de disponibilidad por pool — snapshot estático (SunCarWeb)**.
-- **Endpoint cumpleaños de la semana (SunCarWeb)**.
-- **Endpoint contador de instalaciones solares (SunCarWeb)**.
-- **Widget de paneles — estado único vs respuesta del backend (SunCarWeb)**.
-- **`window.history.pushState` + Next.js App Router desync (SunCarWeb)**.
-- **Export Excel merge vertical — heterogeneidad de materiales (SunCarWeb)**.
-- **Rebrand paleta — componentes con clases hardcoded (SunCarWeb)**.
-- **`POST /solicitudes-transferencia/{id}/resolver` — endpoint pendiente (SunCarWeb)**.
-- **Worker de borrado de cuentas — sin recuperación tras reinicios**.
-- **`scheduledDeletionAt` — campo nuevo en documentos existentes**.
-- **URL prefirmada de APK — TTL del cache vs TTL de la firma**.
-- **ADS — `ad_pricing` sin datos iniciales en producción**.
-- **ADS — `approved` desacoplado del pago sin verificación**.
-- **Cache TTL en proceso — inconsistencia en deploys multi-instancia**.
-- **`chore` auth/rate-limit/admin-payouts sin auditoría detallada**.
-- **`acceptingOrders` — retrocompatibilidad con documentos sin el campo**.
-- **`dailyOverride.date` sin timezone explícita**.
-- **`setBranchDailyOverride` — sin validación de rango de horas**.
-- **Threshold 0.60 → 0.45 — aumento de ruido en búsqueda**.
-- **`getBranchesForProduct` — doble query Qdrant + MongoDB**.
-- **`getSimilarProducts/Branches` — UUID no encontrado en Qdrant**.
-- **`Especialmente para Ti` — vector promedio sin normalización**.
-- **Ads auth migrado a `require_role` para managers**.
-- **`check_compatibility=False` en qdrant-client**.
-- **Merge manual de conflictos — verificar integridad**.
-- **Índices en colecciones existentes — confirmar background build**.
+1. **`acceptingOrders` — retrocompatibilidad con documentos sin el campo en MongoDB**: `branch_to_dict` hace default a `True`, pero si alguna query filtra directamente en MongoDB por `acceptingOrders == True`, los branches creados antes de este commit quedarán excluidos.
+2. **`dailyOverride.date` sin timezone explícita**: Backend en UTC y clientes en Cuba (UTC-5) pueden tener "hoy" diferente justo a medianoche local.
+3. **`setBranchDailyOverride` — sin validación de rango de horas**: Si `openTime > closeTime`, el horario resultante es inválido.
+4. **Threshold 0.60 → 0.45 — aumento de ruido en resultados de búsqueda**.
+5. **`getBranchesForProduct` — doble query Qdrant + MongoDB con top-50**.
+6. **`getSimilarProducts/Branches` — UUID no encontrado en Qdrant**.
+7. **`Especialmente para Ti` — vector promedio sin normalización explícita**.
+8. **Ads auth migrado de `admin_api_key` a `require_role`**: Confirmar que el role `manager` está correctamente asignado en los JWTs.
+9. **`check_compatibility=False` en qdrant-client**: Desactiva la verificación de versión cliente-servidor.
+10. **Merge manual de conflictos (18:05)**: Confirmar que el merge no perdió `maxPoolSize=150` y `_create_search_perf_indexes()`.
+11. **Índices en colecciones existentes — confirmar background build en Atlas**.
 
 ---
 
@@ -191,106 +247,23 @@ Sin cambios nuevos — sin riesgos nuevos.
 
 ### Resumen de cambios (últimas 24h)
 
-**1 commit funcional** de Claude (session) — optimizaciones de performance para conexiones lentas y escala: event loop desbloqueado en búsquedas (Gemini en thread vía `asyncio.to_thread`), N+1 eliminado en resolvers de vector search (batch `get_by_ids()`), pool y timeouts de MongoDB configurados, cuatro índices de performance añadidos y umbral GZip bajado de 500 a 200 bytes.
+**1 commit funcional** de Claude — optimizaciones de performance: event loop desbloqueado en búsquedas (Gemini en thread vía `asyncio.to_thread`), N+1 eliminado en resolvers de vector search (batch `get_by_ids()`), pool y timeouts de MongoDB configurados, cuatro índices de performance añadidos y umbral GZip bajado de 500 a 200 bytes.
 
 ---
 
 ### Área 1: Performance de búsqueda y acceso a base de datos (1 commit — Claude, Jun 14 15:00)
 
-- **`perf: optimize search path and DB access for slow connections and scale`** — Cinco optimizaciones simultáneas:
-  - **Event loop desbloqueado**: la llamada síncrona a Gemini para embeddings ahora corre en thread separado vía `asyncio.to_thread` en `vector_search_service` y repositorios de productos/branches/negocios. Las búsquedas concurrentes dejan de serializarse.
-  - **N+1 eliminado en vector search**: reemplaza loop de `get_by_id()` individual por `get_by_ids()` batch (hasta 200 hits de Qdrant en una sola query MongoDB).
-  - **Pool y timeouts de MongoDB configurados**: `maxPoolSize`, `minPoolSize`, `serverSelectionTimeoutMS`, `connectTimeoutMS` y `socketTimeoutMS` ahora tienen valores explícitos para alta concurrencia.
-  - **Índices de performance añadidos**: `products.availability`, `branches.tipos`, `payment_methods.code` y text index en `tutorials`. Evitan full collection scans en queries frecuentes.
-  - **GZip `minimum_size` bajado 500 → 200 bytes**: comprime más respuestas pequeñas, reduciendo payload de respuestas de tamaño medio.
+- **`perf: optimize search path and DB access for slow connections and scale`** — Cinco optimizaciones simultáneas: event loop desbloqueado con `asyncio.to_thread`, N+1 eliminado con `get_by_ids()` batch, pool y timeouts de MongoDB configurados, índices de performance añadidos (`products.availability`, `branches.tipos`, `payment_methods.code`, text index en `tutorials`), GZip `minimum_size` bajado 500 → 200 bytes.
 
 ---
 
 ### Puede dar bateo
 
-1. **`asyncio.to_thread` — pool de threads por defecto agotado bajo alta concurrencia**: El executor por defecto de asyncio usa `min(32, os.cpu_count() + 4)` threads. Con muchas búsquedas concurrentes y latencia alta de Gemini, las llamadas se encolarán. Confirmar que el número de workers es suficiente o configurar un `ThreadPoolExecutor` explícito.
-
-2. **`get_by_ids()` — puede no estar implementado en todos los repositorios**: Si alguno de los repositorios de productos, branches o negocios no tiene `get_by_ids()`, el resolver romperá con `AttributeError` en producción sin degradación elegante.
-
-3. **Construcción de índices en colecciones con datos existentes**: En MongoDB ≤5.0, `createIndex` es bloqueante por defecto. Si los índices se crearon sobre colecciones grandes sin opción `background`, las escrituras pudieron quedar bloqueadas durante la construcción. Confirmar que se usó `background=True` o que se ejecutó en horario de baja carga.
-
-4. **GZip sobre respuestas binarias con umbral rebajado**: Al bajar de 500 a 200 bytes, más tipos de respuesta pasan el umbral. Confirmar que el middleware excluye `Content-Type: application/octet-stream`, imágenes y redirects 302 de presigned URLs de S3.
-
-5. **`minPoolSize` en instancias idle con Atlas M0/M2**: Cada pod mantendrá al menos `minPoolSize` conexiones abiertas aunque esté inactivo. En Atlas tiers con límite bajo de conexiones y despliegue multi-instancia, pods idle pueden agotar el pool global. Confirmar que `minPoolSize` es 0 o muy cercano a 0.
-
----
-
-#### Seguimientos vigentes
-
-- **`apiRequest success:false` — monitorear regresiones post-deploy (SunCarWeb)**: El fix global puede descubrir errores silenciados. Cualquier operación que antes mostraba éxito sin verificar puede ahora romper con toast de error.
-- **`showContableFields` en MaterialForm (SunCarWeb)**: Confirmar valor por defecto y que otros usos de `MaterialForm` no perdieron campos contables.
-- **`costo` y `material_id` en tipo `Material` (SunCarWeb)**: Confirmar que los endpoints del catálogo devuelven estos campos.
-- **Wallet historial por miembro — filtros params (SunCarWeb)**: Confirmar que el backend acepta tipo, fechas y búsqueda en el endpoint de historial por miembro.
-- **Excel Fichas de Costo sin cota de registros (SunCarWeb)**: La exportación ignora la paginación; con catálogos grandes puede saturar memoria del navegador.
-- **Credenciales demo hardcodeadas**: `demo@llego.app / LlegoDemo2025!` en el código fuente. Rotar o desactivar la cuenta tras la aprobación del App Store.
-- **Bypass de Stripe activo en producción**: Si `isDemoStore` se activa por error en una branch real, órdenes reales quedarán marcadas como pagadas sin cobro. Agregar doble guarda.
-- **Timers de `asyncio.sleep` sin cancelación**: Las tareas de auto-progreso de órdenes demo siguen vivas aunque la orden sea cancelada. Bajo carga, pueden acumularse tareas huérfanas.
-- **`seed_demo_store.py` sin idempotencia**: Ejecutarlo de nuevo creará duplicados en producción.
-- **`isDemoStore` no debe aparecer en feed público**.
-- **Timezone UTC en "Hora del Día"**: Usuarios en Cuba (UTC-5) ven el tramo del día desfasado 5h.
-- **Ranking sin coordenadas**: Si lat/lng es `null`, verificar que el fallback no genere 500 en el feed.
-- **"Pide de Nuevo" con token expirado**: El feed completo no debe romper; la sección debe retornar array vacío.
-- **Performance ranking multi-factor**: Verificar índice en `(user_id, created_at)` en la tabla de órdenes.
-- **`aumento_porcentaje` y `aumento_tipo` en ofertas**: Confirmar que el endpoint persiste estos campos por material.
-- **Tasa de cambio EUR vs CUP**: EUR multiplica, CUP divide. Confirmar que el backend aplica la misma convención.
-- **Endpoints de paginación**: `GET /cobros-paginado` y `GET /personalizadas/pendientes-paginado` con params `skip`, `limit`, `q`, `estado_pendiente`, filtros de fecha.
-- **Rollback de pago**: Confirmar que eliminar un pago revierte correctamente el saldo de billetera.
-- **`recibido_por_ci` en pagos**: Confirmar auto-acreditación de billetera del trabajador correspondiente.
-- **Endpoints wallet**: `POST /wallet/wallets/ensure`, `POST /wallet/pending-transfers`, `PUT .../accept`, `PUT .../reject`, `DELETE .../` — confirmar que todos existen.
-- **RRHH — nombre y teléfono editables**: Confirmar que el endpoint de actualización persiste ambos campos.
-- **`available_orders_for_delivery`**: Verificar diferenciación entre entrega activa y pins adicionales.
-- **`averia_id` en trabajos diarios**: Confirmar que el backend acepta este campo en POST/PATCH y lo indexa.
-- **Permiso `gestionar_banco_global`**: Si el backend no valida este permiso, el control de acceso de banco/wallet queda roto.
-- **Campos SunCarWeb → backend pendientes**: `motivo` y `nota` en asignaciones; `foto` y `ficha_tecnica_url` en materiales; `oferta_venta_id`, `descuento_free`, `motivo_descuento_free`, `precio` en solicitudes desde oferta.
-- **Campos de cambio real (SunCarWeb)**: `cambio_real_monto`, `cambio_real_moneda`, `cambio_real_tasa` en `/pagos-ventas/`.
-- **Endpoint lazy load obras terminadas (SunCarWeb)**: `GET /obras-terminadas/oferta/{id}/facturas-cliente` — confirmar que existe.
-- **Endpoints de notificaciones SunCarWeb**: `GET /mis-notificaciones` con `{ success, data, total }`, filtro bulk por tipo, `dias_alerta` y `link_cliente`.
-- **`GET /inventario/stock-historico`**: Confirmar que existe y acepta params de almacén, material y fecha.
-- **Agregados solicitudes-ventas**: Confirmar `total_cobrado`, `total_pendiente`, `total_sin_descuento`, `total_con_aumento`, `aumento_monto` en endpoints.
-- **`updateSolicitudTransferencia` — validación de estado en backend**.
-- **Búsqueda por `numero_serie` (SunCarWeb)**.
-- **`stock_disponible_actual` — consistencia entre endpoints**.
-- **Excel export de facturas sin cota de registros (SunCarWeb)**.
-- **`'zelle'` como método de pago — soporte en backend (SunCarWeb)**.
-- **Sort client-side de solicitudes pendientes en ValesSalida (SunCarWeb)**.
-- **Parsing UTC→local en otras tablas (SunCarWeb)**.
-- **Tasas MLC/CUP sin persistencia entre sesiones (SunCarWeb)**.
-- **`PonderarCostoResponse` campos nuevos (SunCarWeb)**: Confirmar que POST `/ponderar-costo` incluye `sin_costo_ficha`, `no_aplicables` y `costos_catalogo_propagados`.
-- **`GET /api/kardex-costo/costo-actual` (SunCarWeb)**: Confirmar params `material_id + almacen_id`.
-- **`materiales` en respuesta de facturas de solicitudes-ventas (SunCarWeb)**.
-- **Filtros de vales de salida — `fecha_desde`, `fecha_hasta`, creador (SunCarWeb)**: Confirmar soporte en el backend.
-- **`discounted_service_fee_rate` sin validación de rango**: Solo valores entre 0 y 1.
-- **Signed URLs de S3 para videos promotores sin renovación**.
-- **Race condition del descuento por video**.
-- **Videos/thumbnails huérfanos en S3 en error parcial**.
-- **`almacenes-suncar/admin` — gating solo en frontend (SunCarWeb)**.
-- **Estados de transferencia no mapeados en `ESTADO_CONFIG` (SunCarWeb)**.
-- **Campos de dimensionamiento en calculadora sin persistencia confirmada (SunCarWeb)**.
-- **Badges de disponibilidad por pool — snapshot estático (SunCarWeb)**.
-- **Endpoint cumpleaños de la semana (SunCarWeb)**.
-- **Endpoint contador de instalaciones solares (SunCarWeb)**.
-- **Widget de paneles — estado único vs respuesta del backend (SunCarWeb)**.
-- **`window.history.pushState` + Next.js App Router desync (SunCarWeb)**.
-- **Export Excel merge vertical — heterogeneidad de materiales (SunCarWeb)**.
-- **Rebrand paleta — componentes con clases hardcoded (SunCarWeb)**.
-- **`POST /solicitudes-transferencia/{id}/resolver` — endpoint pendiente de confirmación (SunCarWeb)**.
-- **Worker de borrado de cuentas — sin recuperación tras reinicios**: Confirmar que al arrancar se procesan las cuentas ya vencidas inmediatamente.
-- **`scheduledDeletionAt` — campo nuevo en documentos existentes**: Confirmar manejo de `null`/campo ausente.
-- **URL prefirmada de APK — TTL del cache vs TTL de la firma**: Confirmar que `cache_ttl < presigned_url_ttl`.
-- **ADS — `ad_pricing` sin datos iniciales en producción**.
-- **ADS — `approved` desacoplado del pago sin verificación**.
-- **Cache TTL en proceso — inconsistencia en deploys multi-instancia**.
-- **`chore` auth/rate-limit/admin-payouts sin auditoría detallada**.
-- **`asyncio.to_thread` — pool de threads por defecto**: Confirmar capacidad suficiente o configurar `ThreadPoolExecutor` explícito.
-- **`get_by_ids()` en repositorios de vector search — confirmar existencia**.
-- **Índices de MongoDB — construcción sin bloquear escrituras**.
-- **GZip umbral 200 bytes — exclusión de binarios y presigned URLs**.
-- **`minPoolSize` en Atlas tier bajo con escalado horizontal**.
+1. **`asyncio.to_thread` — pool de threads por defecto agotado bajo alta concurrencia**.
+2. **`get_by_ids()` — puede no estar implementado en todos los repositorios**.
+3. **Construcción de índices en colecciones con datos existentes — posible bloqueo**.
+4. **GZip sobre respuestas binarias — confirmar exclusión de `application/octet-stream`**.
+5. **`minPoolSize` en instancias idle con Atlas M0/M2 — puede agotar el pool global**.
 
 ---
 
@@ -298,202 +271,46 @@ Sin cambios nuevos — sin riesgos nuevos.
 
 ### Resumen de cambios (últimas 24h)
 
-**15 commits** de Ruben0304 — día de altísima actividad: sistema completo de campañas de anuncios de pago en el feed (ADS con `AdCampaign`, creativo como foto, moderación admin), 3 mejoras críticas de performance que reducen el feed de ~12s a ~200ms (cache TTL en proceso, eliminación de llamadas S3 bloqueantes, GZip + DataLoader), sección "Explora otras opciones" con infinite scroll, fixes en "Pide de Nuevo" y correcciones de firma S3.
+**15 commits** de Ruben0304 — sistema completo de campañas de anuncios de pago en el feed (ADS con `AdCampaign`, moderación admin), 3 mejoras críticas de performance que reducen el feed de ~12s a ~200ms (cache TTL en proceso, eliminación de llamadas S3 bloqueantes, GZip + DataLoader), sección "Explora otras opciones" con infinite scroll, fixes en "Pide de Nuevo" y correcciones de firma S3.
 
 ---
 
-### Área 1: Sistema ADS — campañas de visibilidad en el feed (3 commits)
+### Área 1: Sistema ADS (3 commits)
 
-- **`feat(ads): backend de campañas de visibilidad en el feed`** (17:14) — Nueva línea de monetización: los negocios pagan tarifa fija para aparecer en el feed con un creativo. Modelos: `AdCampaign`, `CreativeSpec`, `AdPricing`. Colecciones `ad_campaigns`, `ad_pricing`. Service: quote de precio, compra por wallet, moderación admin y selección para el feed. Schema GraphQL completo con queries (`adPricing`, `myAdCampaigns`, `pendingAdCampaigns`) y mutations (crear/actualizar/eliminar/comprar/pausar, aprobar/rechazar admin, `trackImpression/Click`). Pago por wallet funcional; Stripe/CUP quedan en `pending_payment`.
-- **`feat(ads): mostrar campañas aunque estén pendientes de pago`** (18:40) — Incluye `pending_payment` y `pending_review` además de `active` en el query del feed. Los negocios ven su creativo activo desde que lo crean, sin esperar pago ni revisión admin. Excluye `draft`, `paused`, `rejected`, `ended`.
-- **`feat(ads): creativo como foto exportada + booleano approved`** (19:30) — Reemplaza el `CreativeSpec` JSON declarativo por una sola foto exportada (`creativeImagePath`, subida vía `/upload/ad-campaign/creative`). Visibilidad controlada por booleano `approved` (puesto por el admin). Feed devuelve `imageUrl + ctaDeeplink`.
+- **`feat(ads): backend de campañas de visibilidad en el feed`** — Modelos `AdCampaign`, `CreativeSpec`, `AdPricing`. Pago por wallet. Moderación admin.
+- **`feat(ads): mostrar campañas aunque estén pendientes de pago`** — Incluye `pending_payment` y `pending_review` en el feed. Excluye `draft`, `paused`, `rejected`, `ended`.
+- **`feat(ads): creativo como foto exportada + booleano approved`** — Reemplaza JSON declarativo por foto subida vía `/upload/ad-campaign/creative`. Booleano `approved` controlado por admin.
 
 ---
 
 ### Área 2: Performance del feed (3 commits)
 
-- **`perf: eliminate blocking S3/DB calls from image URL resolvers`** (14:42) — Boto3 cacheado como singleton. `generate_image_variant_url_with_fallback` reemplazado por `get_public_image_variant_url` (crypto local). Resolvers async de avatar eliminados. Resultado: feed ~2.5s → ~200ms.
-- **`perf: add in-process TTL cache for heavy feed queries`** (15:32) — `InMemoryTTLCache` en `utils/cache.py`. Cachea `get_branch_ids_by_tipo` (5 min), `_build_recent_popularity_scores` (2 min), `get_feed_products` (2 min).
-- **`perf: reduce payload size and N+1 queries`** (15:41) — GZip middleware (`min_size=500`): feed ~150KB → ~30KB. Paginación en `allCombos`. DataLoader `branch_loader` en combo resolver. Cache de precios en `_compute_starting_base_price`.
+- **`perf: eliminate blocking S3/DB calls`** — Boto3 cacheado. Firma crypto local. Feed ~2.5s → ~200ms.
+- **`perf: add in-process TTL cache`** — `InMemoryTTLCache` en `utils/cache.py` con TTLs de 2-5 min.
+- **`perf: reduce payload size and N+1 queries`** — GZip middleware, paginación en `allCombos`, DataLoader `branch_loader`.
 
 ---
 
-### Área 3: Feed — infinite scroll, contexto situacional y sección Explorar (4 commits)
+### Área 3: Feed — infinite scroll y sección Explorar (4 commits)
 
-- **`feat(feed): infinite scroll por páginas, contexto situacional`** (16:11) — Parámetro `page` en `get_feed`. `has_more: bool` en `FeedResponse`. Variantes fin de semana y madrugada.
-- **`feat(feed): títulos creativos para secciones repetidas en páginas 2+`** (16:17).
-- **`feat: add Explora otras opciones vertical infinite-scroll section`** (16:31) — Nueva sección "catch-all" con todos los productos no surfaceados, puntuados por popularidad/frescura/proximidad. Parámetro `explorar_page`.
-- **`fix(feed): explorar falls back to full catalog when all products are already shown`** (16:36).
-
----
-
-### Área 4: Fixes y chore (5 commits)
-
-- **`fix(feed): pide de nuevo muestra cualquier pedido`** (16:14) — Excluye únicamente cancelados.
-- **`fix(feed): pide de nuevo incluye también pedidos cancelados`** (16:15) — Ajuste inmediato: incluso cancelados se incluyen.
-- **`fix(s3): add expiration param to get_public_image_variant_url`** (18:26).
-- **`fix(s3): add expiration param to get_public_url`** (18:34).
-- **`chore: commit pending changes (auth, rate limit, admin payouts, test suites)`** (16:38) — Commit agrupado sin descripción individual.
+- **`feat(feed): infinite scroll por páginas, contexto situacional`** — Parámetro `page`, `has_more: bool`, variantes fin de semana y madrugada.
+- **`feat: add Explora otras opciones`** — Sección catch-all con todos los productos no surfaceados.
 
 ---
 
 ### Puede dar bateo
 
-1. **ADS — `approved` desacoplado del pago**: El admin puede aprobar un anuncio sin que el negocio haya pagado. Si la mutation de aprobación no verifica el estado de pago, anuncios no pagados aparecerán en el feed.
-2. **Feed muestra `pending_payment` y `pending_review`**: Si el filtro por `business_id` falla, todos los usuarios verían anuncios no moderados.
-3. **`/upload/ad-campaign/creative` — validación de archivo sin confirmar**: Confirmar que el endpoint valida tipo MIME y tamaño máximo.
-4. **`ad_pricing` sin datos iniciales en producción**: Si la colección está vacía, los negocios no pueden cotizar ni crear campañas.
-5. **Cache TTL en proceso — deploys multi-instancia**: Cada instancia tiene su propio cache en memoria. Con balanceador de carga, los usuarios pueden ver respuestas inconsistentes durante el TTL.
-6. **GZip sobre respuestas binarias**: Confirmar que el middleware no afecta `application/octet-stream` ni redirects 302.
-7. **`explorar_has_more` en el fallback**: Confirmar que cuando `explorar` usa el catálogo completo como fallback, setea `explorar_has_more=False` correctamente.
-8. **Dos commits contradictorios en "Pide de Nuevo"** (16:14 excluye cancelados → 16:15 los incluye): Confirmar cuál es el comportamiento final deseado.
-9. **`chore` sin detalle en cambios sensibles**: Auth, rate limit y admin payouts agrupados sin descripción individual. Difícil de auditar y revertir selectivamente.
+1. **ADS — `approved` desacoplado del pago**: Admin puede aprobar sin pago.
+2. **Feed muestra `pending_payment` y `pending_review`**: Si filtro por `business_id` falla, todos verían anuncios no moderados.
+3. **`ad_pricing` sin datos iniciales en producción**.
+4. **Cache TTL en proceso — deploys multi-instancia**: Cada instancia tiene su propio cache.
+5. **GZip sobre respuestas binarias**.
+6. **Credenciales demo hardcodeadas**: `demo@llego.app / LlegoDemo2025!`.
+7. **Bypass de Stripe activo en producción con `isDemoStore`**.
+8. **Worker de borrado de cuentas — sin recuperación tras reinicios**.
+9. **`scheduledDeletionAt` — campo nuevo en documentos existentes**.
+10. **URL prefirmada de APK — TTL del cache vs TTL de la firma**.
 
 ---
 
-#### Seguimientos vigentes
-
-- **`apiRequest success:false` — monitorear regresiones post-deploy (SunCarWeb)**: El fix global puede descubrir errores silenciados. Cualquier operación que antes mostraba éxito sin verificar puede ahora romper con toast de error.
-- **`showContableFields` en MaterialForm (SunCarWeb)**: Confirmar valor por defecto y que otros usos de `MaterialForm` no perdieron campos contables.
-- **`costo` y `material_id` en tipo `Material` (SunCarWeb)**: Confirmar que los endpoints del catálogo devuelven estos campos.
-- **Wallet historial por miembro — filtros params (SunCarWeb)**: Confirmar que el backend acepta tipo, fechas y búsqueda en el endpoint de historial por miembro.
-- **Excel Fichas de Costo sin cota de registros (SunCarWeb)**: La exportación ignora la paginación; con catálogos grandes puede saturar memoria del navegador.
-- **Credenciales demo hardcodeadas**: `demo@llego.app / LlegoDemo2025!` en el código fuente. Rotar o desactivar la cuenta tras la aprobación del App Store.
-- **Bypass de Stripe activo en producción**: Si `isDemoStore` se activa por error en una branch real, órdenes reales quedarán marcadas como pagadas sin cobro. Agregar doble guarda (verificar también `business_id` del negocio demo).
-- **Timers de `asyncio.sleep` sin cancelación**: Las tareas de auto-progreso de órdenes demo siguen vivas aunque la orden sea cancelada. Bajo carga, pueden acumularse tareas huérfanas.
-- **`seed_demo_store.py` sin idempotencia**: Ejecutarlo de nuevo creará duplicados en producción. Agregar verificación previa o upsert.
-- **`isDemoStore` no debe aparecer en feed público**: Verificar que el flag no se expone en búsqueda de tiendas ni en respuestas de la API pública.
-- **Timezone UTC en "Hora del Día"**: Usuarios en Cuba (UTC-5) verán el tramo del día desfasado 5h.
-- **Ranking sin coordenadas**: Si lat/lng es `null`, verificar que el fallback de proximidad no genere 500 en el feed.
-- **"Pide de Nuevo" con token expirado**: El feed completo no debe romper; la sección debe retornar array vacío.
-- **Performance ranking multi-factor**: Verificar índice en `(user_id, created_at)` en la tabla de órdenes.
-- **`aumento_porcentaje` y `aumento_tipo` en ofertas**: Confirmar que el endpoint persiste estos campos por material.
-- **Tasa de cambio EUR vs CUP**: EUR multiplica, CUP divide. Confirmar que el backend aplica la misma convención.
-- **Endpoints de paginación**: `GET /cobros-paginado` y `GET /personalizadas/pendientes-paginado` con params `skip`, `limit`, `q`, `estado_pendiente`, filtros de fecha.
-- **Rollback de pago**: Confirmar que eliminar un pago revierte correctamente el saldo de billetera.
-- **`recibido_por_ci` en pagos**: Confirmar auto-acreditación de billetera del trabajador correspondiente.
-- **Endpoints wallet**: `POST /wallet/wallets/ensure`, `POST /wallet/pending-transfers`, `PUT .../accept`, `PUT .../reject`, `DELETE .../` — confirmar que todos existen.
-- **RRHH — nombre y teléfono editables**: Confirmar que el endpoint de actualización persiste ambos campos.
-- **`available_orders_for_delivery`**: Verificar diferenciación entre entrega activa y pins adicionales.
-- **`averia_id` en trabajos diarios**: Confirmar que el backend acepta este campo en POST/PATCH y lo indexa.
-- **Permiso `gestionar_banco_global`**: Si el backend no valida este permiso, el control de acceso de banco/wallet queda roto.
-- **Campos SunCarWeb → backend pendientes**: `motivo` y `nota` en asignaciones; `foto` y `ficha_tecnica_url` en materiales; `oferta_venta_id`, `descuento_free`, `motivo_descuento_free`, `precio` en solicitudes desde oferta.
-- **Campos de cambio real (SunCarWeb)**: `cambio_real_monto`, `cambio_real_moneda`, `cambio_real_tasa` en `/pagos-ventas/`.
-- **Endpoint lazy load obras terminadas (SunCarWeb)**: `GET /obras-terminadas/oferta/{id}/facturas-cliente` — confirmar que existe.
-- **Endpoints de notificaciones SunCarWeb**: `GET /mis-notificaciones` con `{ success, data, total }`, filtro bulk por tipo, `dias_alerta` y `link_cliente`.
-- **`GET /inventario/stock-historico`**: Confirmar que existe y acepta params de almacén, material y fecha.
-- **Agregados solicitudes-ventas**: Confirmar `total_cobrado`, `total_pendiente`, `total_sin_descuento`, `total_con_aumento`, `aumento_monto` en endpoints.
-- **`updateSolicitudTransferencia` — validación de estado en backend**.
-- **Búsqueda por `numero_serie` (SunCarWeb)**.
-- **`stock_disponible_actual` — consistencia entre endpoints**.
-- **Excel export de facturas sin cota de registros (SunCarWeb)**.
-- **`'zelle'` como método de pago — soporte en backend (SunCarWeb)**.
-- **Sort client-side de solicitudes pendientes en ValesSalida (SunCarWeb)**.
-- **Parsing UTC→local en otras tablas (SunCarWeb)**.
-- **Tasas MLC/CUP sin persistencia entre sesiones (SunCarWeb)**.
-- **`PonderarCostoResponse` campos nuevos (SunCarWeb)**: Confirmar que POST `/ponderar-costo` incluye `sin_costo_ficha`, `no_aplicables` y `costos_catalogo_propagados`.
-- **`GET /api/kardex-costo/costo-actual` (SunCarWeb)**: Confirmar que existe y acepta params `material_id + almacen_id`.
-- **`materiales` en respuesta de facturas de solicitudes-ventas (SunCarWeb)**: Confirmar que el endpoint devuelve el campo `materiales` por factura.
-- **Filtros de vales de salida — `fecha_desde`, `fecha_hasta`, creador (SunCarWeb)**: Confirmar soporte en el backend.
-- **`discounted_service_fee_rate` sin validación de rango**: Confirmar que acepta solo valores entre 0 y 1.
-- **Signed URLs de S3 para videos promotores sin renovación**: Confirmar TTL configurado.
-- **Race condition del descuento por video**: Confirmar que el endpoint lee `has_watched` directamente de la BD.
-- **Videos/thumbnails huérfanos en S3 en error parcial**: Agregar lógica de cleanup o transacción compensatoria.
-- **`almacenes-suncar/admin` — gating solo en frontend (SunCarWeb)**: Confirmar que el backend valida el permiso en el endpoint de creación de movimientos.
-- **Estados de transferencia no mapeados en `ESTADO_CONFIG` (SunCarWeb)**.
-- **Campos de dimensionamiento en calculadora sin persistencia confirmada (SunCarWeb)**.
-- **Badges de disponibilidad por pool — snapshot estático (SunCarWeb)**.
-- **Endpoint cumpleaños de la semana (SunCarWeb)**.
-- **Endpoint contador de instalaciones solares (SunCarWeb)**.
-- **Widget de paneles — estado único vs respuesta del backend (SunCarWeb)**.
-- **`window.history.pushState` + Next.js App Router desync (SunCarWeb)**.
-- **Export Excel merge vertical — heterogeneidad de materiales (SunCarWeb)**.
-- **Rebrand paleta — componentes con clases hardcoded (SunCarWeb)**.
-- **`POST /solicitudes-transferencia/{id}/resolver` — endpoint pendiente de confirmación (SunCarWeb)**.
-- **Worker de borrado de cuentas — sin recuperación tras reinicios**: El worker de lifespan no captura cuentas vencidas durante los reinicios del servidor.
-- **`scheduledDeletionAt` — campo nuevo en documentos existentes**: Confirmar que las queries manejan el caso de documentos sin el campo.
-- **URL prefirmada de APK — TTL del cache vs TTL de la firma**: Confirmar que `cache_ttl < presigned_url_ttl`.
-- **ADS — `ad_pricing` sin datos iniciales en producción**.
-- **ADS — `approved` desacoplado del pago sin verificación**.
-- **Cache TTL en proceso — inconsistencia en deploys multi-instancia**.
-- **`chore` auth/rate-limit/admin-payouts sin auditoría detallada**.
-
----
-
-## 📅 11 de Junio, 2026
-
-### Resumen de cambios (últimas 24h)
-
-Sin commits nuevos desde el análisis del 9/06.
-
----
-
-### Puede dar bateo
-
-Sin cambios nuevos — sin riesgos nuevos. Los seguimientos del 9/06 siguen vigentes.
-
----
-
-#### Seguimientos vigentes
-
-- **`apiRequest success:false` — monitorear regresiones post-deploy (SunCarWeb)**.
-- **`showContableFields` en MaterialForm (SunCarWeb)**.
-- **`costo` y `material_id` en tipo `Material` (SunCarWeb)**.
-- **Wallet historial por miembro — filtros params (SunCarWeb)**.
-- **Excel Fichas de Costo sin cota de registros (SunCarWeb)**.
-- **Credenciales demo hardcodeadas**: `demo@llego.app / LlegoDemo2025!`.
-- **Bypass de Stripe activo en producción**.
-- **Timers de `asyncio.sleep` sin cancelación**.
-- **`seed_demo_store.py` sin idempotencia**.
-- **`isDemoStore` no debe aparecer en feed público**.
-- **Timezone UTC en "Hora del Día"**: Desfase 5h para Cuba.
-- **Ranking sin coordenadas**.
-- **"Pide de Nuevo" con token expirado**.
-- **Performance ranking multi-factor**.
-- **`aumento_porcentaje` y `aumento_tipo` en ofertas**.
-- **Tasa de cambio EUR vs CUP**.
-- **Endpoints de paginación**.
-- **Rollback de pago**.
-- **`recibido_por_ci` en pagos**.
-- **Endpoints wallet**.
-- **RRHH — nombre y teléfono editables**.
-- **`available_orders_for_delivery`**.
-- **`averia_id` en trabajos diarios**.
-- **Permiso `gestionar_banco_global`**.
-- **Campos SunCarWeb → backend pendientes**.
-- **Campos de cambio real (SunCarWeb)**.
-- **Endpoint lazy load obras terminadas (SunCarWeb)**.
-- **Endpoints de notificaciones SunCarWeb**.
-- **`GET /inventario/stock-historico`**.
-- **Agregados solicitudes-ventas**.
-- **`updateSolicitudTransferencia` — validación de estado en backend**.
-- **Búsqueda por `numero_serie` (SunCarWeb)**.
-- **`stock_disponible_actual` — consistencia entre endpoints**.
-- **Excel export de facturas sin cota de registros (SunCarWeb)**.
-- **`'zelle'` como método de pago — soporte en backend (SunCarWeb)**.
-- **Sort client-side de solicitudes pendientes en ValesSalida (SunCarWeb)**.
-- **Parsing UTC→local en otras tablas (SunCarWeb)**.
-- **Tasas MLC/CUP sin persistencia entre sesiones (SunCarWeb)**.
-- **`PonderarCostoResponse` campos nuevos (SunCarWeb)**.
-- **`GET /api/kardex-costo/costo-actual` (SunCarWeb)**.
-- **`materiales` en respuesta de facturas de solicitudes-ventas (SunCarWeb)**.
-- **Filtros de vales de salida — `fecha_desde`, `fecha_hasta`, creador (SunCarWeb)**.
-- **`discounted_service_fee_rate` sin validación de rango**.
-- **Signed URLs de S3 para videos promotores sin renovación**.
-- **Race condition del descuento por video**.
-- **Videos/thumbnails huérfanos en S3 en error parcial**.
-- **`almacenes-suncar/admin` — gating solo en frontend (SunCarWeb)**.
-- **Estados de transferencia no mapeados en `ESTADO_CONFIG` (SunCarWeb)**.
-- **Campos de dimensionamiento en calculadora sin persistencia confirmada (SunCarWeb)**.
-- **Badges de disponibilidad por pool — snapshot estático (SunCarWeb)**.
-- **Endpoint cumpleaños de la semana (SunCarWeb)**.
-- **Endpoint contador de instalaciones solares (SunCarWeb)**.
-- **Widget de paneles — estado único vs respuesta del backend (SunCarWeb)**.
-- **`window.history.pushState` + Next.js App Router desync (SunCarWeb)**.
-- **Export Excel merge vertical — heterogeneidad de materiales (SunCarWeb)**.
-- **Rebrand paleta — componentes con clases hardcoded (SunCarWeb)**.
-- **`POST /solicitudes-transferencia/{id}/resolver` — endpoint pendiente de confirmación (SunCarWeb)**.
-
----
-
-> ⚠️ **Nota de mantenimiento**: Las entradas del **5, 6, 7 y 9 de Junio** fueron eliminadas al superar los 7 días de antigüedad (política de retención semanal). Anteriores eliminadas: 27, 28, 29, 30 de Mayo, 31 de Mayo, 1, 2, 3 y 4 de Junio.
+> ⚠️ **Nota de mantenimiento**: Las entradas del **5, 6, 7, 9 y 11 de Junio** fueron eliminadas al superar los 7 días de antigüedad (política de retención semanal). Anteriores eliminadas: 27, 28, 29, 30 de Mayo, 31 de Mayo, 1, 2, 3 y 4 de Junio.
