@@ -1060,10 +1060,26 @@ class FeedService:
                             section_scores={"qdrant_similarity": score},
                         )
                     )
-                if len(scored_products) >= self._candidate_limit(limit):
-                    break
 
-            return scored_products
+            # Diversify so the section is not flooded by a single branch/category
+            # (nearest-neighbours cluster heavily). Relevance still dominates.
+            from services.recommendation_diversity import diversify
+
+            def _branch_key(sp):
+                bid = getattr(sp.product, "branchId", None)
+                return str(bid) if bid else None
+
+            def _category_key(sp):
+                cid = getattr(sp.product, "categoryId", None)
+                return str(cid) if cid else None
+
+            return diversify(
+                scored_products,
+                score_fn=lambda sp: sp.score,
+                key_fns=[_branch_key, _category_key],
+                penalty=0.1,
+                limit=self._candidate_limit(limit),
+            )
 
         except Exception as e:
             print(f"[Feed] Qdrant recommend error: {type(e).__name__}: {e}")
