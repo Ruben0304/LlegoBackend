@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import uuid
 from typing import Any, Dict, Iterable, List, Set
 
 from qdrant_client.models import PointStruct
@@ -11,10 +12,20 @@ from clients import (
     close_qdrant_connection,
     connect_to_mongo,
     connect_to_qdrant,
+    ensure_collections_and_indexes,
     get_qdrant_client,
 )
 from repositories import branches_repo, businesses_repo
 from services.embeddings.gemini_service import GeminiEmbeddingService
+from services.qdrant_payloads import branch_payload, business_payload
+
+# Deterministic UUID namespace — MUST match the repositories / indexing service
+# so this reindex updates the same points instead of creating duplicates.
+_UUID_NAMESPACE = uuid.UUID("b1e7a000-0000-0000-0000-000000000000")
+
+
+def _mongo_id_to_uuid(mongo_id: str) -> str:
+    return str(uuid.uuid5(_UUID_NAMESPACE, mongo_id))
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -67,15 +78,10 @@ async def _upsert_points(collection_name: str, points: List[PointStruct]) -> Non
 def _to_business_point(embedding_service: GeminiEmbeddingService, business: Any) -> PointStruct:
     text_to_embed = f"{business.name} {business.description or ''}"
     embedding = embedding_service.generate_embedding(text_to_embed)
-    mongo_id = str(business.id)
     return PointStruct(
-        id=mongo_id,
+        id=_mongo_id_to_uuid(str(business.id)),
         vector=embedding,
-        payload={
-            "mongo_id": mongo_id,
-            "name": business.name,
-            "description": business.description,
-        },
+        payload=business_payload(business),
     )
 
 
@@ -83,15 +89,10 @@ def _to_branch_point(embedding_service: GeminiEmbeddingService, branch: Any) -> 
     tipos_str = " ".join(branch.tipos or [])
     text_to_embed = f"{branch.name} {tipos_str}"
     embedding = embedding_service.generate_embedding(text_to_embed)
-    mongo_id = str(branch.id)
     return PointStruct(
-        id=mongo_id,
+        id=_mongo_id_to_uuid(str(branch.id)),
         vector=embedding,
-        payload={
-            "mongo_id": mongo_id,
-            "name": branch.name,
-            "tipos": branch.tipos or [],
-        },
+        payload=branch_payload(branch),
     )
 
 
@@ -103,6 +104,7 @@ async def sync_businesses_and_branches() -> None:
     """Sync both businesses and branches from Mongo into Qdrant and verify counts."""
     await connect_to_mongo()
     await connect_to_qdrant()
+    await ensure_collections_and_indexes()
 
     try:
         embedding_service = GeminiEmbeddingService()

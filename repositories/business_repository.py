@@ -23,6 +23,11 @@ def _mongo_id_to_uuid(mongo_id: str) -> str:
 from clients import get_database, get_qdrant_client
 from domain.models import Business
 from services.embeddings.gemini_service import GeminiEmbeddingService
+from services.qdrant_payloads import (
+    BUSINESS_PAYLOAD_FIELDS,
+    BUSINESS_TEXT_FIELDS,
+    business_payload,
+)
 from utils.cache import (
     TTL_DEFAULT,
     get_business_cache_key,
@@ -36,9 +41,6 @@ from utils.cache import (
 class BusinessRepository:
     mongo_collection_name = "bussisnes"  # Note: intentional typo for compatibility
     qdrant_collection_name = "businesses"
-
-    # RAG fields stored in Qdrant
-    rag_fields = {"name", "description"}
 
     # --- GET Methods (MongoDB) ---
 
@@ -262,11 +264,18 @@ class BusinessRepository:
                 {"_id": ObjectId(business_id)}, {"$set": updates}
             )
 
-            # 2. If RAG fields changed, update Qdrant
-            if self.rag_fields.intersection(updates.keys()):
+            # 2. Sync Qdrant. Re-embed only when text fields changed; otherwise
+            #    do a cheap payload-only update (keeps rating/approvalStatus/tags
+            #    filterable without burning a Gemini call).
+            changed = set(updates.keys())
+            if changed & BUSINESS_TEXT_FIELDS:
                 updated_business = await self.get_by_id(business_id)
                 if updated_business:
                     await self._upsert_to_qdrant(updated_business)
+            elif changed & BUSINESS_PAYLOAD_FIELDS:
+                updated_business = await self.get_by_id(business_id)
+                if updated_business:
+                    await self._set_qdrant_payload(updated_business)
 
             # Invalidate cache for this business and all businesses
             invalidate_business_cache(business_id=business_id)
@@ -315,7 +324,7 @@ class BusinessRepository:
     # --- Qdrant Helper Methods ---
 
     async def _upsert_to_qdrant(self, business: Business):
-        """Upsert business to Qdrant with RAG-only payload."""
+        """Upsert business to Qdrant with the enriched payload + fresh embedding."""
         try:
             embedding_service = GeminiEmbeddingService()
             text_to_embed = f"{business.name} {business.description or ''}"
@@ -323,21 +332,14 @@ class BusinessRepository:
 
             qdrant_client = get_qdrant_client()
 
-            # First, try to find existing point
+            # First, try to find existing point (reuses legacy point ids if any)
             existing = await self._find_qdrant_point(str(business.id))
-
-            # RAG-only payload
-            payload = {
-                "mongo_id": str(business.id),
-                "name": business.name,
-                "description": business.description,
-            }
 
             point_id = existing.id if existing else _mongo_id_to_uuid(str(business.id))
             point = PointStruct(
                 id=point_id,
                 vector=embedding,
-                payload=payload,
+                payload=business_payload(business),
             )
 
             await qdrant_client.upsert(
@@ -347,6 +349,21 @@ class BusinessRepository:
 
         except Exception as e:
             print(f"Error upserting business to Qdrant: {e}")
+            # Don't raise - MongoDB is the source of truth
+
+    async def _set_qdrant_payload(self, business: Business):
+        """Update only the payload of an existing point (no re-embedding)."""
+        try:
+            qdrant_client = get_qdrant_client()
+            existing = await self._find_qdrant_point(str(business.id))
+            point_id = existing.id if existing else _mongo_id_to_uuid(str(business.id))
+            await qdrant_client.set_payload(
+                collection_name=self.qdrant_collection_name,
+                payload=business_payload(business),
+                points=[point_id],
+            )
+        except Exception as e:
+            print(f"Error setting business payload in Qdrant: {e}")
             # Don't raise - MongoDB is the source of truth
 
     async def _delete_from_qdrant(self, business_id: str):

@@ -24,6 +24,11 @@ def _mongo_id_to_uuid(mongo_id: str) -> str:
 from clients import get_database, get_qdrant_client
 from domain.models import Branch, Coordinates
 from services.embeddings.gemini_service import GeminiEmbeddingService
+from services.qdrant_payloads import (
+    BRANCH_PAYLOAD_FIELDS,
+    BRANCH_TEXT_FIELDS,
+    branch_payload,
+)
 from utils.cache import (
     invalidate_branch_cache,
     invalidate_product_cache,
@@ -33,9 +38,6 @@ from utils.cache import (
 class BranchRepository:
     mongo_collection_name = "branches"
     qdrant_collection_name = "branches"
-
-    # RAG fields stored in Qdrant
-    rag_fields = {"name", "tipos"}
 
     # --- GET Methods (MongoDB) ---
 
@@ -298,11 +300,18 @@ class BranchRepository:
                 {"_id": ObjectId(branch_id)}, {"$set": updates}
             )
 
-            # 2. If RAG fields changed, update Qdrant
-            if self.rag_fields.intersection(updates.keys()):
+            # 2. Sync Qdrant. Re-embed only when text fields changed; otherwise
+            #    do a cheap payload-only update (keeps geo/isActive/businessId
+            #    filterable without burning a Gemini call).
+            changed = set(updates.keys())
+            if changed & BRANCH_TEXT_FIELDS:
                 updated_branch = await self.get_by_id(branch_id)
                 if updated_branch:
                     await self._upsert_to_qdrant(updated_branch)
+            elif changed & BRANCH_PAYLOAD_FIELDS:
+                updated_branch = await self.get_by_id(branch_id)
+                if updated_branch:
+                    await self._set_qdrant_payload(updated_branch)
 
             # Invalidate cache for this branch, its business, and all branches
             invalidate_branch_cache(branch_id=branch_id)
@@ -446,7 +455,7 @@ class BranchRepository:
     # --- Qdrant Helper Methods ---
 
     async def _upsert_to_qdrant(self, branch: Branch):
-        """Upsert branch to Qdrant with RAG-only payload."""
+        """Upsert branch to Qdrant with the enriched payload + fresh embedding."""
         try:
             embedding_service = GeminiEmbeddingService()
             tipos_str = " ".join(branch.tipos or [])
@@ -455,21 +464,14 @@ class BranchRepository:
 
             qdrant_client = get_qdrant_client()
 
-            # First, try to find existing point
+            # First, try to find existing point (reuses legacy point ids if any)
             existing = await self._find_qdrant_point(str(branch.id))
-
-            # RAG-only payload
-            payload = {
-                "mongo_id": str(branch.id),
-                "name": branch.name,
-                "tipos": branch.tipos or [],
-            }
 
             point_id = existing.id if existing else _mongo_id_to_uuid(str(branch.id))
             point = PointStruct(
                 id=point_id,
                 vector=embedding,
-                payload=payload,
+                payload=branch_payload(branch),
             )
 
             await qdrant_client.upsert(
@@ -479,6 +481,21 @@ class BranchRepository:
 
         except Exception as e:
             print(f"Error upserting branch to Qdrant: {e}")
+            # Don't raise - MongoDB is the source of truth
+
+    async def _set_qdrant_payload(self, branch: Branch):
+        """Update only the payload of an existing point (no re-embedding)."""
+        try:
+            qdrant_client = get_qdrant_client()
+            existing = await self._find_qdrant_point(str(branch.id))
+            point_id = existing.id if existing else _mongo_id_to_uuid(str(branch.id))
+            await qdrant_client.set_payload(
+                collection_name=self.qdrant_collection_name,
+                payload=branch_payload(branch),
+                points=[point_id],
+            )
+        except Exception as e:
+            print(f"Error setting branch payload in Qdrant: {e}")
             # Don't raise - MongoDB is the source of truth
 
     async def _delete_from_qdrant(self, branch_id: str):

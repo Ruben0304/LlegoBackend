@@ -38,41 +38,54 @@ COLLECTIONS = [
         "label": "products",
         "qdrant": "products",
         "mongo": "products",
-        "fields": {"_id": 1, "name": 1, "description": 1, "price": 1},
+        "fields": {
+            "_id": 1, "name": 1, "description": 1, "price": 1,
+            "currency": 1, "branchId": 1, "categoryId": 1, "availability": 1,
+        },
         "text": lambda d: f"{d.get('name', '')} {d.get('description', '') or ''}".strip(),
         "payload": lambda d, mid: {
             "mongo_id": mid,
             "name": d.get("name", ""),
             "price": d.get("price"),
+            "currency": d.get("currency"),
             "description": d.get("description") or "",
+            "branchId": _opt_str(d.get("branchId")),
+            "categoryId": _opt_str(d.get("categoryId")),
+            "availability": bool(d.get("availability", False)),
         },
     },
     {
         "label": "branches",
         "qdrant": "branches",
         "mongo": "branches",
-        "fields": {"_id": 1, "name": 1, "tipos": 1, "address": 1},
+        "fields": {
+            "_id": 1, "name": 1, "tipos": 1, "address": 1,
+            "businessId": 1, "isActive": 1, "deliveryRadius": 1, "coordinates": 1,
+        },
         "text": lambda d: (
             f"{d.get('name', '')}. "
             f"Tipos: {', '.join(d.get('tipos') or [])}. "
             f"{d.get('address', '') or ''}"
         ).strip(),
-        "payload": lambda d, mid: {
-            "mongo_id": mid,
-            "name": d.get("name", ""),
-            "tipos": d.get("tipos") or [],
-        },
+        "payload": lambda d, mid: _branch_dict_payload(d, mid),
     },
     {
         "label": "businesses",
         "qdrant": "businesses",
         "mongo": "bussisnes",  # intentional typo — kept for compatibility
-        "fields": {"_id": 1, "name": 1, "description": 1},
+        "fields": {
+            "_id": 1, "name": 1, "description": 1,
+            "globalRating": 1, "approvalStatus": 1, "isActive": 1, "tags": 1,
+        },
         "text": lambda d: f"{d.get('name', '')}. {d.get('description', '') or ''}".strip(),
         "payload": lambda d, mid: {
             "mongo_id": mid,
             "name": d.get("name", ""),
             "description": d.get("description") or "",
+            "globalRating": d.get("globalRating"),
+            "approvalStatus": d.get("approvalStatus"),
+            "isActive": bool(d.get("isActive", True)),
+            "tags": list(d.get("tags") or []),
         },
     },
 ]
@@ -81,6 +94,39 @@ COLLECTIONS = [
 def mongo_id_to_uuid(mongo_id: str) -> str:
     """Convert a MongoDB ObjectId string to a deterministic UUID."""
     return str(uuid.uuid5(_UUID_NAMESPACE, mongo_id))
+
+
+def _opt_str(value: Any) -> Any:
+    return str(value) if value is not None else None
+
+
+def _dict_geo(doc: Dict[str, Any]) -> Any:
+    """Extract Qdrant geo {lon, lat} from a branch mongo doc, or None."""
+    coords = (doc.get("coordinates") or {}).get("coordinates")
+    if not coords or len(coords) < 2:
+        return None
+    try:
+        lon, lat = float(coords[0]), float(coords[1])
+    except (TypeError, ValueError):
+        return None
+    if lon == 0.0 and lat == 0.0:
+        return None
+    return {"lon": lon, "lat": lat}
+
+
+def _branch_dict_payload(doc: Dict[str, Any], mid: str) -> Dict[str, Any]:
+    payload = {
+        "mongo_id": mid,
+        "name": doc.get("name", ""),
+        "tipos": list(doc.get("tipos") or []),
+        "businessId": _opt_str(doc.get("businessId")),
+        "isActive": bool(doc.get("isActive", True)),
+        "deliveryRadius": doc.get("deliveryRadius"),
+    }
+    geo = _dict_geo(doc)
+    if geo is not None:
+        payload["location"] = geo
+    return payload
 
 
 async def get_indexed_mongo_ids(qdrant_client, qdrant_collection: str) -> Set[str]:
