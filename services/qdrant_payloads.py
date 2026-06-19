@@ -20,7 +20,8 @@ def _str_or_none(value: Any) -> Optional[str]:
 # --- Products ---------------------------------------------------------------
 
 # Fields whose change requires re-embedding the product (they feed the vector).
-PRODUCT_TEXT_FIELDS = {"name", "description"}
+# categoryId is included because the category name is part of the embedded text.
+PRODUCT_TEXT_FIELDS = {"name", "description", "categoryId"}
 # Fields stored in the Qdrant payload (a change here needs a payload sync).
 PRODUCT_PAYLOAD_FIELDS = {
     "name",
@@ -31,6 +32,22 @@ PRODUCT_PAYLOAD_FIELDS = {
     "categoryId",
     "branchId",
 }
+
+
+def product_embedding_text(product: Any, category_name: Optional[str] = None) -> str:
+    """Build the text embedded for a product.
+
+    Including the category name gives the vector strong semantic context (two
+    products with similar names but different categories no longer collide, and
+    category-coherent recommendations get much stronger).
+    """
+    parts: List[str] = [product.name]
+    if category_name:
+        parts.append(f"Categoría: {category_name}")
+    description = getattr(product, "description", "") or ""
+    if description:
+        parts.append(description)
+    return ". ".join(parts).strip()
 
 
 def product_payload(product: Any) -> Dict[str, Any]:
@@ -79,6 +96,18 @@ def _branch_geo(branch: Any) -> Optional[Dict[str, float]]:
     return {"lon": lon, "lat": lat}
 
 
+def branch_embedding_text(branch: Any) -> str:
+    """Build the text embedded for a branch (name + tipos + address)."""
+    parts: List[str] = [branch.name]
+    tipos = ", ".join(getattr(branch, "tipos", []) or [])
+    if tipos:
+        parts.append(f"Tipos: {tipos}")
+    address = getattr(branch, "address", "") or ""
+    if address:
+        parts.append(address)
+    return ". ".join(parts).strip()
+
+
 def branch_payload(branch: Any) -> Dict[str, Any]:
     """Build the enriched Qdrant payload for a branch."""
     payload: Dict[str, Any] = {
@@ -97,7 +126,8 @@ def branch_payload(branch: Any) -> Dict[str, Any]:
 
 # --- Businesses -------------------------------------------------------------
 
-BUSINESS_TEXT_FIELDS = {"name", "description"}
+# tags is included because tags are part of the embedded text.
+BUSINESS_TEXT_FIELDS = {"name", "description", "tags"}
 BUSINESS_PAYLOAD_FIELDS = {
     "name",
     "description",
@@ -106,6 +136,18 @@ BUSINESS_PAYLOAD_FIELDS = {
     "isActive",
     "tags",
 }
+
+
+def business_embedding_text(business: Any) -> str:
+    """Build the text embedded for a business (name + description + tags)."""
+    parts: List[str] = [business.name]
+    description = getattr(business, "description", "") or ""
+    if description:
+        parts.append(description)
+    tags = getattr(business, "tags", None) or []
+    if tags:
+        parts.append("Tags: " + ", ".join(tags))
+    return ". ".join(parts).strip()
 
 
 def business_payload(business: Any) -> Dict[str, Any]:

@@ -31,6 +31,7 @@ from services.embeddings.gemini_service import GeminiEmbeddingService
 from services.qdrant_payloads import (
     PRODUCT_PAYLOAD_FIELDS,
     PRODUCT_TEXT_FIELDS,
+    product_embedding_text,
     product_payload,
 )
 from utils.cache import (
@@ -450,11 +451,26 @@ class ProductRepository:
 
     # --- Qdrant Helper Methods ---
 
+    async def _resolve_category_name(self, product: Product) -> Optional[str]:
+        """Look up the product's category name to enrich the embedding text."""
+        category_id = getattr(product, "categoryId", None)
+        if not category_id:
+            return None
+        try:
+            from repositories import product_categories_repo
+
+            category = await product_categories_repo.get_by_id(str(category_id))
+            return category.name if category else None
+        except Exception as e:
+            print(f"Could not resolve category {category_id} for embedding: {e}")
+            return None
+
     async def _upsert_to_qdrant(self, product: Product):
         """Upsert product to Qdrant with the enriched payload + fresh embedding."""
         try:
             embedding_service = GeminiEmbeddingService()
-            text_to_embed = f"{product.name} {product.description or ''}"
+            category_name = await self._resolve_category_name(product)
+            text_to_embed = product_embedding_text(product, category_name)
             embedding = embedding_service.generate_embedding(text_to_embed)
 
             qdrant_client = get_qdrant_client()

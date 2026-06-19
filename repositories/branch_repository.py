@@ -30,6 +30,7 @@ from services.embeddings.gemini_service import GeminiEmbeddingService
 from services.qdrant_payloads import (
     BRANCH_PAYLOAD_FIELDS,
     BRANCH_TEXT_FIELDS,
+    branch_embedding_text,
     branch_payload,
 )
 from utils.cache import (
@@ -458,8 +459,7 @@ class BranchRepository:
         """Upsert branch to Qdrant with the enriched payload + fresh embedding."""
         try:
             embedding_service = GeminiEmbeddingService()
-            tipos_str = " ".join(branch.tipos or [])
-            text_to_embed = f"{branch.name} {tipos_str}"
+            text_to_embed = branch_embedding_text(branch)
             embedding = embedding_service.generate_embedding(text_to_embed)
 
             qdrant_client = get_qdrant_client()

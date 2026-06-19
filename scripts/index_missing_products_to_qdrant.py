@@ -77,7 +77,10 @@ COLLECTIONS = [
             "_id": 1, "name": 1, "description": 1,
             "globalRating": 1, "approvalStatus": 1, "isActive": 1, "tags": 1,
         },
-        "text": lambda d: f"{d.get('name', '')}. {d.get('description', '') or ''}".strip(),
+        "text": lambda d: (
+            f"{d.get('name', '')}. {d.get('description', '') or ''}"
+            + (". Tags: " + ", ".join(d.get("tags") or []) if d.get("tags") else "")
+        ).strip(),
         "payload": lambda d, mid: {
             "mongo_id": mid,
             "name": d.get("name", ""),
