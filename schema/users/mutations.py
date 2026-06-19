@@ -62,6 +62,7 @@ def _user_to_type(u) -> UserType:
             for a in getattr(u, 'savedAddresses', [])
         ],
         defaultAddressId=getattr(u, 'defaultAddressId', None),
+        deliveredOrdersCount=getattr(u, 'deliveredOrdersCount', 0),
         scheduledDeletionAt=getattr(u, 'scheduledDeletionAt', None),
     )
 
@@ -114,23 +115,7 @@ class UserMutation:
         if not updated_user:
             raise Exception("Error al actualizar el usuario")
 
-        return UserType(
-            id=updated_user.id,
-            name=updated_user.name,
-            email=updated_user.email,
-            username=updated_user.username,
-            phone=updated_user.phone,
-            role=updated_user.role,
-            avatar=updated_user.avatar,
-            businessIds=updated_user.businessIds,
-            branchIds=updated_user.branchIds,
-            createdAt=updated_user.createdAt,
-            authProvider=updated_user.authProvider,
-            providerUserId=updated_user.providerUserId,
-            applePrivateEmail=updated_user.applePrivateEmail,
-            wallet=WalletBalanceType(local=updated_user.wallet.get('local', 0.0), usd=updated_user.wallet.get('usd', 0.0)),
-            walletStatus=updated_user.walletStatus
-        )
+        return _user_to_type(updated_user)
 
     @strawberry.mutation(description="Agregar sucursal a usuario")
     async def add_branch_to_user(
@@ -171,23 +156,7 @@ class UserMutation:
         if not updated_user:
             raise Exception("Error al agregar la sucursal al usuario")
 
-        return UserType(
-            id=updated_user.id,
-            name=updated_user.name,
-            email=updated_user.email,
-            username=updated_user.username,
-            phone=updated_user.phone,
-            role=updated_user.role,
-            avatar=updated_user.avatar,
-            businessIds=updated_user.businessIds,
-            branchIds=updated_user.branchIds,
-            createdAt=updated_user.createdAt,
-            authProvider=updated_user.authProvider,
-            providerUserId=updated_user.providerUserId,
-            applePrivateEmail=updated_user.applePrivateEmail,
-            wallet=WalletBalanceType(local=updated_user.wallet.get('local', 0.0), usd=updated_user.wallet.get('usd', 0.0)),
-            walletStatus=updated_user.walletStatus
-        )
+        return _user_to_type(updated_user)
 
     @strawberry.mutation(description="Remover sucursal de usuario")
     async def remove_branch_from_user(
@@ -219,23 +188,7 @@ class UserMutation:
         if not updated_user:
             raise Exception("Error al remover la sucursal del usuario")
 
-        return UserType(
-            id=updated_user.id,
-            name=updated_user.name,
-            email=updated_user.email,
-            username=updated_user.username,
-            phone=updated_user.phone,
-            role=updated_user.role,
-            avatar=updated_user.avatar,
-            businessIds=updated_user.businessIds,
-            branchIds=updated_user.branchIds,
-            createdAt=updated_user.createdAt,
-            authProvider=updated_user.authProvider,
-            providerUserId=updated_user.providerUserId,
-            applePrivateEmail=updated_user.applePrivateEmail,
-            wallet=WalletBalanceType(local=updated_user.wallet.get('local', 0.0), usd=updated_user.wallet.get('usd', 0.0)),
-            walletStatus=updated_user.walletStatus
-        )
+        return _user_to_type(updated_user)
 
     @strawberry.mutation(description="Eliminar cuenta de usuario")
     async def delete_user(
