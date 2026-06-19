@@ -22,7 +22,7 @@ _UUID_NAMESPACE = uuid.UUID("b1e7a000-0000-0000-0000-000000000000")
 def _mongo_id_to_uuid(mongo_id: str) -> str:
     return str(uuid.uuid5(_UUID_NAMESPACE, mongo_id))
 
-from clients import get_database, get_qdrant_client
+from clients import delete_by_mongo_id, get_database, get_qdrant_client
 from domain.models import Product
 from services.embeddings.gemini_service import GeminiEmbeddingService
 from services.qdrant_payloads import (
@@ -544,21 +544,8 @@ class ProductRepository:
             # Don't raise - MongoDB is the source of truth
 
     async def _delete_from_qdrant(self, product_id: str):
-        """Delete product from Qdrant by mongo_id."""
-        try:
-            qdrant_client = get_qdrant_client()
-
-            # Find point by mongo_id
-            existing = await self._find_qdrant_point(str(product_id))
-            if existing:
-                await qdrant_client.delete(
-                    collection_name=self.qdrant_collection_name,
-                    points_selector=qdrant_models.PointIdsList(points=[existing.id]),
-                )
-
-        except Exception as e:
-            print(f"Error deleting product from Qdrant: {e}")
-            # Don't raise - MongoDB is the source of truth
+        """Delete product from Qdrant (all points sharing this mongo_id)."""
+        await delete_by_mongo_id(self.qdrant_collection_name, str(product_id))
 
     async def _find_qdrant_point(self, mongo_id: str):
         """Find Qdrant point by mongo_id."""
