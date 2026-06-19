@@ -973,9 +973,10 @@ class FeedService:
     ) -> List[ScoredFeedProduct]:
         """
         Section: Especialmente para Ti (Qdrant Vector Similarity)
-        Uses Qdrant's native recommend API: averages the embeddings of the user's
-        favorited and cart products and returns the nearest neighbors.
-        Falls back silently to [] if Qdrant is unavailable or the user has no history.
+        Prefers the user's precomputed taste vector (nightly job) for a single
+        cheap vector search. Falls back to a live recommend over favorites+cart
+        when no taste vector exists yet (e.g. a brand-new user). Falls back
+        silently to [] if Qdrant is unavailable or the user has no history.
         """
         try:
             import uuid as _uuid
@@ -990,39 +991,54 @@ class FeedService:
 
             user_profile = await self._build_para_ti_user_profile(user_id)
 
-            # Favorites are the strongest purchase-intent signal; cart adds breadth
-            positive_mongo_ids: List[str] = list(user_profile["favorite_products"])
-            for pid in user_profile["cart_products"]:
-                if pid not in positive_mongo_ids:
-                    positive_mongo_ids.append(pid)
-
-            if not positive_mongo_ids:
-                return []
-
-            # Cap at 10 positives — enough for Qdrant vector averaging
-            positive_mongo_ids = positive_mongo_ids[:10]
-
-            positive_uuids = [
-                str(_uuid.uuid5(_UUID_NS, mid)) for mid in positive_mongo_ids
-            ]
-
             qdrant_client = get_qdrant_client()
+            results = None
 
-            response = await qdrant_client.query_points(
-                collection_name="products",
-                query=RecommendQuery(
-                    # BEST_SCORE scores each candidate by its max similarity to ANY
-                    # positive (favorite/cart) instead of to their averaged centroid.
-                    # This respects diverse tastes (e.g. sushi AND cake) instead of
-                    # recommending the muddy middle.
-                    recommend=RecommendInput(
-                        positive=positive_uuids,
-                        strategy=RecommendStrategy.BEST_SCORE,
-                    )
-                ),
-                limit=limit * 3,
-            )
-            results = response.points if hasattr(response, "points") else response
+            # 1) Preferred: a single search against the user's precomputed taste
+            #    vector (recalculated nightly). Captures the full weighted/decayed
+            #    history, not just the latest favorites+cart.
+            from services.taste_vector_service import get_user_taste_vector
+
+            taste_vector = await get_user_taste_vector(user_id)
+            if taste_vector:
+                response = await qdrant_client.query_points(
+                    collection_name="products",
+                    query=taste_vector,
+                    limit=limit * 3,
+                )
+                results = response.points if hasattr(response, "points") else response
+
+            # 2) Fallback: live recommend over favorites+cart (taste vector not
+            #    computed yet — e.g. a brand-new user before the nightly job).
+            if not results:
+                positive_mongo_ids: List[str] = list(user_profile["favorite_products"])
+                for pid in user_profile["cart_products"]:
+                    if pid not in positive_mongo_ids:
+                        positive_mongo_ids.append(pid)
+
+                if not positive_mongo_ids:
+                    return []
+
+                # Cap at 10 positives — enough for Qdrant vector averaging
+                positive_uuids = [
+                    str(_uuid.uuid5(_UUID_NS, mid)) for mid in positive_mongo_ids[:10]
+                ]
+
+                response = await qdrant_client.query_points(
+                    collection_name="products",
+                    query=RecommendQuery(
+                        # BEST_SCORE scores each candidate by its max similarity to
+                        # ANY positive (favorite/cart) instead of to their averaged
+                        # centroid. Respects diverse tastes (e.g. sushi AND cake)
+                        # instead of recommending the muddy middle.
+                        recommend=RecommendInput(
+                            positive=positive_uuids,
+                            strategy=RecommendStrategy.BEST_SCORE,
+                        )
+                    ),
+                    limit=limit * 3,
+                )
+                results = response.points if hasattr(response, "points") else response
 
             if not results:
                 return []

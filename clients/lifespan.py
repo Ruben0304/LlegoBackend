@@ -113,6 +113,33 @@ async def lifespan(app):
         logger.error(f"Warning: Could not start account deletion worker: {e}")
         print(f"Warning: Could not start account deletion worker: {e}")
 
+    try:
+        from services.taste_vector_service import recompute_all_taste_vectors
+
+        async def run_taste_vector_worker():
+            """Recompute per-user taste vectors daily for "Especialmente para Ti".
+
+            Sleeps a short warmup first so a restart does not trigger a full
+            recompute mid cold-start, then runs every 24h.
+            """
+            await asyncio.sleep(180)
+            while True:
+                try:
+                    logger.info("Running taste vector recompute worker...")
+                    stats = await recompute_all_taste_vectors()
+                    logger.info(f"Taste vector worker completed: {stats}")
+                except Exception as e:
+                    logger.error(f"Error in taste vector worker: {e}", exc_info=True)
+
+                await asyncio.sleep(86400)
+
+        logger.info("Starting taste vector worker...")
+        background_tasks.append(asyncio.create_task(run_taste_vector_worker()))
+        logger.info("Taste vector worker task created")
+    except Exception as e:
+        logger.error(f"Warning: Could not start taste vector worker: {e}")
+        print(f"Warning: Could not start taste vector worker: {e}")
+
     # Seed the vehicles catalog (idempotent — skips if records already exist)
     try:
         from repositories.vehicle_repository import VehicleRepository
