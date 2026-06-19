@@ -27,9 +27,9 @@ from clients import (  # noqa: E402
     connect_to_mongo,
     connect_to_qdrant,
     ensure_collections_and_indexes,
+    get_database,
     get_qdrant_client,
 )
-from repositories import branches_repo, businesses_repo, products_repo  # noqa: E402
 from services.qdrant_payloads import (  # noqa: E402
     branch_payload,
     business_payload,
@@ -68,10 +68,15 @@ async def _scroll_point_ids_by_mongo_id(collection_name: str) -> Dict[str, Any]:
 
 async def backfill_collection(
     collection_name: str,
-    fetch_all: Callable,
+    mongo_collection: str,
     payload_builder: Callable[[Any], Dict[str, Any]],
 ) -> Dict[str, int]:
-    """Set enriched payloads for all points of one collection."""
+    """Set enriched payloads for all points of one collection.
+
+    Reads RAW Mongo documents (not validated domain objects) so documents that
+    fail strict model validation — e.g. legacy products missing weight/image —
+    still get their payload enriched; the payload fields don't depend on them.
+    """
     logger.info("=" * 60)
     logger.info("Collection: %s", collection_name)
 
@@ -79,8 +84,9 @@ async def backfill_collection(
     point_id_by_mongo = await _scroll_point_ids_by_mongo_id(collection_name)
     logger.info("  Points in Qdrant: %s", len(point_id_by_mongo))
 
-    entities = await fetch_all()
-    entities_by_id = {str(e.id): e for e in entities}
+    db = get_database()
+    docs = await db[mongo_collection].find().to_list(length=None)
+    entities_by_id = {str(d["_id"]): d for d in docs}
     logger.info("  Documents in Mongo: %s", len(entities_by_id))
 
     updated = 0
@@ -114,9 +120,10 @@ async def run() -> None:
     await ensure_collections_and_indexes()
 
     try:
-        await backfill_collection("products", products_repo.get_all, product_payload)
-        await backfill_collection("branches", branches_repo.get_all, branch_payload)
-        await backfill_collection("businesses", businesses_repo.get_all, business_payload)
+        # NB: the businesses Mongo collection is intentionally spelled "bussisnes".
+        await backfill_collection("products", "products", product_payload)
+        await backfill_collection("branches", "branches", branch_payload)
+        await backfill_collection("businesses", "bussisnes", business_payload)
     finally:
         await close_mongo_connection()
         await close_qdrant_connection()

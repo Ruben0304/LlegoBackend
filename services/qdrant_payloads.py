@@ -17,6 +17,25 @@ def _str_or_none(value: Any) -> Optional[str]:
     return str(value) if value is not None else None
 
 
+def _get(entity: Any, key: str, default: Any = None) -> Any:
+    """Read a field from either a domain object or a raw Mongo dict.
+
+    Lets the builders run over raw documents (e.g. products missing optional
+    fields like weight/image that would fail strict model validation) during
+    backfills, while still working with domain objects on the write path.
+    """
+    if isinstance(entity, dict):
+        return entity.get(key, default)
+    return getattr(entity, key, default)
+
+
+def _entity_id(entity: Any) -> str:
+    """Get the mongo id whether the entity is a domain object or a raw dict."""
+    if isinstance(entity, dict):
+        return str(entity.get("_id") or entity.get("id"))
+    return str(entity.id)
+
+
 # --- Products ---------------------------------------------------------------
 
 # Fields whose change requires re-embedding the product (they feed the vector).
@@ -41,26 +60,26 @@ def product_embedding_text(product: Any, category_name: Optional[str] = None) ->
     products with similar names but different categories no longer collide, and
     category-coherent recommendations get much stronger).
     """
-    parts: List[str] = [product.name]
+    parts: List[str] = [_get(product, "name", "")]
     if category_name:
         parts.append(f"Categoría: {category_name}")
-    description = getattr(product, "description", "") or ""
+    description = _get(product, "description", "") or ""
     if description:
         parts.append(description)
     return ". ".join(parts).strip()
 
 
 def product_payload(product: Any) -> Dict[str, Any]:
-    """Build the enriched Qdrant payload for a product."""
+    """Build the enriched Qdrant payload for a product (object or raw dict)."""
     return {
-        "mongo_id": str(product.id),
-        "name": product.name,
-        "price": getattr(product, "price", None),
-        "currency": getattr(product, "currency", None),
-        "description": getattr(product, "description", "") or "",
-        "branchId": _str_or_none(getattr(product, "branchId", None)),
-        "categoryId": _str_or_none(getattr(product, "categoryId", None)),
-        "availability": bool(getattr(product, "availability", False)),
+        "mongo_id": _entity_id(product),
+        "name": _get(product, "name", ""),
+        "price": _get(product, "price"),
+        "currency": _get(product, "currency"),
+        "description": _get(product, "description", "") or "",
+        "branchId": _str_or_none(_get(product, "branchId")),
+        "categoryId": _str_or_none(_get(product, "categoryId")),
+        "availability": bool(_get(product, "availability", False)),
     }
 
 
@@ -79,11 +98,12 @@ BRANCH_PAYLOAD_FIELDS = {
 
 def _branch_geo(branch: Any) -> Optional[Dict[str, float]]:
     """Return Qdrant geo payload {lon, lat} for a branch, or None if invalid."""
-    coords_obj = getattr(branch, "coordinates", None)
-    raw = getattr(coords_obj, "coordinates", None) if coords_obj is not None else None
-    # Domain model stores [longitude, latitude]; some sources use plain lists.
+    coords_obj = _get(branch, "coordinates")
+    # Domain model stores [longitude, latitude]; raw Mongo docs nest it in a dict.
     if isinstance(coords_obj, dict):
         raw = coords_obj.get("coordinates")
+    else:
+        raw = getattr(coords_obj, "coordinates", None) if coords_obj is not None else None
     if not raw or len(raw) < 2:
         return None
     try:
@@ -98,25 +118,25 @@ def _branch_geo(branch: Any) -> Optional[Dict[str, float]]:
 
 def branch_embedding_text(branch: Any) -> str:
     """Build the text embedded for a branch (name + tipos + address)."""
-    parts: List[str] = [branch.name]
-    tipos = ", ".join(getattr(branch, "tipos", []) or [])
+    parts: List[str] = [_get(branch, "name", "")]
+    tipos = ", ".join(_get(branch, "tipos", []) or [])
     if tipos:
         parts.append(f"Tipos: {tipos}")
-    address = getattr(branch, "address", "") or ""
+    address = _get(branch, "address", "") or ""
     if address:
         parts.append(address)
     return ". ".join(parts).strip()
 
 
 def branch_payload(branch: Any) -> Dict[str, Any]:
-    """Build the enriched Qdrant payload for a branch."""
+    """Build the enriched Qdrant payload for a branch (object or raw dict)."""
     payload: Dict[str, Any] = {
-        "mongo_id": str(branch.id),
-        "name": branch.name,
-        "tipos": list(getattr(branch, "tipos", []) or []),
-        "businessId": _str_or_none(getattr(branch, "businessId", None)),
-        "isActive": bool(getattr(branch, "isActive", True)),
-        "deliveryRadius": getattr(branch, "deliveryRadius", None),
+        "mongo_id": _entity_id(branch),
+        "name": _get(branch, "name", ""),
+        "tipos": list(_get(branch, "tipos", []) or []),
+        "businessId": _str_or_none(_get(branch, "businessId")),
+        "isActive": bool(_get(branch, "isActive", True)),
+        "deliveryRadius": _get(branch, "deliveryRadius"),
     }
     geo = _branch_geo(branch)
     if geo is not None:
@@ -140,24 +160,24 @@ BUSINESS_PAYLOAD_FIELDS = {
 
 def business_embedding_text(business: Any) -> str:
     """Build the text embedded for a business (name + description + tags)."""
-    parts: List[str] = [business.name]
-    description = getattr(business, "description", "") or ""
+    parts: List[str] = [_get(business, "name", "")]
+    description = _get(business, "description", "") or ""
     if description:
         parts.append(description)
-    tags = getattr(business, "tags", None) or []
+    tags = _get(business, "tags", None) or []
     if tags:
         parts.append("Tags: " + ", ".join(tags))
     return ". ".join(parts).strip()
 
 
 def business_payload(business: Any) -> Dict[str, Any]:
-    """Build the enriched Qdrant payload for a business."""
+    """Build the enriched Qdrant payload for a business (object or raw dict)."""
     return {
-        "mongo_id": str(business.id),
-        "name": business.name,
-        "description": getattr(business, "description", "") or "",
-        "globalRating": getattr(business, "globalRating", None),
-        "approvalStatus": getattr(business, "approvalStatus", None),
-        "isActive": bool(getattr(business, "isActive", True)),
-        "tags": list(getattr(business, "tags", []) or []),
+        "mongo_id": _entity_id(business),
+        "name": _get(business, "name", ""),
+        "description": _get(business, "description", "") or "",
+        "globalRating": _get(business, "globalRating"),
+        "approvalStatus": _get(business, "approvalStatus"),
+        "isActive": bool(_get(business, "isActive", True)),
+        "tags": list(_get(business, "tags", []) or []),
     }

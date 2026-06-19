@@ -2,14 +2,20 @@
 
 import asyncio
 import logging
+import sys
 import uuid
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Set
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from qdrant_client.models import PointStruct
 
 from clients import (
+    close_gemini_connection,
     close_mongo_connection,
     close_qdrant_connection,
+    connect_to_gemini,
     connect_to_mongo,
     connect_to_qdrant,
     ensure_collections_and_indexes,
@@ -106,6 +112,7 @@ async def sync_businesses_and_branches() -> None:
     """Sync both businesses and branches from Mongo into Qdrant and verify counts."""
     await connect_to_mongo()
     await connect_to_qdrant()
+    connect_to_gemini()
     await ensure_collections_and_indexes()
 
     try:
@@ -168,6 +175,7 @@ async def sync_businesses_and_branches() -> None:
             logger.info("No missing branches in Qdrant")
 
     finally:
+        close_gemini_connection()
         await close_mongo_connection()
         await close_qdrant_connection()
 
