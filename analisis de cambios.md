@@ -2,6 +2,20 @@
 
 ---
 
+## 📅 20 de Junio, 2026
+
+### Resumen de cambios (últimas 24h)
+
+Sin commits nuevos de código. El único commit en el rango de las últimas 24h es "Analisis diario Claude" del 19/06 (generado automáticamente). No hay cambios en producción.
+
+---
+
+### Puede dar bateo
+
+Sin cambios nuevos — sin riesgos nuevos.
+
+---
+
 ## 📅 19 de Junio, 2026
 
 ### Resumen de cambios (últimas 24h)
@@ -267,50 +281,4 @@ Sin cambios nuevos — sin riesgos nuevos.
 
 ---
 
-## 📅 12 de Junio, 2026
-
-### Resumen de cambios (últimas 24h)
-
-**15 commits** de Ruben0304 — sistema completo de campañas de anuncios de pago en el feed (ADS con `AdCampaign`, moderación admin), 3 mejoras críticas de performance que reducen el feed de ~12s a ~200ms (cache TTL en proceso, eliminación de llamadas S3 bloqueantes, GZip + DataLoader), sección "Explora otras opciones" con infinite scroll, fixes en "Pide de Nuevo" y correcciones de firma S3.
-
----
-
-### Área 1: Sistema ADS (3 commits)
-
-- **`feat(ads): backend de campañas de visibilidad en el feed`** — Modelos `AdCampaign`, `CreativeSpec`, `AdPricing`. Pago por wallet. Moderación admin.
-- **`feat(ads): mostrar campañas aunque estén pendientes de pago`** — Incluye `pending_payment` y `pending_review` en el feed. Excluye `draft`, `paused`, `rejected`, `ended`.
-- **`feat(ads): creativo como foto exportada + booleano approved`** — Reemplaza JSON declarativo por foto subida vía `/upload/ad-campaign/creative`. Booleano `approved` controlado por admin.
-
----
-
-### Área 2: Performance del feed (3 commits)
-
-- **`perf: eliminate blocking S3/DB calls`** — Boto3 cacheado. Firma crypto local. Feed ~2.5s → ~200ms.
-- **`perf: add in-process TTL cache`** — `InMemoryTTLCache` en `utils/cache.py` con TTLs de 2-5 min.
-- **`perf: reduce payload size and N+1 queries`** — GZip middleware, paginación en `allCombos`, DataLoader `branch_loader`.
-
----
-
-### Área 3: Feed — infinite scroll y sección Explorar (4 commits)
-
-- **`feat(feed): infinite scroll por páginas, contexto situacional`** — Parámetro `page`, `has_more: bool`, variantes fin de semana y madrugada.
-- **`feat: add Explora otras opciones`** — Sección catch-all con todos los productos no surfaceados.
-
----
-
-### Puede dar bateo
-
-1. **ADS — `approved` desacoplado del pago**: Admin puede aprobar sin pago.
-2. **Feed muestra `pending_payment` y `pending_review`**: Si filtro por `business_id` falla, todos verían anuncios no moderados.
-3. **`ad_pricing` sin datos iniciales en producción**.
-4. **Cache TTL en proceso — deploys multi-instancia**: Cada instancia tiene su propio cache.
-5. **GZip sobre respuestas binarias**.
-6. **Credenciales demo hardcodeadas**: `demo@llego.app / LlegoDemo2025!`.
-7. **Bypass de Stripe activo en producción con `isDemoStore`**.
-8. **Worker de borrado de cuentas — sin recuperación tras reinicios**.
-9. **`scheduledDeletionAt` — campo nuevo en documentos existentes**.
-10. **URL prefirmada de APK — TTL del cache vs TTL de la firma**.
-
----
-
-> ⚠️ **Nota de mantenimiento**: Las entradas del **5, 6, 7, 9 y 11 de Junio** fueron eliminadas al superar los 7 días de antigüedad (política de retención semanal). Anteriores eliminadas: 27, 28, 29, 30 de Mayo, 31 de Mayo, 1, 2, 3 y 4 de Junio.
+> ⚠️ **Nota de mantenimiento**: Las entradas del **5, 6, 7, 9, 11 y 12 de Junio** fueron eliminadas al superar los 7 días de antigüedad (política de retención semanal). Anteriores eliminadas: 27, 28, 29, 30 de Mayo, 31 de Mayo, 1, 2, 3 y 4 de Junio.
