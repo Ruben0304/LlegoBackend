@@ -179,9 +179,9 @@ When users ask to buy/order, guide them through product and store discovery in a
         fallback_response: Optional[AiFinalResponse] = None
 
         try:
-            async with self.async_client.messages.stream(
+            stream = await self.async_client.messages.create(
                 model=self.model_name,
-                max_tokens=1200,
+                max_tokens=2048,
                 system=(
                     f"{self.final_response_system_prompt}\n\n"
                     "IMPORTANT: Respond with plain natural text only for the end user.\n"
@@ -189,8 +189,14 @@ When users ask to buy/order, guide them through product and store discovery in a
                 ),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.9,
-            ) as stream:
-                async for text_delta in stream.text_stream:
+                stream=True,
+            )
+            async for event in stream:
+                if (
+                    event.type == "content_block_delta"
+                    and hasattr(event.delta, "text")
+                ):
+                    text_delta = event.delta.text
                     if not text_delta:
                         continue
                     accumulated_text += text_delta
