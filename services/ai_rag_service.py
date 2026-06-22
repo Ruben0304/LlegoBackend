@@ -181,7 +181,7 @@ When users ask to buy/order, guide them through product and store discovery in a
         try:
             stream = await self.async_client.messages.create(
                 model=self.model_name,
-                max_tokens=2048,
+                max_tokens=5000,
                 system=(
                     f"{self.final_response_system_prompt}\n\n"
                     "IMPORTANT: Respond with plain natural text only for the end user.\n"
