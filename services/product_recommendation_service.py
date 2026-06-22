@@ -1,4 +1,4 @@
-"""Product recommendation service using DeepSeek AI.
+"""Product recommendation service using Claude AI.
 
 This service provides complementary product recommendations based on cart items.
 """
@@ -6,7 +6,7 @@ This service provides complementary product recommendations based on cart items.
 import asyncio
 from typing import List, Optional
 
-from openai import OpenAI
+import anthropic
 
 from core.config import settings
 from repositories import products_repo
@@ -14,21 +14,19 @@ from services.ai_models import ProductRecommendationsResponse
 
 
 class ProductRecommendationService:
-    """Service for generating product recommendations using DeepSeek AI."""
+    """Service for generating product recommendations using Claude AI."""
 
     def __init__(self):
         """Initialize product recommendation service."""
-        if not settings.deepseek_api_key:
+        if not settings.anthropic_api_key:
             print(
-                "⚠ DeepSeek API key not configured. Product recommendations will be disabled."
+                "⚠ Anthropic API key not configured. Product recommendations will be disabled."
             )
             self.client = None
             self.model_name = None
         else:
-            self.client = OpenAI(
-                api_key=settings.deepseek_api_key, base_url=settings.deepseek_base_url
-            )
-            self.model_name = settings.deepseek_model
+            self.client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+            self.model_name = settings.anthropic_model
 
     async def get_recommendations(
         self, product_ids: List[str], limit: int = 5
@@ -43,9 +41,8 @@ class ProductRecommendationService:
         Returns:
             ProductRecommendationsResponse with recommendations, or None if service unavailable
         """
-        # Skip if DeepSeek is not configured
         if not self.client:
-            print("⚠ DeepSeek not configured, skipping recommendations")
+            print("⚠ Anthropic not configured, skipping recommendations")
             return None
 
         if not product_ids:
@@ -127,43 +124,37 @@ class ProductRecommendationService:
                     reasoning="Todos los productos disponibles en esta tienda ya están en tu carrito.",
                 )
 
-            # Step 4: Build the prompt for DeepSeek
+            # Step 4: Build the prompt
             prompt = self._build_recommendation_prompt(
                 cart_products=cart_products,
                 available_products=available_for_recommendation,
                 limit=limit,
             )
 
-            # Step 5: Call DeepSeek AI with JSON mode
-            print(f"🤖 Calling DeepSeek for recommendations (limit={limit})...")
+            # Step 5: Call Claude AI
+            print(f"🤖 Calling Claude for recommendations (limit={limit})...")
             print(f"   Using JSON mode with Pydantic validation")
 
             response = await asyncio.to_thread(
-                self.client.chat.completions.create,
+                self.client.messages.create,
                 model=self.model_name,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "Eres un asistente experto en recomendaciones de productos complementarios. "
-                            "Tu objetivo es sugerir productos que complementen bien los items en el carrito del usuario. "
-                            "Responde ÚNICAMENTE con un JSON válido siguiendo el schema exacto proporcionado."
-                        ),
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.7,
                 max_tokens=2000,
+                temperature=0.7,
+                system=(
+                    "Eres un asistente experto en recomendaciones de productos complementarios. "
+                    "Tu objetivo es sugerir productos que complementen bien los items en el carrito del usuario. "
+                    "Responde ÚNICAMENTE con un JSON válido siguiendo el schema exacto proporcionado."
+                ),
+                messages=[{"role": "user", "content": prompt}],
             )
 
-            if not response.choices or not response.choices[0].message.content:
-                print("⚠ Empty response from DeepSeek")
+            if not response.content:
+                print("⚠ Empty response from Claude")
                 return None
 
             # Step 6: Parse and validate the response
-            content = response.choices[0].message.content.strip()
-            print(f"✅ Received response from DeepSeek")
+            content = response.content[0].text.strip()
+            print(f"✅ Received response from Claude")
             print(f"   Raw response length: {len(content)} chars")
 
             # Validate with Pydantic

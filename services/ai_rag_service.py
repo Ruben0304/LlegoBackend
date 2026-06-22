@@ -1,10 +1,10 @@
-"""AI RAG service with DeepSeek structured outputs and vector search."""
+"""AI RAG service with Claude structured outputs and vector search."""
 
 import json
 from typing import Any, AsyncGenerator, Dict, List, Optional, Type, TypeVar
 
+import anthropic
 from bson import ObjectId
-from openai import AsyncOpenAI, OpenAI
 from pydantic import BaseModel
 
 from core.config import settings
@@ -29,22 +29,18 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class AiRagService:
-    """AI RAG service using DeepSeek with structured outputs and vector search."""
+    """AI RAG service using Claude with structured outputs and vector search."""
 
     def __init__(self):
         """Initialize AI RAG service."""
-        if not settings.deepseek_api_key:
+        if not settings.anthropic_api_key:
             raise RuntimeError(
-                "DeepSeek API key not configured. Set DEEPSEEK_API_KEY in environment variables."
+                "Anthropic API key not configured. Set ANTHROPIC_API_KEY in environment variables."
             )
 
-        self.client = OpenAI(
-            api_key=settings.deepseek_api_key, base_url=settings.deepseek_base_url
-        )
-        self.async_client = AsyncOpenAI(
-            api_key=settings.deepseek_api_key, base_url=settings.deepseek_base_url
-        )
-        self.model_name = settings.deepseek_model
+        self.client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        self.async_client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+        self.model_name = settings.anthropic_model
         self.vector_search = VectorSearchService()
 
         # System prompts
@@ -183,36 +179,26 @@ When users ask to buy/order, guide them through product and store discovery in a
         fallback_response: Optional[AiFinalResponse] = None
 
         try:
-            stream = await self.async_client.chat.completions.create(
+            async with self.async_client.messages.stream(
                 model=self.model_name,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            f"{self.final_response_system_prompt}\n\n"
-                            "IMPORTANT: Respond with plain natural text only for the end user.\n"
-                            "Do not return JSON, markdown, code fences, or internal notes."
-                        ),
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.9,
                 max_tokens=1200,
-                stream=True,
-            )
-
-            async for chunk in stream:
-                if not chunk.choices:
-                    continue
-                delta = chunk.choices[0].delta.content or ""
-                if not delta:
-                    continue
-                accumulated_text += delta
-                yield {
-                    "type": "delta",
-                    "delta": delta,
-                    "accumulated_text": accumulated_text,
-                }
+                system=(
+                    f"{self.final_response_system_prompt}\n\n"
+                    "IMPORTANT: Respond with plain natural text only for the end user.\n"
+                    "Do not return JSON, markdown, code fences, or internal notes."
+                ),
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.9,
+            ) as stream:
+                async for text_delta in stream.text_stream:
+                    if not text_delta:
+                        continue
+                    accumulated_text += text_delta
+                    yield {
+                        "type": "delta",
+                        "delta": text_delta,
+                        "accumulated_text": accumulated_text,
+                    }
 
         except Exception as stream_error:
             print(f"[AI RAG] Streaming failed, using fallback response: {stream_error}")
@@ -271,7 +257,7 @@ When users ask to buy/order, guide them through product and store discovery in a
         self, message: str, history: List[Any]
     ) -> AiIntentAnalysis:
         """
-        Analyze user intent using DeepSeek structured output.
+        Analyze user intent using Claude structured output.
 
         Args:
             message: Current user message
@@ -477,34 +463,24 @@ When users ask to buy/order, guide them through product and store discovery in a
         output_model: Type[T],
         max_tokens: int,
     ) -> T:
-        """Request structured JSON from DeepSeek and validate it with Pydantic."""
+        """Request structured JSON from Claude and validate it with Pydantic."""
         schema_json = json.dumps(output_model.model_json_schema(), ensure_ascii=False)
-        response = self.client.chat.completions.create(
+        response = self.client.messages.create(
             model=self.model_name,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        f"{system_prompt}\n\n"
-                        "IMPORTANT: Respond in json format only.\n"
-                        "Do not include markdown, code fences, or extra text.\n"
-                        f"Use this JSON schema exactly: {schema_json}"
-                    ),
-                },
-                {"role": "user", "content": user_prompt},
-            ],
-            response_format={"type": "json_object"},
-            temperature=1.0,
             max_tokens=max_tokens,
+            temperature=1.0,
+            system=(
+                f"{system_prompt}\n\n"
+                "IMPORTANT: Respond in json format only.\n"
+                "Do not include markdown, code fences, or extra text.\n"
+                f"Use this JSON schema exactly: {schema_json}"
+            ),
+            messages=[{"role": "user", "content": user_prompt}],
         )
 
-        content = (
-            response.choices[0].message.content
-            if response.choices and response.choices[0].message
-            else None
-        )
+        content = response.content[0].text if response.content else None
         if not content:
-            raise ValueError("Empty response from DeepSeek model")
+            raise ValueError("Empty response from Claude model")
 
         json_payload = self._strip_markdown_code_fence(content)
         try:

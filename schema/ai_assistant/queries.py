@@ -506,7 +506,7 @@ class AiAssistantQuery:
 
             # Determine error type
             error_message = str(e)
-            if "DeepSeek" in error_message or "API" in error_message:
+            if "Claude" in error_message or "Anthropic" in error_message or "API" in error_message:
                 error_code = AiChatErrorCode.AI_SERVICE_ERROR
                 user_message = "El servicio de IA no está disponible temporalmente. Intenta de nuevo en unos momentos."
             elif "timeout" in error_message.lower():
