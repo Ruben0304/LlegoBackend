@@ -52,6 +52,15 @@ class AiQuotaService:
         if not user_doc:
             raise Exception("Usuario no encontrado")
 
+        if user_doc.get("role") in ("admin", "manager"):
+            return QuotaDecision(
+                allowed=True,
+                limit=999999,
+                used=0,
+                remaining=999999,
+                source="admin_unlimited",
+            )
+
         if not device_id:
             return QuotaDecision(
                 allowed=False,
