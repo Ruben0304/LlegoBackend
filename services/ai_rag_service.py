@@ -179,32 +179,50 @@ When users ask to buy/order, guide them through product and store discovery in a
         fallback_response: Optional[AiFinalResponse] = None
 
         try:
-            stream = await self.async_client.messages.create(
-                model=self.model_name,
-                max_tokens=8192,
-                system=(
-                    f"{self.final_response_system_prompt}\n\n"
-                    "IMPORTANT: Respond with plain natural text only for the end user.\n"
-                    "Do not return JSON, markdown, code fences, or internal notes."
-                ),
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.9,
-                stream=True,
+            import asyncio as _asyncio
+            _loop = _asyncio.get_running_loop()
+            _queue: _asyncio.Queue = _asyncio.Queue()
+            _system = (
+                f"{self.final_response_system_prompt}\n\n"
+                "IMPORTANT: Respond with plain natural text only for the end user.\n"
+                "Do not return JSON, markdown, code fences, or internal notes."
             )
-            async for event in stream:
-                if (
-                    event.type == "content_block_delta"
-                    and hasattr(event.delta, "text")
-                ):
-                    text_delta = event.delta.text
-                    if not text_delta:
-                        continue
-                    accumulated_text += text_delta
-                    yield {
-                        "type": "delta",
-                        "delta": text_delta,
-                        "accumulated_text": accumulated_text,
-                    }
+
+            def _stream_in_thread():
+                try:
+                    for event in self.client.messages.create(
+                        model=self.model_name,
+                        max_tokens=8192,
+                        system=_system,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.9,
+                        stream=True,
+                    ):
+                        if (
+                            event.type == "content_block_delta"
+                            and hasattr(event.delta, "text")
+                            and event.delta.text
+                        ):
+                            _loop.call_soon_threadsafe(_queue.put_nowait, event.delta.text)
+                except Exception as exc:
+                    _loop.call_soon_threadsafe(_queue.put_nowait, exc)
+                finally:
+                    _loop.call_soon_threadsafe(_queue.put_nowait, None)
+
+            _loop.run_in_executor(None, _stream_in_thread)
+
+            while True:
+                item = await _queue.get()
+                if item is None:
+                    break
+                if isinstance(item, Exception):
+                    raise item
+                accumulated_text += item
+                yield {
+                    "type": "delta",
+                    "delta": item,
+                    "accumulated_text": accumulated_text,
+                }
 
         except Exception as stream_error:
             print(f"[AI RAG] Streaming failed, using fallback response: {stream_error}")
