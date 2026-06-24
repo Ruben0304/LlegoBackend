@@ -2,6 +2,20 @@
 
 ---
 
+## 📅 24 de Junio, 2026
+
+### Resumen de cambios (últimas 24h)
+
+Sin commits nuevos de código. El único commit en el rango de las últimas 24h es "Analisis diario Claude" del 23/06 (generado automáticamente). No hay cambios en producción.
+
+---
+
+### Puede dar bateo
+
+Sin cambios nuevos — sin riesgos nuevos.
+
+---
+
 ## 📅 23 de Junio, 2026
 
 ### Resumen de cambios (últimas 24h)
@@ -255,62 +269,4 @@ Sin cambios nuevos — sin riesgos nuevos.
 
 ---
 
-## 📅 16 de Junio, 2026
-
-### Resumen de cambios (últimas 24h)
-
-**14 commits** de Ruben0304 y Fabian1820 — estabilización completa de la integración Qdrant con 6 fixes críticos (incluyendo reemplazo del método `.search()` deprecado que causaba vacíos silenciosos), nuevas features de recomendaciones personalizadas vía Qdrant, y nueva funcionalidad de horarios excepcionales por día en branches con posibilidad de pausar pedidos.
-
----
-
-### Área 1: Qdrant — estabilización crítica (6 commits — Ruben0304)
-
-- **`fix(qdrant): lazy client init + refactor ads auth to use require_role`** (14:46).
-- **`fix(startup): replace blocking Qdrant probe with async wait_for (5s cap)`** (14:50).
-- **`fix(search): mensaje de error amigable cuando Qdrant no está disponible`** (15:19).
-- **`fix(qdrant): retry startup probe and bump client to 1.18.x`** (15:30).
-- **`test(qdrant): suite de integración completa contra Railway`** (15:46).
-- **`fix(qdrant): reemplazar .search() deprecated por .query_points() en repositorios`** (16:49) — **Fix crítico**: causa raíz del bug donde `searchProducts` devolvía vacío en producción.
-
----
-
-### Área 2: Recomendaciones y feed personalizado (2 commits — Ruben0304)
-
-- **`feat(feed): sección 'Especialmente para Ti' usando Qdrant recommend API`** (17:03).
-- **`feat(recommendations): getSimilarProducts, getSimilarBranches, getBranchesForProduct vía Qdrant`** (17:13).
-
----
-
-### Área 3: Panel de pruebas admin + MongoDB indexes (4 commits — Ruben0304)
-
-- **`feat(admin): panel nativo de pruebas de experiencia de cliente`** (16:56).
-- **`feat(admin/tests): soporte node_ids + categorías agrupadas`** (17:07).
-- **`perf: add missing MongoDB indexes and clean up verbose logging`** (18:01).
-- **`Merge remote branch: resolve conflicts`** (18:05).
-
----
-
-### Área 4: Threshold de búsqueda y control de pedidos en branches (2 commits)
-
-- **`fix(search): bajar threshold de productos de 0.60 a 0.45`** (17:45).
-- **`feat(branches): pausar pedidos + horario excepcional por día`** (21:32) — `acceptingOrders`, `setBranchDailyOverride`, `clearBranchDailyOverride`.
-
----
-
-### Puede dar bateo
-
-1. **`acceptingOrders` — retrocompatibilidad con documentos sin el campo en MongoDB**.
-2. **`dailyOverride.date` sin timezone explícita — desfase UTC vs Cuba**.
-3. **`setBranchDailyOverride` — sin validación de rango de horas**.
-4. **Threshold 0.60 → 0.45 — aumento de ruido en resultados de búsqueda**.
-5. **`getBranchesForProduct` — doble query Qdrant + MongoDB con top-50**.
-6. **`getSimilarProducts/Branches` — UUID no encontrado en Qdrant**.
-7. **`Especialmente para Ti` — vector promedio sin normalización explícita**.
-8. **Ads auth migrado de `admin_api_key` a `require_role`**.
-9. **`check_compatibility=False` en qdrant-client**.
-10. **Merge manual de conflictos (18:05) — confirmar integridad de `maxPoolSize=150`**.
-11. **Índices en colecciones existentes — confirmar background build en Atlas**.
-
----
-
-> ⚠️ **Nota de mantenimiento**: Las entradas del **5, 6, 7, 9, 11, 12 y 15 de Junio** fueron eliminadas al superar los 7 días de antigüedad (política de retención semanal). Anteriores eliminadas: 27, 28, 29, 30 de Mayo, 31 de Mayo, 1, 2, 3 y 4 de Junio.
+> ⚠️ **Nota de mantenimiento**: Las entradas del **5, 6, 7, 9, 11, 12, 15 y 16 de Junio** fueron eliminadas al superar los 7 días de antigüedad (política de retención semanal). Anteriores eliminadas: 27, 28, 29, 30 de Mayo, 31 de Mayo, 1, 2, 3 y 4 de Junio.
