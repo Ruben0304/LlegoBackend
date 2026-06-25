@@ -2,57 +2,71 @@
 
 ---
 
-## 📅 23 de Junio, 2026
+## 📅 25 de Junio, 2026
 
 ### Resumen de cambios (últimas 24h)
 
-**6 commits** de Ruben0304 — jornada concentrada en la capa de IA: migración completa de DeepSeek a **Claude Haiku 4.5** (Anthropic SDK) en los tres servicios de IA (`ai_rag_service`, `error_analysis_service`, `product_recommendation_service`), seguida de cuatro fixes progresivos para estabilizar el streaming asíncrono con el nuevo SDK, y un feat que permite a admins y managers saltarse el límite de cuota de consultas.
+**4 commits** de Ruben0304 — jornada concentrada íntegramente en la capa de IA: el **chat RAG** evoluciona a un loop agéntico de máximo 2 turnos con tool use (Haiku 4.5), el **recomendador de carrito** pasa a enviar listas numeradas de nombres (sin ObjectIds costosos) y recibir solo índices, se añade un **índice nocturno de complementos** precalculado vía Batch API (Claude Sonnet 4.6, 50% más barato), y ese índice se convierte a **procesamiento incremental** (solo deltas, de O(N²) a O(productos cambiados)).
 
 ---
 
-### Área 1: Migración DeepSeek → Claude Haiku 4.5 (1 commit — Ruben0304, 15:49)
+### Área 1: RAG agéntico con tool use + búsqueda híbrida RRF (1 commit — Ruben0304, 11:26)
 
-- **`feat(ai): migrar chat de DeepSeek a Claude Haiku 4.5 (Anthropic SDK)`** — Reemplaza el cliente `OpenAI+DeepSeek` por `anthropic.Anthropic/AsyncAnthropic` en `ai_rag_service`, `error_analysis_service` y `product_recommendation_service`. Actualiza config, requirements y referencias de texto. Añade test e2e que valida el pipeline completo Claude + Qdrant + MongoDB.
-
----
-
-### Área 2: Fixes de streaming Anthropic (4 commits — Ruben0304, 16:04–16:12)
-
-- **`fix(ai): corregir streaming con Anthropic SDK dentro de async generator`** (16:04) — Reemplaza `async with messages.stream()` por `create(stream=True)` para que el context manager no cierre el generator antes de emitir el evento final (`suggested_product_ids`). Sube `max_tokens` de 1200 a 2048.
-- **`fix(ai): subir max_tokens de streaming a 5000`** (16:05) — Respuestas que superaban 2048 tokens seguían truncándose.
-- **`fix(ai): subir max_tokens al máximo del modelo (8192)`** (16:09) — Segunda subida para garantizar respuestas completas con Claude Haiku 4.5.
-- **`fix(ai): usar thread+queue para streaming con Anthropic dentro de async generator`** (16:12) — Reemplaza `AsyncAnthropic` streaming por sync client en thread pool con `asyncio.Queue`. Mismo patrón que el SDK de OpenAI usa internamente. Resuelve conflictos de event loop entre `AsyncAnthropic` y el async generator de Strawberry que cortaban el mensaje a mitad.
+- **`feat(ai): RAG agéntico con tool use (search_products/branches) + híbrido RRF`** — `services/ai_rag_service.py` (+490/-93). Reemplaza pipeline de 2 llamadas fijas por loop agéntico de máximo 2 turnos en Haiku 4.5: Turn 1 (no-streaming, `tool_choice auto`) enruta — responde directo (off-topic/charla) o llama `search_products`/`search_branches` en paralelo con queries expandidas. Turn 2 (streaming, `tool_choice none`) redacta con candidatos usando el patrón thread+queue. Búsqueda híbrida: vector (Qdrant) + keyword (regex Mongo), fusionados con Reciprocal Rank Fusion. Cards = ítems que el modelo explícitamente recomienda (match por nombre normalizado). Historial capado a 6 mensajes. `send_message` no-streaming se mantiene como fallback.
 
 ---
 
-### Área 3: Bypass de cuota para roles privilegiados (1 commit — Ruben0304, 16:28)
+### Área 2: Recomendador de carrito con índices numéricos (1 commit — Ruben0304, 11:42)
 
-- **`feat(ai): bypass de quota para admins y managers`** — Usuarios con rol `admin` o `manager` no están sujetos al límite de cuota de consultas al LLM.
+- **`perf(ai): recomendador de carrito con lista numerada (índices) y prompt conciso`** — `services/product_recommendation_service.py` (+121/-102). El modelo recibe los productos del branch como lista numerada (sin descripciones ni ObjectIds) y devuelve solo los índices elegidos + razón breve; el servidor mapea índice → ID real. max_tokens reducido a 400. Cap de 120 candidatos por seguridad en branches grandes. Sin cambios en el resolver GraphQL ni en iOS.
+
+---
+
+### Área 3: Índice nocturno de complementos por producto (1 commit — Ruben0304, 13:08)
+
+- **`feat(ai): índice nocturno de complementos por producto (Sonnet + Batch API)`** — `services/product_complements_indexing_service.py` (nuevo, +307 líneas), `services/product_recommendation_service.py` (+99), `clients/lifespan.py` (+13). Cron nocturno que precomputa complementos por producto usando Claude Sonnet 4.6 vía Batch API. Solo re-indexa tiendas cuyo set cambió (hash de IDs). Guarda en `product_complements` (`{_id: productId, branchId, complements: [{productId, reason, score}]}`). El recomendador del carrito sirve desde el índice; Haiku en vivo solo como fallback de arranque en frío.
+
+---
+
+### Área 4: Índice incremental — solo deltas (1 commit — Ruben0304, 13:29)
+
+- **`feat(ai): índice de complementos incremental (solo deltas, más barato)`** — `services/product_complements_indexing_service.py` (+305/-136). Pasa de re-indexar tiendas completas a procesar solo deltas: producto borrado → sin LLM (`$pull` de su ID en listas ajenas + borrar su doc); producto añadido/cambiado → UNA llamada batch que devuelve en la misma respuesta complementos forward (`own`) y backward (`host_of`). Estado por producto con fingerprint de nombre. Migración transparente del formato anterior (hash por tienda). Costo: O(N²) → O(productos que cambiaron). Borrados a costo cero.
 
 ---
 
 ### Puede dar bateo
 
-1. **`ANTHROPIC_API_KEY` no configurada en producción**: La migración de DeepSeek a Anthropic requiere que la nueva API key esté en Railway/entorno de producción. Si falta, los tres servicios de IA lanzarán `AuthenticationError` en tiempo de ejecución.
+1. **Loop agéntico — Turn 2 con contexto vacío si tool call falla silenciosamente**: Si `search_products` o `search_branches` devuelven error o vacío, el Turn 2 recibe candidatos vacíos y genera una respuesta genérica sin indicar que no se encontraron resultados relevantes.
 
-2. **Sync client en thread pool — pool agotado bajo alta concurrencia**: Cada llamada de streaming ocupa un thread durante toda la duración del stream. Con el pool por defecto de Python (`min(32, cpu_count+4)` threads), un pico de usuarios simultáneos puede agotar los threads y dejar nuevas solicitudes de chat colgadas.
+2. **RRF con K hardcodeado — pesos no calibrados por tienda**: La fusión Qdrant + MongoDB usa Reciprocal Rank Fusion con K fijo. Sin evaluación por dominio, la mezcla puede favorecer texto exacto sobre semántica o viceversa sin forma de ajustar.
 
-3. **`max_tokens=8192` — costo Anthropic elevado**: Haiku 4.5 a 8192 tokens por llamada multiplica el costo por solicitud respecto a DeepSeek. Confirmar si hay budget mensual o alertas de costo configuradas en Anthropic Console.
+3. **`business_name` → branch IDs resuelto server-side — potencial N+1**: Si una query menciona múltiples negocios, el resolver hace una query MongoDB por nombre. Sin índice en `business_name`, esto escala linealmente con el número de negocios mencionados.
 
-4. **Prompts de DeepSeek reutilizados con Claude — formato `suggested_product_ids` puede romperse**: Los system prompts y few-shots diseñados para DeepSeek pueden producir outputs con formato diferente en Claude Haiku 4.5. El evento `suggested_product_ids` depende de que el modelo siga un formato JSON específico; un cambio de comportamiento rompe el parsing.
+4. **Historial capado a 6 mensajes — truncado silencioso**: Un usuario en conversación larga pierde contexto sin aviso. El modelo puede contradecirse o recomendar productos ya descartados.
 
-5. **Bypass de cuota sin audit log**: Admins/managers pueden hacer consultas ilimitadas al LLM sin registro. Si una cuenta privilegiada es comprometida, el abuso no se detectará hasta recibir la factura de Anthropic.
+5. **Batch API — carrera entre crons si el batch no completa antes del siguiente ciclo**: La Batch API de Anthropic puede tardar minutos u horas. Si el cron se lanza dos veces antes de que el primer batch complete, hay una carrera en la escritura.
 
-6. **e2e test con API Anthropic real en CI**: Si el test añadido en el commit de migración llama a la API real en cada CI run, cada PR incurrirá en costo Anthropic. Confirmar que está marcado como de integración y excluido de la suite de CI normal.
+6. **Migración formato anterior — índice híbrido stale durante transición**: Si la migración del formato hash-por-tienda al nuevo fingerprint-por-producto falla a mitad, parte del índice queda en formato viejo; el recomendador sirve desde él sin activar el fallback a Haiku.
 
-7. **`asyncio.Queue` sin timeout ni backpressure**: Si el consumer (async generator de Strawberry) va más lento que el producer (thread de streaming), el queue crece sin límite en memoria. Si el cliente corta la conexión antes de que el stream termine, el thread producer continúa hasta completar el stream completo.
+7. **`$pull` borrado incremental — no limpia referencias en formato viejo del índice**: El borrado hace `$pull` por ID en docs del nuevo formato; productos en el formato anterior (hash por tienda) pueden tener referencias stale sin limpiar.
 
-8. **Tres servicios migrados simultáneamente sin feature flag**: Si Claude da problemas en uno, no hay forma de revertir solo ese servicio sin rollback completo del commit.
+8. **Batch API — sin retry explícito en caso de error del batch completo**: Si el batch falla o expira, no hay mecanismo de retry documentado. Las tiendas afectadas quedan sin actualizar hasta el siguiente ciclo nocturno.
+
+9. **Cap de 120 candidatos — exclusión sistemática en branches grandes**: En branches con más de 120 SKUs, los productos más allá del corte nunca son evaluados como complementos independientemente de su relevancia.
 
 ---
 
 #### Seguimientos vigentes
 
+- **Loop agéntico — Turn 2 vacío si tool call falla (Jun 25)**.
+- **RRF K hardcodeado — sin calibración por tienda (Jun 25)**.
+- **`business_name` → branch IDs — potencial N+1 sin índice (Jun 25)**.
+- **Historial capado a 6 — truncado silencioso (Jun 25)**.
+- **Batch API — carrera entre crons consecutivos (Jun 25)**.
+- **Migración formato anterior — índice híbrido stale (Jun 25)**.
+- **`$pull` incremental — no limpia referencias en formato viejo (Jun 25)**.
+- **Batch API — sin retry en error de batch completo (Jun 25)**.
+- **Cap 120 candidatos — exclusión sistemática en branches grandes (Jun 25)**.
 - **`ANTHROPIC_API_KEY` no configurada en producción — servicios de IA fallarán (Jun 23)**.
 - **Sync client en thread pool — pool agotado bajo alta concurrencia de streaming (Jun 23)**.
 - **`max_tokens=8192` — monitorear costos Anthropic (Jun 23)**.
@@ -133,6 +147,55 @@
 - **Badges de disponibilidad por pool — snapshot estático (SunCarWeb)**.
 - **`window.history.pushState` + Next.js App Router desync (SunCarWeb)**.
 - **`POST /solicitudes-transferencia/{id}/resolver` — endpoint pendiente (SunCarWeb)**.
+
+---
+
+## 📅 23 de Junio, 2026
+
+### Resumen de cambios (últimas 24h)
+
+**6 commits** de Ruben0304 — jornada concentrada en la capa de IA: migración completa de DeepSeek a **Claude Haiku 4.5** (Anthropic SDK) en los tres servicios de IA (`ai_rag_service`, `error_analysis_service`, `product_recommendation_service`), seguida de cuatro fixes progresivos para estabilizar el streaming asíncrono con el nuevo SDK, y un feat que permite a admins y managers saltarse el límite de cuota de consultas.
+
+---
+
+### Área 1: Migración DeepSeek → Claude Haiku 4.5 (1 commit — Ruben0304, 15:49)
+
+- **`feat(ai): migrar chat de DeepSeek a Claude Haiku 4.5 (Anthropic SDK)`** — Reemplaza el cliente `OpenAI+DeepSeek` por `anthropic.Anthropic/AsyncAnthropic` en `ai_rag_service`, `error_analysis_service` y `product_recommendation_service`. Actualiza config, requirements y referencias de texto. Añade test e2e que valida el pipeline completo Claude + Qdrant + MongoDB.
+
+---
+
+### Área 2: Fixes de streaming Anthropic (4 commits — Ruben0304, 16:04–16:12)
+
+- **`fix(ai): corregir streaming con Anthropic SDK dentro de async generator`** (16:04) — Reemplaza `async with messages.stream()` por `create(stream=True)` para que el context manager no cierre el generator antes de emitir el evento final (`suggested_product_ids`). Sube `max_tokens` de 1200 a 2048.
+- **`fix(ai): subir max_tokens de streaming a 5000`** (16:05) — Respuestas que superaban 2048 tokens seguían truncándose.
+- **`fix(ai): subir max_tokens al máximo del modelo (8192)`** (16:09) — Segunda subida para garantizar respuestas completas con Claude Haiku 4.5.
+- **`fix(ai): usar thread+queue para streaming con Anthropic dentro de async generator`** (16:12) — Reemplaza `AsyncAnthropic` streaming por sync client en thread pool con `asyncio.Queue`. Mismo patrón que el SDK de OpenAI usa internamente. Resuelve conflictos de event loop entre `AsyncAnthropic` y el async generator de Strawberry que cortaban el mensaje a mitad.
+
+---
+
+### Área 3: Bypass de cuota para roles privilegiados (1 commit — Ruben0304, 16:28)
+
+- **`feat(ai): bypass de quota para admins y managers`** — Usuarios con rol `admin` o `manager` no están sujetos al límite de cuota de consultas al LLM.
+
+---
+
+### Puede dar bateo
+
+1. **`ANTHROPIC_API_KEY` no configurada en producción**: La migración de DeepSeek a Anthropic requiere que la nueva API key esté en Railway/entorno de producción. Si falta, los tres servicios de IA lanzarán `AuthenticationError` en tiempo de ejecución.
+
+2. **Sync client en thread pool — pool agotado bajo alta concurrencia**: Cada llamada de streaming ocupa un thread durante toda la duración del stream. Con el pool por defecto de Python (`min(32, cpu_count+4)` threads), un pico de usuarios simultáneos puede agotar los threads y dejar nuevas solicitudes de chat colgadas.
+
+3. **`max_tokens=8192` — costo Anthropic elevado**: Haiku 4.5 a 8192 tokens por llamada multiplica el costo por solicitud respecto a DeepSeek. Confirmar si hay budget mensual o alertas de costo configuradas en Anthropic Console.
+
+4. **Prompts de DeepSeek reutilizados con Claude — formato `suggested_product_ids` puede romperse**: Los system prompts y few-shots diseñados para DeepSeek pueden producir outputs con formato diferente en Claude Haiku 4.5. El evento `suggested_product_ids` depende de que el modelo siga un formato JSON específico; un cambio de comportamiento rompe el parsing.
+
+5. **Bypass de cuota sin audit log**: Admins/managers pueden hacer consultas ilimitadas al LLM sin registro. Si una cuenta privilegiada es comprometida, el abuso no se detectará hasta recibir la factura de Anthropic.
+
+6. **e2e test con API Anthropic real en CI**: Si el test añadido en el commit de migración llama a la API real en cada CI run, cada PR incurrirá en costo Anthropic. Confirmar que está marcado como de integración y excluido de la suite de CI normal.
+
+7. **`asyncio.Queue` sin timeout ni backpressure**: Si el consumer (async generator de Strawberry) va más lento que el producer (thread de streaming), el queue crece sin límite en memoria. Si el cliente corta la conexión antes de que el stream termine, el thread producer continúa hasta completar el stream completo.
+
+8. **Tres servicios migrados simultáneamente sin feature flag**: Si Claude da problemas en uno, no hay forma de revertir solo ese servicio sin rollback completo del commit.
 
 ---
 
@@ -241,76 +304,4 @@ Sin cambios nuevos — sin riesgos nuevos.
 
 ---
 
-## 📅 17 de Junio, 2026
-
-### Resumen de cambios (últimas 24h)
-
-Sin commits nuevos desde el análisis del 16/06. Los seguimientos del 16/06 siguen vigentes.
-
----
-
-### Puede dar bateo
-
-Sin cambios nuevos — sin riesgos nuevos.
-
----
-
-## 📅 16 de Junio, 2026
-
-### Resumen de cambios (últimas 24h)
-
-**14 commits** de Ruben0304 y Fabian1820 — estabilización completa de la integración Qdrant con 6 fixes críticos (incluyendo reemplazo del método `.search()` deprecado que causaba vacíos silenciosos), nuevas features de recomendaciones personalizadas vía Qdrant, y nueva funcionalidad de horarios excepcionales por día en branches con posibilidad de pausar pedidos.
-
----
-
-### Área 1: Qdrant — estabilización crítica (6 commits — Ruben0304)
-
-- **`fix(qdrant): lazy client init + refactor ads auth to use require_role`** (14:46).
-- **`fix(startup): replace blocking Qdrant probe with async wait_for (5s cap)`** (14:50).
-- **`fix(search): mensaje de error amigable cuando Qdrant no está disponible`** (15:19).
-- **`fix(qdrant): retry startup probe and bump client to 1.18.x`** (15:30).
-- **`test(qdrant): suite de integración completa contra Railway`** (15:46).
-- **`fix(qdrant): reemplazar .search() deprecated por .query_points() en repositorios`** (16:49) — **Fix crítico**: causa raíz del bug donde `searchProducts` devolvía vacío en producción.
-
----
-
-### Área 2: Recomendaciones y feed personalizado (2 commits — Ruben0304)
-
-- **`feat(feed): sección 'Especialmente para Ti' usando Qdrant recommend API`** (17:03).
-- **`feat(recommendations): getSimilarProducts, getSimilarBranches, getBranchesForProduct vía Qdrant`** (17:13).
-
----
-
-### Área 3: Panel de pruebas admin + MongoDB indexes (4 commits — Ruben0304)
-
-- **`feat(admin): panel nativo de pruebas de experiencia de cliente`** (16:56).
-- **`feat(admin/tests): soporte node_ids + categorías agrupadas`** (17:07).
-- **`perf: add missing MongoDB indexes and clean up verbose logging`** (18:01).
-- **`Merge remote branch: resolve conflicts`** (18:05).
-
----
-
-### Área 4: Threshold de búsqueda y control de pedidos en branches (2 commits)
-
-- **`fix(search): bajar threshold de productos de 0.60 a 0.45`** (17:45).
-- **`feat(branches): pausar pedidos + horario excepcional por día`** (21:32) — `acceptingOrders`, `setBranchDailyOverride`, `clearBranchDailyOverride`.
-
----
-
-### Puede dar bateo
-
-1. **`acceptingOrders` — retrocompatibilidad con documentos sin el campo en MongoDB**.
-2. **`dailyOverride.date` sin timezone explícita — desfase UTC vs Cuba**.
-3. **`setBranchDailyOverride` — sin validación de rango de horas**.
-4. **Threshold 0.60 → 0.45 — aumento de ruido en resultados de búsqueda**.
-5. **`getBranchesForProduct` — doble query Qdrant + MongoDB con top-50**.
-6. **`getSimilarProducts/Branches` — UUID no encontrado en Qdrant**.
-7. **`Especialmente para Ti` — vector promedio sin normalización explícita**.
-8. **Ads auth migrado de `admin_api_key` a `require_role`**.
-9. **`check_compatibility=False` en qdrant-client**.
-10. **Merge manual de conflictos (18:05) — confirmar integridad de `maxPoolSize=150`**.
-11. **Índices en colecciones existentes — confirmar background build en Atlas**.
-
----
-
-> ⚠️ **Nota de mantenimiento**: Las entradas del **5, 6, 7, 9, 11, 12 y 15 de Junio** fueron eliminadas al superar los 7 días de antigüedad (política de retención semanal). Anteriores eliminadas: 27, 28, 29, 30 de Mayo, 31 de Mayo, 1, 2, 3 y 4 de Junio.
+> ⚠️ **Nota de mantenimiento**: Las entradas del **16 y 17 de Junio** fueron eliminadas al superar los 7 días de antigüedad (política de retención semanal). Anteriores eliminadas: 5, 6, 7, 9, 11, 12 y 15 de Junio, 27, 28, 29, 30 de Mayo, 31 de Mayo, 1, 2, 3 y 4 de Junio.
