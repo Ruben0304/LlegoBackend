@@ -39,16 +39,103 @@ class ProductRecommendationService:
     async def get_recommendations(
         self, product_ids: List[str], limit: int = 5
     ) -> Optional[ProductRecommendationsResponse]:
-        """
-        Get complementary product recommendations based on cart items.
+        """Complementary recommendations for the cart.
 
-        Args:
-            product_ids: List of product IDs currently in the cart
-            limit: Maximum number of recommendations to return
-
-        Returns:
-            ProductRecommendationsResponse with recommendations, or None if service unavailable
+        Serves from the precomputed per-product complements (no live LLM,
+        index built nightly with Sonnet). Only falls back to a live Claude call
+        for products not indexed yet — the cold window right after they're added,
+        before the nightly cron runs.
         """
+        if not product_ids:
+            return None
+        precomputed = await self._from_precomputed(product_ids, limit)
+        if precomputed is not None:
+            return precomputed
+        return await self._live_recommendations(product_ids, limit)
+
+    async def _from_precomputed(
+        self, product_ids: List[str], limit: int
+    ) -> Optional[ProductRecommendationsResponse]:
+        """Merge precomputed complements across all cart items (ponderation).
+
+        A complement recommended for several cart items adds up its score, so the
+        most broadly-complementary items rise to the top. Returns None only when
+        NO cart product has precomputed data (so the caller falls back to live).
+        """
+        from clients import get_database
+
+        cart_ids = [str(p).strip() for p in product_ids if str(p).strip()]
+        if not cart_ids:
+            return None
+
+        db = get_database()
+        docs = (
+            await db["product_complements"]
+            .find({"_id": {"$in": cart_ids}})
+            .to_list(length=None)
+        )
+        if not docs:
+            return None  # nothing indexed for this cart -> fall back to live LLM
+
+        cart_set = set(cart_ids)
+        agg: dict = {}  # complementId -> {"score", "best", "reason"}
+        for doc in docs:
+            for comp in doc.get("complements", []):
+                cid = comp.get("productId")
+                if not cid or cid in cart_set:
+                    continue
+                score = float(comp.get("score", 0.5))
+                reason = str(comp.get("reason", "")).strip()
+                cur = agg.get(cid)
+                if cur:
+                    cur["score"] += score  # ponderación entre ítems del carrito
+                    if score > cur["best"]:
+                        cur["best"] = score
+                        cur["reason"] = reason
+                else:
+                    agg[cid] = {"score": score, "best": score, "reason": reason}
+
+        if not agg:
+            return ProductRecommendationsResponse(
+                recommendations=[],
+                reasoning="No hay complementos para este carrito en este momento.",
+            )
+
+        ranked = sorted(agg.items(), key=lambda kv: kv[1]["score"], reverse=True)
+
+        # Hydrate to drop unavailable/deleted items and to get names.
+        candidate_ids = [cid for cid, _ in ranked][: max(limit * 4, limit)]
+        products = await products_repo.get_by_ids(candidate_ids)
+        by_id = {str(p.id): p for p in products}
+
+        recommendations: List[ProductRecommendation] = []
+        for cid, info in ranked:
+            product = by_id.get(cid)
+            if not product or not getattr(product, "availability", True):
+                continue
+            recommendations.append(
+                ProductRecommendation(
+                    product_id=cid,
+                    product_name=product.name,
+                    reasoning=info["reason"] or "Complementa tu carrito.",
+                )
+            )
+            if len(recommendations) >= limit:
+                break
+
+        print(
+            f"🛒 [recommendations] precomputado: {len(recommendations)} de "
+            f"{len(docs)} productos del carrito indexados"
+        )
+        return ProductRecommendationsResponse(
+            recommendations=recommendations,
+            reasoning="Productos que complementan tu carrito.",
+        )
+
+    async def _live_recommendations(
+        self, product_ids: List[str], limit: int = 5
+    ) -> Optional[ProductRecommendationsResponse]:
+        """Live Claude (Haiku) recommender — cold-start fallback only."""
         if not self.client:
             print("⚠ Anthropic not configured, skipping recommendations")
             return None

@@ -139,6 +139,19 @@ async def lifespan(app):
                 except Exception as e:
                     logger.error(f"Error in price positioning worker: {e}", exc_info=True)
 
+                try:
+                    from services.product_complements_indexing_service import (
+                        product_complements_indexing_service,
+                    )
+
+                    logger.info("Running product complements indexing (Sonnet/batch)...")
+                    cstats = await product_complements_indexing_service.run_nightly()
+                    logger.info(f"Product complements indexing completed: {cstats}")
+                except Exception as e:
+                    logger.error(
+                        f"Error in product complements indexing: {e}", exc_info=True
+                    )
+
                 await asyncio.sleep(86400)
 
         logger.info("Starting nightly recommendation worker...")
