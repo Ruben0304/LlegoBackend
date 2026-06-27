@@ -2,6 +2,20 @@
 
 ---
 
+## 📅 27 de Junio, 2026
+
+### Resumen de cambios (últimas 24h)
+
+Sin commits nuevos de código. El único commit en el rango de las últimas 24h es "Analisis diario Claude" del 26/06 (generado automáticamente). No hay cambios en producción.
+
+---
+
+### Puede dar bateo
+
+Sin cambios nuevos — sin riesgos nuevos.
+
+---
+
 ## 📅 26 de Junio, 2026
 
 ### Resumen de cambios (últimas 24h)
@@ -52,7 +66,7 @@
 
 8. **`send_message` no-streaming como fallback**: Si el sistema cae al fallback, el cliente iOS (que espera un stream SSE) no recibe el evento `suggested_product_ids` correctamente o tiene que manejar una respuesta no-stream diferente.
 
-9. **Múltiples workers nocturnos encadenados sin aislamiento**: El lifespan ahora encadena: taste vector + price positioning + complement indexer. Si uno lanza una excepción no capturada, los siguientes no se ejecutan, sin alertas visibles.
+9. **Múltiples workers nocturnos encadenados sin aislamiento**: El lifespan ahora encadena: taste vector + price positioning + complement indexer. Si uno lanza una excepción no capurada, los siguientes no se ejecutan, sin alertas visibles.
 
 10. **Tope de 120 candidatos en el recomendador**: Branches con más de 120 productos activos truncarán silenciosamente el catálogo enviado al modelo. Productos al final del listado nunca serán recomendados como complementos en esas tiendas.
 
@@ -189,57 +203,4 @@ Sin cambios nuevos — sin riesgos nuevos.
 
 ---
 
-## 📅 19 de Junio, 2026
-
-### Resumen de cambios (últimas 24h)
-
-**10 commits** de Ruben0304 y brianmojena — día de máxima actividad en la capa Qdrant: (1) infraestructura completa de payloads enriquecidos e índices server-side; (2) mejoras de calidad en recomendaciones (BEST_SCORE, embedding con contexto semántico, borrado robusto por `mongo_id`, diversidad MMR-lite); (3) vector de gusto por usuario precalculado con job nocturno; (4) clasificación de tiendas por posición de precio (económica/promedio/cara); y (5) fix crítico de `deliveredOrdersCount` que se reseteaba a 0 al editar el teléfono del repartidor.
-
----
-
-### Área 1: Qdrant — payloads enriquecidos + payload indexes + sync consistente (1 commit)
-
-- **`feat(qdrant): enriquecer payloads + payload indexes + sync consistente (#1)`** — `qdrant_payloads.py` como única fuente de verdad. `ensure_collections_and_indexes()` idempotente en lifespan. `update()` en repos: re-embebe solo si cambian campos de texto; `set_payload` si solo cambian campos de payload. Script `reindex_qdrant_payloads.py` para backfill sin re-embeber.
-
----
-
-### Área 2: Calidad de recomendaciones (4 commits)
-
-- BEST_SCORE en `recommend`, embedding enriquecido con categoría/dirección/tags, borrado robusto por filtro `mongo_id`, re-ranking MMR-lite en "Especialmente para Ti".
-
----
-
-### Área 3: Vector de gusto por usuario + job nocturno (1 commit)
-
-- `taste_vector_service.py`: promedio ponderado y decaído de embeddings de productos con que el usuario interactuó. Worker nocturno (cada 24h) en lifespan.
-
----
-
-### Área 4: Posicionamiento de precios por tienda (2 commits)
-
-- `price_positioning_service.py`: `precio_relativo = precio / mediana(precios similares en misma categoría)`. Campos nuevos: `priceTier`, `priceIndex`, `priceConfidence`. Worker nocturno junto al de vectores de gusto.
-
----
-
-### Área 5: Fix de repartidores (1 commit — brianmojena)
-
-- **`Fix updateUser mutation missing deliveredOrdersCount in response`** — `_user_to_type()` helper centraliza la construcción con el campo incluido.
-
----
-
-### Puede dar bateo
-
-1. **Dos workers nocturnos simultáneos — contención en Qdrant**.
-2. **`priceConfidence` no verificado antes de usar `priceTier`**.
-3. **MMR-lite penaliza tiendas mono-categoría**.
-4. **Colección `users` en Qdrant — existencia no garantizada**.
-5. **`exchangeRate` cero o ausente — división por cero en posicionamiento**.
-6. **`_user_to_type()` — potencial N+1 en contexto de lista**.
-7. **Re-embedding por `TEXT_FIELDS` — costo Gemini en edición masiva**.
-8. **`reindex_businesses_qdrant` ahora re-embebe al ejecutarse — costo involuntario en CI/dev**.
-9. **Backfill con docs crudos — tipos no validados silenciosamente**.
-10. **`delete_by_mongo_id` depende del payload index de `mongo_id`**.
-
----
-
-> ⚠️ **Nota de mantenimiento**: Las entradas del **16, 17 y 18 de Junio** fueron eliminadas al superar los 7 días de antigüedad (política de retención semanal). Anteriores eliminadas: 5, 6, 7, 9, 11, 12 y 15 de Junio, y días de Mayo.
+> ⚠️ **Nota de mantenimiento**: Las entradas del **16, 17, 18 y 19 de Junio** fueron eliminadas al superar los 7 días de antigüedad (política de retención semanal). Anteriores eliminadas: 5, 6, 7, 9, 11, 12 y 15 de Junio, y días de Mayo.
