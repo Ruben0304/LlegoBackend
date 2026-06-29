@@ -557,7 +557,26 @@ class OrderType:
     async def customer(self) -> UserType:
         user = await users_repo.get_by_id(self.customerId)
         if not user:
-            raise Exception(f"Customer not found: {self.customerId}")
+            # El cliente fue eliminado o el id quedó huérfano (típico en pedidos
+            # antiguos). Devolvemos un placeholder en vez de romper toda la query
+            # de pedidos del negocio con una excepción.
+            return UserType(
+                id=str(self.customerId or ""),
+                name="Cliente no disponible",
+                email="",
+                username="",
+                phone=None,
+                role="customer",
+                avatar=None,
+                businessIds=[],
+                branchIds=[],
+                businessAccessIds=[],
+                createdAt=datetime.now(),
+                authProvider="",
+                providerUserId=None,
+                applePrivateEmail=None,
+                wallet=WalletBalanceType(local=0.0, usd=0.0),
+            )
         return UserType(
             **{
                 **to_strawberry_dict(
@@ -651,6 +670,28 @@ class OrderType:
         return None
 
 
+def _coerce_order_status(value) -> OrderStatusEnum:
+    """Convierte status a OrderStatusEnum tolerando None/enum/str de pedidos antiguos."""
+    if value is None:
+        return OrderStatusEnum.PENDING_ACCEPTANCE
+    raw = value.value if hasattr(value, "value") else value
+    try:
+        return OrderStatusEnum(raw)
+    except ValueError:
+        return OrderStatusEnum.PENDING_ACCEPTANCE
+
+
+def _coerce_payment_status(value) -> PaymentStatusEnum:
+    """Convierte paymentStatus a PaymentStatusEnum tolerando None/enum/str."""
+    if value is None:
+        return PaymentStatusEnum.PENDING
+    raw = value.value if hasattr(value, "value") else value
+    try:
+        return PaymentStatusEnum(raw)
+    except ValueError:
+        return PaymentStatusEnum.PENDING
+
+
 def order_to_type(order) -> OrderType:
     """Convert Order model to OrderType."""
     fallback_coords = (
@@ -688,9 +729,9 @@ def order_to_type(order) -> OrderType:
         deliveryMode=order.deliveryMode,
         total=order.total,
         currency=order.currency,
-        status=OrderStatusEnum(order.status.value),
+        status=_coerce_order_status(order.status),
         paymentMethod=order.paymentMethod,
-        paymentStatus=PaymentStatusEnum(order.paymentStatus.value),
+        paymentStatus=_coerce_payment_status(order.paymentStatus),
         createdAt=order.createdAt,
         updatedAt=order.updatedAt,
         lastStatusAt=order.lastStatusAt,

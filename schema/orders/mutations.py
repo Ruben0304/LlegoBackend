@@ -578,6 +578,21 @@ class OrderMutation:
         if order:
             await order_service._emit_tracking_event(order)
 
+        # Alimentar el canal `delivery_location:{orderId}` que consume la app de
+        # negocios para el mapa en vivo del chofer. La subscription
+        # delivery_location_updated escucha ahí; sin esto el mapa queda vacío.
+        from schema.orders.subscriptions import publish_delivery_location
+
+        await publish_delivery_location(
+            input.orderId,
+            {
+                "orderId": input.orderId,
+                "longitude": input.longitude,
+                "latitude": input.latitude,
+                "timestamp": datetime.utcnow(),
+            },
+        )
+
         return True
 
     @strawberry.mutation(description="Confirmar entrega completada")
