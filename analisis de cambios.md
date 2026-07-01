@@ -2,6 +2,20 @@
 
 ---
 
+## 📅 1 de Julio, 2026
+
+### Resumen de cambios (últimas 24h)
+
+Sin commits nuevos de código. El único commit en las últimas 24h es "Analisis diario Claude" (generado automáticamente). No hay cambios en producción.
+
+---
+
+### Puede dar bateo
+
+Sin cambios nuevos — sin riesgos nuevos.
+
+---
+
 ## 📅 30 de Junio, 2026
 
 ### Resumen de cambios (últimas 24h)
@@ -161,46 +175,4 @@ Sin cambios nuevos — sin riesgos nuevos.
 
 ---
 
-## 📅 23 de Junio, 2026
-
-### Resumen de cambios (últimas 24h)
-
-**6 commits** de Ruben0304 — jornada concentrada en la capa de IA: migración completa de DeepSeek a **Claude Haiku 4.5** (Anthropic SDK) en los tres servicios de IA (`ai_rag_service`, `error_analysis_service`, `product_recommendation_service`), seguida de cuatro fixes progresivos para estabilizar el streaming asíncrono con el nuevo SDK, y un feat que permite a admins y managers saltarse el límite de cuota de consultas.
-
----
-
-### Área 1: Migración DeepSeek → Claude Haiku 4.5 (1 commit — Ruben0304, 15:49)
-
-- **`feat(ai): migrar chat de DeepSeek a Claude Haiku 4.5 (Anthropic SDK)`** — Reemplaza el cliente `OpenAI+DeepSeek` por `anthropic.Anthropic/AsyncAnthropic` en `ai_rag_service`, `error_analysis_service` y `product_recommendation_service`. Actualiza config, requirements y referencias de texto. Añade test e2e que valida el pipeline completo Claude + Qdrant + MongoDB.
-
----
-
-### Área 2: Fixes de streaming Anthropic (4 commits — Ruben0304, 16:04–16:12)
-
-- **`fix(ai): corregir streaming con Anthropic SDK dentro de async generator`** (16:04) — Reemplaza `async with messages.stream()` por `create(stream=True)` para que el context manager no cierre el generator antes de emitir el evento final (`suggested_product_ids`). Sube `max_tokens` de 1200 a 2048.
-- **`fix(ai): subir max_tokens de streaming a 5000`** (16:05).
-- **`fix(ai): subir max_tokens al máximo del modelo (8192)`** (16:09).
-- **`fix(ai): usar thread+queue para streaming con Anthropic dentro de async generator`** (16:12) — Reemplaza `AsyncAnthropic` streaming por sync client en thread pool con `asyncio.Queue`. Resuelve conflictos de event loop entre `AsyncAnthropic` y el async generator de Strawberry.
-
----
-
-### Área 3: Bypass de cuota para roles privilegiados (1 commit — Ruben0304, 16:28)
-
-- **`feat(ai): bypass de quota para admins y managers`** — Usuarios con rol `admin` o `manager` no están sujetos al límite de cuota de consultas al LLM.
-
----
-
-### Puede dar bateo
-
-1. **`ANTHROPIC_API_KEY` no configurada en producción** — AuthenticationError en los tres servicios de IA.
-2. **Sync client en thread pool — pool agotado bajo alta concurrencia**.
-3. **`max_tokens=8192` — costo Anthropic elevado por solicitud**.
-4. **Prompts de DeepSeek reutilizados con Claude — formato `suggested_product_ids` puede romperse**.
-5. **Bypass de cuota sin audit log — abuso con cuenta privilegiada comprometida**.
-6. **e2e test con API Anthropic real en CI — costo por PR**.
-7. **`asyncio.Queue` sin timeout ni backpressure**.
-8. **Tres servicios migrados simultáneamente sin feature flag**.
-
----
-
-> ⚠️ **Nota de mantenimiento**: Las entradas del **19, 20 y 21 de Junio** fueron eliminadas al superar los 7 días de antigüedad (política de retención semanal). Anteriores eliminadas: 16, 17 y 18 de Junio, 5, 6, 7, 9, 11, 12 y 15 de Junio, y días de Mayo.
+> ⚠️ **Nota de mantenimiento**: Las entradas del **19, 20 y 21 de Junio** y del **23 de Junio** fueron eliminadas al superar los 7 días de antigüedad (política de retención semanal). Anteriores eliminadas: 16, 17 y 18 de Junio, 5, 6, 7, 9, 11, 12 y 15 de Junio, y días de Mayo.
