@@ -2,6 +2,20 @@
 
 ---
 
+## 📅 4 de Julio, 2026
+
+### Resumen de cambios (últimas 24h)
+
+Sin commits nuevos de código. El único commit en las últimas 24h es "Analisis diario Claude" (generado automáticamente). No hay cambios en producción.
+
+---
+
+### Puede dar bateo
+
+Sin cambios nuevos — sin riesgos nuevos.
+
+---
+
 ## 📅 3 de Julio, 2026
 
 ### Resumen de cambios (últimas 24h)
@@ -86,62 +100,6 @@ Sin cambios nuevos — sin riesgos nuevos.
 
 ---
 
-## 📅 26 de Junio, 2026
-
-### Resumen de cambios (últimas 24h)
-
-**4 commits** de Ruben0304 — jornada centrada íntegramente en la capa de IA de recomendaciones: (1) RAG agéntico con tool use y búsqueda híbrida RRF; (2) recomendador de carrito con lista numerada de índices; (3) índice nocturno de complementos por producto vía Batch API; (4) refactorización del índice a modo incremental (solo deltas, costo O(cambios) vs O(N²) anterior).
-
----
-
-### Área 1: RAG agéntico con tool use + híbrido RRF (1 commit — Ruben0304, 15:26)
-
-- **`feat(ai): RAG agéntico con tool use (search_products/branches) + híbrido RRF`** — Reemplaza el pipeline de 2 llamadas estáticas por un loop agéntico de máximo 2 turnos en Haiku 4.5: Turn 1 (no-streaming, tool_choice auto) enruta o llama `search_products`/`search_branches` en paralelo con queries expandidas; Turn 2 (streaming) redacta con candidatos. Búsqueda híbrida: vector (Qdrant) + keyword (regex Mongo) fusionados con Reciprocal Rank Fusion. Historial capado a 6. `send_message` no-streaming como fallback.
-
----
-
-### Área 2: Recomendador de carrito con lista numerada (1 commit — Ruben0304, 15:42)
-
-- **`perf(ai): recomendador de carrito con lista numerada (índices) y prompt conciso`** — El modelo recibe nombres de productos como lista numerada (sin ObjectIds ni descripciones), devuelve solo índices + razón breve; el servidor mapea índice → ID real. `max_tokens` reducido a 400. Tope de 120 candidatos para branches grandes.
-
----
-
-### Área 3: Índice nocturno de complementos (Batch API) (1 commit — Ruben0304, 17:08)
-
-- **`feat(ai): índice nocturno de complementos por producto (Sonnet + Batch API)`** — Cron nocturno precomputa por producto una lista rankeada de complementos de su misma tienda usando Claude Sonnet 4.6 vía Batch API (50% más barato, offline). Solo re-indexa tiendas cuyo set de productos cambió (detectado por hash de IDs). Guarda en colección `product_complements`. Fallback: Haiku en vivo para productos aún no indexados (arranque en frío).
-
----
-
-### Área 4: Índice incremental de complementos (solo deltas) (1 commit — Ruben0304, 17:29)
-
-- **`feat(ai): índice de complementos incremental (solo deltas, más barato)`** — El cron nocturno ahora procesa solo lo que cambió desde la última corrida: producto borrado → sin LLM (`$pull` de su id en los demás + borrar doc); producto añadido/cambiado → UNA llamada batch que devuelve en la misma respuesta sus `own` (forward) y `host_of` (backward). Estado por-producto via fingerprint de nombre. Migración transparente desde formato anterior (hash por tienda).
-
----
-
-### Puede dar bateo
-
-1. **Batch API con polling sin guardia de solapamiento**: Si el batch nocturno no se completa antes del siguiente cron, la nueva ejecución puede iniciar un segundo poll concurrente sobre el mismo batch o abrir un batch duplicado. Sin un lock o verificación de estado previo, los resultados pueden escribirse dos veces o quedar corruptos.
-
-2. **Fingerprint por nombre — cambios no detectados**: El estado por-producto usa hash del nombre. Si un producto cambia precio, imagen u otros atributos relevantes para la complementariedad sin cambiar el nombre, el delta no se detecta y el índice queda desactualizado indefinidamente.
-
-3. **Migración transparente desde hash-por-tienda**: Documentos de estado en formato antiguo se migran en caliente. Un fallo a mitad de la primera corrida incremental deja parte de los productos migrados y parte sin migrar, causando comportamiento mixto en el siguiente cron.
-
-4. **Índice incremental sin rollback**: Si la escritura de un doc de complementos falla tras actualizar el fingerprint (red cortada, timeout Mongo), el estado registra el producto como procesado pero el doc de complementos no se actualizó. El delta nunca se volvería a detectar.
-
-5. **RAG agéntico loop 2 turnos — contexto vacío sin guardia**: Si en el Turn 1 el modelo no llama a ninguna tool cuando debería (e.g. falla de Qdrant silenciosa), el Turn 2 recibe contexto de candidatos vacío y responde con información inventada o genérica.
-
-6. **Queries Qdrant paralelas en Turn 1**: El modelo puede llamar `search_products` y `search_branches` simultáneamente. Si Qdrant tiene baja disponibilidad, ambas fallan a la vez y el segundo turno queda completamente sin contexto real.
-
-7. **Historial capado a 6 — pérdida de contexto**: En flujos de soporte de más de 6 turnos, el contexto previo se pierde, lo que puede causar respuestas repetidas o contradictorias con lo dicho anteriormente.
-
-8. **`send_message` no-streaming como fallback**: Si el sistema cae al fallback, el cliente iOS (que espera un stream SSE) no recibe el evento `suggested_product_ids` correctamente o tiene que manejar una respuesta no-stream diferente.
-
-9. **Múltiples workers nocturnos encadenados sin aislamiento**: El lifespan ahora encadena: taste vector + price positioning + complement indexer. Si uno lanza una excepción no capturada, los siguientes no se ejecutan, sin alertas visibles.
-
-10. **Tope de 120 candidatos en el recomendador**: Branches con más de 120 productos activos truncarán silenciosamente el catálogo enviado al modelo. Productos al final del listado nunca serán recomendados como complementos en esas tiendas.
-
----
-
 #### Seguimientos vigentes
 
 - **Batch API — polling sin guardia de solapamiento entre corridas nocturnas (Jun 26)**.
@@ -203,4 +161,4 @@ Sin cambios nuevos — sin riesgos nuevos.
 
 ---
 
-> ⚠️ **Nota de mantenimiento**: Las entradas del **19, 20 y 21 de Junio** y del **23 de Junio** fueron eliminadas al superar los 7 días de antigüedad (política de retención semanal). Anteriores eliminadas: 16, 17 y 18 de Junio, 5, 6, 7, 9, 11, 12 y 15 de Junio, y días de Mayo.
+> ⚠️ **Nota de mantenimiento**: Las entradas del **19, 20 y 21 de Junio** y del **23 de Junio** fueron eliminadas al superar los 7 días de antigüedad (política de retención semanal). La entrada del **26 de Junio** fue eliminada el 4 de Julio al superar los 7 días. Anteriores eliminadas: 16, 17 y 18 de Junio, 5, 6, 7, 9, 11, 12 y 15 de Junio, y días de Mayo.
