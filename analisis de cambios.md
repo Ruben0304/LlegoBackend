@@ -6,7 +6,7 @@
 
 ### Resumen de cambios (últimas 24h)
 
-Sin commits nuevos de código. El único commit en las últimas 24h es "Analisis diario Claude" (generado automáticamente). No hay cambios en producción.
+Sin commits nuevos de código. Los únicos commits en las últimas 24h son automáticos ("Analisis diario Claude"). No hay cambios en producción.
 
 ---
 
