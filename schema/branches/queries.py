@@ -600,6 +600,8 @@ class BranchQuery:
         """
         Find branches similar to the given one using Qdrant's recommend API.
         Uses the branch's stored embedding as positive example.
+        Candidates are filtered to those sharing at least one "tipo" with the
+        reference branch (e.g. a restaurante must not surface a perfumeria).
         Returns empty list silently if Qdrant is unavailable.
         """
         import uuid as _uuid
@@ -619,6 +621,11 @@ class BranchQuery:
             qdrant_client = get_qdrant_client()
             branch_uuid = str(_uuid.uuid5(_UUID_NS, branch_id))
 
+            ref_branch = await branches_repo.get_by_id(branch_id)
+            ref_tipos = set(ref_branch.tipos) if ref_branch and ref_branch.tipos else None
+
+            # Ask for more candidates than needed, since the tipos filter below
+            # will drop some of them.
             response = await qdrant_client.query_points(
                 collection_name="branches",
                 query=RecommendQuery(
@@ -627,7 +634,7 @@ class BranchQuery:
                         strategy=RecommendStrategy.BEST_SCORE,
                     )
                 ),
-                limit=limit + 1,
+                limit=50,
             )
             results = response.points if hasattr(response, "points") else response
 
@@ -635,7 +642,7 @@ class BranchQuery:
                 r.payload.get("mongo_id")
                 for r in results
                 if r.payload.get("mongo_id") and r.payload.get("mongo_id") != branch_id
-            ][:limit]
+            ]
 
             if not mongo_ids:
                 return []
@@ -643,6 +650,13 @@ class BranchQuery:
             branches = await branches_repo.get_by_ids(mongo_ids)
             branches_by_id = {str(b.id): b for b in branches}
             ordered = [branches_by_id[mid] for mid in mongo_ids if mid in branches_by_id]
+
+            # Keep only branches that share at least one tipo with the reference
+            # branch, when the reference branch has tipos set.
+            if ref_tipos:
+                ordered = [b for b in ordered if set(b.tipos or []) & ref_tipos]
+
+            ordered = ordered[:limit]
             return [BranchType(**branch_to_dict(b)) for b in ordered]
 
         except Exception as e:
@@ -663,8 +677,10 @@ class BranchQuery:
         Find branches that carry the most products similar to the given product.
         Steps:
           1. Qdrant recommend on 'products' collection (top 50 similar products)
-          2. Filter candidates to the reference product's branchType (via categoryId ->
-             ProductCategory.branchType), so a perfume never surfaces a restaurant
+          2. Filter candidates to the reference product's exact categoryId, so a
+             chicken dish never surfaces a branch whose matching item is a dessert
+             (categories like "Postres" vs "Platos principales" share branchType
+             "restaurante" but are not actually similar)
           3. Group results by branchId, summing similarity scores
           4. Exclude the product's own branch
           5. Return top K branches by accumulated score
@@ -684,22 +700,17 @@ class BranchQuery:
         _UUID_NS = _uuid.UUID("b1e7a000-0000-0000-0000-000000000000")
 
         try:
-            from repositories import (
-                products_repo as _products_repo,
-                product_categories_repo as _product_categories_repo,
-            )
+            from repositories import products_repo as _products_repo
             qdrant_client = get_qdrant_client()
             product_uuid = str(_uuid.uuid5(_UUID_NS, product_id))
 
-            # Get the product's own branchId to exclude later, and its branchType
-            # (via categoryId) to keep only same-type stores in the results.
+            # Get the product's own branchId to exclude later, and its exact
+            # categoryId to keep only truly comparable products in the results.
             ref_product = await _products_repo.get_by_id(product_id)
             own_branch_id = str(ref_product.branchId) if ref_product else None
-
-            ref_branch_type = None
-            if ref_product and ref_product.categoryId:
-                ref_category = await _product_categories_repo.get_by_id(str(ref_product.categoryId))
-                ref_branch_type = ref_category.branchType if ref_category else None
+            ref_category_id = (
+                str(ref_product.categoryId) if ref_product and ref_product.categoryId else None
+            )
 
             # Fetch top 50 similar products from Qdrant (more candidates = better branch scoring)
             response = await qdrant_client.query_points(
@@ -728,15 +739,13 @@ class BranchQuery:
             # Fetch products from MongoDB to get their branchIds and categoryIds
             similar_products = await _products_repo.get_by_ids(similar_mongo_ids)
 
-            # Keep only products of the same branchType as the reference product
-            # (e.g. a perfume must not surface a restaurant branch), when known.
-            if ref_branch_type:
-                category_ids = {str(p.categoryId) for p in similar_products if p.categoryId}
-                categories = await _product_categories_repo.get_by_ids(list(category_ids))
-                branch_type_by_category = {str(c.id): c.branchType for c in categories}
+            # Keep only products in the exact same category as the reference
+            # product, when known (e.g. "Platos principales" must not match
+            # "Postres", even though both belong to branchType "restaurante").
+            if ref_category_id:
                 similar_products = [
                     p for p in similar_products
-                    if p.categoryId and branch_type_by_category.get(str(p.categoryId)) == ref_branch_type
+                    if p.categoryId and str(p.categoryId) == ref_category_id
                 ]
 
             # Accumulate Qdrant scores per branch
