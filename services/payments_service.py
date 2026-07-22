@@ -23,6 +23,7 @@ from repositories import (
 from repositories.payments_attempt_repository import PaymentAttemptRepository
 from services.access_checker import access_checker
 from services.shortcut_transfer_service import shortcut_transfer_service
+from utils.currency import branch_accepts_currency, normalize_currency
 
 logger = logging.getLogger(__name__)
 
@@ -270,6 +271,32 @@ class PaymentService:
         if not payment_method.get("isActive", True):
             raise ValueError("Método de pago no disponible")
 
+        # Validate the payment method's currency against the order's frozen
+        # currency and the branch's own currency configuration. Every branch
+        # decides independently which currencies it accepts (CUP-only,
+        # USD-only, or both with its own manual exchange rate), so this must
+        # be re-checked here rather than trusting the client's selection.
+        branch = await self._get_branch(order.get("branchId"))
+        if not branch:
+            raise ValueError("Sucursal no encontrada")
+
+        order_currency = normalize_currency(order.get("currency"))
+        pm_currency = normalize_currency(payment_method.get("currency"))
+        if pm_currency != order_currency:
+            raise ValueError(
+                f"Este método de pago es en {pm_currency} pero el pedido es en "
+                f"{order_currency}"
+            )
+
+        if not branch_accepts_currency(branch.get("acceptedCurrency"), pm_currency):
+            raise ValueError(f"La sucursal no acepta pagos en {pm_currency}")
+
+        configured_method_ids = {
+            str(pm_id) for pm_id in (branch.get("paymentMethodIds") or [])
+        }
+        if configured_method_ids and str(payment_method.get("_id")) not in configured_method_ids:
+            raise ValueError("La sucursal no tiene habilitado este método de pago")
+
         # Calculate amounts
         subtotal, delivery_fee, commission, total, currency = self._calculate_amounts(
             order, payment_method, include_delivery_fee
@@ -301,8 +328,7 @@ class PaymentService:
         )
 
         # --- Demo store: skip real payment processing, auto-complete ---
-        branch = await self._get_branch(order.get("branchId"))
-        if branch and branch.get("isDemoStore", False):
+        if branch.get("isDemoStore", False):
             payment_attempt.status = PaymentAttemptStatus.COMPLETED
             await self.payment_attempts_repo.create(payment_attempt)
             await self._update_order_payment_attempt(order_id, attempt_id)

@@ -9,6 +9,7 @@ from .types import ProductType
 from .inputs import CreateProductInput, UpdateProductInput
 from domain.models import Product
 from repositories import products_repo, branches_repo, businesses_repo
+from utils.currency import branch_accepts_currency
 from utils.graphql_auth import apply_optional_jwt
 from utils.serialization import to_strawberry_dict
 from utils.s3 import delete_file
@@ -149,6 +150,13 @@ class ProductMutation:
             
             variant_list_ids = [ObjectId(vid) for vid in input.variantListIds]
 
+        # Validate that the branch actually accepts payments in this currency
+        if not branch_accepts_currency(getattr(branch, "acceptedCurrency", None), input.currency):
+            raise Exception(
+                f"La sucursal no acepta pagos en {input.currency}. "
+                f"Moneda(s) aceptada(s): {branch.acceptedCurrency or 'USD'}"
+            )
+
         # Create product
         product_id = ObjectId()
         product = Product(
@@ -205,28 +213,42 @@ class ProductMutation:
             if not category:
                 raise Exception(f"Categoría con ID '{input.categoryId}' no encontrada")
 
+        branch = None
+
         # Validate variantListIds if provided
         if input.variantListIds is not None:
             from repositories import variant_lists_repo
-            
+
             # Get branch to validate businessId
             branch = await branches_repo.get_by_id(product.branchId)
             if not branch:
                 raise Exception("Sucursal no encontrada")
-            
+
             # Get business to validate ownership
             business = await businesses_repo.get_by_id(branch.businessId)
             if not business:
                 raise Exception("Negocio no encontrado")
-            
+
             variant_lists = await variant_lists_repo.get_by_ids(input.variantListIds)
             if len(variant_lists) != len(input.variantListIds):
                 raise Exception("Una o más listas de variantes no fueron encontradas")
-            
+
             await _validate_variant_lists_belong_to_business(
                 variant_lists=variant_lists,
                 business_id=str(business.id),
             )
+
+        # Validate that the branch actually accepts payments in this currency
+        if input.currency is not None:
+            if branch is None:
+                branch = await branches_repo.get_by_id(product.branchId)
+                if not branch:
+                    raise Exception("Sucursal no encontrada")
+            if not branch_accepts_currency(getattr(branch, "acceptedCurrency", None), input.currency):
+                raise Exception(
+                    f"La sucursal no acepta pagos en {input.currency}. "
+                    f"Moneda(s) aceptada(s): {branch.acceptedCurrency or 'USD'}"
+                )
 
         # Build updates dict from input
         updates = {}

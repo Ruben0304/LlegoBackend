@@ -9,18 +9,12 @@ from repositories import branches_repo, combos_repo, products_repo
 from schema.combos.inputs import CreateComboInput, UpdateComboInput
 from schema.combos.types import ComboType, combo_to_type
 from services.access_checker import access_checker
+from utils.currency import branch_accepts_currency, normalize_currency
 from utils.graphql_auth import apply_optional_jwt
 
 
 @strawberry.type
 class ComboMutation:
-    @staticmethod
-    def _normalize_currency(value: Optional[str], fallback: str = "USD") -> str:
-        normalized = (value or "").strip().upper()
-        if normalized in {"USD", "CUP"}:
-            return normalized
-        return fallback
-
     @staticmethod
     def _validate_discount(discount_type: str, discount_value: float) -> None:
         dt = (discount_type or "none").strip().lower()
@@ -107,9 +101,7 @@ class ComboMutation:
                         f"Producto {product.name} no pertenece a la sucursal del combo"
                     )
 
-                currencies.add(
-                    ComboMutation._normalize_currency(getattr(product, "currency", None))
-                )
+                currencies.add(normalize_currency(getattr(product, "currency", None)))
 
                 seen_modifiers = set()
                 prepared_modifiers = []
@@ -158,12 +150,21 @@ class ComboMutation:
                 "Todos los productos del combo deben usar la misma moneda (USD o CUP)"
             )
 
+        branch = await branches_repo.get_by_id(branch_id)
+        if not branch:
+            raise Exception("Sucursal no encontrada")
+
         if currencies:
             combo_currency = next(iter(currencies))
         else:
-            branch = await branches_repo.get_by_id(branch_id)
             combo_currency = (
                 "CUP" if getattr(branch, "acceptedCurrency", None) == "CUP" else "USD"
+            )
+
+        if not branch_accepts_currency(getattr(branch, "acceptedCurrency", None), combo_currency):
+            raise Exception(
+                f"La sucursal no acepta pagos en {combo_currency}. "
+                f"Moneda(s) aceptada(s): {branch.acceptedCurrency or 'USD'}"
             )
 
         return prepared_slots, combo_currency

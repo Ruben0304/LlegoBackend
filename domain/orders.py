@@ -253,6 +253,10 @@ class Order(BaseModel):
     discounts: List[OrderDiscount] = []
     total: float
     currency: str = "USD"
+    # Tasa USD->CUP de la sucursal congelada al crear el pedido. Se reutiliza en
+    # modificaciones/reenvios para que el total no cambie si el dueno de la
+    # sucursal actualiza su tasa mientras el pedido esta pendiente.
+    exchangeRate: Optional[float] = None
     status: OrderStatus = OrderStatus.PENDING_ACCEPTANCE
     deliveryAddress: DeliveryAddress
     deliveryPersonId: Optional[PyObjectId] = None

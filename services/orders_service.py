@@ -49,6 +49,7 @@ from services.orders_utils import (
     generate_order_number,
     haversine_distance,
 )
+from utils.currency import branch_accepts_currency, normalize_currency
 
 
 class OrderValidationError(ValueError):
@@ -452,10 +453,7 @@ class OrderService:
 
     @staticmethod
     def _normalize_currency(currency: Optional[str], fallback: str = "USD") -> str:
-        normalized = (currency or "").strip().upper()
-        if normalized in {"USD", "CUP"}:
-            return normalized
-        return fallback.upper()
+        return normalize_currency(currency, fallback=fallback)
 
     @staticmethod
     def _resolve_exchange_rate(branch: Any) -> Optional[float]:
@@ -467,6 +465,25 @@ class OrderService:
             return value if value > 0 else None
         except (TypeError, ValueError):
             return None
+
+    @classmethod
+    def _resolve_order_exchange_rate(cls, order: Any, branch: Any) -> Optional[float]:
+        """Tasa a usar al recalcular un pedido existente (modificacion/reenvio).
+
+        Prioriza la tasa que quedo congelada en el pedido al crearlo, para que
+        un cambio posterior de `branch.exchangeRate` no altere retroactivamente
+        el total de un pedido que el cliente ya acepto. Solo cae a la tasa
+        actual de la sucursal para pedidos legados que no tienen snapshot.
+        """
+        frozen_rate = getattr(order, "exchangeRate", None)
+        if frozen_rate is not None:
+            try:
+                value = float(frozen_rate)
+                if value > 0:
+                    return value
+            except (TypeError, ValueError):
+                pass
+        return cls._resolve_exchange_rate(branch)
 
     def _convert_amount(
         self,
@@ -1088,6 +1105,32 @@ class OrderService:
             payment_method_currency,
             payment_method_doc,
         ) = await self._resolve_payment_method(payment_method)
+
+        # Every branch decides independently which currencies it accepts
+        # (CUP-only, USD-only, or both with its own manual exchange rate) and
+        # which catalog payment methods it actually offers, so a method that
+        # is valid globally can still be invalid for this specific branch.
+        if payment_method_doc:
+            if not branch_accepts_currency(
+                getattr(branch, "acceptedCurrency", None), payment_method_doc.currency
+            ):
+                raise OrderValidationError(
+                    f"La sucursal no acepta pagos en {payment_method_doc.currency}",
+                    code="PAYMENT_METHOD_CURRENCY_NOT_ACCEPTED",
+                )
+
+            configured_method_ids = {
+                str(pm_id) for pm_id in (getattr(branch, "paymentMethodIds", None) or [])
+            }
+            if (
+                configured_method_ids
+                and str(payment_method_doc.id) not in configured_method_ids
+            ):
+                raise OrderValidationError(
+                    "La sucursal no tiene habilitado este método de pago",
+                    code="PAYMENT_METHOD_NOT_AVAILABLE",
+                )
+
         order_currency = self._resolve_order_currency(branch, payment_method_currency)
         exchange_rate = self._resolve_exchange_rate(branch)
 
@@ -1287,6 +1330,7 @@ class OrderService:
             discounts=discounts,
             total=total,
             currency=order_currency,
+            exchangeRate=exchange_rate,
             status=OrderStatus.PENDING_ACCEPTANCE,
             deliveryAddress=delivery_addr,
             pickupAddress=pickup_addr,
@@ -1687,7 +1731,7 @@ class OrderService:
         branch = await branches_repo.get_by_id(order.branchId)
         if not branch:
             raise ValueError("Sucursal no encontrada")
-        exchange_rate = self._resolve_exchange_rate(branch)
+        exchange_rate = self._resolve_order_exchange_rate(order, branch)
         order_currency = self._normalize_currency(order.currency, fallback="USD")
 
         # Build new items list with snapshots
@@ -1819,7 +1863,7 @@ class OrderService:
         branch = await branches_repo.get_by_id(order.branchId)
         if not branch:
             raise ValueError("Sucursal no encontrada")
-        exchange_rate = self._resolve_exchange_rate(branch)
+        exchange_rate = self._resolve_order_exchange_rate(order, branch)
         order_currency = self._normalize_currency(order.currency, fallback="USD")
 
         updated_items: Optional[List[OrderItem]] = None
