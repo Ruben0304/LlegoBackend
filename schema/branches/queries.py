@@ -663,9 +663,11 @@ class BranchQuery:
         Find branches that carry the most products similar to the given product.
         Steps:
           1. Qdrant recommend on 'products' collection (top 50 similar products)
-          2. Group results by branchId, summing similarity scores
-          3. Exclude the product's own branch
-          4. Return top K branches by accumulated score
+          2. Filter candidates to the reference product's branchType (via categoryId ->
+             ProductCategory.branchType), so a perfume never surfaces a restaurant
+          3. Group results by branchId, summing similarity scores
+          4. Exclude the product's own branch
+          5. Return top K branches by accumulated score
         """
         import uuid as _uuid
         from collections import defaultdict
@@ -682,13 +684,22 @@ class BranchQuery:
         _UUID_NS = _uuid.UUID("b1e7a000-0000-0000-0000-000000000000")
 
         try:
-            from repositories import products_repo as _products_repo
+            from repositories import (
+                products_repo as _products_repo,
+                product_categories_repo as _product_categories_repo,
+            )
             qdrant_client = get_qdrant_client()
             product_uuid = str(_uuid.uuid5(_UUID_NS, product_id))
 
-            # Get the product's own branchId to exclude later
+            # Get the product's own branchId to exclude later, and its branchType
+            # (via categoryId) to keep only same-type stores in the results.
             ref_product = await _products_repo.get_by_id(product_id)
             own_branch_id = str(ref_product.branchId) if ref_product else None
+
+            ref_branch_type = None
+            if ref_product and ref_product.categoryId:
+                ref_category = await _product_categories_repo.get_by_id(str(ref_product.categoryId))
+                ref_branch_type = ref_category.branchType if ref_category else None
 
             # Fetch top 50 similar products from Qdrant (more candidates = better branch scoring)
             response = await qdrant_client.query_points(
@@ -714,8 +725,19 @@ class BranchQuery:
             }
             similar_mongo_ids = list(qdrant_scores.keys())
 
-            # Fetch products from MongoDB to get their branchIds
+            # Fetch products from MongoDB to get their branchIds and categoryIds
             similar_products = await _products_repo.get_by_ids(similar_mongo_ids)
+
+            # Keep only products of the same branchType as the reference product
+            # (e.g. a perfume must not surface a restaurant branch), when known.
+            if ref_branch_type:
+                category_ids = {str(p.categoryId) for p in similar_products if p.categoryId}
+                categories = await _product_categories_repo.get_by_ids(list(category_ids))
+                branch_type_by_category = {str(c.id): c.branchType for c in categories}
+                similar_products = [
+                    p for p in similar_products
+                    if p.categoryId and branch_type_by_category.get(str(p.categoryId)) == ref_branch_type
+                ]
 
             # Accumulate Qdrant scores per branch
             branch_scores: dict = defaultdict(float)
