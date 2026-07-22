@@ -24,7 +24,17 @@ def to_strawberry_value(value: Any) -> Any:
 
 
 def to_strawberry_dict(model: Any, **dump_kwargs: Any) -> dict:
-    """Dump model in python mode and normalize values for Strawberry."""
+    """Dump model in python mode and normalize values for Strawberry.
+
+    ⚠️ El resultado suele usarse como `SomeGraphQLType(**to_strawberry_dict(model))`.
+    Como esto vuelca TODOS los campos del modelo pydantic, agregar un campo nuevo
+    a un modelo de dominio (Business/Branch/Product/...) rompe con
+    "unexpected keyword argument" cualquier tipo GraphQL construido así que no
+    declare ese campo — y no lo detecta ningún chequeo de sintaxis, solo un
+    request real. Usa `exclude={...}` (dump_kwargs) o agrega el campo al tipo
+    GraphQL destino antes de dar por segura una migración de modelo. Ver el
+    aviso en domain/models.py sobre Business/Branch/Product.
+    """
     if hasattr(model, "model_dump"):
         data = model.model_dump(**dump_kwargs)
     elif isinstance(model, dict):

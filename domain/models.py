@@ -93,6 +93,24 @@ class User(BaseModel):
         json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
+# ⚠️ Business/Branch/Product se convierten a sus tipos GraphQL (BusinessType,
+# BranchType, ProductType, ScoredProductType, ScoredBranchType, NearbyBranchType...)
+# desvolcando el modelo COMPLETO con to_strawberry_dict()/model_dump() vía
+# `SomeType(**data)`. Si agregas un campo nuevo aquí y ese campo NO está
+# declarado en el/los tipo(s) GraphQL correspondientes, esas queries revientan
+# con "unexpected keyword argument" en tiempo de request (no lo detecta
+# py_compile ni ningún chequeo de sintaxis).
+#
+# Antes de agregar un campo a estos 3 modelos:
+# 1. `grep -rn "BusinessType(\|BranchType(\|ProductType("` en schema/ para ver
+#    TODOS los sitios de construcción.
+# 2. Para Branch: usa el exclude set de `branch_to_dict()` en
+#    schema/branches/utils.py (ya cubre BranchType/ScoredBranchType/
+#    NearbyBranchType en un solo lugar) si el campo no debe exponerse.
+# 3. Para Business/Product: no hay helper centralizado — o agregas el campo
+#    también a BusinessType/ProductType/ScoredProductType (mismo patrón que
+#    createdAt), o excluyes explícitamente en cada `to_strawberry_dict(...)`
+#    que lo consuma.
 class Business(BaseModel):
     id: PyObjectId = Field(alias="_id")
     name: str
