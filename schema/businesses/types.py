@@ -21,6 +21,7 @@ class BusinessType:
     approvedAt: Optional[datetime]
     rejectedAt: Optional[datetime]
     createdAt: datetime
+    updatedAt: Optional[datetime] = None
 
     @strawberry.field(description="Presigned URL for the business avatar")
     def avatar_url(self) -> Optional[str]:

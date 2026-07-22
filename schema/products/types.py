@@ -24,6 +24,7 @@ class ProductType:
     categoryId: Optional[str] = None
     variantListIds: list[str] = strawberry.field(default_factory=list)
     createdAt: datetime
+    updatedAt: Optional[datetime] = None
 
     @strawberry.field(description="Presigned URL for the product image")
     def image_url(self) -> str:
@@ -218,6 +219,7 @@ class ScoredProductType:
     createdAt: datetime
     score: float
     distance_m: Optional[float] = None
+    updatedAt: Optional[datetime] = None
 
     @strawberry.field(description="Presigned URL for the product image")
     def image_url(self) -> str:

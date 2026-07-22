@@ -89,6 +89,9 @@ def branch_to_dict(branch: Branch) -> dict:
             "schedule",
             # Internal field, not exposed via GraphQL — would break BranchType(**...)
             "pricePositioningUpdatedAt",
+            # No expuesto en BranchType/ScoredBranchType/NearbyBranchType — solo se usa
+            # para sync incremental (BranchSyncType, que se construye aparte).
+            "updatedAt",
         },
     )
     branch_dict["schedule"] = schedule_to_type(branch.schedule)
