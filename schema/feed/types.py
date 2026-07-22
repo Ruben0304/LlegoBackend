@@ -27,6 +27,7 @@ class FeedProductType:
     createdAt: datetime
     score: float
     distance_m: Optional[float] = None
+    updatedAt: Optional[datetime] = None
 
     @strawberry.field(description="Public URL for the product image")
     def image_url(self) -> str:
