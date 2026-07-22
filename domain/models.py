@@ -107,6 +107,7 @@ class Business(BaseModel):
     approvedAt: Optional[datetime] = None
     rejectedAt: Optional[datetime] = None
     createdAt: datetime
+    updatedAt: Optional[datetime] = None
 
     class Config:
         populate_by_name = True
@@ -225,6 +226,7 @@ class Branch(BaseModel):
     pricePositioningUpdatedAt: Optional[datetime] = None
 
     createdAt: datetime
+    updatedAt: Optional[datetime] = None
 
     class Config:
         populate_by_name = True
@@ -277,6 +279,7 @@ class Product(BaseModel):
     categoryId: Optional[PyObjectId] = None
     variantListIds: List[PyObjectId] = []  # Referencias a listas globales de variantes
     createdAt: datetime
+    updatedAt: Optional[datetime] = None
 
     class Config:
         populate_by_name = True

@@ -380,6 +380,7 @@ class ProductRepository:
                     normalized_updates["variantListIds"]
                 )
 
+            normalized_updates["updatedAt"] = datetime.now()
             await db[self.mongo_collection_name].update_one(
                 {"_id": self._to_object_id(product_id)}, {"$set": normalized_updates}
             )

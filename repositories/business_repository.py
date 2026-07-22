@@ -8,6 +8,7 @@ Hybrid repository pattern:
 
 import asyncio
 import uuid
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
@@ -261,6 +262,7 @@ class BusinessRepository:
                 return None
 
             # 1. Update MongoDB
+            updates = {**updates, "updatedAt": datetime.now()}
             await db[self.mongo_collection_name].update_one(
                 {"_id": ObjectId(business_id)}, {"$set": updates}
             )

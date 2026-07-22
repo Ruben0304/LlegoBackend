@@ -128,3 +128,19 @@ class ImageSyncType:
     entity_type: str  # "business", "branch", "product"
     image_path: str  # S3 path to the image
     urls: ImageUrlType  # URLs for different quality levels
+
+
+@strawberry.type
+class SyncCheckpoint:
+    """IDs actualmente activos y marca de tiempo del servidor.
+
+    Se usa para sync incremental: el cliente guarda `syncedAt` y lo envía como
+    `since` en la próxima llamada a syncBusinessesWithBranches/syncProducts/syncImages
+    (para traer solo lo nuevo/modificado), y usa los *Ids para borrar localmente
+    cualquier negocio/sucursal/producto que ya no esté en estas listas.
+    """
+
+    businessIds: List[str]
+    branchIds: List[str]
+    productIds: List[str]
+    syncedAt: datetime

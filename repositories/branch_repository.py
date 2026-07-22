@@ -10,6 +10,7 @@ import asyncio
 import logging
 import re
 import uuid
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -297,6 +298,7 @@ class BranchRepository:
                 ]
 
             # 1. Update MongoDB
+            updates["updatedAt"] = datetime.now()
             await db[self.mongo_collection_name].update_one(
                 {"_id": ObjectId(branch_id)}, {"$set": updates}
             )

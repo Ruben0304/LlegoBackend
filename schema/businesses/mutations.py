@@ -408,6 +408,13 @@ class BusinessMutation:
                 "rejectedAt": None,
             },
         )
+
+        # Reactivar las sucursales del negocio (un rechazo previo las desactiva)
+        branches = await branches_repo.get_by_business(business_id)
+        for branch in branches:
+            if not branch.isActive:
+                await branches_repo.update(str(branch.id), {"isActive": True})
+
         return BusinessType(
             id=str(updated.id),
             name=updated.name,
@@ -450,6 +457,13 @@ class BusinessMutation:
                 "approvedAt": None,
             },
         )
+
+        # Desactivar las sucursales para que dejen de exponerse (sync, búsqueda, etc.)
+        branches = await branches_repo.get_by_business(business_id)
+        for branch in branches:
+            if branch.isActive:
+                await branches_repo.update(str(branch.id), {"isActive": False})
+
         return BusinessType(
             id=str(updated.id),
             name=updated.name,
