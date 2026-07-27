@@ -921,6 +921,86 @@ async def upload_ad_campaign_creative(
     return {"image_path": image_path, "image_url": generate_presigned_url(image_path)}
 
 
+@router.post("/promo/image", status_code=status.HTTP_200_OK)
+@limiter.limit(RATE_LIMIT_UPLOADS)
+async def upload_promo_image(
+    request: Request,
+    image: UploadFile = File(...),
+    user_id: str = Depends(get_current_user_id_from_header),
+):
+    """
+    Upload the photo for a promo submitted from the customer app by a business
+    that is not registered in Llego.
+    Max size: 10MB | Allowed formats: .jpg, .jpeg, .png, .webp, .gif
+
+    Returns the S3 path; pass it as imagePath to the createPromoRequest mutation.
+    """
+    if not user_id:
+        raise HTTPException(status_code=401, detail="No autorizado")
+
+    file_content = await validate_upload(image, "promo_image", MAX_FILE_SIZES["product"])
+
+    filename = image.filename or "image.png"
+    original_ext = "." + filename.split(".")[-1].lower() if "." in filename else ".png"
+    if original_ext not in (".jpg", ".jpeg", ".png", ".webp", ".gif"):
+        original_ext = ".png"
+
+    try:
+        processed_content, extension = await process_product_image_async(
+            file_content, original_ext
+        )
+    except Exception:
+        raise HTTPException(status_code=400, detail="Error procesando imagen")
+
+    entity_id = str(ObjectId())
+
+    try:
+        image_path = await upload_file(
+            processed_content,
+            "promos/images",
+            entity_id,
+            extension,
+            thumbnail_variants=("baja", "media"),
+        )
+    except Exception:
+        raise HTTPException(status_code=500, detail="Error subiendo imagen")
+
+    return {"image_path": image_path, "image_url": generate_presigned_url(image_path)}
+
+
+@router.post("/promo/video", status_code=status.HTTP_200_OK)
+@limiter.limit(RATE_LIMIT_UPLOADS)
+async def upload_promo_video(
+    request: Request,
+    video: UploadFile = File(...),
+    user_id: str = Depends(get_current_user_id_from_header),
+):
+    """
+    Upload the video for a promo submitted from the customer app by a business
+    that is not registered in Llego.
+    Max size: 100MB | Allowed formats: .mp4, .mov, .avi, .webm
+
+    Returns the S3 path; pass it as videoPath to the createPromoRequest mutation.
+    """
+    if not user_id:
+        raise HTTPException(status_code=401, detail="No autorizado")
+
+    file_content, extension = await validate_video_upload(
+        video, MAX_FILE_SIZES["video"]
+    )
+
+    entity_id = str(ObjectId())
+
+    try:
+        video_path = await upload_file(
+            file_content, "promos/videos", entity_id, extension
+        )
+    except Exception:
+        raise HTTPException(status_code=500, detail="Error subiendo video")
+
+    return {"video_path": video_path, "video_url": generate_presigned_url(video_path)}
+
+
 @router.post("/promotion/thumbnail", status_code=status.HTTP_200_OK)
 @limiter.limit(RATE_LIMIT_UPLOADS)
 async def upload_promotion_thumbnail(

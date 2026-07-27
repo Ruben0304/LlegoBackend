@@ -21,6 +21,7 @@ from .types import (
     FeedCreativeSection,
     FeedCreativeType,
     FeedProductType,
+    FeedPromoBanner,
     FeedResponse,
     FeedSection,
     FeedSectionDiagnostic,
@@ -43,8 +44,16 @@ FEED_SECTION_IDS = frozenset(
         "te_podria_gustar",
         "recomendado_qdrant",
         "explorar",
+        "promo",
     }
 )
+
+# CTA banner for the `promo` section. Businesses that are NOT registered in
+# Llego tap it to submit a promo from the customer app.
+# TODO: replace with the final artwork — upload it to this S3 path.
+PROMO_BANNER_IMAGE_PATH = "promos/banner/default.jpg"
+PROMO_BANNER_TITLE = "¿Tienes un negocio?"
+PROMO_BANNER_SUBTITLE = "Publica tu promoción aquí"
 
 
 def _meal_extra_title(meal_title: str) -> str:
@@ -172,6 +181,10 @@ class FeedQuery:
                     "Especialmente para Ti",
                     "Productos similares a los que más te gustan",
                 ),
+                "promo": (
+                    "Promo",
+                    "¿Tienes un negocio? Publica tu promoción",
+                ),
             }
         else:
             _meal_extra = _meal_extra_title(meal_title)
@@ -198,6 +211,10 @@ class FeedQuery:
                 "recomendado_qdrant": (
                     "Más para Ti",
                     "Más productos similares a tus favoritos",
+                ),
+                "promo": (
+                    "Promo",
+                    "¿Tienes un negocio? Publica tu promoción",
                 ),
             }
 
@@ -629,6 +646,37 @@ class FeedQuery:
             import traceback
             print(f"[ADS] Error building creative sections: {e}")
             traceback.print_exc()
+
+        # --- Promo section: CTA banner for businesses not registered in Llego ---
+        # Carries no products; the client renders `banner` and opens the promo
+        # form on tap. Only on the first page — repeating a CTA down an infinite
+        # scroll is noise.
+        if "promo" in requested_sections and page == 0:
+            promo_title, promo_description = requested_sections["promo"]
+            final_sections.append(
+                FeedSection(
+                    title=promo_title,
+                    section_id="promo",
+                    description=promo_description,
+                    products=[],
+                    total_count=0,
+                    banner=FeedPromoBanner(
+                        imageUrl=get_public_url(PROMO_BANNER_IMAGE_PATH),
+                        title=PROMO_BANNER_TITLE,
+                        subtitle=PROMO_BANNER_SUBTITLE,
+                    ),
+                )
+            )
+            section_diagnostics.append(
+                FeedSectionDiagnostic(
+                    section_id="promo",
+                    title=promo_title,
+                    status="included",
+                    reason=None,
+                    total_before_dedup=0,
+                    total_after_dedup=0,
+                )
+            )
 
         # --- Pinned section ordering ---
         # Sections with a persisted `orden` float to the top in ascending order.

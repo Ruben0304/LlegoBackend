@@ -40,6 +40,7 @@ from .payout_repository import PayoutRepository, payouts_repo
 from .platform_repository import PlatformRepository, platform_repo
 from .product_category_repository import ProductCategoryRepository
 from .product_repository import ProductRepository
+from .promo_request_repository import PromoRequestRepository
 from .promotional_video_repository import PromotionalVideoRepository
 from .qvapay_repository import QvaPayRepository, qvapay_invoices_repo
 from .searches_repository import SearchesRepository
@@ -81,6 +82,7 @@ delivery_zones_repo = DeliveryZoneRepository()
 ad_campaigns_repo = AdCampaignRepository()
 ad_pricing_repo = AdPricingRepository()
 feed_section_config_repo = FeedSectionConfigRepository()
+promo_requests_repo = PromoRequestRepository()
 
 # Imported after singletons to avoid circular import with domain/models.py
 from .shortcut_transfer_repository import (
@@ -181,4 +183,6 @@ __all__ = [
     "ad_pricing_repo",
     "FeedSectionConfigRepository",
     "feed_section_config_repo",
+    "PromoRequestRepository",
+    "promo_requests_repo",
 ]

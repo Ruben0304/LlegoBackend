@@ -40,6 +40,8 @@ from .payments.queries import PaymentMethodQuery
 from .product_categories.queries import ProductCategoryQuery
 from .products.mutations import ProductMutation
 from .products.queries import ProductQuery
+from .promos.mutations import PromoMutation
+from .promos.queries import PromoQuery
 from .promotional_videos.mutations import PromotionalVideoMutation
 from .promotional_videos.queries import PromotionalVideoQuery
 from .searches.mutations import SearchesMutation
@@ -85,6 +87,7 @@ class Query(
     VariantListQuery,
     SyncQuery,
     AdCampaignQuery,
+    PromoQuery,
 ):
     @strawberry.field(description="Saludo de ejemplo")
     def hello(self, info: Info, jwt: Optional[str] = None) -> str:
@@ -122,6 +125,7 @@ class Mutation(
     VariantListMutation,
     AdCampaignMutation,
     FeedMutation,
+    PromoMutation,
 ):
     pass
 

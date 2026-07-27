@@ -90,14 +90,33 @@ class FeedProductType:
 
 
 @strawberry.type
+class FeedPromoBanner:
+    """Tappable CTA banner shown by the ``promo`` section.
+
+    Tapping it opens the promo submission form in the customer app, whose
+    result is sent with the ``createPromoRequest`` mutation.
+    """
+
+    imageUrl: str
+    title: Optional[str] = None
+    subtitle: Optional[str] = None
+    action: str = "open_promo_form"
+
+
+@strawberry.type
 class FeedSection:
-    """A section of the feed with products."""
+    """A section of the feed with products.
+
+    A section carrying a ``banner`` (currently only ``promo``) has no products:
+    the client renders the banner instead.
+    """
 
     title: str
     section_id: str
     description: Optional[str]
     products: List[FeedProductType]
     total_count: int
+    banner: Optional[FeedPromoBanner] = None
 
 
 @strawberry.type
