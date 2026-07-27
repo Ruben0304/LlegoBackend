@@ -141,6 +141,14 @@ class FeedResponse:
 
 
 @strawberry.type
+class FeedSectionOrdenType:
+    """Pinned position of a feed section. ``orden`` null means it is not pinned."""
+
+    section_id: str
+    orden: Optional[int] = None
+
+
+@strawberry.type
 class FeedSectionDiagnostic:
     """Diagnostic information for each feed section request."""
 

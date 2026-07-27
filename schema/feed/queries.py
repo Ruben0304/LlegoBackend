@@ -1,6 +1,7 @@
 """GraphQL query resolvers for Feed."""
 
 import asyncio
+import math
 from datetime import datetime, timezone
 from typing import List, Optional, Set
 
@@ -11,7 +12,7 @@ from services.ads_service import ads_service
 from services.feed_service import feed_service
 from services.scoring_service import scoring_service
 from utils.cache import mem_cache
-from utils.graphql_auth import apply_optional_jwt
+from utils.graphql_auth import apply_optional_jwt, require_role
 from utils.s3 import get_public_url
 from utils.serialization import to_strawberry_dict
 from utils.rate_limit import rate_limit_graphql
@@ -23,6 +24,26 @@ from .types import (
     FeedResponse,
     FeedSection,
     FeedSectionDiagnostic,
+    FeedSectionOrdenType,
+)
+
+# Section IDs the feed can emit. Used to validate the ordering config so an
+# admin cannot pin a section that will never appear.
+FEED_SECTION_IDS = frozenset(
+    {
+        "para_ti",
+        "pide_de_nuevo",
+        "populares_cerca",
+        "trending",
+        "hora_del_dia",
+        "basado_busquedas",
+        "nuevos_lugares_favoritos",
+        "mas_favoriteados",
+        "cerca_ti",
+        "te_podria_gustar",
+        "recomendado_qdrant",
+        "explorar",
+    }
 )
 
 
@@ -609,6 +630,17 @@ class FeedQuery:
             print(f"[ADS] Error building creative sections: {e}")
             traceback.print_exc()
 
+        # --- Pinned section ordering ---
+        # Sections with a persisted `orden` float to the top in ascending order.
+        # The sort is stable, so everything else keeps its default relative order.
+        from repositories import feed_section_config_repo
+
+        orden_map = await feed_section_config_repo.get_orden_map()
+        if orden_map:
+            final_sections.sort(
+                key=lambda s: orden_map.get(s.section_id, math.inf)
+            )
+
         return FeedResponse(
             sections=final_sections,
             section_diagnostics=section_diagnostics,
@@ -617,3 +649,20 @@ class FeedQuery:
             explorar_has_more=explorar_has_more,
             creative_sections=creative_sections,
         )
+
+    @strawberry.field(
+        description="Posiciones fijadas de las secciones del feed (solo admin)"
+    )
+    async def get_feed_section_orden(
+        self, info: Info, jwt: Optional[str] = None
+    ) -> List[FeedSectionOrdenType]:
+        """List the sections currently pinned to a fixed position."""
+        require_role(jwt, info, ["admin", "manager"])
+
+        from repositories import feed_section_config_repo
+
+        orden_map = await feed_section_config_repo.get_orden_map()
+        return [
+            FeedSectionOrdenType(section_id=section_id, orden=orden)
+            for section_id, orden in sorted(orden_map.items(), key=lambda kv: kv[1])
+        ]

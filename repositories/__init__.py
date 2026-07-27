@@ -21,6 +21,7 @@ from .device_token_repository import DeviceTokenRepository, device_token_repo
 from .draft_order_repository import DraftOrderRepository
 from .error_log_repository import ErrorLogRepository, error_log_repo
 from .favorites_cart_repository import FavoritesCartRepository
+from .feed_section_config_repository import FeedSectionConfigRepository
 from .feedback_repository import FeedbackRepository
 from .orders_repository import (
     BranchDeliveryRequestRepository,
@@ -79,6 +80,7 @@ promotional_videos_repo = PromotionalVideoRepository()
 delivery_zones_repo = DeliveryZoneRepository()
 ad_campaigns_repo = AdCampaignRepository()
 ad_pricing_repo = AdPricingRepository()
+feed_section_config_repo = FeedSectionConfigRepository()
 
 # Imported after singletons to avoid circular import with domain/models.py
 from .shortcut_transfer_repository import (
@@ -177,4 +179,6 @@ __all__ = [
     "AdPricingRepository",
     "ad_campaigns_repo",
     "ad_pricing_repo",
+    "FeedSectionConfigRepository",
+    "feed_section_config_repo",
 ]

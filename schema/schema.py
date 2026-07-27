@@ -26,6 +26,7 @@ from .combos.mutations import ComboMutation
 from .combos.queries import ComboQuery
 from .extensions import ErrorLoggingExtension, UserIdExtension
 from .favorites_cart.mutations import FavoritesCartMutation
+from .feed.mutations import FeedMutation
 from .feed.queries import FeedQuery
 from .feedbacks.mutations import FeedbackMutation
 from .feedbacks.queries import FeedbackQuery
@@ -120,6 +121,7 @@ class Mutation(
     PromotionalVideoMutation,
     VariantListMutation,
     AdCampaignMutation,
+    FeedMutation,
 ):
     pass
 
