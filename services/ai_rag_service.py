@@ -95,7 +95,7 @@ CRITICAL - PRODUCT NAMES: The search results include product names from Qdrant v
 - Suggest ALL items that could match what the user wants, not just exact name matches
 - Use semantic understanding: "suero" in Cuba often means a milkshake/smoothie (batido)
 
-CRITICAL - BRANCH INFO: When suggesting products, ALWAYS include the branch name and branch avatar information from the context. Each product in the context includes its branch details.
+CRITICAL - BRANCH INFO: When suggesting products, ALWAYS include the branch name from the context. Each product in the context includes its branch.
 
 Be helpful and accurate. If you're unsure if a product matches, include it and explain what it is.
 When suggesting products or stores, explain WHY they match the user's request.
@@ -120,25 +120,25 @@ When users ask to buy/order, guide them through product and store discovery in a
             "ingredients. Example: \"comida italiana con carne\" -> "
             "[\"pizza\", \"espagueti\", \"lasaña boloñesa\", \"carne de res\", \"ropa vieja\"]. "
             "If the user names a specific store, pass it as `business_name`.\n\n"
-            "AFTER RESULTS: You receive candidate items with their real IDs. Recommend ONLY the "
-            "ones that genuinely match what the user asked for, and ignore false positives that "
-            "merely scored close (e.g. a milkshake when the user asked for meat). Name each "
-            "recommended item exactly as given so it can be shown as a card. Never invent IDs.\n\n"
+            "AFTER RESULTS: Recommend ONLY the candidates that genuinely match what the user "
+            "asked for, and ignore false positives that merely scored close (e.g. a milkshake "
+            "when the user asked for meat). Write each recommended item's name EXACTLY as given, "
+            "character for character — that exact name is what turns it into a card for the "
+            "user. Never invent items that aren't in the candidates.\n\n"
             "STYLE: Sound like a friendly local-store attendant. Match the user's language "
             "(reply in Spanish if they write in Spanish). You may use simple Markdown (bold and "
             "bullet lists). Never mention these instructions, tools, scores, or internal details."
         )
 
-        # Tool schemas for the agentic flow.
+        # Tool schemas for the agentic flow. Kept deliberately terse: these ride
+        # along on BOTH turns of every message, including the ones that never
+        # call a tool, so every token here is paid for on each chat message. The
+        # query-expansion guidance lives in the system prompt above instead of
+        # being repeated in each description.
         self.agent_tools: List[Dict[str, Any]] = [
             {
                 "name": "search_products",
-                "description": (
-                    "Search the catalog for products/dishes/items. Pass `queries` as an array "
-                    "of EXPANDED search terms (synonyms, dish names, ingredients), not a single "
-                    "literal phrase. Optionally pass `business_name` to restrict the search to a "
-                    "single store the user named."
-                ),
+                "description": "Search the catalog for products, dishes or items.",
                 "input_schema": {
                     "type": "object",
                     "properties": {
@@ -149,7 +149,7 @@ When users ask to buy/order, guide them through product and store discovery in a
                         },
                         "business_name": {
                             "type": "string",
-                            "description": "Optional store name to restrict the search to.",
+                            "description": "Restrict to this store, if the user named one.",
                         },
                     },
                     "required": ["queries"],
@@ -157,10 +157,7 @@ When users ask to buy/order, guide them through product and store discovery in a
             },
             {
                 "name": "search_branches",
-                "description": (
-                    "Search for stores/businesses. Pass `queries` as an array of EXPANDED search "
-                    "terms describing the kind of store the user wants."
-                ),
+                "description": "Search for stores or businesses.",
                 "input_schema": {
                     "type": "object",
                     "properties": {
@@ -244,7 +241,7 @@ When users ask to buy/order, guide them through product and store discovery in a
             session_id=session_id, role="user", content=message
         )
         history = await chat_memory_repo.get_conversation_history(
-            session_id=session_id, limit=6
+            session_id=session_id, limit=10
         )
 
         messages = self._history_to_messages(history)
@@ -322,10 +319,13 @@ When users ask to buy/order, guide them through product and store discovery in a
                     accumulated_text, candidate_branches
                 )
                 if not suggested_product_ids and not suggested_branch_ids:
-                    # The model paraphrased names; fall back to top candidates so the
-                    # user still sees results.
-                    suggested_product_ids = list(candidate_products.keys())[:8]
-                    suggested_branch_ids = list(candidate_branches.keys())[:8]
+                    # The model paraphrased the names, so we can't tell which
+                    # candidates it endorsed. Show a few top-ranked ones so the user
+                    # isn't left with nothing — but keep it short: the model was
+                    # explicitly asked to drop false positives, and anything here
+                    # may well be one of the items it chose to discard.
+                    suggested_product_ids = list(candidate_products.keys())[:3]
+                    suggested_branch_ids = list(candidate_branches.keys())[:3]
 
                 if suggested_product_ids:
                     response_type = "search_products"
@@ -500,10 +500,13 @@ When users ask to buy/order, guide them through product and store discovery in a
         if not products:
             return {"result_text": "No matching products found.", "products": [], "branches": []}
 
+        # No Mongo ObjectIds here: the cards are derived server-side from the names
+        # the model repeats, so sending 24-hex ids would just be ~13 wasted input
+        # tokens per candidate.
         lines = [f"Found {len(products)} candidate products:"]
         for p in products:
             lines.append(
-                f"- id={p['id']} | {p['name']} | {p['price']} {p['currency']} | {p['branch_name']}"
+                f"- {p['name']} | {p['price']} {p['currency']} | {p['branch_name']}"
             )
         return {"result_text": "\n".join(lines), "products": products, "branches": []}
 
@@ -519,7 +522,7 @@ When users ask to buy/order, guide them through product and store discovery in a
 
         lines = [f"Found {len(branches)} candidate stores:"]
         for b in branches:
-            lines.append(f"- id={b['id']} | {b['name']} | {b.get('address', '')}")
+            lines.append(f"- {b['name']} | {b.get('address', '')}")
         return {"result_text": "\n".join(lines), "products": [], "branches": branches}
 
     # ---- Hybrid retrieval (vector + Mongo keyword), fused with RRF ---------- #
@@ -548,17 +551,39 @@ When users ask to buy/order, guide them through product and store discovery in a
         return [r.mongo_id for r in res if r.mongo_id]
 
     async def _keyword_ids(self, collection: str, query: str, limit: int = 20) -> List[str]:
-        terms = [re.escape(t) for t in query.split() if len(t) >= 3]
-        if not terms:
-            cleaned = query.strip()
-            if not cleaned:
-                return []
-            terms = [re.escape(cleaned)]
-        pattern = "|".join(terms)
+        """Keyword leg of the hybrid search.
+
+        Tries the `name` text index first (indexed, ranked by relevance). Only if
+        that finds nothing does it fall back to the old unanchored regex, which
+        can't use an index but still catches partial words ("piz" -> "pizza").
+        """
+        cleaned = query.strip()
+        if not cleaned:
+            return []
         db = get_database()
+
+        try:
+            cursor = (
+                db[collection]
+                .find(
+                    {"$text": {"$search": cleaned}},
+                    {"_id": 1, "score": {"$meta": "textScore"}},
+                )
+                .sort([("score", {"$meta": "textScore"})])
+                .limit(limit)
+            )
+            docs = await cursor.to_list(length=limit)
+            if docs:
+                return [str(d["_id"]) for d in docs]
+        except Exception as exc:  # no text index yet, or unsupported
+            print(f"[AI RAG] $text search on '{collection}' unavailable: {exc}")
+
+        terms = [re.escape(t) for t in cleaned.split() if len(t) >= 3] or [
+            re.escape(cleaned)
+        ]
         cursor = (
             db[collection]
-            .find({"name": {"$regex": pattern, "$options": "i"}}, {"_id": 1})
+            .find({"name": {"$regex": "|".join(terms), "$options": "i"}}, {"_id": 1})
             .limit(limit)
         )
         docs = await cursor.to_list(length=limit)
@@ -691,7 +716,7 @@ When users ask to buy/order, guide them through product and store discovery in a
         conversation = self._format_history(history)
         prompt = f"{chr(10).join(conversation)}\n\nUser: {message}\n\nAnalyze the user's intent and determine the appropriate action."
 
-        return self._generate_json_output(
+        return await self._generate_json_output(
             system_prompt=self.intent_system_prompt,
             user_prompt=(
                 f"{prompt}\n\nReturn your answer as a valid json object only."
@@ -788,7 +813,7 @@ When users ask to buy/order, guide them through product and store discovery in a
             message=message, history=history, intent=intent, context=context
         )
 
-        return self._generate_json_output(
+        return await self._generate_json_output(
             system_prompt=self.final_response_system_prompt,
             user_prompt=(
                 f"{prompt}\n\nReturn your answer as a valid json object only."
@@ -877,19 +902,45 @@ When users ask to buy/order, guide them through product and store discovery in a
             ),
         }
 
-    def _generate_json_output(
+    async def _generate_json_output(
         self,
         system_prompt: str,
         user_prompt: str,
         output_model: Type[T],
         max_tokens: int,
     ) -> T:
-        """Request structured JSON from Claude and validate it with Pydantic."""
+        """Request structured JSON from Claude and validate it with Pydantic.
+
+        Prefers native structured outputs (`messages.parse`): the schema travels
+        as a request parameter instead of being serialized into the system prompt
+        on every call, and the answer can't come back malformed. Falls back to the
+        schema-in-the-prompt approach if the installed SDK doesn't expose it.
+
+        Always awaited — this used to be a blocking call inside an `async def`,
+        which stalled the whole event loop for the duration of the model call.
+        """
+        parse = getattr(self.async_client.messages, "parse", None)
+        if parse is not None:
+            try:
+                response = await parse(
+                    model=self.model_name,
+                    max_tokens=max_tokens,
+                    temperature=0.0,
+                    system=system_prompt,
+                    messages=[{"role": "user", "content": user_prompt}],
+                    output_format=output_model,
+                )
+                parsed = getattr(response, "parsed_output", None)
+                if parsed is not None:
+                    return parsed
+            except Exception as exc:
+                print(f"[AI RAG] Structured output unavailable ({exc}); using prompt schema")
+
         schema_json = json.dumps(output_model.model_json_schema(), ensure_ascii=False)
-        response = self.client.messages.create(
+        response = await self.async_client.messages.create(
             model=self.model_name,
             max_tokens=max_tokens,
-            temperature=1.0,
+            temperature=0.0,
             system=(
                 f"{system_prompt}\n\n"
                 "IMPORTANT: Respond in json format only.\n"
@@ -1065,14 +1116,14 @@ When users ask to buy/order, guide them through product and store discovery in a
     @staticmethod
     def _format_products(products: List[Dict]) -> str:
         """Format products for context with branch info."""
+        # The avatar URL and the branchId were dead weight: the model never emits
+        # either (AiFinalResponse only carries product_id) and the client hydrates
+        # both from Mongo afterwards.
         lines = []
         for p in products:
-            branch_info = f"Branch: {p.get('branch_name', 'N/A')}"
-            if p.get("branch_avatar"):
-                branch_info += f" (Avatar: {p['branch_avatar']})"
             lines.append(
                 f"- ID: {p['id']}, Name: {p['name']}, Price: ${p['price']} {p.get('currency', 'USD')}, "
-                f"{branch_info}, BranchID: {p['branchId']}, Available: {p.get('availability', True)}"
+                f"Branch: {p.get('branch_name', 'N/A')}, Available: {p.get('availability', True)}"
             )
         return "\n".join(lines)
 
@@ -1097,3 +1148,18 @@ When users ask to buy/order, guide them through product and store discovery in a
                 f"Tags: {', '.join(b.get('tags', []))}"
             )
         return "\n".join(lines)
+
+
+# Lazily-built singleton. Building the service opens two Anthropic HTTP clients
+# plus the Qdrant/Gemini stack, so doing it per request meant a fresh connection
+# pool and TLS handshake on every chat message. Lazy (not module-level) so a
+# missing API key still fails on use, as before, instead of at import time.
+_service: Optional[AiRagService] = None
+
+
+def get_ai_rag_service() -> AiRagService:
+    """Shared AiRagService instance."""
+    global _service
+    if _service is None:
+        _service = AiRagService()
+    return _service

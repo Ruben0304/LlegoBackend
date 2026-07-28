@@ -7,7 +7,7 @@ import strawberry
 from strawberry.types import Info
 
 from services.ai_quota_service import ai_quota_service
-from services.ai_rag_service import AiRagService
+from services.ai_rag_service import get_ai_rag_service
 from utils.graphql_auth import require_auth
 from utils.rate_limit import rate_limit_graphql
 
@@ -151,8 +151,8 @@ class AiAssistantSubscription:
                 f"[AI CHAT STREAM] Quota consumed: source={quota.source}, used={quota.used}/{quota.limit}"
             )
 
-            # Initialize AI RAG service
-            ai_service = AiRagService()
+            # Shared AI RAG service (built once, reused across requests)
+            ai_service = get_ai_rag_service()
             print("[AI CHAT STREAM] Processing real-time stream with Claude...")
 
             async for event in ai_service.stream_message(
