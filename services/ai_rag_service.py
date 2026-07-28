@@ -527,21 +527,40 @@ When users ask to buy/order, guide them through product and store discovery in a
 
     # ---- Hybrid retrieval (vector + Mongo keyword), fused with RRF ---------- #
 
+    async def _hybrid_ids(self, collection: str, queries: List[str]) -> List[str]:
+        """Fuse the dense and keyword rankings for every expanded query.
+
+        All the vector legs travel as a single batched call (one embedding
+        request, one Qdrant request) instead of one of each per query, which is
+        what a 6-term expansion used to cost.
+        """
+        gathered = await asyncio.gather(
+            self._vector_ids_batch(collection, queries),
+            *(self._keyword_ids(collection, q) for q in queries),
+            return_exceptions=True,
+        )
+        vector_lists = gathered[0] if isinstance(gathered[0], list) else []
+        return self._rrf_merge(
+            self._safe_lists(vector_lists) + self._safe_lists(gathered[1:])
+        )
+
     async def _hybrid_product_ids(self, queries: List[str]) -> List[str]:
-        tasks = []
-        for q in queries:
-            tasks.append(self._vector_ids("products", q))
-            tasks.append(self._keyword_ids("products", q))
-        ranked_lists = await asyncio.gather(*tasks, return_exceptions=True)
-        return self._rrf_merge(self._safe_lists(ranked_lists))
+        return await self._hybrid_ids("products", queries)
 
     async def _hybrid_branch_ids(self, queries: List[str]) -> List[str]:
-        tasks = []
-        for q in queries:
-            tasks.append(self._vector_ids("branches", q))
-            tasks.append(self._keyword_ids("branches", q))
-        ranked_lists = await asyncio.gather(*tasks, return_exceptions=True)
-        return self._rrf_merge(self._safe_lists(ranked_lists))
+        return await self._hybrid_ids("branches", queries)
+
+    async def _vector_ids_batch(
+        self, collection: str, queries: List[str], limit: int = 20
+    ) -> List[List[str]]:
+        """Dense leg for every query at once. One list of ids per query."""
+        if not queries:
+            return []
+        if collection == "products":
+            batches = await self.vector_search.search_products_batch(queries, limit=limit)
+        else:
+            batches = await self.vector_search.search_branches_batch(queries, limit=limit)
+        return [[r.mongo_id for r in results if r.mongo_id] for results in batches]
 
     async def _vector_ids(self, collection: str, query: str, limit: int = 20) -> List[str]:
         if collection == "products":
