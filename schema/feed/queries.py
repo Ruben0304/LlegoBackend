@@ -685,6 +685,12 @@ class FeedQuery:
 
         orden_map = await feed_section_config_repo.get_orden_map()
         if orden_map:
+            # Tag each section so clients can tell a pinned one apart, then sort.
+            # Order alone is not enough for them: they lay the feed out around
+            # their own fixed slots, so they need to know *which* to lift out.
+            for section in final_sections:
+                section.orden = orden_map.get(section.section_id)
+
             final_sections.sort(
                 key=lambda s: orden_map.get(s.section_id, math.inf)
             )

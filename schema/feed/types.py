@@ -118,6 +118,13 @@ class FeedSection:
     total_count: int
     banner: Optional[FeedPromoBanner] = None
 
+    # Pinned position set from the admin panel, or null when the feed algorithm
+    # decides where this section goes. `sections` already arrives sorted by it,
+    # but clients need the flag itself: they lay the feed out with their own
+    # fixed slots (a "Para Ti" carousel, stores, combos), so without knowing
+    # *which* sections are pinned they cannot lift them above that furniture.
+    orden: Optional[int] = None
+
 
 @strawberry.type
 class FeedCreativeType:
