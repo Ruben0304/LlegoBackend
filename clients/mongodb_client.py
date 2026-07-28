@@ -35,6 +35,7 @@ async def connect_to_mongo():
         await _create_business_access_indexes()
         await _create_feed_indexes()
         await _create_user_indexes()
+        await _create_ai_chat_indexes()
         await _create_ai_quota_indexes()
         await _create_delivery_zone_indexes()
         await _create_branch_delivery_request_indexes()
@@ -219,6 +220,43 @@ async def _create_user_indexes():
         print("✓ User indexes created/verified")
     except Exception as e:
         print(f"⚠ Warning: Could not create user indexes: {e}")
+
+
+async def _create_ai_chat_indexes():
+    """Indexes for the AI assistant chat (memory + keyword retrieval)."""
+    try:
+        # chat_messages: the assistant reads the last N messages of a session on
+        # every turn. Without this it's a collection scan plus an in-memory sort,
+        # twice per message, on a collection that only grows.
+        chat_collection = database["chat_messages"]
+
+        await chat_collection.create_index(
+            [("sessionId", 1), ("createdAt", -1)],
+            name="idx_chat_session_created",
+            background=True,
+        )
+
+        # products / branches: the chat's keyword leg used an unanchored
+        # case-insensitive $regex, which can never use an index. These let it run
+        # a $text search instead (it still falls back to the regex when $text
+        # finds nothing, so partial words keep working).
+        await database["products"].create_index(
+            [("name", "text")],
+            name="idx_products_text_search",
+            default_language="spanish",
+            background=True,
+        )
+
+        await database["branches"].create_index(
+            [("name", "text")],
+            name="idx_branches_text_search",
+            default_language="spanish",
+            background=True,
+        )
+
+        print("✓ AI chat indexes created/verified")
+    except Exception as e:
+        print(f"⚠ Warning: Could not create AI chat indexes: {e}")
 
 
 async def _create_ai_quota_indexes():
