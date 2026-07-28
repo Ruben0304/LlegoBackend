@@ -6,8 +6,7 @@ import strawberry
 from strawberry.types import Info
 
 from repositories import promo_requests_repo
-from utils.graphql_auth import require_auth, require_role
-from utils.rate_limit import rate_limit_graphql
+from utils.graphql_auth import require_role
 
 from .types import PromoRequestType, promo_request_to_type
 
@@ -16,9 +15,11 @@ from .types import PromoRequestType, promo_request_to_type
 class PromoMutation:
     @strawberry.mutation(
         description=(
-            "Enviar una promo desde la app de cliente. Requiere al menos una "
-            "foto o un video (sube el archivo antes a /upload/promo/image o "
-            "/upload/promo/video y pasa aquí el path devuelto)."
+            "[Admin/Manager] Crear una promo para un negocio no registrado en "
+            "Llego. Requiere al menos una foto o un video (sube el archivo antes "
+            "a /upload/promo/image o /upload/promo/video y pasa aquí el path "
+            "devuelto). Queda en pending hasta que se apruebe con "
+            "reviewPromoRequest."
         )
     )
     async def create_promo_request(
@@ -32,8 +33,7 @@ class PromoMutation:
         lugar: Optional[str] = None,
         jwt: Optional[str] = None,
     ) -> PromoRequestType:
-        user_id = require_auth(jwt, info)
-        rate_limit_graphql(info, "uploads")
+        admin_id = require_role(jwt, info, ["admin", "manager"])
 
         if not imagePath and not videoPath:
             raise Exception("Debes adjuntar al menos una foto o un video")
@@ -46,7 +46,7 @@ class PromoMutation:
                 "whatsapp": whatsapp,
                 "link": link,
                 "lugar": lugar,
-                "submittedByUserId": user_id,
+                "createdByUserId": admin_id,
             }
         )
         return promo_request_to_type(request)

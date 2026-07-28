@@ -15,7 +15,8 @@ from .types import PromoRequestPage, promo_request_to_type
 class PromoQuery:
     @strawberry.field(
         description=(
-            "[Admin/Manager] Promos enviadas desde la app de cliente. "
+            "[Admin/Manager] Promos de negocios no registrados en Llego, "
+            "creadas desde la app administrativa. "
             "Filtra por status: pending | approved | rejected."
         )
     )

@@ -9,10 +9,10 @@ from domain.promos import PromoRequest
 
 
 class PromoRequestRepository:
-    """Persistence for promos submitted from the customer app.
+    """Persistence for promos advertising businesses not registered in Llego.
 
-    Read/write is driven by the administrative app; the customer app only ever
-    calls :meth:`create`.
+    Entirely driven by the administrative app — an admin/manager creates and
+    reviews every promo request.
     """
 
     collection_name = "promo_requests"

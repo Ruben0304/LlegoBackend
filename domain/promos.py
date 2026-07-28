@@ -1,14 +1,13 @@
 """Pydantic models for the *promo* feature.
 
-A promo is submitted from the customer app by a business that is **not**
-registered in Llego. The feed shows a fixed CTA banner (section ``promo``);
-tapping it opens a form where the business uploads a photo **or** a video
-(at least one is required) and may add a title, a WhatsApp number, a link and
-a place.
+A promo advertises a business that is **not** registered in Llego. Unregistered
+businesses reach the team directly (WhatsApp, a call, etc.), and an admin/manager
+creates the promo on their behalf from the administrative app — a photo or a
+video is required, and a title, WhatsApp number, link and place are optional.
 
-Submissions are not shown in the feed: they land in ``promo_requests`` for our
-internal administrative app to review, which is the only consumer of the
-moderation fields below.
+Promos are not shown in the feed until reviewed: they land in
+``promo_requests`` with status ``pending`` for an admin/manager to approve or
+reject, which is what the moderation fields below track.
 """
 
 from datetime import datetime
@@ -24,7 +23,8 @@ from .py_object_id import PyObjectId
 # =============================================================================
 
 # Moderation lifecycle, driven entirely from the administrative app.
-#   pending   -> submitted from the customer app, awaiting review
+#   pending   -> created by an admin/manager, awaiting a (possibly different)
+#                admin/manager's approval
 #   approved  -> reviewed and accepted
 #   rejected  -> reviewed and declined (see rejectionReason)
 PROMO_REQUEST_STATUSES = ("pending", "approved", "rejected")
@@ -36,7 +36,7 @@ PROMO_REQUEST_STATUSES = ("pending", "approved", "rejected")
 
 
 class PromoRequest(BaseModel):
-    """A promo submitted by an unregistered business from the customer app."""
+    """A promo for an unregistered business, created by an admin/manager."""
 
     id: PyObjectId = Field(alias="_id")
 
@@ -50,8 +50,8 @@ class PromoRequest(BaseModel):
     link: Optional[str] = None
     lugar: Optional[str] = None
 
-    # Customer-app user that sent it, when the request was authenticated.
-    submittedByUserId: Optional[PyObjectId] = None
+    # The admin/manager that created it.
+    createdByUserId: Optional[PyObjectId] = None
 
     # Moderation, owned by the administrative app.
     status: str = "pending"  # one of PROMO_REQUEST_STATUSES
