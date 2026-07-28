@@ -144,7 +144,7 @@ async def lifespan(app):
                         product_complements_indexing_service,
                     )
 
-                    logger.info("Running product complements indexing (Sonnet/batch)...")
+                    logger.info("Running product complements indexing (Haiku/batch)...")
                     cstats = await product_complements_indexing_service.run_nightly()
                     logger.info(f"Product complements indexing completed: {cstats}")
                 except Exception as e:

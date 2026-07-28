@@ -15,8 +15,14 @@ the DELTA since the last run:
                      We write the product's own doc and append it into each host's
                      list (insert by score, re-sort, cap) — no second call.
 
-Model: latest Sonnet (claude-sonnet-4-6). Batch API (50% cheaper, offline).
-Runtime (cart) never calls the LLM — it just reads `product_complements`.
+Model: Haiku 4.5, without extended thinking (Haiku only thinks if you pass a
+`thinking` block, and we never do). On top of that: Batch API (50% cheaper,
+offline) and structured outputs, so a malformed answer can't burn a request.
+
+Nothing reaches the model unless the delta says so — a night with no product
+added, renamed or deleted issues zero requests. And a product is only marked as
+done once its answer actually landed in Mongo, so a failed request is retried
+the next night instead of being silently written off.
 """
 
 import asyncio
@@ -32,14 +38,17 @@ from pymongo import UpdateOne
 from clients import get_database
 from core.config import settings
 
-# Latest Sonnet at the moment. Bump when a newer Sonnet ships.
-SONNET_MODEL = "claude-sonnet-4-6"
+# Haiku is enough here: the task is picking numbers off a short menu, not
+# reasoning. No `thinking` block is ever sent — that keeps output tokens to the
+# JSON alone.
+MODEL = "claude-haiku-4-5"
 
 COMPLEMENTS_COLLECTION = "product_complements"
 STATE_COLLECTION = "recommendation_index_state"
 
 MAX_MENU = 120  # cap catalog names per prompt (huge catalogs)
 COMPLEMENTS_PER_PRODUCT = 8  # max complements stored per product
+MAX_WHY_WORDS = 4  # keep the stored reason (and the output bill) short
 POLL_INTERVAL_SECONDS = 30
 MAX_WAIT_SECONDS = 3 * 3600
 
@@ -52,9 +61,45 @@ _SYSTEM_PROMPT = (
     "sin markdown."
 )
 
+# Forces the model's answer into this exact shape. Without it a Haiku reply that
+# drifts (markdown fence, extra prose, a missing field) is a request paid for and
+# thrown away.
+_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "own": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "n": {"type": "integer"},
+                    "why": {"type": "string"},
+                },
+                "required": ["n", "why"],
+                "additionalProperties": False,
+            },
+        },
+        "host_of": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "n": {"type": "integer"},
+                    "strength": {"type": "number"},
+                    "why": {"type": "string"},
+                },
+                "required": ["n", "strength", "why"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["own", "host_of"],
+    "additionalProperties": False,
+}
+
 
 class ProductComplementsIndexingService:
-    """Incremental per-product complements indexing with Sonnet (Batch API)."""
+    """Incremental per-product complements indexing with Haiku (Batch API)."""
 
     def __init__(self):
         if not settings.anthropic_api_key:
@@ -73,11 +118,26 @@ class ProductComplementsIndexingService:
         db = get_database()
         branches = await self._load_branches_with_products(db)
         state = await self._load_state(db)
+        indexed_ids = await self._load_indexed_ids(db)
 
-        removed, targets, changed_by_branch = self._diff(branches, state)
+        # `settled` = productId -> fingerprint for everything that needs no work
+        # this run. Only what ends up in here gets its fingerprint persisted.
+        removed, targets, changed_by_branch, settled = self._diff(
+            branches, state, indexed_ids
+        )
+        fp_by_id = {
+            p["id"]: self._fingerprint(p["name"])
+            for products in branches.values()
+            for p in products
+        }
+
+        deleted = sum(len(v) for v in removed.values())
+        if not removed and not targets:
+            print("🌙 [complements] sin cambios — no se llama al modelo")
+            return {"deleted": 0, "indexed": 0, "skipped": "no_changes"}
 
         print(
-            f"🌙 [complements] borrados={sum(len(v) for v in removed.values())} | "
+            f"🌙 [complements] borrados={deleted} | "
             f"añadidos/cambiados={len(targets)}"
         )
 
@@ -93,17 +153,24 @@ class ProductComplementsIndexingService:
         indexed = 0
         if targets:
             requests, meta = self._build_delta_requests(branches, targets)
+            # A target with no usable catalog (branch has a single product) can
+            # never produce a request — settle it so it stops being re-evaluated
+            # every single night.
+            for _, product_id in targets:
+                if product_id not in meta:
+                    settled[product_id] = fp_by_id[product_id]
             if requests:
                 print(f"🌙 [complements] batch con {len(requests)} productos...")
-                indexed = await self._run_batch_and_apply(db, requests, meta)
+                succeeded = await self._run_batch_and_apply(db, requests, meta)
+                indexed = len(succeeded)
+                for product_id in succeeded:
+                    settled[product_id] = fp_by_id[product_id]
 
-        # 4) Persist current per-product fingerprints.
-        await self._save_state(db, branches, set(state.keys()))
+        # 4) Persist fingerprints — only for products that are really indexed.
+        await self._save_state(db, branches, state, settled)
 
-        return {
-            "deleted": sum(len(v) for v in removed.values()),
-            "indexed": indexed,
-        }
+        pending = sum(1 for _, pid in targets if pid not in settled)
+        return {"deleted": deleted, "indexed": indexed, "pending": pending}
 
     # ------------------------------------------------------------------ #
     # Load + diff
@@ -118,10 +185,24 @@ class ProductComplementsIndexingService:
             branch_id = str(d.get("branchId"))
             if not branch_id or branch_id == "None":
                 continue
+            name = (d.get("name") or "").strip()
+            if not name:
+                continue  # nameless: can't be indexed, and useless as a candidate
             branches.setdefault(branch_id, []).append(
-                {"id": str(d["_id"]), "name": (d.get("name") or "").strip()}
+                {"id": str(d["_id"]), "name": name}
             )
         return branches
+
+    async def _load_indexed_ids(self, db) -> set:
+        """Products that already have a complements doc.
+
+        Lets the diff tell "unchanged and indexed" (skip) apart from "unchanged
+        but never indexed" (a previous run failed — retry it).
+        """
+        docs = await db[COMPLEMENTS_COLLECTION].find({}, {"_id": 1}).to_list(
+            length=None
+        )
+        return {d["_id"] for d in docs}
 
     async def _load_state(self, db) -> Dict[str, Dict[str, Any]]:
         docs = await db[STATE_COLLECTION].find({}).to_list(length=None)
@@ -138,46 +219,57 @@ class ProductComplementsIndexingService:
     def _fingerprint(name: str) -> str:
         return hashlib.sha1((name or "").strip().lower().encode("utf-8")).hexdigest()[:12]
 
-    @staticmethod
-    def _branch_hash(products: List[Dict[str, Any]]) -> str:
-        ids = sorted(p["id"] for p in products)
-        return hashlib.sha1("|".join(ids).encode("utf-8")).hexdigest()
-
     def _diff(
         self,
         branches: Dict[str, List[Dict[str, Any]]],
         state: Dict[str, Dict[str, Any]],
-    ) -> Tuple[Dict[str, List[str]], List[Tuple[str, str]], Dict[str, List[str]]]:
+        indexed_ids: set,
+    ) -> Tuple[
+        Dict[str, List[str]],
+        List[Tuple[str, str]],
+        Dict[str, List[str]],
+        Dict[str, str],
+    ]:
+        """Split every product into: delete it, re-index it, or leave it alone.
+
+        A product only becomes a target (i.e. only costs tokens) when its name
+        changed, it's brand new, or it has no complements doc yet. Everything
+        else lands in `settled` and is never sent to the model.
+        """
         removed: Dict[str, List[str]] = {}
         targets: List[Tuple[str, str]] = []  # (branchId, productId) added or changed
         changed_by_branch: Dict[str, List[str]] = {}
+        settled: Dict[str, str] = {}  # productId -> fingerprint, nothing to do
 
         for branch_id in set(branches) | set(state):
             products = branches.get(branch_id, [])
             cur_fp = {p["id"]: self._fingerprint(p["name"]) for p in products}
-            st = state.get(branch_id, {})
-            prev_fp: Dict[str, str] = st.get("fp") or {}
-            prev_hash: Optional[str] = st.get("hash")
-
-            # Migration from the old (hash-only) state format.
-            if not prev_fp and prev_hash is not None:
-                if prev_hash == self._branch_hash(products):
-                    continue  # unchanged — just migrate fingerprints in _save_state
-                # changed but no per-product info → reindex present products
-                targets.extend((branch_id, pid) for pid in cur_fp)
-                continue
+            prev_fp: Dict[str, str] = (state.get(branch_id) or {}).get("fp") or {}
+            # A lone product has no siblings to complement it, so it never gets a
+            # doc — don't let its absence keep re-triggering forever.
+            indexable = len(products) >= 2
 
             rem = [pid for pid in prev_fp if pid not in cur_fp]
             if rem:
                 removed[branch_id] = rem
+
             for pid, fp in cur_fp.items():
-                if pid not in prev_fp:
-                    targets.append((branch_id, pid))  # added
-                elif prev_fp[pid] != fp:
-                    targets.append((branch_id, pid))  # changed
+                known = prev_fp.get(pid)
+                if known is None and not prev_fp and pid in indexed_ids:
+                    # No per-product state for this branch (legacy hash-only
+                    # format, or state lost) but the product already has
+                    # complements: assume it's current instead of paying to
+                    # reindex the whole branch, like the old code did.
+                    known = fp
+                if known == fp and (pid in indexed_ids or not indexable):
+                    settled[pid] = fp
+                    continue
+                targets.append((branch_id, pid))
+                if known is not None:
+                    # Existed before: drop its stale entries from siblings first.
                     changed_by_branch.setdefault(branch_id, []).append(pid)
 
-        return removed, targets, changed_by_branch
+        return removed, targets, changed_by_branch, settled
 
     # ------------------------------------------------------------------ #
     # Cheap, no-LLM ops
@@ -229,9 +321,17 @@ class ProductComplementsIndexingService:
                 {
                     "custom_id": product_id,
                     "params": {
-                        "model": SONNET_MODEL,
+                        "model": MODEL,
+                        # Cap, not a budget: only what's generated is billed, and
+                        # the prompt keeps the answer to a few short lines.
                         "max_tokens": 700,
                         "system": _SYSTEM_PROMPT,
+                        "output_config": {
+                            "format": {
+                                "type": "json_schema",
+                                "schema": _RESPONSE_SCHEMA,
+                            }
+                        },
                         "messages": [
                             {
                                 "role": "user",
@@ -258,10 +358,12 @@ class ProductComplementsIndexingService:
             f'- "own": hasta {COMPLEMENTS_PER_PRODUCT} productos que COMPLEMENTAN a '
             f'"{product_name}" (qué pedirías junto con él), de la que mejor pega a la '
             "que menos.\n"
-            f'- "host_of": productos a los que "{product_name}" les serviría como '
-            "COMPLEMENTO, SOLO si objetivamente pega, cada uno con su fuerza "
-            "(strength 0 a 1). Si no le sirve a ninguno, déjala vacía.\n"
-            "Evita sustitutos y duplicados del mismo tipo.\n\n"
+            f'- "host_of": hasta {COMPLEMENTS_PER_PRODUCT} productos a los que '
+            f'"{product_name}" les serviría como COMPLEMENTO, SOLO si '
+            "objetivamente pega, cada uno con su fuerza (strength 0 a 1). Si no "
+            "le sirve a ninguno, déjala vacía.\n"
+            "Evita sustitutos y duplicados del mismo tipo.\n"
+            f'Cada "why" es de máximo {MAX_WHY_WORDS} palabras.\n\n'
             "Responde SOLO con este JSON, sin markdown:\n"
             '{"own": [{"n": <num>, "why": "breve"}], '
             '"host_of": [{"n": <num>, "strength": <0-1>, "why": "breve"}]}'
@@ -270,12 +372,32 @@ class ProductComplementsIndexingService:
     # ------------------------------------------------------------------ #
     # Submit + poll + apply
     # ------------------------------------------------------------------ #
+    async def _create_batch(self, requests: List[Dict[str, Any]]):
+        """Submit the batch, falling back to plain JSON if the API rejects the
+        structured-output field (older SDK/endpoint). Creation is free, so the
+        retry costs nothing."""
+        try:
+            return await asyncio.to_thread(
+                self.client.messages.batches.create, requests=requests
+            )
+        except anthropic.BadRequestError as exc:
+            if "output_config" not in str(exc):
+                raise
+            print(f"⚠ [complements] output_config rechazado ({exc}); sin schema")
+            plain = [
+                {**r, "params": {k: v for k, v in r["params"].items()
+                                 if k != "output_config"}}
+                for r in requests
+            ]
+            return await asyncio.to_thread(
+                self.client.messages.batches.create, requests=plain
+            )
+
     async def _run_batch_and_apply(
         self, db, requests: List[Dict[str, Any]], meta: Dict[str, Dict[str, Any]]
-    ) -> int:
-        batch = await asyncio.to_thread(
-            self.client.messages.batches.create, requests=requests
-        )
+    ) -> List[str]:
+        """Returns the ids whose complements actually made it into Mongo."""
+        batch = await self._create_batch(requests)
         print(f"🌙 [complements] batch creado: {batch.id} ({batch.processing_status})")
 
         start = time.time()
@@ -298,6 +420,8 @@ class ProductComplementsIndexingService:
         now = datetime.utcnow()
         coll = db[COMPLEMENTS_COLLECTION]
         own_ops: List[UpdateOne] = []
+        succeeded_ids: List[str] = []
+        unusable = 0
         # host_id -> {branchId, additions: [{productId, reason, score}]}
         host_additions: Dict[str, Dict[str, Any]] = {}
 
@@ -312,9 +436,17 @@ class ProductComplementsIndexingService:
             text = "".join(
                 b.text for b in result.result.message.content if b.type == "text"
             ).strip()
-            own, host_of = self._parse_delta(text)
+            parsed = self._parse_delta(text)
+            if parsed is None:
+                # Unreadable answer: leave the product unsettled so the next run
+                # retries it, instead of storing an empty list as if it were the
+                # real result.
+                unusable += 1
+                continue
+            own, host_of = parsed
 
             # (a) this product's own complements
+            succeeded_ids.append(result.custom_id)
             own_ops.append(
                 UpdateOne(
                     {"_id": result.custom_id},
@@ -322,7 +454,7 @@ class ProductComplementsIndexingService:
                         "$set": {
                             "branchId": branch_id,
                             "complements": self._own_to_complements(own, candidate_ids),
-                            "model": SONNET_MODEL,
+                            "model": MODEL,
                             "updatedAt": now,
                         }
                     },
@@ -358,7 +490,9 @@ class ProductComplementsIndexingService:
                 coll, host_id, payload["branchId"], payload["additions"], now
             )
 
-        return len(own_ops)
+        if unusable:
+            print(f"⚠ [complements] {unusable} respuestas ilegibles — se reintentan")
+        return succeeded_ids
 
     async def _apply_host_additions(
         self, coll, host_id: str, branch_id: str, additions: List[Dict[str, Any]], now
@@ -423,7 +557,10 @@ class ProductComplementsIndexingService:
             return 0.5
 
     @staticmethod
-    def _parse_delta(text: str) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    def _parse_delta(
+        text: str,
+    ) -> Optional[Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]]:
+        """None means "couldn't read it" — distinct from a valid empty answer."""
         cleaned = text.strip()
         if cleaned.startswith("```"):
             lines = cleaned.splitlines()[1:]
@@ -433,7 +570,9 @@ class ProductComplementsIndexingService:
         try:
             data = json.loads(cleaned)
         except Exception:
-            return [], []
+            return None
+        if not isinstance(data, dict):
+            return None
         return (data.get("own") or [], data.get("host_of") or [])
 
     # ------------------------------------------------------------------ #
@@ -443,31 +582,47 @@ class ProductComplementsIndexingService:
         self,
         db,
         branches: Dict[str, List[Dict[str, Any]]],
-        previous_branch_ids: set,
+        state: Dict[str, Dict[str, Any]],
+        settled: Dict[str, str],
     ) -> None:
+        """Persist fingerprints for settled products only.
+
+        A product whose request failed keeps its old (or missing) fingerprint, so
+        the next run picks it up again instead of writing it off as done. Nothing
+        is written for branches whose map didn't move.
+        """
         now = datetime.utcnow()
-        ops = [
-            UpdateOne(
-                {"_id": branch_id},
-                {
-                    "$set": {
-                        "productsFp": {
-                            p["id"]: self._fingerprint(p["name"]) for p in products
+        ops: List[UpdateOne] = []
+        for branch_id, products in branches.items():
+            st = state.get(branch_id)
+            prev: Dict[str, str] = (st or {}).get("fp") or {}
+            current_ids = {p["id"] for p in products}
+            fp = {pid: f for pid, f in prev.items() if pid in current_ids}
+            for p in products:
+                done = settled.get(p["id"])
+                if done is not None:
+                    fp[p["id"]] = done
+            if st is not None and st.get("hash") is None and fp == prev:
+                continue  # nothing moved in this branch
+            ops.append(
+                UpdateOne(
+                    {"_id": branch_id},
+                    {
+                        "$set": {
+                            "productsFp": fp,
+                            "productCount": len(products),
+                            "updatedAt": now,
                         },
-                        "productCount": len(products),
-                        "updatedAt": now,
+                        "$unset": {"productIdsHash": ""},
                     },
-                    "$unset": {"productIdsHash": ""},
-                },
-                upsert=True,
+                    upsert=True,
+                )
             )
-            for branch_id, products in branches.items()
-        ]
         if ops:
             await db[STATE_COLLECTION].bulk_write(ops, ordered=False)
 
         # Drop state for branches that no longer have any product.
-        gone = [b for b in previous_branch_ids if b not in branches]
+        gone = [b for b in state if b not in branches]
         if gone:
             await db[STATE_COLLECTION].delete_many({"_id": {"$in": gone}})
 
