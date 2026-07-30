@@ -2,6 +2,20 @@
 
 ---
 
+## 📅 30 de Julio, 2026
+
+### Resumen de cambios (últimas 24h)
+
+Sin commits nuevos de código. El único commit en las últimas 24h es "Analisis diario Claude" (generado automáticamente). No hay cambios en producción.
+
+---
+
+### Puede dar bateo
+
+Sin cambios nuevos — sin riesgos nuevos.
+
+---
+
 ## 📅 28 de Julio, 2026
 
 ### Resumen de cambios (últimas 24h)
@@ -166,88 +180,6 @@ Sin cambios nuevos — sin riesgos nuevos.
 
 ---
 
-## 📅 22 de Julio, 2026
-
-### Resumen de cambios (últimas 24h)
-
-**8 commits reales** — 7 de Ruben0304 y 1 de Fabian1820 (cherry-pick del 29 de Junio). Día muy activo: nuevo sistema de sync incremental, corrección de bug crítico de `updatedAt` que rompió toda la app GraphQL durante ~21 minutos, validación de moneda por sucursal en pedidos, y mejoras en filtrado de similitud de sucursales/productos.
-
----
-
-### Área 1: Validación de moneda por sucursal y congelamiento de tasa (1 commit — Ruben0304, 12:10)
-
-- **`fix(orders): validar moneda de pago por sucursal y congelar tasa de cambio`** — Cada sucursal cubana acepta CUP, USD o ambas con su propia tasa manual, y antes no se validaba: se podía pagar con moneda que la sucursal no acepta, la tasa se recalculaba al modificar/reenviar un pedido ya aceptado, y se podían crear productos/combos en moneda incompatible con la sucursal. Ahora la tasa de cambio se congela al momento de crear el pedido.
-
----
-
-### Área 2: Filtrado de sucursales similares (2 commits — Ruben0304, 12:44 y 12:53)
-
-- **`fix(branches): filtrar getBranchesForProduct por branchType`** — Primer fix: compara el branchType via `categoryId → ProductCategory` antes de acumular el score de similitud, evitando que un producto (ej. perfume) sugiera sucursales de otro vertical (ej. restaurante).
-- **`fix(branches): filtrar similitud por categoria exacta y por tipo de sucursal`** — Ampliación inmediata: `getBranchesForProduct` ahora exige el mismo `categoryId` exacto (no solo el vertical), evitando mezclar categorías del mismo vertical (ej. Postres vs Platos principales). `getSimilarBranches` también filtra por tipos compartidos en `Branch.tipos`.
-
----
-
-### Área 3: Sync incremental + cascada de isActive + moneda de sucursal (1 commit — Ruben0304, 15:22)
-
-- **`feat(sync): sync incremental, cascada de isActive y moneda de sucursal`** — Agrega `updatedAt` a Business/Branch/Product (sellado en cada `update()`). Nueva query `syncCheckpoint` (ids activos + timestamp del servidor) y parámetro `since` (opcional, retrocompatible) en las 3 queries de sync para descargar solo lo nuevo/modificado. `approve_business`/`reject_business` ahora cascadan `isActive` a todas las sucursales del negocio (antes quedaban `isActive=true` aunque el negocio fuera rechazado). `syncProducts`/`syncImages` excluyen inactivos/no aprobados. `BranchSyncType.acceptedCurrency`/`exchangeRate` ahora se poblan correctamente (estaban declarados pero siempre quedaban `null`).
-
----
-
-### Área 4: Fix crítico — updatedAt rompía toda la app GraphQL (2 commits — Ruben0304, 15:43 y 15:47)
-
-- **`fix(schema): agregar updatedAt a BusinessType/ProductType y excluirlo en BranchType`** — El campo `updatedAt` añadido en el commit anterior rompía cualquier query que construyera `BusinessType`, `BranchType`, `ProductType` o `ScoredProductType` con `**to_strawberry_dict(...)` (TypeError: unexpected keyword argument). Afectaba prácticamente toda la app: home, búsqueda, tiendas, productos, combos, showcases, feed, AI chat, invitaciones. Fix: `BusinessType`, `ProductType` y `ScoredProductType` declaran `updatedAt`; `branch_to_dict()` excluye `updatedAt` (igual que ya hacía con `pricePositioningUpdatedAt`).
-- **`docs: documentar el riesgo de agregar campos a Business/Branch/Product`** — Aviso preventivo en 3 lugares: antes de las 3 clases en `domain/models.py`, en el docstring de `to_strawberry_dict()` en `utils/serialization.py`, y en `CLAUDE.md` con el grep a correr antes de agregar un campo nuevo.
-
----
-
-### Área 5: FeedProductType también faltaba updatedAt (1 commit — Ruben0304, 16:41)
-
-- **`fix(feed): agregar updatedAt a FeedProductType`** — `FeedProductType` (feed "Para ti" de Home) se construye con `FeedProductType(**to_strawberry_dict(product), score=..., distance_m=...)` y tampoco declaraba `updatedAt`. Se escapó del fix anterior porque el grep tenía un bug en el patrón de exclusión que también excluía este tipo. Verificado con grep exhaustivo de todas las clases terminadas en ProductType/BranchType/BusinessType: `OrderPreviewProductType` y `TopProductType` usan argumentos explícitos (no unpacking) y no les afecta.
-
----
-
-### Área 6: Blindar listado de pedidos y mapa en vivo del chofer (1 commit — Fabian1820, 19:16 — cherry-pick del 29 de Junio)
-
-- **`fix(orders): blindar listado y alimentar el mapa en vivo del chofer`** — `order_to_type` ahora tolera `status`/`paymentStatus` `None` o inválidos (pedidos antiguos) con `_coerce_order_status`/`_coerce_payment_status` en lugar de romper con `.value`. El resolver `customer()` devuelve placeholder "Cliente no disponible" cuando el id quedó huérfano, en lugar de tumbar toda la query. `update_delivery_location` ahora publica en `delivery_location:{orderId}`, el canal que consume la subscription `deliveryLocationUpdated` de la app de negocios (antes `publish_delivery_location` no se llamaba desde ningún sitio y el mapa en vivo nunca recibía datos).
-
----
-
-### Puede dar bateo
-
-1. **Ventana de app completamente rota ~21 min (15:22–15:43) — confirmar si llegó a producción**: El feat(sync) añadió `updatedAt` rompiendo toda la app GraphQL, y el fix llegó 21 minutos después. Si Railway auto-deploy está activo, hubo una ventana real con todas las queries fallando en producción.
-
-2. **`FeedProductType` detectado en segundo grep pass — posibles tipos adicionales sin cubrir**: El commit `bfedc8a` admite que el primer grep tenía un bug en el patrón de exclusión. Aunque el segundo pass fue exhaustivo, solo se puede confiar en el mensaje del commit sin correrlo localmente contra producción.
-
-3. **`updatedAt` en documentos históricos sin el campo — posibles `NoneType` errors**: Business/Branch/Product ya existentes en MongoDB no tienen `updatedAt`. Si algún resolver o lógica downstream trata `updatedAt` como no-nulo, puede lanzar `NoneType` errors para docs históricos hasta que reciban su primer `update()`.
-
-4. **`customer()` con placeholder — resolvers downstream pueden acceder a campos reales y fallar**: El placeholder devuelve un objeto básico. Cualquier resolver aguas abajo que acceda a campos específicos del cliente (teléfono, dirección) asumiendo datos reales lanzará `AttributeError`.
-
-5. **Cherry-pick del 29 de Jun committeado hoy — 23 días de desfase lógico**: El commit `af590ed` fue desarrollado el 29 de Junio. Puede haber incompatibilidades lógicas con 3 semanas de cambios intermedios, especialmente con el nuevo sistema de validación de monedas añadido hoy.
-
-6. **Cascada isActive en approve/reject_business — sucursales con isActive=false por razón propia se activan**: Si una sucursal tenía `isActive=false` independientemente del negocio (ej. cierre temporal), `approve_business` la activará junto con todas las demás del negocio.
-
-7. **`syncCheckpoint` sin señalización de bajas — productos/sucursales desactivados persisten en catálogos offline**: El sync incremental solo trae novedades. Un producto desactivado después del último sync del cliente permanece en su catálogo offline hasta el próximo sync completo.
-
-8. **Dos commits de branches en 8 min — confirmar coexistencia de ambos filtros**: El segundo commit amplía al primero. Verificar que `getBranchesForProduct` aplica `branchType AND categoryId` simultáneamente y no solo el último.
-
-9. **`_coerce_order_status/_coerce_payment_status` — estados inválidos silenciados sin log/alerta**: Los pedidos con status corrompido en DB devuelven un default sin ningún log. El equipo puede no detectar datos inconsistentes hasta que causen problemas downstream.
-
----
-
-## 📅 21 de Julio, 2026
-
-### Resumen de cambios (últimas 24h)
-
-Sin commits nuevos de código. El único commit en las últimas 24h es "Analisis diario Claude" (generado automáticamente). No hay cambios en producción.
-
----
-
-### Puede dar bateo
-
-Sin cambios nuevos — sin riesgos nuevos.
-
----
-
 #### Seguimientos vigentes
 
 - **`AiRagService` como singleton perezoso — estado mutable compartido entre requests concurrentes, race conditions posibles (Jul 28)**.
@@ -263,13 +195,6 @@ Sin cambios nuevos — sin riesgos nuevos.
 - **`FeedPromoBanner` sin click-through definido — tap puede navegar a destino incorrecto en app cliente (Jul 27)**.
 - **`promo_requests` sin índices — paginación admin puede ser lenta bajo volumen (Jul 27)**.
 - **Dos features feed en 37 min — posible build intermedio con pinning activo sin sección promo (Jul 27)**.
-- **Ventana de app rota ~21 min (feat sync → fix schema) — confirmar si auto-deploy la llevó a producción (Jul 22)**.
-- **`updatedAt` en docs históricos sin el campo — NoneType errors posibles en Business/Branch/Product (Jul 22)**.
-- **`customer()` placeholder — resolvers downstream que accedan a campos reales del cliente pueden lanzar AttributeError (Jul 22)**.
-- **Cherry-pick Jun 29 (af590ed) — 23 días de desfase, verificar incompatibilidades con cambios intermedios (Jul 22)**.
-- **Cascada isActive en approve/reject_business — sucursales con isActive=false por razón propia se activan con el negocio (Jul 22)**.
-- **`syncCheckpoint` sin señalización de bajas — productos/sucursales desactivados persisten en catálogos offline (Jul 22)**.
-- **`_coerce_order_status/_coerce_payment_status` — estados inválidos silenciados sin log/alerta (Jul 22)**.
 - **Batch API — polling sin guardia de solapamiento entre corridas nocturnas (Jun 26)**.
 - **Fingerprint por nombre — cambios no-nombre no detectados en índice incremental (Jun 26)**.
 - **Índice incremental sin rollback — fingerprint actualizado pero doc no escrito (Jun 26)**.
@@ -329,4 +254,4 @@ Sin cambios nuevos — sin riesgos nuevos.
 
 ---
 
-> ⚠️ **Nota de mantenimiento**: Las entradas del **19, 20 y 21 de Junio** y del **23 de Junio** fueron eliminadas al superar los 7 días de antigüedad (política de retención semanal). La entrada del **26 de Junio** fue eliminada el 4 de Julio al superar los 7 días. La entrada del **28 de Junio** fue eliminada el 6 de Julio al superar los 7 días. La entrada del **29 de Junio** fue eliminada el 7 de Julio al superar los 7 días. La entrada del **30 de Junio** fue eliminada el 8 de Julio al superar los 7 días. Las entradas del **1 y 2 de Julio** fueron eliminadas el 10 de Julio al superar los 7 días. La entrada del **3 de Julio** fue eliminada el 11 de Julio al superar los 7 días. Las entradas del **4 y 5 de Julio** fueron eliminadas el 13 de Julio al superar los 7 días. La entrada del **6 de Julio** fue eliminada el 14 de Julio al superar los 7 días. La entrada del **7 de Julio** fue eliminada el 15 de Julio al superar los 7 días. La entrada del **8 de Julio** fue eliminada el 17 de Julio al superar los 7 días. La entrada del **10 de Julio** fue eliminada el 18 de Julio al superar los 7 días. La entrada del **11 de Julio** fue eliminada el 19 de Julio al superar los 7 días. La entrada del **13 de Julio** fue eliminada el 21 de Julio al superar los 7 días. La entrada del **14 de Julio** fue eliminada el 22 de Julio al superar los 7 días. La entrada del **15 de Julio** fue eliminada el 23 de Julio al superar los 7 días. La entrada del **17 de Julio** fue eliminada el 25 de Julio al superar los 7 días. La entrada del **18 de Julio** fue eliminada el 26 de Julio al superar los 7 días. La entrada del **19 de Julio** fue eliminada el 27 de Julio al superar los 7 días. La entrada del **20 de Julio** fue eliminada el 28 de Julio al superar los 7 días. Anteriores eliminadas: 16, 17 y 18 de Junio, 5, 6, 7, 9, 11, 12 y 15 de Junio, y días de Mayo.
+> ⚠️ **Nota de mantenimiento**: Las entradas del **19, 20 y 21 de Junio** y del **23 de Junio** fueron eliminadas al superar los 7 días de antigüedad (política de retención semanal). La entrada del **26 de Junio** fue eliminada el 4 de Julio al superar los 7 días. La entrada del **28 de Junio** fue eliminada el 6 de Julio al superar los 7 días. La entrada del **29 de Junio** fue eliminada el 7 de Julio al superar los 7 días. La entrada del **30 de Junio** fue eliminada el 8 de Julio al superar los 7 días. Las entradas del **1 y 2 de Julio** fueron eliminadas el 10 de Julio al superar los 7 días. La entrada del **3 de Julio** fue eliminada el 11 de Julio al superar los 7 días. Las entradas del **4 y 5 de Julio** fueron eliminadas el 13 de Julio al superar los 7 días. La entrada del **6 de Julio** fue eliminada el 14 de Julio al superar los 7 días. La entrada del **7 de Julio** fue eliminada el 15 de Julio al superar los 7 días. La entrada del **8 de Julio** fue eliminada el 17 de Julio al superar los 7 días. La entrada del **10 de Julio** fue eliminada el 18 de Julio al superar los 7 días. La entrada del **11 de Julio** fue eliminada el 19 de Julio al superar los 7 días. La entrada del **13 de Julio** fue eliminada el 21 de Julio al superar los 7 días. La entrada del **14 de Julio** fue eliminada el 22 de Julio al superar los 7 días. La entrada del **15 de Julio** fue eliminada el 23 de Julio al superar los 7 días. La entrada del **17 de Julio** fue eliminada el 25 de Julio al superar los 7 días. La entrada del **18 de Julio** fue eliminada el 26 de Julio al superar los 7 días. La entrada del **19 de Julio** fue eliminada el 27 de Julio al superar los 7 días. La entrada del **20 de Julio** fue eliminada el 28 de Julio al superar los 7 días. La entrada del **21 de Julio** fue eliminada el 30 de Julio al superar los 7 días. La entrada del **22 de Julio** fue eliminada el 30 de Julio al superar los 7 días. Anteriores eliminadas: 16, 17 y 18 de Junio, 5, 6, 7, 9, 11, 12 y 15 de Junio, y días de Mayo.
