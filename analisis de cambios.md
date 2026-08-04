@@ -2,6 +2,20 @@
 
 ---
 
+## 📅 4 de Agosto, 2026
+
+### Resumen de cambios (últimas 24h)
+
+Sin commits nuevos de código. El único commit en las últimas 24h es "Analisis diario Claude" (generado automáticamente). No hay cambios en producción.
+
+---
+
+### Puede dar bateo
+
+Sin cambios nuevos — sin riesgos nuevos.
+
+---
+
 ## 📅 3 de Agosto, 2026
 
 ### Resumen de cambios (últimas 24h)
@@ -140,46 +154,6 @@ Sin cambios nuevos — sin riesgos nuevos.
 
 ---
 
-## 📅 27 de Julio, 2026
-
-### Resumen de cambios (últimas 24h)
-
-**2 commits reales** de brianmojena — ambos en el feed: primero se añadió la capacidad de pinear secciones del feed a una posición fija, y 37 minutos después se añadió una sección `promo` (banner CTA para negocios no registrados en Llego que quieran enviar promos desde la app cliente).
-
----
-
-### Área 1: Feed — pinear sección a posición fija (1 commit — brianmojena, 19:33)
-
-- **`feat(feed): allow pinning a feed section to a fixed position`** — Nueva colección `feed_section_config` con repositorio que incluye caché en proceso de 60 segundos. Mutación `setFeedSectionOrden` (admin/manager) para fijar o quitar el pin (`orden=null` quita el pin). Query `getFeedSectionOrden` para leer la configuración actual. `get_feed` ordena `final_sections` por `orden`; el sort es estable, por lo que las secciones sin pin mantienen su orden relativo predeterminado.
-
----
-
-### Área 2: Feed — sección promo y flujo de envío (1 commit — brianmojena, 20:10)
-
-- **`feat(promo): add promo feed section and submission flow`** — Nueva sección `promo` en el feed: banner CTA sin productos que los negocios no registrados en Llego pueden tocar para enviar una promo desde la app cliente. Los envíos aterrizan en la colección `promo_requests` para revisión administrativa. Nuevo modelo `PromoRequest` (requiere foto o video). Repositorio `promo_request_repository`: crear + listado/paginación admin + aprobar/rechazar. Endpoints `POST /upload/promo/image` y `/upload/promo/video` devuelven el path S3. Mutaciones: `createPromoRequest` (autenticado, rate-limited), `reviewPromoRequest` y `promoRequests` (admin/manager). `FeedSection.banner + FeedPromoBanner`; banner mostrado solo en página 0.
-
----
-
-### Puede dar bateo
-
-1. **Caché en proceso de 60s para `feed_section_config` — inconsistencia en deploys multi-instancia**: El caché de configuración de secciones vive en memoria de cada proceso. Con múltiples instancias (Railway horizontal), un cambio de `orden` puede tardar hasta 60s en propagarse, y distintas instancias mostrarán órdenes distintos durante ese intervalo.
-
-2. **Sección `promo` solo en página 0 — pinning puede ignorarse en páginas siguientes**: La sección `promo` se muestra únicamente en página 0. Si el admin la pina a una posición concreta con `setFeedSectionOrden` y el usuario solicita el feed desde página 1+, el banner no aparece, contradiciendo el comportamiento esperado del pinning.
-
-3. **`createPromoRequest` rate-limited — límite y ventana no especificados en el commit**: El commit no detalla la ventana de tiempo ni el número máximo de intentos. Sin esa información no se puede evaluar si el límite es efectivo contra spam. Además, si el rate limiter usa IP y la app cliente está detrás de NAT compartido, usuarios legítimos pueden verse bloqueados por el comportamiento de otros en el mismo bloque.
-
-4. **`PromoRequest` uploads sin validación de tamaño/tipo MIME — exposición del bucket S3 a archivos arbitrarios**: Los endpoints `/upload/promo/image` y `/upload/promo/video` devuelven el path S3 pero no se menciona validación de tamaño máximo ni tipos MIME permitidos, exponiendo el bucket a subidas de archivos arbitrarios.
-
-5. **`reviewPromoRequest` sin notificación al negocio autor**: Aprobar o rechazar una solicitud no menciona ningún canal de notificación (push, email). El negocio que envió la promo no se entera del resultado automáticamente.
-
-6. **`FeedPromoBanner` sin click-through definido**: El banner es un CTA puro sin productos. Si la app cliente no tiene lógica de navegación explícita para el tap en el banner, el click puede no hacer nada o navegar a un destino incorrecto.
-
-7. **`promo_requests` colección nueva sin índices definidos en el commit**: El listado/paginación de `promo_requests` para admin puede ser lento sin índices en campos de filtro (`status`, `created_at`, `business_id`).
-
-8. **Dos features en 37 minutos — posible deploy intermedio del primer commit**: Si Railway auto-deploy está activo, el commit de las 19:33 (pinning) hizo deploy sin el promo feed. Pudo haber una ventana con la lógica de pinning activa pero sin la sección `promo` referenciada, causando comportamiento inesperado en `get_feed`.
-
----
-
 #### Seguimientos vigentes
 
 - **`AiRagService` como singleton perezoso — estado mutable compartido entre requests concurrentes, race conditions posibles (Jul 28)**.
@@ -188,13 +162,6 @@ Sin cambios nuevos — sin riesgos nuevos.
 - **Complements con Haiku Batch — confirmar soporte de `json_schema` en endpoint Batch de Haiku 4.5 (Jul 28)**.
 - **`generate_embeddings_batch` — orden de vectores no garantizado; asignación cruzada silenciosa posible (Jul 28)**.
 - **Sucursales mono-producto excluidas de reevaluación — complements stale si catálogo se redujo a 1 producto (Jul 28)**.
-- **Caché en proceso de 60s para `feed_section_config` — inconsistencia en multi-instancia, cambios de orden visibles con retraso (Jul 27)**.
-- **Sección `promo` solo en página 0 — pinning vía setFeedSectionOrden ignorado en páginas siguientes (Jul 27)**.
-- **`createPromoRequest` rate-limited — límite/ventana no especificados, riesgo de bloqueo legítimo por NAT compartido (Jul 27)**.
-- **`PromoRequest` uploads sin validación de tamaño/MIME — bucket S3 expuesto a archivos arbitrarios (Jul 27)**.
-- **`FeedPromoBanner` sin click-through definido — tap puede navegar a destino incorrecto en app cliente (Jul 27)**.
-- **`promo_requests` sin índices — paginación admin puede ser lenta bajo volumen (Jul 27)**.
-- **Dos features feed en 37 min — posible build intermedio con pinning activo sin sección promo (Jul 27)**.
 - **Batch API — polling sin guardia de solapamiento entre corridas nocturnas (Jun 26)**.
 - **Fingerprint por nombre — cambios no-nombre no detectados en índice incremental (Jun 26)**.
 - **Índice incremental sin rollback — fingerprint actualizado pero doc no escrito (Jun 26)**.
@@ -254,4 +221,4 @@ Sin cambios nuevos — sin riesgos nuevos.
 
 ---
 
-> ⚠️ **Nota de mantenimiento**: Las entradas del **19, 20 y 21 de Junio** y del **23 de Junio** fueron eliminadas al superar los 7 días de antigüedad (política de retención semanal). La entrada del **26 de Junio** fue eliminada el 4 de Julio al superar los 7 días. La entrada del **28 de Junio** fue eliminada el 6 de Julio al superar los 7 días. La entrada del **29 de Junio** fue eliminada el 7 de Julio al superar los 7 días. La entrada del **30 de Junio** fue eliminada el 8 de Julio al superar los 7 días. Las entradas del **1 y 2 de Julio** fueron eliminadas el 10 de Julio al superar los 7 días. La entrada del **3 de Julio** fue eliminada el 11 de Julio al superar los 7 días. Las entradas del **4 y 5 de Julio** fueron eliminadas el 13 de Julio al superar los 7 días. La entrada del **6 de Julio** fue eliminada el 14 de Julio al superar los 7 días. La entrada del **7 de Julio** fue eliminada el 15 de Julio al superar los 7 días. La entrada del **8 de Julio** fue eliminada el 17 de Julio al superar los 7 días. La entrada del **10 de Julio** fue eliminada el 18 de Julio al superar los 7 días. La entrada del **11 de Julio** fue eliminada el 19 de Julio al superar los 7 días. La entrada del **13 de Julio** fue eliminada el 21 de Julio al superar los 7 días. La entrada del **14 de Julio** fue eliminada el 22 de Julio al superar los 7 días. La entrada del **15 de Julio** fue eliminada el 23 de Julio al superar los 7 días. La entrada del **17 de Julio** fue eliminada el 25 de Julio al superar los 7 días. La entrada del **18 de Julio** fue eliminada el 26 de Julio al superar los 7 días. La entrada del **19 de Julio** fue eliminada el 27 de Julio al superar los 7 días. La entrada del **20 de Julio** fue eliminada el 28 de Julio al superar los 7 días. La entrada del **21 de Julio** fue eliminada el 30 de Julio al superar los 7 días. La entrada del **22 de Julio** fue eliminada el 30 de Julio al superar los 7 días. La entrada del **23 de Julio** fue eliminada el 31 de Julio al superar los 7 días. La entrada del **24 de Julio** fue eliminada el 1 de Agosto al superar los 7 días. La entrada del **25 de Julio** fue eliminada el 2 de Agosto al superar los 7 días. La entrada del **26 de Julio** fue eliminada el 3 de Agosto al superar los 7 días. Anteriores eliminadas: 16, 17 y 18 de Junio, 5, 6, 7, 9, 11, 12 y 15 de Junio, y días de Mayo.
+> ⚠️ **Nota de mantenimiento**: Las entradas del **19, 20 y 21 de Junio** y del **23 de Junio** fueron eliminadas al superar los 7 días de antigüedad (política de retención semanal). La entrada del **26 de Junio** fue eliminada el 4 de Julio al superar los 7 días. La entrada del **28 de Junio** fue eliminada el 6 de Julio al superar los 7 días. La entrada del **29 de Junio** fue eliminada el 7 de Julio al superar los 7 días. La entrada del **30 de Junio** fue eliminada el 8 de Julio al superar los 7 días. Las entradas del **1 y 2 de Julio** fueron eliminadas el 10 de Julio al superar los 7 días. La entrada del **3 de Julio** fue eliminada el 11 de Julio al superar los 7 días. Las entradas del **4 y 5 de Julio** fueron eliminadas el 13 de Julio al superar los 7 días. La entrada del **6 de Julio** fue eliminada el 14 de Julio al superar los 7 días. La entrada del **7 de Julio** fue eliminada el 15 de Julio al superar los 7 días. La entrada del **8 de Julio** fue eliminada el 17 de Julio al superar los 7 días. La entrada del **10 de Julio** fue eliminada el 18 de Julio al superar los 7 días. La entrada del **11 de Julio** fue eliminada el 19 de Julio al superar los 7 días. La entrada del **13 de Julio** fue eliminada el 21 de Julio al superar los 7 días. La entrada del **14 de Julio** fue eliminada el 22 de Julio al superar los 7 días. La entrada del **15 de Julio** fue eliminada el 23 de Julio al superar los 7 días. La entrada del **17 de Julio** fue eliminada el 25 de Julio al superar los 7 días. La entrada del **18 de Julio** fue eliminada el 26 de Julio al superar los 7 días. La entrada del **19 de Julio** fue eliminada el 27 de Julio al superar los 7 días. La entrada del **20 de Julio** fue eliminada el 28 de Julio al superar los 7 días. La entrada del **21 de Julio** fue eliminada el 30 de Julio al superar los 7 días. La entrada del **22 de Julio** fue eliminada el 30 de Julio al superar los 7 días. La entrada del **23 de Julio** fue eliminada el 31 de Julio al superar los 7 días. La entrada del **24 de Julio** fue eliminada el 1 de Agosto al superar los 7 días. La entrada del **25 de Julio** fue eliminada el 2 de Agosto al superar los 7 días. La entrada del **26 de Julio** fue eliminada el 3 de Agosto al superar los 7 días. La entrada del **27 de Julio** fue eliminada el 4 de Agosto al superar los 7 días. Anteriores eliminadas: 16, 17 y 18 de Junio, 5, 6, 7, 9, 11, 12 y 15 de Junio, y días de Mayo.
