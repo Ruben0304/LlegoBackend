@@ -2,6 +2,60 @@
 
 ---
 
+## 📅 5 de Agosto, 2026
+
+### Resumen de cambios (últimas 24h)
+
+**8 commits** — todos de brianmojena. Día muy activo: fix de dos bugs de concurrencia en branch delivery requests, nuevo campo `predefinedDeliveryFee` en Business, recomendación de fee basada en historial de órdenes, cola de revisión KYC admin, y nuevas queries admin de órdenes y presencia de couriers.
+
+---
+
+### Área 1: Orders — fix dos bugs de concurrencia en branch delivery requests (2 commits — brianmojena, 14:18)
+
+- **`fix(orders): resolve two concurrency bugs in branch delivery requests`** — El índice único en `(deliveryPersonId, branchId)` no estaba acotado a `status=pending`, impidiendo que un courier solicitara nuevamente una sucursal tras un rechazo. Se convierte en índice único parcial. `request_branch_link` atrapa `DuplicateKeyError` y lo convierte en el mensaje amistoso existente. `update_status` es ahora un compare-and-swap atómico (filtra en `status=pending`). `respond_branch_link_request`/`cancel_branch_link_request` tratan un `None` de `update_status` como "ya respondido". `add_linked_branch` solo se dispara cuando el update atómico ganó y resultó en ACCEPTED.
+- **`test(orders): cover branch delivery request concurrency fixes`** — Tests unitarios con mocks (AsyncMock/SimpleNamespace): race de duplicate-key en request, lost-race en respond (verificando que `add_linked_branch` no se llama), happy-path accept, y lost-race en cancel.
+
+---
+
+### Área 2: Businesses — predefinedDeliveryFee + recomendación basada en datos históricos (3 commits + merge — brianmojena, 14:18-14:23)
+
+- **`feat(businesses): add predefinedDeliveryFee to Business`** — Nuevo campo `predefinedDeliveryFee` en `Business` (puramente informacional, nunca afecta el cálculo real de H3). Wired a través de `UpdateBusinessInput`/`update_business` (con check `>= 0`) y `BusinessType`.
+- **`feat(businesses): add data-driven delivery fee recommendation`** — `OrderRepository.get_recent_delivery_fees`: una única aggregation (match delivered + fee>0 → sort por recencia → limit 30 → group en array de fees). `compute_fee_recommendation` en `services/orders_utils.py`: función pura, sin I/O, que devuelve `{recommendedFee, sampleSize, confidence}` usando la mediana (robusta a outliers). Expuesto como `deliveryFeeRecommendation(businessId, jwt)` (solo owner, mismo gating que `update_business`).
+- **`test(businesses): cover compute_fee_recommendation`** — Cubre 0/1/2/many records, valores repetidos y dispersos, outlier extremo, contrato de recency-ordering, filtrado de inválidos/negativos, redondeo y confidence scaling por sample size.
+- **Merge de conflictos** (14:23) — Resolución manual de conflictos en `domain/models.py` y `schema/businesses/types.py` al incorporar main a la rama de trabajo.
+
+---
+
+### Área 3: KYC — cola de revisión admin para verificaciones de efectivo (1 commit — brianmojena, 19:13)
+
+- **`feat(kyc): expose admin review queue for cash KYC verifications`** — `KycVerificationRepository.list_filtered` + `KycAuditEventRepository.list_by_entity`. Queries GraphQL `admin_kyc_verifications` y `admin_kyc_audit_events` (solo admin/manager). URLs de imágenes de evidencia como presigned URLs generadas al vuelo vía `utils.s3.get_public_url`. `override_cash_kyc_decision` ahora refuerza el rol admin/risk_admin también a nivel de resolver (defense in depth, antes solo validaba dentro del servicio). Índice compuesto `status+createdAt` para la cola de revisión.
+
+---
+
+### Área 4: Orders/Couriers — queries admin de órdenes y presencia de couriers (1 commit — brianmojena, 19:42)
+
+- **`feat(orders): admin live/history orders + order tracking + courier presence`** — `OrderRepository.list_filtered`: listado global de admin sin field obligatorio (statusIn/businessId/branchId/fromDate/toDate), sirve tanto cola en vivo como historial. Nueva query `admin_orders` (require_role admin/manager). `get_order_tracking` gana `bypass_authorization`, solo settable internamente desde la nueva `admin_order_tracking` gateada por require_role. Lógica de snapshot de presencia de couriers extraída de `couriers_presence_stream` a `services/courier_presence.py`, reutilizada por la suscripción existente (sin cambio de comportamiento) y la nueva `admin_couriers_presence` (HTTP pollable para clientes sin WebSocket).
+
+---
+
+### Puede dar bateo
+
+1. **Merge de conflictos en `domain/models.py` y `schema/businesses/types.py` — riesgo de "unexpected keyword argument" en runtime**: CLAUDE.md advierte explícitamente que un campo nuevo en `Business` no declarado en `BusinessType` rompe todas las queries con ese tipo sin error de compilación ni de sintaxis. La resolución manual del conflicto en esos dos archivos es el punto más riesgoso del día: si `predefinedDeliveryFee` quedó en `domain/models.py` pero faltó en `BusinessType` (o a la inversa), todas las queries que usen `BusinessType` fallarán con "unexpected keyword argument" en tiempo de ejecución.
+
+2. **Índice único parcial — migración requiere drop del índice anterior**: MongoDB rechaza crear un índice sobre los mismos campos con opciones distintas si el anterior sigue existiendo. Si no hay un script de migración explícito que haga `dropIndex` antes del `createIndex`, el deploy arrancará con el índice viejo (sin la restricción parcial), dejando el bug de concurrencia sin corregir silenciosamente.
+
+3. **`bypass_authorization` en `get_order_tracking` — superficie de escalada de privilegios**: El parámetro solo debe ser settable desde `admin_order_tracking`. Si el resolver no valida explícitamente que `bypass_authorization` no puede ser seteado vía argumentos GraphQL desde la query pública, cualquier usuario autenticado podría bypasear la autorización de tracking de órdenes ajenas.
+
+4. **Presigned URLs de evidencia KYC — expiración antes de la revisión del admin**: Las URLs se generan en el momento de la query. Si la respuesta es cacheada en el cliente admin o el revisor tarda más que el TTL de la presigned URL, las imágenes de evidencia serán inaccesibles al intentar visualizarlas, sin feedback claro de por qué.
+
+5. **`services/courier_presence.py` — confirmar thread-safety para requests HTTP concurrentes**: La extracción mueve código que antes corría en el contexto de una suscripción WebSocket (un consumer por conexión) a un endpoint HTTP pollable (múltiples requests concurrentes). Estado mutable interno o recursos no thread-safe en el servicio extraído generarían race conditions silenciosas.
+
+6. **`admin_orders` sin límite máximo obligatorio — riesgo de timeout/OOM en datasets grandes**: La query acepta filtros pero no impone un techo de resultados. Una query sin filtros de fecha sobre millones de órdenes puede agotar memoria o generar un timeout sin feedback útil al cliente admin.
+
+7. **`compute_fee_recommendation` — fees de valor muy bajo no filtrados**: La función filtra negativos e inválidos pero no está documentado si filtra fees de `$0.00` o valores anómalos cercanos a cero. Un error de datos con fee `$0.01` repetido en órdenes recientes sesgaría la mediana hacia abajo sin advertencia visible.
+
+---
+
 ## 📅 4 de Agosto, 2026
 
 ### Resumen de cambios (últimas 24h)
@@ -86,76 +140,14 @@ Sin cambios nuevos — sin riesgos nuevos.
 
 ---
 
-## 📅 28 de Julio, 2026
-
-### Resumen de cambios (últimas 24h)
-
-**6 commits reales** — 4 de Ruben0304 y 2 de brianmojena. Día muy activo: restricción de creación de promos a admin/manager, exposición del campo `orden` en `FeedSection` para que los clientes puedan levantar secciones pinnadas, migración de complements a Haiku (~1/3 del costo con Batch), creación de índices MongoDB para el chat, corrección del bloqueo del event loop en `aiChat` con recorte de hasta 700 tokens por mensaje, y batch de embeddings + consultas a Qdrant para búsqueda.
-
----
-
-### Área 1: Promos — restricción a admin/manager (1 commit — brianmojena, 13:36)
-
-- **`feat(promos): restrict promo creation to admin/manager`** — `createPromoRequest` ahora requiere rol admin/manager (antes cualquier cliente autenticado podía crear una). Renombrado `submittedByUserId` → `createdByUserId` (no expuesto en GraphQL, sin breaking change de schema). Eliminado el rate limit anti-abuso de cliente en la creación, ya innecesario.
-
----
-
-### Área 2: Feed — exponer `orden` en FeedSection (1 commit — brianmojena, 13:49)
-
-- **`feat(feed): expose orden on FeedSection so clients can lift pinned sections`** — Las secciones ya llegaban ordenadas por su `orden` pinneado, pero los clientes no podían identificar cuáles levantar fuera del flujo normal (carruseles fijos como "Para Ti", tiendas, combos). Se expone el campo `orden` en `FeedSection`.
-
----
-
-### Área 3: Complements — migración a Haiku + skip si no hay cambios (1 commit — Ruben0304, 17:15)
-
-- **`perf(complements): pasar a Haiku y no gastar si no hay cambios`** — Modelo `claude-sonnet-4-6` → `claude-haiku-4-5` (sin thinking). Con Batch API queda en $0.50/$2.50 por millón (antes $1.50/$7.50): ~1/3 del costo. Structured outputs (`json_schema`) para evitar que una respuesta malformada queme un request; si el endpoint lo rechaza, reintenta sin el campo. Migración del estado viejo (solo hash) ya no reindexa sucursales enteras: cruza contra docs existentes y solo toca los que faltan. Fingerprint guardado solo si la respuesta llegó a Mongo. Sin cambios en la noche = no llama al modelo ni reescribe el estado. "why" limitado a 4 palabras, `host_of` con tope, productos sin nombre fuera del catálogo excluidos, sucursales de 1 producto no reevaluadas.
-
----
-
-### Área 4: Chat — índices MongoDB para memoria y keyword search (1 commit — Ruben0304, 17:52)
-
-- **`perf(chat): indices para memoria y busqueda por keyword del asistente`** — `chat_messages` no tenía ningún índice: leer las últimas N del usuario era un collscan + sort en memoria, dos veces por mensaje, sobre una colección que solo crece. `products`/`branches` ganan índice text sobre `name` para que la pata de keyword del RAG deje de usar `$regex` sin anclar (que nunca puede usar índice). Hasta 12 de esos scans corrían en paralelo por mensaje.
-
----
-
-### Área 5: Chat — async event loop + recorte de tokens (1 commit — Ruben0304, 17:52)
-
-- **`perf(chat): dejar de bloquear el event loop y recortar tokens por mensaje`** — `_generate_json_output` hacía una llamada síncrona a Claude dentro de un `async def`: congelaba el event loop entero (feed, órdenes, pagos) durante cada mensaje de `aiChat`. Ahora es async con cliente asíncrono. Structured outputs nativos (`messages.parse`) con fallback a schema-en-prompt: quita ~350-700 tokens de input por llamada, elimina fallos de parseo. Temperature 1.0 → 0.0. Tool schemas: ~474 → ~150 tokens. ObjectIds eliminados de resultados de tools. URL de avatar y `branchId` eliminados del contexto del flujo viejo. Card fallback: 8 → 3 items. Historial unificado en 10 mensajes en ambos flujos. `AiRagService` pasa a singleton perezoso (antes instanciado por request con nuevo pool httpx y TLS handshake cada mensaje).
-
----
-
-### Área 6: Búsqueda — batch de embeddings y consultas a Qdrant (1 commit — Ruben0304, 18:31)
-
-- **`perf(search): batchear embeddings y consultas a Qdrant`** — Cada búsqueda del chat expandía el mensaje hasta 6 términos, cada uno con su propia llamada de embedding a Gemini y consulta a Qdrant; con el executor por defecto, dos usuarios concurrentes ya encolaban. `VectorSearchService` gana `search_{products,branches,businesses}_batch`: una sola llamada de embedding (`generate_embeddings_batch`, ya existía sin usarse) y una sola consulta a Qdrant vía `query_batch_points`. Métodos de una query son envolturas finas sobre los de lote. Bug crítico corregido: `query_batch_points` deja `with_payload=None` y el servidor usa `false` en batch; sin ponerlo explícito, el `mongo_id` no llega y toda búsqueda batch devolvería vacío en silencio. 4 fallbacks automáticos: fallo de embedding batch, conteo de vectores incorrecto (que emparejaría queries con vectores ajenos), y cliente sin endpoint batch. 22 tests con mocks.
-
----
-
-### Puede dar bateo
-
-1. **`AiRagService` como singleton perezoso — estado mutable compartido entre requests concurrentes**: Al pasar de instancia por request a singleton, cualquier estado interno mutable de `AiRagService` es ahora compartido entre todos los requests simultáneos. Race conditions silenciosas posibles si el servicio mantiene caché interna o estado de sesión no thread-safe.
-
-2. **Dos commits `perf(chat)` con 15 segundos de diferencia (17:52:21 y 17:52:36)** — prácticamente simultáneos; confirmar que el segundo incorporó los cambios del primero sin estado inconsistente.
-
-3. **Temperature 0.0 en `_generate_json_output` — respuestas deterministas pero potencialmente repetitivas**: Para preguntas similares el output puede volverse mecánico. Si algún prompt esperaba variabilidad, esto puede afectar la experiencia de usuario.
-
-4. **Card fallback reducido de 8 a 3 items — menor margen si el modelo descartó incorrectamente**: Si el modelo comete errores de descarte, el fallback de 3 items ofrece menos opciones como red de seguridad.
-
-5. **Índice text sobre `products.name` + `branches.name` — MongoDB solo permite un índice text por colección**: Si ya existe algún índice text en `products` o `branches`, la creación del nuevo falla o reemplaza al anterior, pudiendo romper queries que dependían del índice text existente.
-
-6. **`query_batch_points` con `with_payload=True` explícito — confirmar soporte en versión Qdrant deployada**: El fix de `with_payload` es crítico (sin él toda búsqueda batch devuelve vacío silenciosamente). Verificar que la versión de Qdrant en producción soporta `query_batch_points`.
-
-7. **Migración complements a Haiku — confirmar `json_schema` disponible en endpoint Batch de Haiku 4.5**: Si el endpoint Batch no soporta `json_schema`, el retry sin el campo funciona pero pierde la garantía de formato; posibles respuestas malformadas en complements.
-
-8. **Sucursales de 1 producto excluidas de reevaluación — complements previos stale indefinidamente**: Una sucursal que tenía complements y reduce su catálogo a 1 producto ya no se reevalúa, manteniendo sugerencias desactualizadas.
-
-9. **`generate_embeddings_batch` — orden de vectores no garantizado explícitamente por Gemini**: El fallback de conteo diferente cubre respuesta incompleta, pero no cubre vectores devueltos en orden distinto al input; la asignación incorrecta sería silenciosa.
-
-10. **Fingerprint guardado solo en éxito de Mongo — sucursales con error persistente de Mongo se reintentan indefinidamente**: Una sucursal que falla consistentemente al escribir en Mongo nunca avanzará y generará llamadas a Haiku cada noche sin resultado.
-
----
-
 #### Seguimientos vigentes
 
+- **Merge conflictos `domain/models.py`/`schema/businesses/types.py` — confirmar que `predefinedDeliveryFee` está correctamente declarado en ambos y no hay campo huérfano que rompa `BusinessType` (Ago 5)**.
+- **Índice único parcial branch delivery requests — confirmar drop+recreate del índice previo en MongoDB, no solo el nuevo (Ago 5)**.
+- **`bypass_authorization` en `get_order_tracking` — confirmar que no es inyectable como argumento GraphQL desde la query pública (Ago 5)**.
+- **Presigned URLs de evidencia KYC — pueden expirar antes de que el admin revisor las visualice si la respuesta es cacheada (Ago 5)**.
+- **`services/courier_presence.py` — confirmar thread-safety para requests HTTP concurrentes de `admin_couriers_presence` (Ago 5)**.
+- **`admin_orders` sin límite máximo de resultados — riesgo de OOM/timeout en datasets grandes sin filtros (Ago 5)**.
 - **`AiRagService` como singleton perezoso — estado mutable compartido entre requests concurrentes, race conditions posibles (Jul 28)**.
 - **Índice text sobre `products`/`branches.name` — MongoDB solo permite uno por colección; confirmar no conflicto con índice text existente (Jul 28)**.
 - **`query_batch_points` con `with_payload=True` — devuelve vacío silencioso si no soportado; confirmar versión Qdrant en producción (Jul 28)**.
@@ -221,4 +213,4 @@ Sin cambios nuevos — sin riesgos nuevos.
 
 ---
 
-> ⚠️ **Nota de mantenimiento**: Las entradas del **19, 20 y 21 de Junio** y del **23 de Junio** fueron eliminadas al superar los 7 días de antigüedad (política de retención semanal). La entrada del **26 de Junio** fue eliminada el 4 de Julio al superar los 7 días. La entrada del **28 de Junio** fue eliminada el 6 de Julio al superar los 7 días. La entrada del **29 de Junio** fue eliminada el 7 de Julio al superar los 7 días. La entrada del **30 de Junio** fue eliminada el 8 de Julio al superar los 7 días. Las entradas del **1 y 2 de Julio** fueron eliminadas el 10 de Julio al superar los 7 días. La entrada del **3 de Julio** fue eliminada el 11 de Julio al superar los 7 días. Las entradas del **4 y 5 de Julio** fueron eliminadas el 13 de Julio al superar los 7 días. La entrada del **6 de Julio** fue eliminada el 14 de Julio al superar los 7 días. La entrada del **7 de Julio** fue eliminada el 15 de Julio al superar los 7 días. La entrada del **8 de Julio** fue eliminada el 17 de Julio al superar los 7 días. La entrada del **10 de Julio** fue eliminada el 18 de Julio al superar los 7 días. La entrada del **11 de Julio** fue eliminada el 19 de Julio al superar los 7 días. La entrada del **13 de Julio** fue eliminada el 21 de Julio al superar los 7 días. La entrada del **14 de Julio** fue eliminada el 22 de Julio al superar los 7 días. La entrada del **15 de Julio** fue eliminada el 23 de Julio al superar los 7 días. La entrada del **17 de Julio** fue eliminada el 25 de Julio al superar los 7 días. La entrada del **18 de Julio** fue eliminada el 26 de Julio al superar los 7 días. La entrada del **19 de Julio** fue eliminada el 27 de Julio al superar los 7 días. La entrada del **20 de Julio** fue eliminada el 28 de Julio al superar los 7 días. La entrada del **21 de Julio** fue eliminada el 30 de Julio al superar los 7 días. La entrada del **22 de Julio** fue eliminada el 30 de Julio al superar los 7 días. La entrada del **23 de Julio** fue eliminada el 31 de Julio al superar los 7 días. La entrada del **24 de Julio** fue eliminada el 1 de Agosto al superar los 7 días. La entrada del **25 de Julio** fue eliminada el 2 de Agosto al superar los 7 días. La entrada del **26 de Julio** fue eliminada el 3 de Agosto al superar los 7 días. La entrada del **27 de Julio** fue eliminada el 4 de Agosto al superar los 7 días. Anteriores eliminadas: 16, 17 y 18 de Junio, 5, 6, 7, 9, 11, 12 y 15 de Junio, y días de Mayo.
+> ⚠️ **Nota de mantenimiento**: Las entradas del **19, 20 y 21 de Junio** y del **23 de Junio** fueron eliminadas al superar los 7 días de antigüedad (política de retención semanal). La entrada del **26 de Junio** fue eliminada el 4 de Julio al superar los 7 días. La entrada del **28 de Junio** fue eliminada el 6 de Julio al superar los 7 días. La entrada del **29 de Junio** fue eliminada el 7 de Julio al superar los 7 días. La entrada del **30 de Junio** fue eliminada el 8 de Julio al superar los 7 días. Las entradas del **1 y 2 de Julio** fueron eliminadas el 10 de Julio al superar los 7 días. La entrada del **3 de Julio** fue eliminada el 11 de Julio al superar los 7 días. Las entradas del **4 y 5 de Julio** fueron eliminadas el 13 de Julio al superar los 7 días. La entrada del **6 de Julio** fue eliminada el 14 de Julio al superar los 7 días. La entrada del **7 de Julio** fue eliminada el 15 de Julio al superar los 7 días. La entrada del **8 de Julio** fue eliminada el 17 de Julio al superar los 7 días. La entrada del **10 de Julio** fue eliminada el 18 de Julio al superar los 7 días. La entrada del **11 de Julio** fue eliminada el 19 de Julio al superar los 7 días. La entrada del **13 de Julio** fue eliminada el 21 de Julio al superar los 7 días. La entrada del **14 de Julio** fue eliminada el 22 de Julio al superar los 7 días. La entrada del **15 de Julio** fue eliminada el 23 de Julio al superar los 7 días. La entrada del **17 de Julio** fue eliminada el 25 de Julio al superar los 7 días. La entrada del **18 de Julio** fue eliminada el 26 de Julio al superar los 7 días. La entrada del **19 de Julio** fue eliminada el 27 de Julio al superar los 7 días. La entrada del **20 de Julio** fue eliminada el 28 de Julio al superar los 7 días. La entrada del **21 de Julio** fue eliminada el 30 de Julio al superar los 7 días. La entrada del **22 de Julio** fue eliminada el 30 de Julio al superar los 7 días. La entrada del **23 de Julio** fue eliminada el 31 de Julio al superar los 7 días. La entrada del **24 de Julio** fue eliminada el 1 de Agosto al superar los 7 días. La entrada del **25 de Julio** fue eliminada el 2 de Agosto al superar los 7 días. La entrada del **26 de Julio** fue eliminada el 3 de Agosto al superar los 7 días. La entrada del **27 de Julio** fue eliminada el 4 de Agosto al superar los 7 días. La entrada del **28 de Julio** fue eliminada el 5 de Agosto al superar los 7 días. Anteriores eliminadas: 16, 17 y 18 de Junio, 5, 6, 7, 9, 11, 12 y 15 de Junio, y días de Mayo.
