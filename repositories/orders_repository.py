@@ -1131,10 +1131,18 @@ class BranchDeliveryRequestRepository:
         status: DeliveryRequestStatus,
         responded_by: str,
     ) -> Optional[BranchDeliveryRequest]:
+        """Atomic compare-and-swap: only applies when the document is still
+        "pending". Two concurrent responses to the same request (e.g. an
+        accept and a reject race) can no longer both succeed — the loser's
+        filter matches nothing and this returns None, which callers must
+        treat as "someone else already responded", not as success."""
         collection = self._get_collection()
         now = datetime.utcnow()
         result = await collection.find_one_and_update(
-            {"_id": self._to_object_id(request_id)},
+            {
+                "_id": self._to_object_id(request_id),
+                "status": DeliveryRequestStatus.PENDING.value,
+            },
             {
                 "$set": {
                     "status": status.value,

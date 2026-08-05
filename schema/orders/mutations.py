@@ -7,6 +7,7 @@ from typing import Optional
 import strawberry
 from bson import ObjectId
 from graphql import GraphQLError
+from pymongo.errors import DuplicateKeyError
 from strawberry.types import Info
 
 from domain.orders import (
@@ -656,7 +657,15 @@ class OrderMutation:
             createdAt=now,
             updatedAt=now,
         )
-        created = await branch_delivery_requests_repo.create(request)
+        # The get_existing() check above has a residual race window against a
+        # concurrent duplicate request — the partial unique index on
+        # (deliveryPersonId, branchId, status=pending) is the real guard, and
+        # a lost race surfaces here as a DuplicateKeyError instead of a raw
+        # 500-style error.
+        try:
+            created = await branch_delivery_requests_repo.create(request)
+        except DuplicateKeyError:
+            raise Exception("Ya tienes una solicitud pendiente para esta sucursal")
         return branch_delivery_request_to_type(created)
 
     @strawberry.mutation(
@@ -687,11 +696,16 @@ class OrderMutation:
             else DeliveryRequestStatus.REJECTED
         )
 
+        # update_status() only applies when the document is still "pending"
+        # (atomic compare-and-swap) — a concurrent response that got there
+        # first makes this return None instead of overwriting it.
         updated_req = await branch_delivery_requests_repo.update_status(
             input.requestId, new_status, user_id
         )
+        if updated_req is None:
+            raise Exception("Esta solicitud ya fue respondida")
 
-        if input.accept and branch.useAppMessaging:
+        if updated_req.status == DeliveryRequestStatus.ACCEPTED and branch.useAppMessaging:
             await delivery_persons_repo.add_linked_branch(
                 req.deliveryPersonId, req.branchId
             )
@@ -715,9 +729,11 @@ class OrderMutation:
         if req.status != DeliveryRequestStatus.PENDING:
             raise Exception("Solo se pueden cancelar solicitudes pendientes")
 
-        await branch_delivery_requests_repo.update_status(
+        updated_req = await branch_delivery_requests_repo.update_status(
             requestId, DeliveryRequestStatus.REJECTED, user_id
         )
+        if updated_req is None:
+            raise Exception("Esta solicitud ya fue respondida")
         return True
 
     @strawberry.mutation(

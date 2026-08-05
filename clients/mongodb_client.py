@@ -5,6 +5,7 @@ from typing import Optional
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
 from core.config import settings
+from domain.orders import DeliveryRequestStatus
 
 # Global database instance
 mongo_client: Optional[AsyncIOMotorClient] = None
@@ -276,10 +277,22 @@ async def _create_branch_delivery_request_indexes():
     try:
         collection = database["branch_delivery_requests"]
 
+        # The old index below was unique on (deliveryPersonId, branchId) with no
+        # partialFilterExpression, so it stayed occupied forever by the first
+        # request's document even after that request was rejected — a delivery
+        # person could never request the same branch again. Drop it in favor of
+        # a partial unique index that only applies while status == "pending",
+        # which is what actually needs to be unique.
+        try:
+            await collection.drop_index("idx_delivery_person_branch_unique")
+        except Exception:
+            pass  # doesn't exist yet (fresh DB) or already dropped — fine either way
+
         await collection.create_index(
             [("deliveryPersonId", 1), ("branchId", 1)],
             unique=True,
-            name="idx_delivery_person_branch_unique",
+            name="idx_delivery_person_branch_pending_unique",
+            partialFilterExpression={"status": DeliveryRequestStatus.PENDING.value},
             background=True,
         )
 
