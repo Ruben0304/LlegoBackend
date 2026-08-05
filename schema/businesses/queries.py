@@ -8,12 +8,14 @@ from strawberry.types import Info
 
 from core.config import settings
 from repositories import branches_repo, businesses_repo, searches_repo
+from repositories.orders_repository import orders_repo
 from schema.branches.types import BranchTipo, BranchType, CoordinatesType
-from utils.graphql_auth import apply_optional_jwt
+from services.orders_utils import compute_fee_recommendation
+from utils.graphql_auth import apply_optional_jwt, require_auth
 from utils.serialization import to_strawberry_dict
 from utils.s3 import generate_image_variant_url_with_fallback, generate_presigned_url
 
-from .types import BusinessType
+from .types import BusinessType, DeliveryFeeRecommendationType
 
 
 @strawberry.type
@@ -301,3 +303,32 @@ class BusinessQuery:
             data["ownerId"] = str(b.ownerId)
             result.append(BusinessType(**data))
         return result
+
+    @strawberry.field(
+        description=(
+            "Tarifa de envío sugerida para un negocio, basada en sus propias "
+            "tarifas reales recientes (mediana de las últimas órdenes entregadas). "
+            "Solo informativa — nunca sustituye el cálculo real por zona."
+        )
+    )
+    async def delivery_fee_recommendation(
+        self, info: Info, business_id: str, jwt: str
+    ) -> DeliveryFeeRecommendationType:
+        user_id = require_auth(jwt, info)
+
+        business = await businesses_repo.get_by_id(business_id)
+        if not business:
+            raise Exception("Negocio no encontrado")
+        if str(business.ownerId) != user_id:
+            raise Exception("No autorizado para ver este negocio")
+
+        recent = await orders_repo.get_recent_delivery_fees(business_id)
+        recommendation = compute_fee_recommendation(recent["fees"])
+
+        return DeliveryFeeRecommendationType(
+            recommendedFee=recommendation["recommendedFee"],
+            sampleSize=recommendation["sampleSize"],
+            confidence=recommendation["confidence"],
+            oldestUsed=recent["oldestUsed"],
+            newestUsed=recent["newestUsed"],
+        )

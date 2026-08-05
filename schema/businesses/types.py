@@ -44,3 +44,15 @@ class BusinessType:
         if self.avatar:
             return generate_image_variant_url_with_fallback(self.avatar, "avatar_alta")
         return None
+
+
+@strawberry.type
+class DeliveryFeeRecommendationType:
+    """A suggested delivery fee based on a business's own recent delivery
+    history — purely informational, never applied automatically."""
+
+    recommendedFee: Optional[float]
+    sampleSize: int
+    confidence: str  # "insufficient_data" | "low" | "medium" | "high"
+    oldestUsed: Optional[datetime]
+    newestUsed: Optional[datetime]

@@ -798,6 +798,47 @@ class OrderRepository:
             "avgRating": 0,
         }
 
+    async def get_recent_delivery_fees(
+        self, business_id: str, recency_limit: int = 30
+    ) -> Dict[str, Any]:
+        """Recent real delivery fees for a business, for the fee recommendation.
+
+        Single aggregation call — never loads full order history into memory,
+        just the last `recency_limit` delivered orders' fees. The actual
+        statistics (median, confidence) are computed by
+        services.orders_utils.compute_fee_recommendation from the returned
+        "fees" list — this method only filters, sorts by recency, and limits.
+        """
+        collection = self._get_collection()
+        pipeline = [
+            {
+                "$match": {
+                    "businessId": self._to_object_id(business_id),
+                    "status": OrderStatus.DELIVERED.value,
+                    "deliveryFee": {"$gt": 0},
+                }
+            },
+            {"$sort": {"completedAt": -1}},
+            {"$limit": recency_limit},
+            {
+                "$group": {
+                    "_id": None,
+                    "fees": {"$push": "$deliveryFee"},
+                    "oldestUsed": {"$min": "$completedAt"},
+                    "newestUsed": {"$max": "$completedAt"},
+                }
+            },
+        ]
+        result = await collection.aggregate(pipeline).to_list(1)
+        if not result:
+            return {"fees": [], "oldestUsed": None, "newestUsed": None}
+        doc = result[0]
+        return {
+            "fees": doc.get("fees", []),
+            "oldestUsed": doc.get("oldestUsed"),
+            "newestUsed": doc.get("newestUsed"),
+        }
+
 
 class DeliveryPersonRepository:
     """Repository for delivery person operations."""
