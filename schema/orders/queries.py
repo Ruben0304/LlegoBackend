@@ -30,6 +30,7 @@ from .inputs import DeliveredOrdersFilterInput
 from .types import (
     BranchDeliveryRequestType,
     CoordinatesType,
+    CourierPresenceType,
     DashboardStatsType,
     DeliveredOrderFinalStatusEnum,
     DeliveredOrdersConnectionType,
@@ -49,6 +50,7 @@ from .types import (
     estimate_delivery_fee,
     order_to_type,
 )
+from services.courier_presence import get_courier_presence_snapshot
 
 
 @strawberry.type
@@ -241,6 +243,94 @@ class OrderQuery:
             totalCount=total,
             hasMore=(offset + len(orders)) < total,
         )
+
+    @strawberry.field(
+        description=(
+            "(Admin) Pedidos de toda la plataforma con filtros libres — sin "
+            "argumentos requeridos más allá del jwt. Sirve tanto para una cola "
+            "'en vivo' (statusIn = estados activos, sin rango de fecha) como "
+            "para historial (fromDate/toDate, cualquier status)."
+        )
+    )
+    async def admin_orders(
+        self,
+        info: Info,
+        jwt: str,
+        statusIn: Optional[List[str]] = None,
+        businessId: Optional[str] = None,
+        branchId: Optional[str] = None,
+        fromDate: Optional[datetime] = None,
+        toDate: Optional[datetime] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> OrdersConnectionType:
+        require_role(jwt, info, ["admin", "manager"])
+
+        orders, total = await orders_repo.list_filtered(
+            status_in=statusIn,
+            business_id=businessId,
+            branch_id=branchId,
+            from_date=fromDate,
+            to_date=toDate,
+            limit=limit,
+            offset=offset,
+        )
+        return OrdersConnectionType(
+            orders=[order_to_type(o) for o in orders],
+            totalCount=total,
+            hasMore=(offset + len(orders)) < total,
+        )
+
+    @strawberry.field(
+        description="(Admin) Tracking de un pedido, sin restricción de propiedad — solo admin/manager"
+    )
+    async def admin_order_tracking(
+        self, info: Info, orderId: str, jwt: str
+    ) -> Optional[OrderTrackingType]:
+        require_role(jwt, info, ["admin", "manager"])
+
+        try:
+            tracking = await order_service.get_order_tracking(
+                orderId, user_id="", bypass_authorization=True
+            )
+
+            store_loc = tracking["storeLocation"]
+            delivery_loc = tracking["deliveryLocation"]
+            dp_loc = tracking.get("deliveryPersonLocation")
+
+            return OrderTrackingType(
+                order=order_to_type(tracking["order"]),
+                storeLocation=CoordinatesType(
+                    type="Point",
+                    coordinates=[store_loc["longitude"], store_loc["latitude"]],
+                ),
+                deliveryLocation=CoordinatesType(
+                    type="Point",
+                    coordinates=[delivery_loc["longitude"], delivery_loc["latitude"]],
+                ),
+                deliveryPersonLocation=CoordinatesType(
+                    type="Point", coordinates=[dp_loc["longitude"], dp_loc["latitude"]]
+                )
+                if dp_loc
+                else None,
+                estimatedMinutes=tracking.get("estimatedMinutes"),
+                distanceKm=tracking.get("distanceKm"),
+            )
+        except ValueError as e:
+            raise Exception(str(e))
+
+    @strawberry.field(
+        description=(
+            "(Admin) Snapshot de mensajeros online y su última ubicación — mismo "
+            "dato que alimenta la subscription couriers_presence_stream, pero como "
+            "query de una sola vez para sondear por HTTP en vez de WebSocket."
+        )
+    )
+    async def admin_couriers_presence(
+        self, info: Info, jwt: str
+    ) -> List[CourierPresenceType]:
+        require_role(jwt, info, ["admin", "manager"])
+        return await get_courier_presence_snapshot()
 
     @strawberry.field(description="Pedidos pendientes de una sucursal")
     async def pending_branch_orders(

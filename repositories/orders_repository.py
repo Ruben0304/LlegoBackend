@@ -142,6 +142,44 @@ class OrderRepository:
         orders = [self._doc_to_order(doc) async for doc in cursor]
         return orders, total
 
+    async def list_filtered(
+        self,
+        *,
+        status_in: Optional[List[str]] = None,
+        business_id: Optional[str] = None,
+        branch_id: Optional[str] = None,
+        from_date: Optional[datetime] = None,
+        to_date: Optional[datetime] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Tuple[List[Order], int]:
+        """
+        Global admin listing: any combination of status/business/branch/date
+        range, no field required. Backs both the "live" queue (statusIn = active
+        statuses, no date range) and "history" (date range, any status) views —
+        see admin_orders in schema/orders/queries.py.
+        """
+        collection = self._get_collection()
+        query: Dict[str, Any] = {}
+
+        if status_in:
+            query["status"] = {"$in": status_in}
+        if business_id:
+            query["businessId"] = self._to_object_id(business_id)
+        if branch_id:
+            query["branchId"] = self._to_object_id(branch_id)
+        if from_date or to_date:
+            query.setdefault("createdAt", {})
+            if from_date:
+                query["createdAt"]["$gte"] = from_date
+            if to_date:
+                query["createdAt"]["$lte"] = to_date
+
+        total = await collection.count_documents(query)
+        cursor = collection.find(query).sort("createdAt", -1).skip(offset).limit(limit)
+        orders = [self._doc_to_order(doc) async for doc in cursor]
+        return orders, total
+
     async def get_pending_by_branch(self, branch_id: str) -> List[Order]:
         """Get pending orders for a branch."""
         collection = self._get_collection()
