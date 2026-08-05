@@ -353,6 +353,62 @@ class OverrideCashKycPayload:
 
 
 @strawberry.type
+class KycEvidenceType:
+    """One piece of evidence (document/selfie) with a short-lived viewing URL."""
+
+    type: str
+    url: Optional[str] = None
+
+
+@strawberry.type
+class KycVerificationType:
+    """Full cash-KYC verification record, for the admin review queue."""
+
+    id: str
+    kycScope: str
+    verificationSource: str
+    paymentAttemptId: Optional[str] = None
+    orderId: Optional[str] = None
+    customerId: str
+    merchantId: Optional[str] = None
+    branchId: Optional[str] = None
+    verdict: Optional[str] = None
+    confidenceScore: Optional[float] = None
+    reasonCodes: List[str] = strawberry.field(default_factory=list)
+    # JSON-encoded — extractedSignals is provider-defined/dynamic, not worth
+    # modelling as a GraphQL type.
+    extractedSignalsJson: Optional[str] = None
+    status: str = ""
+    retryCount: int = 0
+    lastError: Optional[str] = None
+    evaluatedAt: Optional[datetime] = None
+    approvedAt: Optional[datetime] = None
+    expiresAt: Optional[datetime] = None
+    createdAt: datetime = None
+    updatedAt: datetime = None
+    evidence: List[KycEvidenceType] = strawberry.field(default_factory=list)
+
+
+@strawberry.type
+class KycVerificationAdminConnectionType:
+    rows: List[KycVerificationType]
+    totalCount: int
+    hasMore: bool
+
+
+@strawberry.type
+class KycAuditEventType:
+    entityType: str
+    entityId: str
+    eventType: str
+    actorType: str
+    actorId: Optional[str] = None
+    # JSON-encoded — payload shape varies by eventType (e.g. {"decision","reason"}).
+    payloadJson: str = "{}"
+    createdAt: datetime = None
+
+
+@strawberry.type
 class PlatformWalletType:
     """Platform wallet balance."""
 
@@ -452,4 +508,69 @@ def payment_attempt_to_type(attempt) -> PaymentAttemptType:
         failedReason=attempt.failedReason,
         createdAt=attempt.createdAt,
         updatedAt=attempt.updatedAt,
+    )
+
+
+def kyc_verification_to_type(verification, evidence_expiration: int = 3600) -> KycVerificationType:
+    """Convert a KycVerification domain model to its admin GraphQL type.
+
+    Evidence URLs are presigned on the fly (not persisted) — see utils/s3.get_public_url.
+    """
+    import json
+
+    from utils.s3 import get_public_url
+
+    evidence = []
+    for ref in verification.evidenceRefs or []:
+        ref_key = ref.get("ref")
+        evidence.append(
+            KycEvidenceType(
+                type=ref.get("type", ""),
+                url=get_public_url(ref_key, expiration=evidence_expiration)
+                if ref_key
+                else None,
+            )
+        )
+
+    return KycVerificationType(
+        id=str(verification.id),
+        kycScope=verification.kycScope,
+        verificationSource=verification.verificationSource,
+        paymentAttemptId=str(verification.paymentAttemptId)
+        if verification.paymentAttemptId
+        else None,
+        orderId=str(verification.orderId) if verification.orderId else None,
+        customerId=str(verification.customerId),
+        merchantId=str(verification.merchantId) if verification.merchantId else None,
+        branchId=str(verification.branchId) if verification.branchId else None,
+        verdict=verification.verdict,
+        confidenceScore=verification.confidenceScore,
+        reasonCodes=verification.reasonCodes or [],
+        extractedSignalsJson=json.dumps(verification.extractedSignals)
+        if verification.extractedSignals is not None
+        else None,
+        status=verification.status,
+        retryCount=verification.retryCount,
+        lastError=verification.lastError,
+        evaluatedAt=verification.evaluatedAt,
+        approvedAt=verification.approvedAt,
+        expiresAt=verification.expiresAt,
+        createdAt=verification.createdAt,
+        updatedAt=verification.updatedAt,
+        evidence=evidence,
+    )
+
+
+def kyc_audit_event_to_type(event) -> KycAuditEventType:
+    """Convert a KycAuditEvent domain model to its GraphQL type."""
+    import json
+
+    return KycAuditEventType(
+        entityType=event.entityType,
+        entityId=event.entityId,
+        eventType=event.eventType,
+        actorType=event.actorType,
+        actorId=event.actorId,
+        payloadJson=json.dumps(event.payload or {}),
+        createdAt=event.createdAt,
     )

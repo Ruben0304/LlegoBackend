@@ -1,11 +1,12 @@
 """Append-only audit repository for KYC actions."""
 
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
 
 from clients import get_database
+from domain.kyc import KycAuditEvent
 
 
 class KycAuditEventRepository:
@@ -36,6 +37,21 @@ class KycAuditEventRepository:
         }
         await self._collection().insert_one(doc)
         return str(doc["_id"])
+
+    async def list_by_entity(
+        self,
+        entity_id: str,
+        entity_type: str = "kyc_verification",
+    ) -> List[KycAuditEvent]:
+        """Audit trail for one entity, oldest first (chronological)."""
+        cursor = self._collection().find(
+            {"entityType": entity_type, "entityId": entity_id}
+        ).sort("createdAt", 1)
+        events = []
+        async for doc in cursor:
+            doc["_id"] = str(doc["_id"])
+            events.append(KycAuditEvent(**doc))
+        return events
 
 
 kyc_audit_events_repo = KycAuditEventRepository()

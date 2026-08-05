@@ -9,18 +9,24 @@ from strawberry.types import Info
 
 from clients.mongodb_client import get_database
 from repositories import branches_repo, payment_methods_repo, payments_repo
+from repositories.kyc_audit_event_repository import kyc_audit_events_repo
+from repositories.kyc_verification_repository import kyc_verifications_repo
 from repositories.payments_attempt_repository import payment_attempts_repo
 from schema.payments.types import (
     CashKycAccountStatusResult,
     CashKycPolicyResult,
     CashKycStatusResult,
     GlobalCashKycStatusResult,
+    KycAuditEventType,
+    KycVerificationAdminConnectionType,
     OcrPaymentsConnectionType,
     PaymentAttemptType,
     PaymentAttemptAdminConnectionType,
     PaymentAttemptAdminRowType,
     PaymentMethodType,
     PaymentType,
+    kyc_audit_event_to_type,
+    kyc_verification_to_type,
     payment_attempt_to_type,
 )
 from services.payments_service import payment_service
@@ -328,6 +334,52 @@ class PaymentMethodQuery:
             totalCount=total,
             hasMore=(offset + len(payments)) < total,
         )
+
+    @strawberry.field(
+        description="(Admin) Cola de revisión de verificaciones KYC de efectivo, con filtros y paginación"
+    )
+    async def admin_kyc_verifications(
+        self,
+        info: Info,
+        jwt: str,
+        statusIn: Optional[List[str]] = None,
+        verdictIn: Optional[List[str]] = None,
+        merchantId: Optional[str] = None,
+        branchId: Optional[str] = None,
+        fromDate: Optional[datetime] = None,
+        toDate: Optional[datetime] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> KycVerificationAdminConnectionType:
+        require_role(jwt, info, ["admin", "manager"])
+
+        rows, total = await kyc_verifications_repo.list_filtered(
+            status_in=statusIn,
+            verdict_in=verdictIn,
+            merchant_id=merchantId,
+            branch_id=branchId,
+            from_date=fromDate,
+            to_date=toDate,
+            limit=limit,
+            offset=offset,
+        )
+
+        return KycVerificationAdminConnectionType(
+            rows=[kyc_verification_to_type(v) for v in rows],
+            totalCount=total,
+            hasMore=(offset + len(rows)) < total,
+        )
+
+    @strawberry.field(
+        description="(Admin) Historial de auditoría (overrides manuales) de una verificación KYC"
+    )
+    async def admin_kyc_audit_events(
+        self, info: Info, verificationId: str, jwt: str
+    ) -> List[KycAuditEventType]:
+        require_role(jwt, info, ["admin", "manager"])
+
+        events = await kyc_audit_events_repo.list_by_entity(verificationId)
+        return [kyc_audit_event_to_type(e) for e in events]
 
     @strawberry.field(description="Obtiene la política KYC de efectivo para una orden")
     async def cash_kyc_policy(

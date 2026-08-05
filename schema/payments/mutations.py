@@ -13,7 +13,7 @@ from strawberry.types import Info
 
 from repositories import payment_methods_repo, payments_repo
 from services.payments_service import payment_service
-from utils.graphql_auth import apply_optional_jwt
+from utils.graphql_auth import apply_optional_jwt, require_role
 from utils.serialization import to_strawberry_dict
 
 from .types import (
@@ -537,11 +537,12 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
     async def override_cash_kyc_decision(
         self, info: Info, input: OverrideCashKycInput, jwt: str
     ) -> OverrideCashKycPayload:
-        apply_optional_jwt(jwt, info)
-        user_id = info.context.get("user_id")
+        # Defense in depth: the service layer already enforces admin/risk_admin,
+        # but failing fast here keeps this mutation consistent with the other
+        # admin-only resolvers (e.g. admin_payment_attempts) instead of relying
+        # solely on user_role reaching the service correctly.
+        user_id = require_role(jwt, info, ["admin", "risk_admin"])
         user_role = info.context.get("user_role")
-        if not user_id:
-            raise Exception("Usuario no autenticado")
         try:
             payload = await payment_service.override_cash_kyc_decision(
                 verification_id=input.verificationId,
