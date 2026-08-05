@@ -326,6 +326,8 @@ class BranchMutation:
             updates["cashKycTtlDays"] = input.cashKycTtlDays
         if input.forceReverify is not None:
             updates["forceReverify"] = input.forceReverify
+        if input.acceptingOrders is not None:
+            updates["acceptingOrders"] = input.acceptingOrders
         if input.catalogOnly is not None:
             updates["catalogOnly"] = input.catalogOnly
             # catalogOnly = true implies no orders and no messaging.
@@ -371,6 +373,105 @@ class BranchMutation:
         if not updated_branch:
             raise Exception("Error al actualizar la sucursal")
 
+        return BranchType(**branch_to_dict(updated_branch))
+
+    @strawberry.mutation(
+        description="Pausar o reanudar la recepción de pedidos de una sucursal"
+    )
+    async def set_accepting_orders(
+        self,
+        info: Info,
+        branch_id: str,
+        accepting: bool,
+        jwt: Optional[str] = None,
+    ) -> BranchType:
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+
+        await access_checker.require_branch_access(user_id, branch_id)
+        updated_branch = await branches_repo.update(
+            branch_id, {"acceptingOrders": accepting}
+        )
+        if not updated_branch:
+            raise Exception("Error al actualizar la sucursal")
+        return BranchType(**branch_to_dict(updated_branch))
+
+    @strawberry.mutation(
+        description=(
+            "Establecer un horario u override de estado solo para una fecha "
+            "específica (YYYY-MM-DD). No modifica el horario semanal."
+        )
+    )
+    async def set_branch_daily_override(
+        self,
+        info: Info,
+        branch_id: str,
+        date: str,
+        temporally_closed: bool = False,
+        temporally_open: bool = False,
+        open_time: Optional[str] = None,
+        close_time: Optional[str] = None,
+        reason: Optional[str] = None,
+        jwt: Optional[str] = None,
+    ) -> BranchType:
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+
+        await access_checker.require_branch_access(user_id, branch_id)
+
+        branch = await branches_repo.get_by_id(branch_id)
+        if not branch:
+            raise Exception("Sucursal no encontrada")
+
+        schedule_dict = (
+            branch.schedule.model_dump()
+            if hasattr(branch.schedule, "model_dump")
+            else dict(branch.schedule)
+        )
+        schedule_dict["temporaryStatus"] = {
+            "temporallyClosed": temporally_closed,
+            "temporallyOpen": temporally_open,
+            "reason": reason,
+            "date": date,
+            "openTime": open_time,
+            "closeTime": close_time,
+        }
+
+        updated_branch = await branches_repo.update(branch_id, {"schedule": schedule_dict})
+        if not updated_branch:
+            raise Exception("Error al actualizar la sucursal")
+        return BranchType(**branch_to_dict(updated_branch))
+
+    @strawberry.mutation(
+        description="Eliminar el override del día de una sucursal (vuelve al horario semanal)"
+    )
+    async def clear_branch_daily_override(
+        self, info: Info, branch_id: str, jwt: Optional[str] = None
+    ) -> BranchType:
+        apply_optional_jwt(jwt, info)
+        user_id = info.context.get("user_id")
+        if not user_id:
+            raise Exception("Usuario no autenticado")
+
+        await access_checker.require_branch_access(user_id, branch_id)
+        branch = await branches_repo.get_by_id(branch_id)
+        if not branch:
+            raise Exception("Sucursal no encontrada")
+
+        schedule_dict = (
+            branch.schedule.model_dump()
+            if hasattr(branch.schedule, "model_dump")
+            else dict(branch.schedule)
+        )
+        schedule_dict["temporaryStatus"] = None
+
+        updated_branch = await branches_repo.update(branch_id, {"schedule": schedule_dict})
+        if not updated_branch:
+            raise Exception("Error al actualizar la sucursal")
         return BranchType(**branch_to_dict(updated_branch))
 
     @strawberry.mutation(description="Eliminar una sucursal")

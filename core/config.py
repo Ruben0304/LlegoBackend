@@ -47,10 +47,9 @@ class Settings(BaseSettings):
     # Courier delivered orders (cursor-based query rollout)
     courier_delivered_orders_v2_enabled: bool = True
 
-    # DeepSeek API Configuration (used by AI chat RAG pipeline)
-    deepseek_api_key: str = ""
-    deepseek_model: str = "deepseek-chat"
-    deepseek_base_url: str = "https://api.deepseek.com"
+    # Anthropic API Configuration (used by AI chat RAG pipeline)
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-haiku-4-5"
 
     # AI Assistant quota configuration
     ai_free_lifetime_limit: int = 2
@@ -149,6 +148,9 @@ class Settings(BaseSettings):
 
     # Service fee rate charged on every order (e.g. 0.10 = 10%)
     service_fee_rate: float = 0.10
+
+    # Reduced service fee rate applied after watching promotional videos
+    discounted_service_fee_rate: float = 0.05
 
     # Admin API key for /admin/* endpoints (simple bearer token)
     admin_api_key: str = ""

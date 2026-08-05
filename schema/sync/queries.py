@@ -1,6 +1,7 @@
 """GraphQL query resolvers for synchronization."""
 
-from typing import List, Optional
+from datetime import datetime
+from typing import List, Optional, Set, Tuple
 
 import strawberry
 from strawberry.types import Info
@@ -8,7 +9,7 @@ from strawberry.types import Info
 from repositories import branches_repo, businesses_repo, products_repo
 from schema.branches.utils import schedule_to_type
 from utils.graphql_auth import apply_optional_jwt
-from utils.s3 import generate_presigned_url, get_image_variant_path
+from utils.s3 import get_image_variant_path, get_public_url
 
 from .types import (
     BusinessSyncType,
@@ -18,16 +19,92 @@ from .types import (
     ImageSyncType,
     ImageUrlType,
     ProductSyncType,
+    SyncCheckpoint,
 )
+
+
+def _effective_updated_at(entity) -> datetime:
+    """updatedAt si existe (se setea en cada update()), si no createdAt."""
+    ts = entity.updatedAt or entity.createdAt
+    return ts.replace(tzinfo=None) if ts.tzinfo is not None else ts
+
+
+def _changed_since(entity, since: Optional[datetime]) -> bool:
+    """True si `entity` es nuevo o se modificó después de `since` (o si since es None)."""
+    if since is None:
+        return True
+    naive_since = since.replace(tzinfo=None) if since.tzinfo is not None else since
+    return _effective_updated_at(entity) > naive_since
+
+
+async def _get_active_business_and_branch_ids() -> Tuple[Set[str], Set[str]]:
+    """IDs de negocios activos y de sucursales activas cuyo negocio también está activo.
+
+    Se usa para que sync_products/sync_images no expongan catálogo de negocios
+    pendientes de aprobación o rechazados (mismo criterio que sync_businesses_with_branches).
+    """
+    active_business_ids: Set[str] = set()
+    active_branch_ids: Set[str] = set()
+
+    all_businesses = await businesses_repo.get_all()
+    for business in all_businesses:
+        if not business.isActive:
+            continue
+        active_business_ids.add(str(business.id))
+
+        branches = await branches_repo.get_by_business(str(business.id))
+        for branch in branches:
+            if branch.isActive:
+                active_branch_ids.add(str(branch.id))
+
+    return active_business_ids, active_branch_ids
+
+
+async def _get_active_product_ids(active_branch_ids: Set[str]) -> Set[str]:
+    """IDs de productos cuya sucursal está en active_branch_ids."""
+    all_products = await products_repo.get_all()
+    return {
+        str(product.id)
+        for product in all_products
+        if str(product.branchId) in active_branch_ids
+    }
 
 
 @strawberry.type
 class SyncQuery:
     @strawberry.field(
+        description=(
+            "Checkpoint de sincronización: IDs actualmente activos (para que el "
+            "cliente borre localmente lo que ya no está) y marca de tiempo del "
+            "servidor a guardar como `since` para el próximo sync incremental."
+        )
+    )
+    async def sync_checkpoint(
+        self, info: Info, jwt: Optional[str] = None
+    ) -> SyncCheckpoint:
+        apply_optional_jwt(jwt, info)
+
+        # Capturado antes de leer, para no perder cambios concurrentes (peor caso:
+        # se recogen de nuevo en el próximo sync incremental, nunca se pierden).
+        synced_at = datetime.now()
+
+        active_business_ids, active_branch_ids = (
+            await _get_active_business_and_branch_ids()
+        )
+        active_product_ids = await _get_active_product_ids(active_branch_ids)
+
+        return SyncCheckpoint(
+            businessIds=sorted(active_business_ids),
+            branchIds=sorted(active_branch_ids),
+            productIds=sorted(active_product_ids),
+            syncedAt=synced_at,
+        )
+
+    @strawberry.field(
         description="Sincronizar negocios con sus branches (excluye datos sensibles como managerIds y ownerId)"
     )
     async def sync_businesses_with_branches(
-        self, info: Info, jwt: Optional[str] = None
+        self, info: Info, since: Optional[datetime] = None, jwt: Optional[str] = None
     ) -> List[BusinessSyncType]:
         """
         Get all businesses with their branches for local synchronization.
@@ -39,6 +116,12 @@ class SyncQuery:
         - Wallet information
 
         Suitable for public/offline caching.
+
+        Args:
+            since: si se indica, solo se devuelven negocios (con sus sucursales
+                nuevas/modificadas) que cambiaron después de esta fecha. Úsalo
+                junto con syncCheckpoint para sync incremental; omítelo para
+                traer el catálogo completo.
         """
         apply_optional_jwt(jwt, info)
 
@@ -54,10 +137,13 @@ class SyncQuery:
             # Get branches for this business
             branches = await branches_repo.get_by_business(str(business.id))
 
-            # Convert branches to sync type (excluding sensitive data)
+            # Convert branches to sync type (excluding sensitive data).
+            # Solo se incluyen las sucursales nuevas/modificadas desde `since`
+            # (todas si since es None); el negocio se incluye si él mismo cambió
+            # o si tiene al menos una sucursal cambiada.
             branch_sync_list = []
             for branch in branches:
-                if not branch.isActive:
+                if not branch.isActive or not _changed_since(branch, since):
                     continue
 
                 branch_sync = BranchSyncType(
@@ -80,9 +166,15 @@ class SyncQuery:
                     useAppMessaging=branch.useAppMessaging,
                     vehicles=branch.vehicles,
                     deliveryRadius=branch.deliveryRadius,
+                    acceptedCurrency=branch.acceptedCurrency,
+                    exchangeRate=branch.exchangeRate,
                     createdAt=branch.createdAt,
                 )
                 branch_sync_list.append(branch_sync)
+
+            # Nada que enviar de este negocio en este sync incremental
+            if not branch_sync_list and not _changed_since(business, since):
+                continue
 
             # Create business sync type
             business_sync = BusinessSyncType(
@@ -109,6 +201,7 @@ class SyncQuery:
         branch_id: Optional[str] = None,
         category_id: Optional[str] = None,
         available_only: bool = False,
+        since: Optional[datetime] = None,
         jwt: Optional[str] = None,
     ) -> List[ProductSyncType]:
         """
@@ -118,6 +211,8 @@ class SyncQuery:
             branch_id: Optional filter by branch ID
             category_id: Optional filter by category ID
             available_only: Only return available products
+            since: si se indica, solo se devuelven productos nuevos/modificados
+                después de esta fecha (sync incremental). Omítelo para el catálogo completo.
             jwt: Optional JWT for authenticated requests
         """
         apply_optional_jwt(jwt, info)
@@ -132,6 +227,16 @@ class SyncQuery:
         else:
             # Get all products
             all_products = await products_repo.get_all()
+
+        # Excluir productos de sucursales/negocios inactivos o no aprobados,
+        # y (si aplica) los que no cambiaron desde el último sync incremental
+        _, active_branch_ids = await _get_active_business_and_branch_ids()
+        all_products = [
+            product
+            for product in all_products
+            if str(product.branchId) in active_branch_ids
+            and _changed_since(product, since)
+        ]
 
         # Convert to sync type
         result = []
@@ -163,6 +268,7 @@ class SyncQuery:
         entity_type: Optional[str] = None,
         entity_ids: Optional[List[str]] = None,
         qualities: Optional[List[ImageQuality]] = None,
+        since: Optional[datetime] = None,
         jwt: Optional[str] = None,
     ) -> List[ImageSyncType]:
         """
@@ -172,6 +278,8 @@ class SyncQuery:
             entity_type: Filter by entity type ("business", "branch", "product")
             entity_ids: Filter by specific entity IDs
             qualities: List of quality levels to include (default: [MUY_BAJA, BAJA, MEDIA, ALTA, ORIGINAL])
+            since: si se indica, solo se devuelven imágenes de entidades nuevas/
+                modificadas después de esta fecha (sync incremental).
             jwt: Optional JWT for authenticated requests
 
         Quality levels:
@@ -200,12 +308,22 @@ class SyncQuery:
         # Collect images based on entity type
         images_to_sync = []
 
+        # Excluir imágenes de negocios/sucursales inactivos o no aprobados
+        active_business_ids, active_branch_ids = (
+            await _get_active_business_and_branch_ids()
+        )
+
         if entity_type is None or entity_type == "business":
             # Get business images
             if entity_ids:
                 businesses = await businesses_repo.get_by_ids(entity_ids)
             else:
                 businesses = await businesses_repo.get_all()
+            businesses = [
+                b
+                for b in businesses
+                if str(b.id) in active_business_ids and _changed_since(b, since)
+            ]
 
             for business in businesses:
                 if business.avatar:
@@ -234,6 +352,11 @@ class SyncQuery:
                         str(business.id)
                     )
                     branches.extend(branch_list)
+            branches = [
+                b
+                for b in branches
+                if str(b.id) in active_branch_ids and _changed_since(b, since)
+            ]
 
             for branch in branches:
                 if branch.avatar:
@@ -259,6 +382,11 @@ class SyncQuery:
                 products = await products_repo.get_by_ids(entity_ids)
             else:
                 products = await products_repo.get_all()
+            products = [
+                p
+                for p in products
+                if str(p.branchId) in active_branch_ids and _changed_since(p, since)
+            ]
 
             for product in products:
                 if product.image:
@@ -277,23 +405,23 @@ class SyncQuery:
             # Generate presigned URLs based on requested qualities
             for quality in qualities:
                 if quality == ImageQuality.MUY_BAJA:
-                    urls.muy_baja = generate_presigned_url(
+                    urls.muy_baja = get_public_url(
                         get_image_variant_path(img["image_path"], "muy_baja")
                     )
                 elif quality == ImageQuality.BAJA:
-                    urls.baja = generate_presigned_url(
+                    urls.baja = get_public_url(
                         get_image_variant_path(img["image_path"], "baja")
                     )
                 elif quality == ImageQuality.MEDIA:
-                    urls.media = generate_presigned_url(
+                    urls.media = get_public_url(
                         get_image_variant_path(img["image_path"], "media")
                     )
                 elif quality == ImageQuality.ALTA:
-                    urls.alta = generate_presigned_url(
+                    urls.alta = get_public_url(
                         get_image_variant_path(img["image_path"], "alta")
                     )
                 elif quality == ImageQuality.ORIGINAL:
-                    urls.original = generate_presigned_url(img["image_path"])
+                    urls.original = get_public_url(img["image_path"])
 
             image_sync = ImageSyncType(
                 entity_id=img["entity_id"],

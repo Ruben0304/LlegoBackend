@@ -6,7 +6,11 @@ from contextlib import asynccontextmanager
 
 from clients.gemini_client import close_gemini_connection, connect_to_gemini
 from clients.mongodb_client import close_mongo_connection, connect_to_mongo
-from clients.qdrant_client import close_qdrant_connection, connect_to_qdrant
+from clients.qdrant_client import (
+    close_qdrant_connection,
+    connect_to_qdrant,
+    ensure_collections_and_indexes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +31,8 @@ async def lifespan(app):
 
     logger.info("Connecting to Qdrant...")
     await connect_to_qdrant()
+    # Create missing collections + payload indexes (idempotent, never fails startup)
+    await ensure_collections_and_indexes()
     logger.info("Qdrant connected")
 
     logger.info("Connecting to Gemini...")
@@ -81,6 +87,79 @@ async def lifespan(app):
     except Exception as e:
         logger.error(f"Warning: Could not start order timeout worker: {e}")
         print(f"Warning: Could not start order timeout worker: {e}")
+
+    try:
+        from services.account_deletion_worker import delete_expired_accounts
+
+        async def run_account_deletion_worker():
+            """Background task that hard-deletes accounts past their 30-day grace period (Apple Guideline 5.1.1(v)). Runs every 24h."""
+            while True:
+                try:
+                    logger.info("Running account deletion worker...")
+                    removed = await delete_expired_accounts()
+                    if removed:
+                        logger.info(
+                            f"Account deletion worker removed {removed} expired account(s)"
+                        )
+                except Exception as e:
+                    logger.error(f"Error in account deletion worker: {e}", exc_info=True)
+
+                await asyncio.sleep(86400)
+
+        logger.info("Starting account deletion worker...")
+        background_tasks.append(asyncio.create_task(run_account_deletion_worker()))
+        logger.info("Account deletion worker task created")
+    except Exception as e:
+        logger.error(f"Warning: Could not start account deletion worker: {e}")
+        print(f"Warning: Could not start account deletion worker: {e}")
+
+    try:
+        from services.taste_vector_service import recompute_all_taste_vectors
+        from services.price_positioning_service import compute_price_positioning
+
+        async def run_recommendation_nightly_worker():
+            """Nightly recommender pass: user taste vectors + store price tiers.
+
+            Sleeps a short warmup first so a restart does not trigger a full
+            recompute mid cold-start, then runs every 24h.
+            """
+            await asyncio.sleep(180)
+            while True:
+                try:
+                    logger.info("Running taste vector recompute worker...")
+                    stats = await recompute_all_taste_vectors()
+                    logger.info(f"Taste vector worker completed: {stats}")
+                except Exception as e:
+                    logger.error(f"Error in taste vector worker: {e}", exc_info=True)
+
+                try:
+                    logger.info("Running price positioning worker...")
+                    pstats = await compute_price_positioning()
+                    logger.info(f"Price positioning worker completed: {pstats}")
+                except Exception as e:
+                    logger.error(f"Error in price positioning worker: {e}", exc_info=True)
+
+                try:
+                    from services.product_complements_indexing_service import (
+                        product_complements_indexing_service,
+                    )
+
+                    logger.info("Running product complements indexing (Haiku/batch)...")
+                    cstats = await product_complements_indexing_service.run_nightly()
+                    logger.info(f"Product complements indexing completed: {cstats}")
+                except Exception as e:
+                    logger.error(
+                        f"Error in product complements indexing: {e}", exc_info=True
+                    )
+
+                await asyncio.sleep(86400)
+
+        logger.info("Starting nightly recommendation worker...")
+        background_tasks.append(asyncio.create_task(run_recommendation_nightly_worker()))
+        logger.info("Nightly recommendation worker task created")
+    except Exception as e:
+        logger.error(f"Warning: Could not start nightly recommendation worker: {e}")
+        print(f"Warning: Could not start nightly recommendation worker: {e}")
 
     # Seed the vehicles catalog (idempotent — skips if records already exist)
     try:

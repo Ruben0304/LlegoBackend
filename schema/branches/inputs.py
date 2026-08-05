@@ -51,11 +51,18 @@ class DayRangeInput:
 
 @strawberry.input
 class TemporaryStatusInput:
-    """Temporary override for branch open/closed status."""
+    """Temporary override for branch open/closed status.
+
+    Si `date` (YYYY-MM-DD) está presente, el override aplica solo ese día. Los
+    consumidores deben ignorar el override si la fecha no es hoy.
+    """
 
     temporallyClosed: bool = False
     temporallyOpen: bool = False
     reason: Optional[str] = None
+    date: Optional[str] = None
+    openTime: Optional[str] = None
+    closeTime: Optional[str] = None
 
 
 @strawberry.input
@@ -97,6 +104,9 @@ def expand_schedule_input(schedule_input: BranchScheduleInput) -> BranchSchedule
             temporallyClosed=ts.temporallyClosed,
             temporallyOpen=ts.temporallyOpen,
             reason=ts.reason,
+            date=ts.date,
+            openTime=ts.openTime,
+            closeTime=ts.closeTime,
         )
 
     return BranchSchedule(days=days, temporaryStatus=temporary_status)
@@ -162,6 +172,7 @@ class UpdateBranchInput:
         None  # True = mensajerÃ­a por la app, False = por cuenta propia
     )
     catalogOnly: Optional[bool] = None  # True = solo catálogo, sin pedidos ni mensajería
+    acceptingOrders: Optional[bool] = None  # False = pausa temporal de pedidos
     pickupEnabled: Optional[bool] = None
     vehicles: Optional[List[BranchVehicle]] = (
         None  # ["moto", "bicicleta", "carro", "camioneta", "caminando"]

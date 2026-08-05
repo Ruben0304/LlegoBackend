@@ -36,17 +36,20 @@ class ComboQuery:
         available_only: bool = False,
         branch_tipo: Optional[str] = None,
         product_category_id: Optional[str] = None,
+        first: int = 50,
     ) -> List[ComboType]:
         """
         Obtiene todos los combos del sistema.
         Puede filtrar por tipo de negocio y categoría de producto.
-        
+
         Args:
             available_only: Solo combos disponibles
             branch_tipo: Filtrar por tipo de negocio (restaurante, tienda, dulceria, etc.)
             product_category_id: Filtrar por categoría de producto
+            first: Límite de resultados (máx 100, default 50)
         """
-        # Si hay filtros, usar el método optimizado con agregación
+        first = min(first, 100)
+
         if branch_tipo or product_category_id:
             combos = await combos_repo.get_filtered(
                 available_only=available_only,
@@ -54,7 +57,6 @@ class ComboQuery:
                 product_category_id=product_category_id,
             )
         else:
-            # Sin filtros, usar el método simple
             combos = await combos_repo.get_all(available_only)
-        
-        return [combo_to_type(combo) for combo in combos]
+
+        return [combo_to_type(combo) for combo in combos[:first]]

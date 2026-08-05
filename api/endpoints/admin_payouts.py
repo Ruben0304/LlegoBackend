@@ -8,6 +8,7 @@ Authentication: static Bearer token via ADMIN_API_KEY env var.
 """
 
 import logging
+import secrets
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Security
@@ -42,7 +43,7 @@ def _require_admin(
             status_code=503,
             detail="Admin API key not configured on server.",
         )
-    if not credentials or credentials.credentials != key:
+    if not credentials or not secrets.compare_digest(credentials.credentials, key):
         raise HTTPException(status_code=401, detail="Invalid or missing admin token.")
 
 

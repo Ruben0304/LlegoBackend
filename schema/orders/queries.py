@@ -524,6 +524,12 @@ class OrderQuery:
         return settings.service_fee_rate
 
     @strawberry.field(
+        description="Tasa de cargo de servicio reducida tras ver videos promocionales (fracción, ej: 0.05 = 5%)"
+    )
+    def get_discounted_service_fee_rate(self) -> float:
+        return settings.discounted_service_fee_rate
+
+    @strawberry.field(
         description="Estadísticas del dashboard: ingresos (subtotal), pedidos completados/rechazados y productos más vendidos dado un rango de fechas"
     )
     async def dashboard_stats(

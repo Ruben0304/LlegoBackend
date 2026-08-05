@@ -6,7 +6,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import asyncio
-from clients import connect_to_qdrant, create_collection, get_qdrant_client
+from clients import (
+    connect_to_qdrant,
+    create_collection,
+    ensure_payload_indexes,
+    get_qdrant_client,
+)
 from qdrant_client.models import Distance
 from core.config import settings
 
@@ -27,6 +32,9 @@ async def init_collection(collection_name: str, recreate: bool = False) -> bool:
                 print("✅ Collection deleted")
             else:
                 print(f"✓ Skipping '{collection_name}' (already exists)")
+                # Still ensure payload indexes exist on pre-existing collections
+                await ensure_payload_indexes(collection_name)
+                print(f"   ✓ Payload indexes ensured for '{collection_name}'")
                 return True
     except Exception as e:
         print(f"❌ Error checking collection '{collection_name}': {e}")
@@ -46,6 +54,9 @@ async def init_collection(collection_name: str, recreate: bool = False) -> bool:
 
         if success:
             print(f"✅ Collection '{collection_name}' created successfully!")
+            # Create payload indexes for server-side filtering (idempotent)
+            await ensure_payload_indexes(collection_name)
+            print(f"   ✓ Payload indexes ensured for '{collection_name}'")
             return True
         else:
             print(f"❌ Failed to create collection '{collection_name}'")

@@ -4,8 +4,16 @@ import uuid
 from typing import Optional, List
 from qdrant_client.models import PointStruct
 
-from clients import get_qdrant_client
+from clients import delete_by_mongo_id, get_qdrant_client
 from services.embeddings.gemini_service import GeminiEmbeddingService
+from services.qdrant_payloads import (
+    branch_embedding_text,
+    branch_payload,
+    business_embedding_text,
+    business_payload,
+    product_embedding_text,
+    product_payload,
+)
 from domain.models import Product, Branch, Business
 
 logger = logging.getLogger(__name__)
@@ -40,6 +48,20 @@ class QdrantIndexingService:
             logger.warning("Qdrant client not available, skipping indexing")
             return None
 
+    async def _resolve_category_name(self, product: Product):
+        """Look up the product's category name to enrich the embedding text."""
+        category_id = getattr(product, "categoryId", None)
+        if not category_id:
+            return None
+        try:
+            from repositories import product_categories_repo
+
+            category = await product_categories_repo.get_by_id(str(category_id))
+            return category.name if category else None
+        except Exception as e:
+            logger.debug(f"Could not resolve category {category_id}: {e}")
+            return None
+
     async def index_product(self, product: Product) -> bool:
         """
         Index a product in Qdrant after it's created in MongoDB.
@@ -57,8 +79,9 @@ class QdrantIndexingService:
         try:
             logger.info(f"[Qdrant] Indexing product: {product.name} (ID: {product.id})")
 
-            # Generate text for embedding
-            embedding_text = f"{product.name}. {product.description or ''}"
+            # Generate text for embedding (enriched with category name)
+            category_name = await self._resolve_category_name(product)
+            embedding_text = product_embedding_text(product, category_name)
 
             # Generate embedding using Gemini with RETRIEVAL_DOCUMENT task type
             embedding = self.embedding_service.generate_embedding(
@@ -66,19 +89,11 @@ class QdrantIndexingService:
                 task_type="RETRIEVAL_DOCUMENT"
             )
 
-            # Create payload with MongoDB ID (flat structure)
-            payload = {
-                "mongo_id": str(product.id),
-                "name": product.name,
-                "price": product.price,
-                "description": product.description or "",
-            }
-
             # Create point (UUID derived from mongo_id — Qdrant requires UUID or int)
             point = PointStruct(
                 id=_mongo_id_to_uuid(str(product.id)),
                 vector=embedding,
-                payload=payload
+                payload=product_payload(product)
             )
 
             # Upsert to Qdrant
@@ -113,8 +128,7 @@ class QdrantIndexingService:
             logger.info(f"[Qdrant] Indexing branch: {branch.name} (ID: {branch.id})")
 
             # Generate text for embedding
-            tipos_str = ", ".join(branch.tipos or [])
-            embedding_text = f"{branch.name}. Tipos: {tipos_str}. {branch.address or ''}"
+            embedding_text = branch_embedding_text(branch)
 
             # Generate embedding
             embedding = self.embedding_service.generate_embedding(
@@ -122,18 +136,11 @@ class QdrantIndexingService:
                 task_type="RETRIEVAL_DOCUMENT"
             )
 
-            # Create payload with MongoDB ID (flat structure)
-            payload = {
-                "mongo_id": str(branch.id),
-                "name": branch.name,
-                "tipos": branch.tipos or [],
-            }
-
             # Create point (UUID derived from mongo_id — Qdrant requires UUID or int)
             point = PointStruct(
                 id=_mongo_id_to_uuid(str(branch.id)),
                 vector=embedding,
-                payload=payload
+                payload=branch_payload(branch)
             )
 
             # Upsert to Qdrant
@@ -168,7 +175,7 @@ class QdrantIndexingService:
             logger.info(f"[Qdrant] Indexing business: {business.name} (ID: {business.id})")
 
             # Generate text for embedding
-            embedding_text = f"{business.name}. {business.description or ''}"
+            embedding_text = business_embedding_text(business)
 
             # Generate embedding
             embedding = self.embedding_service.generate_embedding(
@@ -176,18 +183,11 @@ class QdrantIndexingService:
                 task_type="RETRIEVAL_DOCUMENT"
             )
 
-            # Create payload with MongoDB ID (flat structure)
-            payload = {
-                "mongo_id": str(business.id),
-                "name": business.name,
-                "description": business.description or "",
-            }
-
             # Create point (UUID derived from mongo_id — Qdrant requires UUID or int)
             point = PointStruct(
                 id=_mongo_id_to_uuid(str(business.id)),
                 vector=embedding,
-                payload=payload
+                payload=business_payload(business)
             )
 
             # Upsert to Qdrant
@@ -205,33 +205,16 @@ class QdrantIndexingService:
             return False
 
     async def delete_product(self, product_id: str) -> bool:
-        """
-        Delete a product from Qdrant by mongo_id.
+        """Delete a product from Qdrant by mongo_id (all matching points)."""
+        return await delete_by_mongo_id("products", str(product_id))
 
-        Args:
-            product_id: MongoDB product ID
+    async def delete_branch(self, branch_id: str) -> bool:
+        """Delete a branch from Qdrant by mongo_id (all matching points)."""
+        return await delete_by_mongo_id("branches", str(branch_id))
 
-        Returns:
-            bool: True if deleted successfully, False otherwise
-        """
-        qdrant_client = self._get_qdrant_client()
-        if not qdrant_client:
-            return False
-
-        try:
-            logger.info(f"[Qdrant] Deleting product with mongo_id: {product_id}")
-
-            # Search for points with this mongo_id
-            # Note: This requires scrolling through points or using a filter
-            # For simplicity, we'll skip deletion or implement later
-            # Qdrant doesn't support easy deletion by payload field
-
-            logger.warning(f"[Qdrant] Product deletion not fully implemented yet")
-            return False
-
-        except Exception as e:
-            logger.error(f"[Qdrant] ✗ Error deleting product: {e}")
-            return False
+    async def delete_business(self, business_id: str) -> bool:
+        """Delete a business from Qdrant by mongo_id (all matching points)."""
+        return await delete_by_mongo_id("businesses", str(business_id))
 
 
 # Singleton instance

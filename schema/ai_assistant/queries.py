@@ -17,7 +17,7 @@ from schema.branches.types import BranchTipo, BranchType, BranchVehicle, Coordin
 from schema.businesses.types import BusinessType
 from schema.products.types import ProductType
 from services.ai_quota_service import ai_quota_service
-from services.ai_rag_service import AiRagService
+from services.ai_rag_service import get_ai_rag_service
 from services.vector_search_service import VectorSearchService
 from utils.graphql_auth import require_auth
 from utils.serialization import to_strawberry_dict
@@ -308,8 +308,8 @@ class AiAssistantQuery:
                 f"[AI CHAT] Quota consumed: source={quota.source}, used={quota.used}/{quota.limit}"
             )
 
-            # Initialize AI RAG service
-            ai_service = AiRagService()
+            # Shared AI RAG service (built once, reused across requests)
+            ai_service = get_ai_rag_service()
 
             # Process message with RAG
             response = await ai_service.send_message(
@@ -506,7 +506,7 @@ class AiAssistantQuery:
 
             # Determine error type
             error_message = str(e)
-            if "DeepSeek" in error_message or "API" in error_message:
+            if "Claude" in error_message or "Anthropic" in error_message or "API" in error_message:
                 error_code = AiChatErrorCode.AI_SERVICE_ERROR
                 user_message = "El servicio de IA no está disponible temporalmente. Intenta de nuevo en unos momentos."
             elif "timeout" in error_message.lower():

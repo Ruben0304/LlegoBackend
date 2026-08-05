@@ -16,7 +16,15 @@ async def connect_to_mongo():
     """Connect to MongoDB"""
     global mongo_client, database
     try:
-        mongo_client = AsyncIOMotorClient(settings.mongodb_url)
+        mongo_client = AsyncIOMotorClient(
+            settings.mongodb_url,
+            maxPoolSize=150,
+            minPoolSize=20,
+            serverSelectionTimeoutMS=5000,
+            connectTimeoutMS=10000,
+            socketTimeoutMS=30000,
+            retryWrites=True,
+        )
         database = mongo_client[settings.mongodb_database]
         # Test connection
         await mongo_client.admin.command("ping")
@@ -28,10 +36,14 @@ async def connect_to_mongo():
         await _create_business_access_indexes()
         await _create_feed_indexes()
         await _create_user_indexes()
+        await _create_ai_chat_indexes()
         await _create_ai_quota_indexes()
         await _create_delivery_zone_indexes()
         await _create_branch_delivery_request_indexes()
         await _create_crypto_payment_indexes()
+        await _create_search_perf_indexes()
+        await _create_order_indexes()
+        await _create_branch_indexes()
     except Exception as e:
         print(f"✗ Error connecting to MongoDB: {e}")
         raise
@@ -211,6 +223,43 @@ async def _create_user_indexes():
         print(f"⚠ Warning: Could not create user indexes: {e}")
 
 
+async def _create_ai_chat_indexes():
+    """Indexes for the AI assistant chat (memory + keyword retrieval)."""
+    try:
+        # chat_messages: the assistant reads the last N messages of a session on
+        # every turn. Without this it's a collection scan plus an in-memory sort,
+        # twice per message, on a collection that only grows.
+        chat_collection = database["chat_messages"]
+
+        await chat_collection.create_index(
+            [("sessionId", 1), ("createdAt", -1)],
+            name="idx_chat_session_created",
+            background=True,
+        )
+
+        # products / branches: the chat's keyword leg used an unanchored
+        # case-insensitive $regex, which can never use an index. These let it run
+        # a $text search instead (it still falls back to the regex when $text
+        # finds nothing, so partial words keep working).
+        await database["products"].create_index(
+            [("name", "text")],
+            name="idx_products_text_search",
+            default_language="spanish",
+            background=True,
+        )
+
+        await database["branches"].create_index(
+            [("name", "text")],
+            name="idx_branches_text_search",
+            default_language="spanish",
+            background=True,
+        )
+
+        print("✓ AI chat indexes created/verified")
+    except Exception as e:
+        print(f"⚠ Warning: Could not create AI chat indexes: {e}")
+
+
 async def _create_ai_quota_indexes():
     """Create indexes for AI quota usage collection."""
     try:
@@ -375,6 +424,144 @@ async def _create_crypto_payment_indexes():
         print("✓ Crypto payment indexes created/verified")
     except Exception as e:
         print(f"⚠ Warning: Could not create crypto payment indexes: {e}")
+
+
+async def _create_search_perf_indexes():
+    """Create indexes that back filter/search queries which otherwise full-scan.
+
+    These complement the existing feed indexes and target queries that grow
+    linearly with collection size (availability filters, regex lookups, search).
+    """
+    try:
+        await database["products"].create_index(
+            [("availability", 1)],
+            name="idx_products_availability",
+            background=True,
+        )
+
+        await database["branches"].create_index(
+            [("tipos", 1)],
+            name="idx_branches_tipos",
+            background=True,
+        )
+
+        await database["payment_methods"].create_index(
+            [("code", 1)],
+            name="idx_payment_methods_code",
+            background=True,
+        )
+
+        await database["tutorials"].create_index(
+            [("title", "text"), ("description", "text"), ("tags", "text")],
+            name="idx_tutorials_text_search",
+            default_language="spanish",
+            background=True,
+        )
+
+        print("✓ Search performance indexes created/verified")
+    except Exception as e:
+        print(f"⚠ Warning: Could not create search performance indexes: {e}")
+
+
+async def _create_order_indexes():
+    """Create indexes for orders and delivery collections."""
+    try:
+        orders = database["orders"]
+
+        await orders.create_index(
+            [("customerId", 1), ("createdAt", -1)],
+            name="idx_orders_customer_date",
+            background=True,
+        )
+        await orders.create_index(
+            [("branchId", 1), ("status", 1), ("createdAt", -1)],
+            name="idx_orders_branch_status_date",
+            background=True,
+        )
+        await orders.create_index(
+            [("businessId", 1), ("createdAt", -1)],
+            name="idx_orders_business_date",
+            background=True,
+        )
+        await orders.create_index(
+            "orderNumber",
+            unique=True,
+            name="idx_orders_order_number_unique",
+            background=True,
+        )
+        await orders.create_index(
+            "status",
+            name="idx_orders_status",
+            background=True,
+        )
+        await orders.create_index(
+            [("paymentStatus", 1), ("status", 1)],
+            name="idx_orders_payment_status",
+            background=True,
+        )
+        await orders.create_index(
+            [("status", 1), ("deadlineAt", 1)],
+            name="idx_orders_status_deadline",
+            background=True,
+        )
+        await orders.create_index(
+            [("status", 1), ("deliveryPersonId", 1), ("branchH3", 1)],
+            name="idx_orders_status_dp_h3",
+            background=True,
+        )
+        await orders.create_index(
+            [("deliveryPersonId", 1), ("completedAt", -1), ("_id", -1)],
+            name="idx_orders_dp_completed",
+            background=True,
+        )
+
+        delivery_persons = database["delivery_persons"]
+
+        await delivery_persons.create_index(
+            [("isActive", 1), ("isOnline", 1)],
+            name="idx_dp_active_online",
+            background=True,
+        )
+        await delivery_persons.create_index(
+            "userId",
+            unique=True,
+            name="idx_dp_user_id_unique",
+            background=True,
+        )
+
+        order_locations = database["order_location_updates"]
+        await order_locations.create_index("orderId", name="idx_oloc_order_id", background=True)
+        await order_locations.create_index(
+            "timestamp",
+            name="idx_oloc_timestamp_ttl",
+            expireAfterSeconds=86400,
+            background=True,
+        )
+
+        print("✓ Order indexes created/verified")
+    except Exception as e:
+        print(f"⚠ Warning: Could not create order indexes: {e}")
+
+
+async def _create_branch_indexes():
+    """Create indexes for branches collection."""
+    try:
+        branches = database["branches"]
+
+        await branches.create_index(
+            [("businessId", 1)],
+            name="idx_branches_business_id",
+            background=True,
+        )
+        await branches.create_index(
+            [("businessId", 1), ("isActive", 1)],
+            name="idx_branches_business_active",
+            background=True,
+        )
+
+        print("✓ Branch indexes created/verified")
+    except Exception as e:
+        print(f"⚠ Warning: Could not create branch indexes: {e}")
 
 
 async def close_mongo_connection():

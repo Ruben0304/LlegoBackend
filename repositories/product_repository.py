@@ -6,10 +6,14 @@ Hybrid repository pattern:
 - Create/Update/Delete: Sync both databases
 """
 
+import asyncio
+import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import uuid
+
+logger = logging.getLogger(__name__)
 
 from bson import ObjectId
 from qdrant_client.http import models as qdrant_models
@@ -21,9 +25,15 @@ _UUID_NAMESPACE = uuid.UUID("b1e7a000-0000-0000-0000-000000000000")
 def _mongo_id_to_uuid(mongo_id: str) -> str:
     return str(uuid.uuid5(_UUID_NAMESPACE, mongo_id))
 
-from clients import get_database, get_qdrant_client
+from clients import delete_by_mongo_id, get_database, get_qdrant_client
 from domain.models import Product
 from services.embeddings.gemini_service import GeminiEmbeddingService
+from services.qdrant_payloads import (
+    PRODUCT_PAYLOAD_FIELDS,
+    PRODUCT_TEXT_FIELDS,
+    product_embedding_text,
+    product_payload,
+)
 from utils.cache import (
     invalidate_product_cache,
 )
@@ -32,9 +42,6 @@ from utils.cache import (
 class ProductRepository:
     mongo_collection_name = "products"
     qdrant_collection_name = "products"
-
-    # RAG fields stored in Qdrant
-    rag_fields = {"name", "price", "description"}
 
     @staticmethod
     def _to_object_id(value: Any) -> Any:
@@ -61,8 +68,8 @@ class ProductRepository:
             except Exception as parse_error:
                 doc_id = doc.get("_id")
                 branch_id = doc.get("branchId")
-                print(
-                    f"⚠ Skipping invalid product doc in {context} "
+                logger.warning(
+                    f"Skipping invalid product doc in {context} "
                     f"(id={doc_id}, branchId={branch_id}): {parse_error}"
                 )
         return products
@@ -80,7 +87,6 @@ class ProductRepository:
         effective_limit = limit if limit is not None else self.DEFAULT_LIMIT
 
         try:
-            print(f"→ Fetching products from MongoDB (limit={effective_limit})")
             db = get_database()
             cursor = db[self.mongo_collection_name].find().limit(effective_limit)
             documents = await cursor.to_list(length=effective_limit)
@@ -89,7 +95,7 @@ class ProductRepository:
             return products
 
         except Exception as e:
-            print(f"Error fetching all products from MongoDB: {e}")
+            logger.error(f"Error fetching all products from MongoDB: {e}")
             return []
 
     async def get_by_id(self, product_id: str) -> Optional[Product]:
@@ -105,7 +111,7 @@ class ProductRepository:
             return None
 
         except Exception as e:
-            print(f"Error fetching product {product_id} from MongoDB: {e}")
+            logger.error(f"Error fetching product {product_id} from MongoDB: {e}")
             return None
 
     async def has_other_products_with_image(
@@ -127,7 +133,7 @@ class ProductRepository:
             doc = await db[self.mongo_collection_name].find_one(query, {"_id": 1})
             return doc is not None
         except Exception as e:
-            print(f"Error checking shared product image {image_path}: {e}")
+            logger.error(f"Error checking shared product image {image_path}: {e}")
             # Be conservative: if we cannot verify, assume it's shared.
             return True
 
@@ -139,7 +145,6 @@ class ProductRepository:
         ids = [str(x) for x in product_ids]
 
         try:
-            print(f"→ Fetching {len(ids)} products by IDs from MongoDB")
             db = get_database()
             object_ids = self._to_object_ids(ids)
             cursor = db[self.mongo_collection_name].find({"_id": {"$in": object_ids}})
@@ -149,7 +154,7 @@ class ProductRepository:
             return products
 
         except Exception as e:
-            print(f"Error fetching products from MongoDB: {e}")
+            logger.error(f"Error fetching products from MongoDB: {e}")
             return []
 
     async def get_by_branch(self, branch_id: str) -> List[Product]:
@@ -157,18 +162,9 @@ class ProductRepository:
         normalized_branch_id = str(branch_id).strip()
 
         try:
-            print(f"→ Fetching products for branch {normalized_branch_id} from MongoDB")
             db = get_database()
 
             branch_oid = self._to_object_id(normalized_branch_id)
-            print(
-                "[DEBUG] get_by_branch - branch_id input: "
-                f"{normalized_branch_id} (type: {type(normalized_branch_id)})"
-            )
-            print(
-                "[DEBUG] get_by_branch - converted to: "
-                f"{branch_oid} (type: {type(branch_oid)})"
-            )
 
             # Support datasets where branchId may be stored as ObjectId or string.
             cursor = db[self.mongo_collection_name].find(
@@ -180,10 +176,6 @@ class ProductRepository:
                 }
             )
             documents = await cursor.to_list(length=None)
-            print(
-                "[DEBUG] get_by_branch - Found "
-                f"{len(documents)} products with mixed-type query"
-            )
 
             products = self._deserialize_products(
                 documents, context=f"get_by_branch:{normalized_branch_id}"
@@ -192,7 +184,7 @@ class ProductRepository:
             return products
 
         except Exception as e:
-            print(f"Error fetching products by branch from MongoDB: {e}")
+            logger.error(f"Error fetching products by branch from MongoDB: {e}")
             return []
 
     async def get_by_branch_ids(self, branch_ids: List[Any]) -> List[Product]:
@@ -202,25 +194,15 @@ class ProductRepository:
             branch_ids: List of branch IDs (can be strings or ObjectIds)
         """
         if not branch_ids:
-            print(
-                f"[DEBUG] get_by_branch_ids - No branch_ids provided, returning empty list"
-            )
             return []
 
         # Convert to strings (handles both str and ObjectId)
         ids = [str(x).strip() for x in branch_ids]
 
         try:
-            print(f"→ Fetching products for {len(branch_ids)} branches from MongoDB")
-            print(
-                f"[DEBUG] get_by_branch_ids - Input branch_ids (first 5): {branch_ids[:5]}"
-            )
             db = get_database()
             converted_ids = self._to_object_ids(branch_ids)
             object_ids = [oid for oid in converted_ids if isinstance(oid, ObjectId)]
-            print(
-                f"[DEBUG] get_by_branch_ids - Converted to ObjectIds (first 5): {object_ids[:5]}"
-            )
 
             query_conditions: List[Dict[str, Any]] = []
             if object_ids:
@@ -239,16 +221,6 @@ class ProductRepository:
 
             cursor = db[self.mongo_collection_name].find(query)
             documents = await cursor.to_list(length=None)
-            print(
-                f"[DEBUG] get_by_branch_ids - Found {len(documents)} products in MongoDB"
-            )
-
-            if len(documents) > 0:
-                # Show sample branchIds from results
-                sample_branch_ids = [doc.get("branchId") for doc in documents[:3]]
-                print(
-                    f"[DEBUG] get_by_branch_ids - Sample branchIds from results: {sample_branch_ids}"
-                )
 
             products = self._deserialize_products(
                 documents, context="get_by_branch_ids"
@@ -257,7 +229,7 @@ class ProductRepository:
             return products
 
         except Exception as e:
-            print(f"Error fetching products by branch IDs from MongoDB: {e}")
+            logger.error(f"Error fetching products by branch IDs from MongoDB: {e}")
             return []
 
     async def get_available(self) -> List[Product]:
@@ -270,7 +242,7 @@ class ProductRepository:
             return [Product(**doc) for doc in documents]
 
         except Exception as e:
-            print(f"Error fetching available products from MongoDB: {e}")
+            logger.error(f"Error fetching available products from MongoDB: {e}")
             return []
 
     async def get_by_category(self, category_id: str) -> List[Product]:
@@ -285,7 +257,7 @@ class ProductRepository:
             return [Product(**doc) for doc in documents]
 
         except Exception as e:
-            print(f"Error fetching products by category from MongoDB: {e}")
+            logger.error(f"Error fetching products by category from MongoDB: {e}")
             return []
 
     async def get_distinct_branch_ids_by_category(self, category_id: str) -> set:
@@ -300,7 +272,7 @@ class ProductRepository:
             )
             return {str(bid) for bid in branch_ids}
         except Exception as e:
-            print(f"Error fetching distinct branch IDs by category: {e}")
+            logger.error(f"Error fetching distinct branch IDs by category: {e}")
             return set()
 
     # --- Search Method (Qdrant Vector Similarity) ---
@@ -310,16 +282,19 @@ class ProductRepository:
         try:
             # Generate embedding for query
             embedding_service = GeminiEmbeddingService()
-            query_vector = embedding_service.generate_embedding(query)
+            query_vector = await asyncio.to_thread(
+                embedding_service.generate_embedding, query
+            )
 
             qdrant_client = get_qdrant_client()
 
-            # Vector similarity search
-            results = await qdrant_client.search(
+            # Vector similarity search (query_points replaces deprecated .search() in 1.16+)
+            response = await qdrant_client.query_points(
                 collection_name=self.qdrant_collection_name,
-                query_vector=query_vector,
+                query=query_vector,
                 limit=limit,
             )
+            results = response.points if hasattr(response, "points") else response
 
             if not results:
                 return []
@@ -338,7 +313,7 @@ class ProductRepository:
             return []
 
         except Exception as e:
-            print(f"Error searching products in Qdrant: {e}")
+            logger.warning(f"Error searching products in Qdrant: {e}")
             return []
 
     # --- Create Method (MongoDB + Qdrant) ---
@@ -369,7 +344,7 @@ class ProductRepository:
             return product
 
         except Exception as e:
-            print(f"Error creating product: {e}")
+            logger.error(f"Error creating product: {e}")
             raise e
 
     # --- Update Method (MongoDB + Qdrant if RAG fields changed) ---
@@ -405,15 +380,23 @@ class ProductRepository:
                     normalized_updates["variantListIds"]
                 )
 
+            normalized_updates["updatedAt"] = datetime.now()
             await db[self.mongo_collection_name].update_one(
                 {"_id": self._to_object_id(product_id)}, {"$set": normalized_updates}
             )
 
-            # 2. If RAG fields changed, update Qdrant
-            if self.rag_fields.intersection(normalized_updates.keys()):
+            # 2. Sync Qdrant. Re-embed only when text fields changed; otherwise
+            #    do a cheap payload-only update (keeps availability/category/price
+            #    filterable without burning a Gemini call).
+            changed = set(normalized_updates.keys())
+            if changed & PRODUCT_TEXT_FIELDS:
                 updated_product = await self.get_by_id(product_id)
                 if updated_product:
                     await self._upsert_to_qdrant(updated_product)
+            elif changed & PRODUCT_PAYLOAD_FIELDS:
+                updated_product = await self.get_by_id(product_id)
+                if updated_product:
+                    await self._set_qdrant_payload(updated_product)
 
             # Invalidate cache
             branch_id = normalized_updates.get("branchId", current.branchId)
@@ -425,7 +408,7 @@ class ProductRepository:
             return await self.get_by_id(product_id)
 
         except Exception as e:
-            print(f"Error updating product {product_id}: {e}")
+            logger.error(f"Error updating product {product_id}: {e}")
             raise e
 
     async def update_field(
@@ -464,37 +447,44 @@ class ProductRepository:
             return True
 
         except Exception as e:
-            print(f"Error deleting product {product_id}: {e}")
+            logger.error(f"Error deleting product {product_id}: {e}")
             return False
 
     # --- Qdrant Helper Methods ---
 
+    async def _resolve_category_name(self, product: Product) -> Optional[str]:
+        """Look up the product's category name to enrich the embedding text."""
+        category_id = getattr(product, "categoryId", None)
+        if not category_id:
+            return None
+        try:
+            from repositories import product_categories_repo
+
+            category = await product_categories_repo.get_by_id(str(category_id))
+            return category.name if category else None
+        except Exception as e:
+            print(f"Could not resolve category {category_id} for embedding: {e}")
+            return None
+
     async def _upsert_to_qdrant(self, product: Product):
-        """Upsert product to Qdrant with RAG-only payload."""
+        """Upsert product to Qdrant with the enriched payload + fresh embedding."""
         try:
             embedding_service = GeminiEmbeddingService()
-            text_to_embed = f"{product.name} {product.description or ''}"
+            category_name = await self._resolve_category_name(product)
+            text_to_embed = product_embedding_text(product, category_name)
             embedding = embedding_service.generate_embedding(text_to_embed)
 
             qdrant_client = get_qdrant_client()
 
-            # First, try to find existing point
+            # First, try to find existing point (reuses legacy point ids if any)
             mongo_id = str(product.id)
             existing = await self._find_qdrant_point(mongo_id)
-
-            # RAG-only payload
-            payload = {
-                "mongo_id": mongo_id,
-                "name": product.name,
-                "price": product.price,
-                "description": product.description,
-            }
 
             point_id = existing.id if existing else _mongo_id_to_uuid(mongo_id)
             point = PointStruct(
                 id=point_id,
                 vector=embedding,
-                payload=payload,
+                payload=product_payload(product),
             )
 
             await qdrant_client.upsert(
@@ -503,25 +493,28 @@ class ProductRepository:
             )
 
         except Exception as e:
-            print(f"Error upserting product to Qdrant: {e}")
+            logger.warning(f"Error upserting product to Qdrant: {e}")
+            # Don't raise - MongoDB is the source of truth
+
+    async def _set_qdrant_payload(self, product: Product):
+        """Update only the payload of an existing point (no re-embedding)."""
+        try:
+            qdrant_client = get_qdrant_client()
+            mongo_id = str(product.id)
+            existing = await self._find_qdrant_point(mongo_id)
+            point_id = existing.id if existing else _mongo_id_to_uuid(mongo_id)
+            await qdrant_client.set_payload(
+                collection_name=self.qdrant_collection_name,
+                payload=product_payload(product),
+                points=[point_id],
+            )
+        except Exception as e:
+            print(f"Error setting product payload in Qdrant: {e}")
             # Don't raise - MongoDB is the source of truth
 
     async def _delete_from_qdrant(self, product_id: str):
-        """Delete product from Qdrant by mongo_id."""
-        try:
-            qdrant_client = get_qdrant_client()
-
-            # Find point by mongo_id
-            existing = await self._find_qdrant_point(str(product_id))
-            if existing:
-                await qdrant_client.delete(
-                    collection_name=self.qdrant_collection_name,
-                    points_selector=qdrant_models.PointIdsList(points=[existing.id]),
-                )
-
-        except Exception as e:
-            print(f"Error deleting product from Qdrant: {e}")
-            # Don't raise - MongoDB is the source of truth
+        """Delete product from Qdrant (all points sharing this mongo_id)."""
+        await delete_by_mongo_id(self.qdrant_collection_name, str(product_id))
 
     async def _find_qdrant_point(self, mongo_id: str):
         """Find Qdrant point by mongo_id."""
@@ -547,7 +540,7 @@ class ProductRepository:
             return points[0] if points else None
 
         except Exception as e:
-            print(f"Error finding Qdrant point: {e}")
+            logger.warning(f"Error finding Qdrant point: {e}")
             return None
 
     async def remove_variant_list_from_products(self, variant_list_id: str) -> int:
@@ -600,11 +593,7 @@ class ProductRepository:
             return products
 
         # Apply feed category filtering
-        import logging
-
         from repositories import product_categories_repo
-
-        logger = logging.getLogger(__name__)
 
         # Batch-fetch all unique category IDs in a single query
         unique_category_ids = list({p.categoryId for p in products if p.categoryId})
@@ -672,7 +661,7 @@ class ProductRepository:
             return [Product(**doc) for doc in documents]
 
         except Exception as e:
-            print(f"Error fetching recent products: {e}")
+            logger.error(f"Error fetching recent products: {e}")
             return []
 
     def calculate_freshness_scores(self, products: List[Product]) -> Dict[str, float]:

@@ -1,19 +1,73 @@
 """GraphQL query resolvers for Feed."""
 
 import asyncio
+import math
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Set
 
 import strawberry
 from strawberry.types import Info
 
+from services.ads_service import ads_service
 from services.feed_service import feed_service
 from services.scoring_service import scoring_service
-from utils.graphql_auth import apply_optional_jwt
+from utils.cache import mem_cache
+from utils.graphql_auth import apply_optional_jwt, require_role
+from utils.s3 import get_public_url
 from utils.serialization import to_strawberry_dict
 from utils.rate_limit import rate_limit_graphql
 
-from .types import FeedProductType, FeedResponse, FeedSection, FeedSectionDiagnostic
+from .types import (
+    FeedCreativeSection,
+    FeedCreativeType,
+    FeedProductType,
+    FeedPromoBanner,
+    FeedResponse,
+    FeedSection,
+    FeedSectionDiagnostic,
+    FeedSectionOrdenType,
+)
+
+# Section IDs the feed can emit. Used to validate the ordering config so an
+# admin cannot pin a section that will never appear.
+FEED_SECTION_IDS = frozenset(
+    {
+        "para_ti",
+        "pide_de_nuevo",
+        "populares_cerca",
+        "trending",
+        "hora_del_dia",
+        "basado_busquedas",
+        "nuevos_lugares_favoritos",
+        "mas_favoriteados",
+        "cerca_ti",
+        "te_podria_gustar",
+        "recomendado_qdrant",
+        "explorar",
+        "promo",
+    }
+)
+
+# CTA banner for the `promo` section. Businesses that are NOT registered in
+# Llego tap it to submit a promo from the customer app.
+# TODO: replace with the final artwork — upload it to this S3 path.
+PROMO_BANNER_IMAGE_PATH = "promos/banner/default.jpg"
+PROMO_BANNER_TITLE = "¿Tienes un negocio?"
+PROMO_BANNER_SUBTITLE = "Publica tu promoción aquí"
+
+
+def _meal_extra_title(meal_title: str) -> str:
+    """Return a 'more of the same meal moment' variant title for page > 0."""
+    mapping = {
+        "Desayunos Populares": "Más cositas para el desayuno",
+        "Desayunos del Finde": "Más para arrancar el finde",
+        "Para el Almuerzo": "Más opciones para el almuerzo",
+        "El Almuerzo del Finde": "Más para el almuerzo del finde",
+        "Para Merendar": "Más cositas que puedes merendar",
+        "Para la Cena": "Más opciones para la cena",
+        "Antojos de Noche": "Más antojos de noche",
+    }
+    return mapping.get(meal_title, f"Más {meal_title.lower()}")
 
 
 @strawberry.type
@@ -24,6 +78,8 @@ class FeedQuery:
         info: Info,
         branch_tipo: str,
         first: int = 10,
+        page: int = 0,
+        explorar_page: int = 0,
         radius_km: Optional[float] = None,
         sections: Optional[List[str]] = None,
         product_category_id: Optional[str] = None,
@@ -40,6 +96,10 @@ class FeedQuery:
                 Available: ["para_ti", "populares_cerca", "trending", "basado_busquedas",
                            "nuevos_lugares_favoritos", "mas_favoriteados", "cerca_ti", "te_podria_gustar"]
             jwt: JWT token for authentication (optional, but required for personalized sections)
+                Available sections include: ["para_ti", "pide_de_nuevo", "populares_cerca",
+                           "trending", "hora_del_dia", "basado_busquedas",
+                           "nuevos_lugares_favoritos", "mas_favoriteados", "cerca_ti",
+                           "te_podria_gustar"]
 
         Returns:
             FeedResponse with multiple sections of scored products
@@ -52,9 +112,6 @@ class FeedQuery:
 
         # Fetch branch IDs for the requested tipo once — all sections share this filter
         branch_ids = await feed_service.get_branch_ids_by_tipo(branch_tipo)
-        print(f"[DEBUG] Feed - branch_tipo: {branch_tipo}")
-        print(f"[DEBUG] Feed - branch_ids found: {len(branch_ids)} branches")
-        print(f"[DEBUG] Feed - branch_ids: {list(branch_ids)[:5]}")  # Show first 5
 
         # Narrow branch_ids by product category if specified
         if product_category_id:
@@ -66,7 +123,6 @@ class FeedQuery:
                 )
             )
             branch_ids = branch_ids & category_branch_ids
-            print(f"[DEBUG] Feed - After category filter: {len(branch_ids)} branches")
 
         # Get user context
         user_id = info.context.get("user_id")
@@ -74,60 +130,93 @@ class FeedQuery:
 
         if user_id:
             user_location = await scoring_service.get_user_location(user_id)
-            print(f"[DEBUG] Feed - user_id: {user_id}")
-            print(f"[DEBUG] Feed - user_location: {user_location}")
 
-        # Fetch ALL products ONCE — shared across all feed sections
+        # Fetch ALL products ONCE — shared across all feed sections (2-min in-process cache)
         from repositories import products_repo
 
-        all_products = await products_repo.get_feed_products(
-            branch_ids=list(branch_ids),
-            apply_category_filter=True,
-            requested_branch_tipo=branch_tipo.lower(),
-        )
-        print(
-            "[DEBUG] Feed - all_products after branch_tipo category filter: "
-            f"{len(all_products)} products"
-        )
+        _products_cache_key = f"feed:products:{branch_tipo.lower()}:{','.join(sorted(branch_ids))}"
+        all_products = mem_cache.get(_products_cache_key)
+        if all_products is None:
+            all_products = await products_repo.get_feed_products(
+                branch_ids=list(branch_ids),
+                apply_category_filter=True,
+                requested_branch_tipo=branch_tipo.lower(),
+            )
+            mem_cache.set(_products_cache_key, all_products, ttl=120)
+
         if product_category_id:
             all_products = [
                 product
                 for product in all_products
                 if str(product.categoryId) == product_category_id
             ]
-            print(
-                "[DEBUG] Feed - all_products after product_category_id filter: "
-                f"{len(all_products)} products"
-            )
-        print(f"[DEBUG] Feed - all_products fetched: {len(all_products)} products")
-        if len(all_products) > 0:
-            print(
-                f"[DEBUG] Feed - Sample product: {all_products[0].model_dump() if hasattr(all_products[0], 'model_dump') else all_products[0]}"
-            )
 
         # Default sections if not specified
-        available_sections = {
-            "para_ti": ("Para Ti", "Productos personalizados según tus preferencias"),
-            "populares_cerca": (
-                "Populares Cerca de Ti",
-                "Los más populares en tu zona",
-            ),
-            "trending": ("Trending Ahora", "Productos con mayor actividad reciente"),
-            "basado_busquedas": ("Basado en tus Búsquedas", "Según lo que has buscado"),
-            "nuevos_lugares_favoritos": (
-                "Nuevos en tus Lugares Favoritos",
-                "Productos recientes de tus branches favoritos",
-            ),
-            "mas_favoriteados": (
-                "Los Más Favoriteados",
-                "Los productos más guardados en favoritos",
-            ),
-            "cerca_ti": ("Cerca de Ti", "Productos disponibles cerca de tu ubicación"),
-            "te_podria_gustar": (
-                "Te Podría Gustar",
-                "Recomendaciones basadas en tus preferencias",
-            ),
-        }
+        meal_title, meal_description = feed_service.get_meal_context()
+
+        # For page > 0 the same section types reappear but with fresh titles
+        # so the scroll feels like new content, not a repeat.
+        if page == 0:
+            available_sections = {
+                "para_ti": ("Para Ti", "Productos personalizados según tus preferencias"),
+                "pide_de_nuevo": ("Pide de Nuevo", "Tus pedidos anteriores, listos para repetir"),
+                "populares_cerca": ("Populares Cerca de Ti", "Los más populares en tu zona"),
+                "trending": ("Trending Ahora", "Productos con mayor actividad reciente"),
+                "hora_del_dia": (meal_title, meal_description),
+                "basado_busquedas": ("Basado en tus Búsquedas", "Según lo que has buscado"),
+                "nuevos_lugares_favoritos": (
+                    "Nuevos en tus Lugares Favoritos",
+                    "Productos recientes de tus negocios favoritos",
+                ),
+                "mas_favoriteados": (
+                    "Los Más Favoriteados",
+                    "Los productos más guardados en favoritos",
+                ),
+                "cerca_ti": ("Cerca de Ti", "Productos disponibles cerca de tu ubicación"),
+                "te_podria_gustar": (
+                    "Te Podría Gustar",
+                    "Recomendaciones basadas en tus preferencias",
+                ),
+                "recomendado_qdrant": (
+                    "Especialmente para Ti",
+                    "Productos similares a los que más te gustan",
+                ),
+                "promo": (
+                    "Promo",
+                    "¿Tienes un negocio? Publica tu promoción",
+                ),
+            }
+        else:
+            _meal_extra = _meal_extra_title(meal_title)
+            available_sections = {
+                "para_ti": ("Más para Ti", "Más opciones que se ajustan a tus gustos"),
+                "pide_de_nuevo": ("Más para Repetir", "Otros que ya pediste y seguro se te antojan"),
+                "populares_cerca": ("Más cositas cerca de ti", "Más opciones populares en tu zona"),
+                "trending": ("Más de lo que está en tendencia", "Más productos con mucha actividad"),
+                "hora_del_dia": (_meal_extra, meal_description),
+                "basado_busquedas": ("Más según lo que buscas", "Más opciones relacionadas con tus búsquedas"),
+                "nuevos_lugares_favoritos": (
+                    "Más de tus lugares favoritos",
+                    "Más novedades de los negocios que te gustan",
+                ),
+                "mas_favoriteados": (
+                    "Más de los más queridos",
+                    "Más productos con muchos favoritos",
+                ),
+                "cerca_ti": ("Más cerquita de ti", "Más opciones a pocos pasos"),
+                "te_podria_gustar": (
+                    "Más que te podría gustar",
+                    "Sigue explorando, hay más por descubrir",
+                ),
+                "recomendado_qdrant": (
+                    "Más para Ti",
+                    "Más productos similares a tus favoritos",
+                ),
+                "promo": (
+                    "Promo",
+                    "¿Tienes un negocio? Publica tu promoción",
+                ),
+            }
 
         # Filter sections if specified
         section_diagnostics: List[FeedSectionDiagnostic] = []
@@ -136,7 +225,7 @@ class FeedQuery:
                 k: v for k, v in available_sections.items() if k in sections
             }
             print(f"[DEBUG] Feed - sections requested: {sections}")
-            unknown_sections = [s for s in sections if s not in available_sections]
+            unknown_sections = [s for s in sections if s not in available_sections and s != "explorar"]
             for unknown_section in unknown_sections:
                 section_diagnostics.append(
                     FeedSectionDiagnostic(
@@ -184,6 +273,31 @@ class FeedQuery:
                             total_after_dedup=0,
                         )
                     )
+            elif section_id == "pide_de_nuevo":
+                if user_id:
+                    tasks.append(
+                        feed_service.get_pide_de_nuevo_section(
+                            user_id,
+                            user_location,
+                            branch_ids,
+                            first,
+                            radius_km=radius_km,
+                            all_products=all_products,
+                        )
+                    )
+                    section_keys.append(section_id)
+                else:
+                    title, _ = requested_sections[section_id]
+                    section_diagnostics.append(
+                        FeedSectionDiagnostic(
+                            section_id=section_id,
+                            title=title,
+                            status="omitted",
+                            reason="Requiere JWT válido (sin historial de pedidos del usuario)",
+                            total_before_dedup=0,
+                            total_after_dedup=0,
+                        )
+                    )
             elif section_id == "populares_cerca":
                 tasks.append(
                     feed_service.get_populares_cerca_section(
@@ -198,6 +312,17 @@ class FeedQuery:
             elif section_id == "trending":
                 tasks.append(
                     feed_service.get_trending_section(
+                        user_location,
+                        branch_ids,
+                        first,
+                        radius_km=radius_km,
+                        all_products=all_products,
+                    )
+                )
+                section_keys.append(section_id)
+            elif section_id == "hora_del_dia":
+                tasks.append(
+                    feed_service.get_hora_del_dia_section(
                         user_location,
                         branch_ids,
                         first,
@@ -306,6 +431,34 @@ class FeedQuery:
                             total_after_dedup=0,
                         )
                     )
+            elif section_id == "recomendado_qdrant":
+                if user_id:
+                    tasks.append(
+                        feed_service.get_qdrant_recomendado_section(
+                            user_id,
+                            branch_ids,
+                            first,
+                            all_products=all_products,
+                        )
+                    )
+                    section_keys.append(section_id)
+                else:
+                    title, _ = requested_sections[section_id]
+                    section_diagnostics.append(
+                        FeedSectionDiagnostic(
+                            section_id=section_id,
+                            title=title,
+                            status="omitted",
+                            reason="Requiere JWT válido (recomendación vectorial no disponible)",
+                            total_before_dedup=0,
+                            total_after_dedup=0,
+                        )
+                    )
+
+        # Each section fetches candidate_limit = max(first*3, 30) products.
+        # Page N serves a different slice of those candidates so scroll feels infinite.
+        candidate_limit = feed_service._candidate_limit(first)
+        has_more = (page + 1) * first < candidate_limit
 
         # Execute all sections in parallel
         if tasks:
@@ -334,6 +487,12 @@ class FeedQuery:
                 continue
             raw_sections.append(result)
             valid_keys.append(section_id)
+
+        # For pages > 0, skip the first `page * first` candidates so each page
+        # shows a fresh slice without repeating products from earlier pages.
+        if page > 0:
+            offset = page * first
+            raw_sections = [section[offset:] for section in raw_sections]
 
         # Deduplicate products across sections using backfill from extra candidates.
         deduplicated_sections = feed_service._deduplicate_sections(
@@ -415,8 +574,149 @@ class FeedQuery:
                     )
                 )
 
+        # --- Explorar section: all remaining products not shown in other sections ---
+        EXPLORAR_LIMIT = 20
+        seen_in_feed: Set[str] = set()
+        for scored_list in deduplicated_sections:
+            for sp in scored_list:
+                seen_in_feed.add(str(sp.product.id))
+
+        explorar_scored = await feed_service.get_explorar_section(
+            all_products=all_products,
+            seen_ids=seen_in_feed,
+            page=explorar_page,
+            limit=EXPLORAR_LIMIT,
+            user_location=user_location,
+            radius_km=radius_km,
+        )
+        explorar_has_more = len(explorar_scored) > EXPLORAR_LIMIT
+        explorar_page_products = explorar_scored[:EXPLORAR_LIMIT]
+
+        if explorar_page_products:
+            products = []
+            for sp in explorar_page_products:
+                product_data = to_strawberry_dict(sp.product)
+                products.append(FeedProductType(**product_data, score=sp.score, distance_m=None))
+
+            final_sections.append(
+                FeedSection(
+                    title="Explora otras opciones",
+                    section_id="explorar",
+                    description="Todos los productos disponibles",
+                    products=products,
+                    total_count=len(products),
+                )
+            )
+
+        # --- Paid creative sections (Destacados / Ofertas) ---
+        # Additive and non-breaking: organic `sections` are untouched. Only
+        # active campaigns whose branch is in this feed's (approved) branch set
+        # are eligible.
+        creative_sections: List[FeedCreativeSection] = []
+        try:
+            print(f"[ADS] Fetching creative sections for {len(branch_ids)} branches (tipo={branch_tipo})")
+            for placement, title, sid in (
+                ("destacado", "Negocios Destacados", "destacados"),
+                ("oferta", "Ofertas", "ofertas"),
+            ):
+                campaigns = await ads_service.get_feed_campaigns(
+                    placement, branch_ids, limit=8
+                )
+                print(f"[ADS] {placement}: {len(campaigns)} active campaigns found")
+                if not campaigns:
+                    continue
+                items = [
+                    FeedCreativeType(
+                        campaignId=str(c.id),
+                        branchId=str(c.branchId),
+                        businessId=str(c.businessId),
+                        placement=c.placement,
+                        imageUrl=get_public_url(c.creativeImagePath),
+                        ctaDeeplink=f"llego://branch/{c.branchId}",
+                    )
+                    for c in campaigns
+                    if c.creativeImagePath
+                ]
+                if not items:
+                    continue
+                creative_sections.append(
+                    FeedCreativeSection(title=title, section_id=sid, items=items)
+                )
+        except Exception as e:
+            import traceback
+            print(f"[ADS] Error building creative sections: {e}")
+            traceback.print_exc()
+
+        # --- Promo section: CTA banner for businesses not registered in Llego ---
+        # Carries no products; the client renders `banner` and opens the promo
+        # form on tap. Only on the first page — repeating a CTA down an infinite
+        # scroll is noise.
+        if "promo" in requested_sections and page == 0:
+            promo_title, promo_description = requested_sections["promo"]
+            final_sections.append(
+                FeedSection(
+                    title=promo_title,
+                    section_id="promo",
+                    description=promo_description,
+                    products=[],
+                    total_count=0,
+                    banner=FeedPromoBanner(
+                        imageUrl=get_public_url(PROMO_BANNER_IMAGE_PATH),
+                        title=PROMO_BANNER_TITLE,
+                        subtitle=PROMO_BANNER_SUBTITLE,
+                    ),
+                )
+            )
+            section_diagnostics.append(
+                FeedSectionDiagnostic(
+                    section_id="promo",
+                    title=promo_title,
+                    status="included",
+                    reason=None,
+                    total_before_dedup=0,
+                    total_after_dedup=0,
+                )
+            )
+
+        # --- Pinned section ordering ---
+        # Sections with a persisted `orden` float to the top in ascending order.
+        # The sort is stable, so everything else keeps its default relative order.
+        from repositories import feed_section_config_repo
+
+        orden_map = await feed_section_config_repo.get_orden_map()
+        if orden_map:
+            # Tag each section so clients can tell a pinned one apart, then sort.
+            # Order alone is not enough for them: they lay the feed out around
+            # their own fixed slots, so they need to know *which* to lift out.
+            for section in final_sections:
+                section.orden = orden_map.get(section.section_id)
+
+            final_sections.sort(
+                key=lambda s: orden_map.get(s.section_id, math.inf)
+            )
+
         return FeedResponse(
             sections=final_sections,
             section_diagnostics=section_diagnostics,
             timestamp=datetime.now(timezone.utc),
+            has_more=has_more,
+            explorar_has_more=explorar_has_more,
+            creative_sections=creative_sections,
         )
+
+    @strawberry.field(
+        description="Posiciones fijadas de las secciones del feed (solo admin)"
+    )
+    async def get_feed_section_orden(
+        self, info: Info, jwt: Optional[str] = None
+    ) -> List[FeedSectionOrdenType]:
+        """List the sections currently pinned to a fixed position."""
+        require_role(jwt, info, ["admin", "manager"])
+
+        from repositories import feed_section_config_repo
+
+        orden_map = await feed_section_config_repo.get_orden_map()
+        return [
+            FeedSectionOrdenType(section_id=section_id, orden=orden)
+            for section_id, orden in sorted(orden_map.items(), key=lambda kv: kv[1])
+        ]

@@ -7,6 +7,8 @@ from strawberry.types import Info
 
 from utils.graphql_auth import apply_optional_jwt
 
+from .ads.mutations import AdCampaignMutation
+from .ads.queries import AdCampaignQuery
 from .ai_assistant.queries import AiAssistantQuery
 from .ai_assistant.subscriptions import AiAssistantSubscription
 from .app_config.mutations import AppConfigMutations
@@ -24,6 +26,7 @@ from .combos.mutations import ComboMutation
 from .combos.queries import ComboQuery
 from .extensions import ErrorLoggingExtension, UserIdExtension
 from .favorites_cart.mutations import FavoritesCartMutation
+from .feed.mutations import FeedMutation
 from .feed.queries import FeedQuery
 from .feedbacks.mutations import FeedbackMutation
 from .feedbacks.queries import FeedbackQuery
@@ -37,6 +40,10 @@ from .payments.queries import PaymentMethodQuery
 from .product_categories.queries import ProductCategoryQuery
 from .products.mutations import ProductMutation
 from .products.queries import ProductQuery
+from .promos.mutations import PromoMutation
+from .promos.queries import PromoQuery
+from .promotional_videos.mutations import PromotionalVideoMutation
+from .promotional_videos.queries import PromotionalVideoQuery
 from .searches.mutations import SearchesMutation
 from .showcases.mutations import ShowcaseMutation
 from .showcases.queries import ShowcaseQuery
@@ -75,9 +82,12 @@ class Query(
     SurveyQuery,
     FeedQuery,
     TutorialQuery,
+    PromotionalVideoQuery,
     ShortcutTransferQuery,
     VariantListQuery,
     SyncQuery,
+    AdCampaignQuery,
+    PromoQuery,
 ):
     @strawberry.field(description="Saludo de ejemplo")
     def hello(self, info: Info, jwt: Optional[str] = None) -> str:
@@ -111,7 +121,11 @@ class Mutation(
     SearchesMutation,
     BranchLikesMutation,
     TutorialMutation,
+    PromotionalVideoMutation,
     VariantListMutation,
+    AdCampaignMutation,
+    FeedMutation,
+    PromoMutation,
 ):
     pass
 

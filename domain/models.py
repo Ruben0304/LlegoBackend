@@ -85,12 +85,32 @@ class User(BaseModel):
     defaultAddressId: Optional[str] = None  # ID of the default address
     # Denormalized counter of successfully delivered orders
     deliveredOrdersCount: int = 0
+    # Account deletion scheduled at (Apple Guideline 5.1.1(v) — 30-day grace period)
+    scheduledDeletionAt: Optional[datetime] = None
 
     class Config:
         populate_by_name = True
         json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
+# ⚠️ Business/Branch/Product se convierten a sus tipos GraphQL (BusinessType,
+# BranchType, ProductType, ScoredProductType, ScoredBranchType, NearbyBranchType...)
+# desvolcando el modelo COMPLETO con to_strawberry_dict()/model_dump() vía
+# `SomeType(**data)`. Si agregas un campo nuevo aquí y ese campo NO está
+# declarado en el/los tipo(s) GraphQL correspondientes, esas queries revientan
+# con "unexpected keyword argument" en tiempo de request (no lo detecta
+# py_compile ni ningún chequeo de sintaxis).
+#
+# Antes de agregar un campo a estos 3 modelos:
+# 1. `grep -rn "BusinessType(\|BranchType(\|ProductType("` en schema/ para ver
+#    TODOS los sitios de construcción.
+# 2. Para Branch: usa el exclude set de `branch_to_dict()` en
+#    schema/branches/utils.py (ya cubre BranchType/ScoredBranchType/
+#    NearbyBranchType en un solo lugar) si el campo no debe exponerse.
+# 3. Para Business/Product: no hay helper centralizado — o agregas el campo
+#    también a BusinessType/ProductType/ScoredProductType (mismo patrón que
+#    createdAt), o excluyes explícitamente en cada `to_strawberry_dict(...)`
+#    que lo consuma.
 class Business(BaseModel):
     id: PyObjectId = Field(alias="_id")
     name: str
@@ -105,6 +125,7 @@ class Business(BaseModel):
     approvedAt: Optional[datetime] = None
     rejectedAt: Optional[datetime] = None
     createdAt: datetime
+    updatedAt: Optional[datetime] = None
     # Business-set default delivery fee. Purely informational — it's shown to
     # the business alongside a data-driven suggestion, but it never feeds
     # into the real per-order fee, which is still calculate_delivery_fee_h3
@@ -142,11 +163,19 @@ class DaySchedule(BaseModel):
 
 
 class TemporaryStatus(BaseModel):
-    """Temporary override for branch open/closed status."""
+    """Temporary override for branch open/closed status.
+
+    Si `date` está presente (YYYY-MM-DD), el override aplica solo ese día. Si la
+    fecha no coincide con el día actual, los consumidores deben ignorar el override
+    y usar el horario semanal regular.
+    """
 
     temporallyClosed: bool = False  # Closed despite being within open hours
     temporallyOpen: bool = False    # Open despite being outside open hours
     reason: Optional[str] = None
+    date: Optional[str] = None       # YYYY-MM-DD; el override aplica solo ese día
+    openTime: Optional[str] = None   # "HH:MM" 24h, horario especial de ese día
+    closeTime: Optional[str] = None  # "HH:MM" 24h, horario especial de ese día
 
 
 class BranchSchedule(BaseModel):
@@ -182,6 +211,7 @@ class Branch(BaseModel):
         True  # True = mensajeria por la app, False = mensajeria por cuenta propia
     )
     catalogOnly: bool = False  # True = solo catálogo, sin pedidos ni mensajería
+    acceptingOrders: bool = True  # False = pausa temporal de pedidos (cocina saturada, etc.)
     pickupEnabled: bool = False  # Click & collect enabled for this branch
     vehicles: List[str] = []  # ["moto", "bicicleta", "carro", "camion", "a_pie"]
     deliveryRadius: Optional[float] = None  # Radio de entrega en km
@@ -207,7 +237,19 @@ class Branch(BaseModel):
 
     code: Optional[str] = None  # Auto-generated short code, e.g. "mir", "fou.par"
 
+    # Demo mode: marks this branch as the App Store review demo store
+    isDemoStore: bool = False
+
+    # Price positioning within its niche (recomputed by a nightly job).
+    # priceTier: "economica" | "promedio" | "cara" (None = not enough data yet).
+    # priceIndex: ~1.0 = market price; >1 pricier, <1 cheaper than similar products.
+    priceTier: Optional[str] = None
+    priceIndex: Optional[float] = None
+    priceConfidence: Optional[int] = None  # how many products backed the verdict
+    pricePositioningUpdatedAt: Optional[datetime] = None
+
     createdAt: datetime
+    updatedAt: Optional[datetime] = None
 
     class Config:
         populate_by_name = True
@@ -260,6 +302,7 @@ class Product(BaseModel):
     categoryId: Optional[PyObjectId] = None
     variantListIds: List[PyObjectId] = []  # Referencias a listas globales de variantes
     createdAt: datetime
+    updatedAt: Optional[datetime] = None
 
     class Config:
         populate_by_name = True
@@ -790,6 +833,31 @@ class Tutorial(BaseModel):
     thumbnailUrl: Optional[str] = None  # S3 path to thumbnail image
     order: int = 0  # Display order (lower = first)
     isActive: bool = True  # Whether tutorial is active/published
+    tags: List[str] = []  # Tags for categorization
+    createdAt: datetime = Field(default_factory=datetime.utcnow)
+    updatedAt: Optional[datetime] = None
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
+
+
+class PromotionalVideo(BaseModel):
+    """
+    Promotional video shown in an Instagram-stories style player.
+    Optionally attributed to a branch (sucursal) for profile metadata.
+    """
+
+    id: PyObjectId = Field(alias="_id")
+    title: str  # Promo title
+    description: str  # Promo description
+    videoUrl: str  # S3 path to video (without signature)
+    duration: int  # Video duration in seconds
+    appTarget: str  # Target app: "customer", "merchant", "both"
+    thumbnailUrl: Optional[str] = None  # S3 path to thumbnail image
+    branchId: Optional[PyObjectId] = None  # Branch that uploaded the promo (optional)
+    order: int = 0  # Display order (lower = first)
+    isActive: bool = True  # Whether the promo is active/published
     tags: List[str] = []  # Tags for categorization
     createdAt: datetime = Field(default_factory=datetime.utcnow)
     updatedAt: Optional[datetime] = None

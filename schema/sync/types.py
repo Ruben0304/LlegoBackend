@@ -7,7 +7,7 @@ from typing import List, Optional
 import strawberry
 
 from schema.branches.types import BranchScheduleType
-from utils.s3 import generate_presigned_url
+from utils.s3 import get_public_url
 
 
 @strawberry.enum
@@ -56,13 +56,13 @@ class BranchSyncType:
     @strawberry.field(description="Presigned URL for the branch avatar")
     def avatar_url(self) -> Optional[str]:
         if self.avatar:
-            return generate_presigned_url(self.avatar)
+            return get_public_url(self.avatar)
         return None
 
     @strawberry.field(description="Presigned URL for the branch cover image")
     def cover_url(self) -> Optional[str]:
         if self.coverImage:
-            return generate_presigned_url(self.coverImage)
+            return get_public_url(self.coverImage)
         return None
 
 
@@ -83,7 +83,7 @@ class BusinessSyncType:
     @strawberry.field(description="Presigned URL for the business avatar")
     def avatar_url(self) -> Optional[str]:
         if self.avatar:
-            return generate_presigned_url(self.avatar)
+            return get_public_url(self.avatar)
         return None
 
 
@@ -106,7 +106,7 @@ class ProductSyncType:
 
     @strawberry.field(description="Presigned URL for the product image")
     def image_url(self) -> str:
-        return generate_presigned_url(self.image)
+        return get_public_url(self.image)
 
 
 @strawberry.type
@@ -128,3 +128,19 @@ class ImageSyncType:
     entity_type: str  # "business", "branch", "product"
     image_path: str  # S3 path to the image
     urls: ImageUrlType  # URLs for different quality levels
+
+
+@strawberry.type
+class SyncCheckpoint:
+    """IDs actualmente activos y marca de tiempo del servidor.
+
+    Se usa para sync incremental: el cliente guarda `syncedAt` y lo envía como
+    `since` en la próxima llamada a syncBusinessesWithBranches/syncProducts/syncImages
+    (para traer solo lo nuevo/modificado), y usa los *Ids para borrar localmente
+    cualquier negocio/sucursal/producto que ya no esté en estas listas.
+    """
+
+    businessIds: List[str]
+    branchIds: List[str]
+    productIds: List[str]
+    syncedAt: datetime

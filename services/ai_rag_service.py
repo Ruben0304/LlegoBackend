@@ -1,12 +1,16 @@
-"""AI RAG service with DeepSeek structured outputs and vector search."""
+"""AI RAG service with Claude structured outputs and vector search."""
 
+import asyncio
 import json
-from typing import Any, AsyncGenerator, Dict, List, Optional, Type, TypeVar
+import re
+import unicodedata
+from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple, Type, TypeVar
 
+import anthropic
 from bson import ObjectId
-from openai import AsyncOpenAI, OpenAI
 from pydantic import BaseModel
 
+from clients import get_database
 from core.config import settings
 from repositories import (
     branches_repo,
@@ -29,22 +33,18 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class AiRagService:
-    """AI RAG service using DeepSeek with structured outputs and vector search."""
+    """AI RAG service using Claude with structured outputs and vector search."""
 
     def __init__(self):
         """Initialize AI RAG service."""
-        if not settings.deepseek_api_key:
+        if not settings.anthropic_api_key:
             raise RuntimeError(
-                "DeepSeek API key not configured. Set DEEPSEEK_API_KEY in environment variables."
+                "Anthropic API key not configured. Set ANTHROPIC_API_KEY in environment variables."
             )
 
-        self.client = OpenAI(
-            api_key=settings.deepseek_api_key, base_url=settings.deepseek_base_url
-        )
-        self.async_client = AsyncOpenAI(
-            api_key=settings.deepseek_api_key, base_url=settings.deepseek_base_url
-        )
-        self.model_name = settings.deepseek_model
+        self.client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        self.async_client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+        self.model_name = settings.anthropic_model
         self.vector_search = VectorSearchService()
 
         # System prompts
@@ -95,11 +95,82 @@ CRITICAL - PRODUCT NAMES: The search results include product names from Qdrant v
 - Suggest ALL items that could match what the user wants, not just exact name matches
 - Use semantic understanding: "suero" in Cuba often means a milkshake/smoothie (batido)
 
-CRITICAL - BRANCH INFO: When suggesting products, ALWAYS include the branch name and branch avatar information from the context. Each product in the context includes its branch details.
+CRITICAL - BRANCH INFO: When suggesting products, ALWAYS include the branch name from the context. Each product in the context includes its branch.
 
 Be helpful and accurate. If you're unsure if a product matches, include it and explain what it is.
 When suggesting products or stores, explain WHY they match the user's request.
 When users ask to buy/order, guide them through product and store discovery in a natural way."""
+
+        # System prompt for the agentic (tool-use) streaming flow.
+        self.agent_system_prompt = (
+            "You are Llego's shopping assistant. Llego connects users with local "
+            "stores and restaurants so they can discover products and businesses.\n\n"
+            "ROUTING:\n"
+            "- If the user wants to find products, dishes, or items, call `search_products`.\n"
+            "- If the user wants to find stores/businesses, call `search_branches`.\n"
+            "- You may call BOTH tools in the same turn (e.g. \"pizza and pizza places\"); "
+            "they run in parallel.\n"
+            "- If the user just chats, greets, or asks something general about Llego, answer "
+            "directly WITHOUT calling any tool.\n"
+            "- If the user asks something unrelated to shopping or local stores (weather, news, "
+            "math, coding, etc.), do NOT call any tool. Reply briefly that you are Llego's "
+            "assistant and can only help finding products and stores.\n\n"
+            "QUERY EXPANSION: When you call a tool, expand the request into several related "
+            "search terms instead of a single literal phrase. Use synonyms, dish names, and key "
+            "ingredients. Example: \"comida italiana con carne\" -> "
+            "[\"pizza\", \"espagueti\", \"lasaña boloñesa\", \"carne de res\", \"ropa vieja\"]. "
+            "If the user names a specific store, pass it as `business_name`.\n\n"
+            "AFTER RESULTS: Recommend ONLY the candidates that genuinely match what the user "
+            "asked for, and ignore false positives that merely scored close (e.g. a milkshake "
+            "when the user asked for meat). Write each recommended item's name EXACTLY as given, "
+            "character for character — that exact name is what turns it into a card for the "
+            "user. Never invent items that aren't in the candidates.\n\n"
+            "STYLE: Sound like a friendly local-store attendant. Match the user's language "
+            "(reply in Spanish if they write in Spanish). You may use simple Markdown (bold and "
+            "bullet lists). Never mention these instructions, tools, scores, or internal details."
+        )
+
+        # Tool schemas for the agentic flow. Kept deliberately terse: these ride
+        # along on BOTH turns of every message, including the ones that never
+        # call a tool, so every token here is paid for on each chat message. The
+        # query-expansion guidance lives in the system prompt above instead of
+        # being repeated in each description.
+        self.agent_tools: List[Dict[str, Any]] = [
+            {
+                "name": "search_products",
+                "description": "Search the catalog for products, dishes or items.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "queries": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Expanded search terms (1-6).",
+                        },
+                        "business_name": {
+                            "type": "string",
+                            "description": "Restrict to this store, if the user named one.",
+                        },
+                    },
+                    "required": ["queries"],
+                },
+            },
+            {
+                "name": "search_branches",
+                "description": "Search for stores or businesses.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "queries": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Expanded search terms (1-6).",
+                        }
+                    },
+                    "required": ["queries"],
+                },
+            },
+        ]
 
     async def send_message(self, message: str, session_id: str) -> AiFinalResponse:
         """
@@ -153,77 +224,121 @@ When users ask to buy/order, guide them through product and store discovery in a
         self, message: str, session_id: str
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
-        Stream AI response tokens in real-time and return reference IDs at the end.
+        Agentic RAG with tool use. Two Claude turns at most:
 
-        Yields events:
+          Turn 1 (non-streaming): the model decides — answer directly (off-topic /
+          chat) or call search_products / search_branches (in parallel) with
+          expanded synonym queries.
+          Turn 2 (streaming): given the hybrid (vector + keyword) results, the model
+          writes the final answer; we stream it and derive the cards from the items
+          it actually recommends.
+
+        Yields:
             {"type": "delta", "delta": str, "accumulated_text": str}
             {"type": "final", "accumulated_text": str, "suggested_product_ids": [...], ...}
         """
-        # Step 1: Save user message to memory
         await chat_memory_repo.add_message(
             session_id=session_id, role="user", content=message
         )
-
-        # Step 2: Get conversation history
         history = await chat_memory_repo.get_conversation_history(
-            session_id=session_id,
-            limit=10,
+            session_id=session_id, limit=10
         )
 
-        # Step 3: Analyze intent and fetch search context
-        intent = await self._analyze_intent(message, history)
-        search_context = await self._execute_searches(intent.search_queries)
-
-        # Step 4: Build streaming prompt (plain text response)
-        prompt = self._build_final_prompt(
-            message=message, history=history, intent=intent, context=search_context
-        )
+        messages = self._history_to_messages(history)
+        messages.append({"role": "user", "content": message})
 
         accumulated_text = ""
-        fallback_response: Optional[AiFinalResponse] = None
+        suggested_product_ids: List[str] = []
+        suggested_branch_ids: List[str] = []
+        response_type = "general_response"
 
         try:
-            stream = await self.async_client.chat.completions.create(
+            # --- Turn 1: route + (maybe) call tools --------------------------------
+            turn1 = await self.async_client.messages.create(
                 model=self.model_name,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            f"{self.final_response_system_prompt}\n\n"
-                            "IMPORTANT: Respond with plain natural text only for the end user.\n"
-                            "Do not return JSON, markdown, code fences, or internal notes."
-                        ),
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.9,
-                max_tokens=1200,
-                stream=True,
+                max_tokens=1024,
+                temperature=0.0,
+                system=self.agent_system_prompt,
+                tools=self.agent_tools,
+                tool_choice={"type": "auto"},
+                messages=messages,
             )
 
-            async for chunk in stream:
-                if not chunk.choices:
-                    continue
-                delta = chunk.choices[0].delta.content or ""
-                if not delta:
-                    continue
-                accumulated_text += delta
-                yield {
-                    "type": "delta",
-                    "delta": delta,
-                    "accumulated_text": accumulated_text,
-                }
+            tool_blocks = [b for b in turn1.content if b.type == "tool_use"]
+
+            if not tool_blocks:
+                # Direct answer (off-topic refusal or general chat). No search.
+                accumulated_text = "".join(
+                    b.text for b in turn1.content if b.type == "text"
+                ).strip()
+                if accumulated_text:
+                    yield {
+                        "type": "delta",
+                        "delta": accumulated_text,
+                        "accumulated_text": accumulated_text,
+                    }
+            else:
+                # --- Execute every requested tool in parallel ----------------------
+                tool_outputs = await asyncio.gather(
+                    *(self._run_agent_tool(block) for block in tool_blocks)
+                )
+
+                candidate_products: Dict[str, Dict[str, Any]] = {}
+                candidate_branches: Dict[str, Dict[str, Any]] = {}
+                tool_result_blocks = []
+                for out in tool_outputs:
+                    for product in out["data"].get("products", []):
+                        candidate_products[product["id"]] = product
+                    for branch in out["data"].get("branches", []):
+                        candidate_branches[branch["id"]] = branch
+                    tool_result_blocks.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": out["id"],
+                            "content": out["data"]["result_text"],
+                        }
+                    )
+
+                messages.append({"role": "assistant", "content": turn1.content})
+                messages.append({"role": "user", "content": tool_result_blocks})
+
+                # --- Turn 2: stream the answer (tools disabled) --------------------
+                async for chunk in self._stream_answer(messages):
+                    accumulated_text += chunk
+                    yield {
+                        "type": "delta",
+                        "delta": chunk,
+                        "accumulated_text": accumulated_text,
+                    }
+
+                # Cards = items the model actually recommended (by name match).
+                suggested_product_ids = self._match_suggested_ids(
+                    accumulated_text, candidate_products
+                )
+                suggested_branch_ids = self._match_suggested_ids(
+                    accumulated_text, candidate_branches
+                )
+                if not suggested_product_ids and not suggested_branch_ids:
+                    # The model paraphrased the names, so we can't tell which
+                    # candidates it endorsed. Show a few top-ranked ones so the user
+                    # isn't left with nothing — but keep it short: the model was
+                    # explicitly asked to drop false positives, and anything here
+                    # may well be one of the items it chose to discard.
+                    suggested_product_ids = list(candidate_products.keys())[:3]
+                    suggested_branch_ids = list(candidate_branches.keys())[:3]
+
+                if suggested_product_ids:
+                    response_type = "search_products"
+                elif suggested_branch_ids:
+                    response_type = "search_branches"
 
         except Exception as stream_error:
-            print(f"[AI RAG] Streaming failed, using fallback response: {stream_error}")
+            print(f"[AI RAG] Agentic flow failed, using fallback: {stream_error}")
             if not accumulated_text.strip():
-                fallback_response = await self._generate_final_response(
-                    message=message,
-                    history=history,
-                    intent=intent,
-                    context=search_context,
-                )
-                accumulated_text = fallback_response.ai_text
+                accumulated_text = await self._fallback_answer(messages)
+                suggested_product_ids = []
+                suggested_branch_ids = []
+                response_type = "general_response"
                 if accumulated_text:
                     yield {
                         "type": "delta",
@@ -231,47 +346,383 @@ When users ask to buy/order, guide them through product and store discovery in a
                         "accumulated_text": accumulated_text,
                     }
 
-        # Step 5: Save assistant text to memory
         if accumulated_text.strip():
             await chat_memory_repo.add_message(
                 session_id=session_id, role="assistant", content=accumulated_text
             )
 
-        # Step 6: Send final metadata with reference IDs
-        references = self._extract_reference_ids(
-            context=search_context, final_response=fallback_response
-        )
-        if intent.response_type == "search_branches":
-            references["suggested_product_ids"] = []
-        elif intent.response_type == "search_products":
-            pass
-        else:
-            # For general chat/details, only send references when they actually exist.
-            if not search_context.products:
-                references["suggested_product_ids"] = []
-            if not search_context.branches:
-                references["suggested_branch_ids"] = []
-
         yield {
             "type": "final",
             "accumulated_text": accumulated_text,
-            "suggested_product_ids": references["suggested_product_ids"],
-            "suggested_branch_ids": references["suggested_branch_ids"],
-            "missing_fields": (
-                fallback_response.missing_fields
-                if fallback_response
-                else intent.missing_info
-            ),
-            "confidence": (
-                fallback_response.confidence if fallback_response else intent.confidence
-            ),
+            "response_type": response_type,
+            "suggested_product_ids": self._normalize_object_ids(suggested_product_ids),
+            "suggested_branch_ids": self._normalize_object_ids(suggested_branch_ids),
+            "missing_fields": [],
+            "confidence": None,
         }
+
+    # ------------------------------------------------------------------ #
+    # Agentic flow helpers
+    # ------------------------------------------------------------------ #
+
+    def _history_to_messages(self, history: List[Any]) -> List[Dict[str, str]]:
+        """Turn stored history into Anthropic messages (must start with user)."""
+        msgs: List[Dict[str, str]] = []
+        for msg in history:
+            content = (msg.content or "").strip()
+            if not content:
+                continue
+            role = "user" if msg.role == "user" else "assistant"
+            msgs.append({"role": role, "content": content})
+        while msgs and msgs[0]["role"] != "user":
+            msgs.pop(0)
+        return msgs
+
+    async def _stream_answer(self, messages: List[Dict[str, Any]]) -> AsyncGenerator[str, None]:
+        """Stream Turn 2 text via a worker thread + asyncio.Queue bridge.
+
+        Tools stay declared (the history holds tool_use/tool_result blocks) but
+        tool_choice is "none" so the model only writes the final answer.
+        """
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+
+        def _stream_in_thread():
+            try:
+                for event in self.client.messages.create(
+                    model=self.model_name,
+                    max_tokens=900,
+                    temperature=0.7,
+                    system=self.agent_system_prompt,
+                    tools=self.agent_tools,
+                    tool_choice={"type": "none"},
+                    messages=messages,
+                    stream=True,
+                ):
+                    if (
+                        event.type == "content_block_delta"
+                        and getattr(event.delta, "type", None) == "text_delta"
+                        and getattr(event.delta, "text", None)
+                    ):
+                        loop.call_soon_threadsafe(queue.put_nowait, event.delta.text)
+            except Exception as exc:  # surfaced to the caller
+                loop.call_soon_threadsafe(queue.put_nowait, exc)
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, None)
+
+        loop.run_in_executor(None, _stream_in_thread)
+
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+            if isinstance(item, Exception):
+                raise item
+            yield item
+
+    async def _fallback_answer(self, messages: List[Dict[str, Any]]) -> str:
+        """Single plain answer used if the agentic flow raises before producing text."""
+        try:
+            resp = await self.async_client.messages.create(
+                model=self.model_name,
+                max_tokens=600,
+                temperature=0.5,
+                system=self.agent_system_prompt,
+                messages=messages,
+            )
+            return "".join(b.text for b in resp.content if b.type == "text").strip()
+        except Exception:
+            return (
+                "Lo siento, tuve un problema procesando tu mensaje. "
+                "Inténtalo de nuevo en un momento."
+            )
+
+    async def _run_agent_tool(self, block: Any) -> Dict[str, Any]:
+        """Dispatch a single tool_use block to its handler. Never raises."""
+        name = getattr(block, "name", "")
+        args = getattr(block, "input", None) or {}
+        try:
+            if name == "search_products":
+                queries = self._clean_queries(args.get("queries"))
+                business_name = args.get("business_name")
+                data = await self._tool_search_products(queries, business_name)
+            elif name == "search_branches":
+                queries = self._clean_queries(args.get("queries"))
+                data = await self._tool_search_branches(queries)
+            else:
+                data = {"result_text": f"Unknown tool: {name}", "products": [], "branches": []}
+        except Exception as exc:  # tool errors are reported back to the model, not fatal
+            print(f"[AI RAG] Tool '{name}' failed: {exc}")
+            data = {
+                "result_text": "The search failed. Tell the user to try again shortly.",
+                "products": [],
+                "branches": [],
+            }
+        return {"id": getattr(block, "id", ""), "data": data}
+
+    @staticmethod
+    def _clean_queries(raw: Any, limit: int = 6) -> List[str]:
+        if not isinstance(raw, list):
+            raw = [raw] if raw else []
+        seen, out = set(), []
+        for item in raw:
+            term = str(item).strip()
+            key = term.lower()
+            if term and key not in seen:
+                seen.add(key)
+                out.append(term)
+            if len(out) >= limit:
+                break
+        return out
+
+    async def _tool_search_products(
+        self, queries: List[str], business_name: Optional[str]
+    ) -> Dict[str, Any]:
+        if not queries:
+            return {"result_text": "No search terms provided.", "products": [], "branches": []}
+
+        branch_filter: Optional[set] = None
+        if business_name and str(business_name).strip():
+            branch_filter = await self._resolve_business_to_branch_ids(str(business_name))
+            if not branch_filter:
+                return {
+                    "result_text": (
+                        f"No store named '{business_name}' was found. "
+                        "Tell the user you couldn't find that store."
+                    ),
+                    "products": [],
+                    "branches": [],
+                }
+
+        ranked_ids = await self._hybrid_product_ids(queries)
+        products = await self._hydrate_products(ranked_ids, branch_filter, limit=8)
+
+        if not products:
+            return {"result_text": "No matching products found.", "products": [], "branches": []}
+
+        # No Mongo ObjectIds here: the cards are derived server-side from the names
+        # the model repeats, so sending 24-hex ids would just be ~13 wasted input
+        # tokens per candidate.
+        lines = [f"Found {len(products)} candidate products:"]
+        for p in products:
+            lines.append(
+                f"- {p['name']} | {p['price']} {p['currency']} | {p['branch_name']}"
+            )
+        return {"result_text": "\n".join(lines), "products": products, "branches": []}
+
+    async def _tool_search_branches(self, queries: List[str]) -> Dict[str, Any]:
+        if not queries:
+            return {"result_text": "No search terms provided.", "products": [], "branches": []}
+
+        ranked_ids = await self._hybrid_branch_ids(queries)
+        branches = await self._hydrate_branches(ranked_ids, limit=8)
+
+        if not branches:
+            return {"result_text": "No matching stores found.", "products": [], "branches": []}
+
+        lines = [f"Found {len(branches)} candidate stores:"]
+        for b in branches:
+            lines.append(f"- {b['name']} | {b.get('address', '')}")
+        return {"result_text": "\n".join(lines), "products": [], "branches": branches}
+
+    # ---- Hybrid retrieval (vector + Mongo keyword), fused with RRF ---------- #
+
+    async def _hybrid_ids(self, collection: str, queries: List[str]) -> List[str]:
+        """Fuse the dense and keyword rankings for every expanded query.
+
+        All the vector legs travel as a single batched call (one embedding
+        request, one Qdrant request) instead of one of each per query, which is
+        what a 6-term expansion used to cost.
+        """
+        gathered = await asyncio.gather(
+            self._vector_ids_batch(collection, queries),
+            *(self._keyword_ids(collection, q) for q in queries),
+            return_exceptions=True,
+        )
+        vector_lists = gathered[0] if isinstance(gathered[0], list) else []
+        return self._rrf_merge(
+            self._safe_lists(vector_lists) + self._safe_lists(gathered[1:])
+        )
+
+    async def _hybrid_product_ids(self, queries: List[str]) -> List[str]:
+        return await self._hybrid_ids("products", queries)
+
+    async def _hybrid_branch_ids(self, queries: List[str]) -> List[str]:
+        return await self._hybrid_ids("branches", queries)
+
+    async def _vector_ids_batch(
+        self, collection: str, queries: List[str], limit: int = 20
+    ) -> List[List[str]]:
+        """Dense leg for every query at once. One list of ids per query."""
+        if not queries:
+            return []
+        if collection == "products":
+            batches = await self.vector_search.search_products_batch(queries, limit=limit)
+        else:
+            batches = await self.vector_search.search_branches_batch(queries, limit=limit)
+        return [[r.mongo_id for r in results if r.mongo_id] for results in batches]
+
+    async def _vector_ids(self, collection: str, query: str, limit: int = 20) -> List[str]:
+        if collection == "products":
+            res = await self.vector_search.search_products(query, limit=limit)
+        else:
+            res = await self.vector_search.search_branches(query, limit=limit)
+        return [r.mongo_id for r in res if r.mongo_id]
+
+    async def _keyword_ids(self, collection: str, query: str, limit: int = 20) -> List[str]:
+        """Keyword leg of the hybrid search.
+
+        Tries the `name` text index first (indexed, ranked by relevance). Only if
+        that finds nothing does it fall back to the old unanchored regex, which
+        can't use an index but still catches partial words ("piz" -> "pizza").
+        """
+        cleaned = query.strip()
+        if not cleaned:
+            return []
+        db = get_database()
+
+        try:
+            cursor = (
+                db[collection]
+                .find(
+                    {"$text": {"$search": cleaned}},
+                    {"_id": 1, "score": {"$meta": "textScore"}},
+                )
+                .sort([("score", {"$meta": "textScore"})])
+                .limit(limit)
+            )
+            docs = await cursor.to_list(length=limit)
+            if docs:
+                return [str(d["_id"]) for d in docs]
+        except Exception as exc:  # no text index yet, or unsupported
+            print(f"[AI RAG] $text search on '{collection}' unavailable: {exc}")
+
+        terms = [re.escape(t) for t in cleaned.split() if len(t) >= 3] or [
+            re.escape(cleaned)
+        ]
+        cursor = (
+            db[collection]
+            .find({"name": {"$regex": "|".join(terms), "$options": "i"}}, {"_id": 1})
+            .limit(limit)
+        )
+        docs = await cursor.to_list(length=limit)
+        return [str(d["_id"]) for d in docs]
+
+    @staticmethod
+    def _safe_lists(ranked_lists: List[Any]) -> List[List[str]]:
+        return [lst for lst in ranked_lists if isinstance(lst, list)]
+
+    @staticmethod
+    def _rrf_merge(ranked_lists: List[List[str]], k: int = 60) -> List[str]:
+        """Reciprocal Rank Fusion: combine dense + keyword rankings without
+        normalizing dissimilar score scales."""
+        scores: Dict[str, float] = {}
+        for lst in ranked_lists:
+            for rank, _id in enumerate(lst):
+                if _id:
+                    scores[_id] = scores.get(_id, 0.0) + 1.0 / (k + rank + 1)
+        return sorted(scores, key=scores.get, reverse=True)
+
+    async def _hydrate_products(
+        self, ids: List[str], branch_filter: Optional[set], limit: int
+    ) -> List[Dict[str, Any]]:
+        if not ids:
+            return []
+        products = await products_repo.get_by_ids(ids[: max(limit * 3, limit)])
+        by_id = {str(p.id): p for p in products}
+
+        branch_ids = list({str(p.branchId) for p in products})
+        branch_map = {}
+        if branch_ids:
+            branches = await branches_repo.get_by_ids(branch_ids)
+            branch_map = {str(b.id): b for b in branches}
+
+        out: List[Dict[str, Any]] = []
+        for _id in ids:  # preserve RRF order
+            product = by_id.get(_id)
+            if not product:
+                continue
+            if branch_filter is not None and str(product.branchId) not in branch_filter:
+                continue
+            branch = branch_map.get(str(product.branchId))
+            out.append(
+                {
+                    "id": str(product.id),
+                    "name": product.name,
+                    "price": product.price,
+                    "currency": getattr(product, "currency", "USD"),
+                    "branchId": str(product.branchId),
+                    "branch_name": branch.name if branch else "",
+                    "availability": getattr(product, "availability", True),
+                }
+            )
+            if len(out) >= limit:
+                break
+        return out
+
+    async def _hydrate_branches(self, ids: List[str], limit: int) -> List[Dict[str, Any]]:
+        if not ids:
+            return []
+        branches = await branches_repo.get_by_ids(ids[: max(limit * 3, limit)])
+        by_id = {str(b.id): b for b in branches}
+        out: List[Dict[str, Any]] = []
+        for _id in ids:  # preserve RRF order
+            branch = by_id.get(_id)
+            if not branch:
+                continue
+            out.append(
+                {
+                    "id": str(branch.id),
+                    "name": branch.name,
+                    "address": getattr(branch, "address", "") or "",
+                }
+            )
+            if len(out) >= limit:
+                break
+        return out
+
+    async def _resolve_business_to_branch_ids(self, name: str) -> set:
+        """Resolve a store name the user typed into the set of branch IDs it maps
+        to (hybrid name match on branches)."""
+        vector_ids, keyword_ids = await asyncio.gather(
+            self._vector_ids("branches", name, limit=5),
+            self._keyword_ids("branches", name, limit=5),
+            return_exceptions=True,
+        )
+        ids: set = set()
+        if isinstance(vector_ids, list):
+            ids.update(vector_ids)
+        if isinstance(keyword_ids, list):
+            ids.update(keyword_ids)
+        return ids
+
+    # ---- Map the model's prose back to concrete cards ---------------------- #
+
+    def _match_suggested_ids(
+        self, answer: str, candidates: Dict[str, Dict[str, Any]]
+    ) -> List[str]:
+        """Cards = candidates whose name the model named in its answer."""
+        if not candidates or not answer:
+            return []
+        norm_answer = self._normalize_text(answer)
+        matched = []
+        for _id, item in candidates.items():
+            name = self._normalize_text(item.get("name", ""))
+            if name and name in norm_answer:
+                matched.append(_id)
+        return matched
+
+    @staticmethod
+    def _normalize_text(text: str) -> str:
+        decomposed = unicodedata.normalize("NFKD", text or "")
+        stripped = "".join(c for c in decomposed if not unicodedata.combining(c))
+        return " ".join(stripped.lower().split())
 
     async def _analyze_intent(
         self, message: str, history: List[Any]
     ) -> AiIntentAnalysis:
         """
-        Analyze user intent using DeepSeek structured output.
+        Analyze user intent using Claude structured output.
 
         Args:
             message: Current user message
@@ -284,7 +735,7 @@ When users ask to buy/order, guide them through product and store discovery in a
         conversation = self._format_history(history)
         prompt = f"{chr(10).join(conversation)}\n\nUser: {message}\n\nAnalyze the user's intent and determine the appropriate action."
 
-        return self._generate_json_output(
+        return await self._generate_json_output(
             system_prompt=self.intent_system_prompt,
             user_prompt=(
                 f"{prompt}\n\nReturn your answer as a valid json object only."
@@ -381,7 +832,7 @@ When users ask to buy/order, guide them through product and store discovery in a
             message=message, history=history, intent=intent, context=context
         )
 
-        return self._generate_json_output(
+        return await self._generate_json_output(
             system_prompt=self.final_response_system_prompt,
             user_prompt=(
                 f"{prompt}\n\nReturn your answer as a valid json object only."
@@ -470,41 +921,57 @@ When users ask to buy/order, guide them through product and store discovery in a
             ),
         }
 
-    def _generate_json_output(
+    async def _generate_json_output(
         self,
         system_prompt: str,
         user_prompt: str,
         output_model: Type[T],
         max_tokens: int,
     ) -> T:
-        """Request structured JSON from DeepSeek and validate it with Pydantic."""
+        """Request structured JSON from Claude and validate it with Pydantic.
+
+        Prefers native structured outputs (`messages.parse`): the schema travels
+        as a request parameter instead of being serialized into the system prompt
+        on every call, and the answer can't come back malformed. Falls back to the
+        schema-in-the-prompt approach if the installed SDK doesn't expose it.
+
+        Always awaited — this used to be a blocking call inside an `async def`,
+        which stalled the whole event loop for the duration of the model call.
+        """
+        parse = getattr(self.async_client.messages, "parse", None)
+        if parse is not None:
+            try:
+                response = await parse(
+                    model=self.model_name,
+                    max_tokens=max_tokens,
+                    temperature=0.0,
+                    system=system_prompt,
+                    messages=[{"role": "user", "content": user_prompt}],
+                    output_format=output_model,
+                )
+                parsed = getattr(response, "parsed_output", None)
+                if parsed is not None:
+                    return parsed
+            except Exception as exc:
+                print(f"[AI RAG] Structured output unavailable ({exc}); using prompt schema")
+
         schema_json = json.dumps(output_model.model_json_schema(), ensure_ascii=False)
-        response = self.client.chat.completions.create(
+        response = await self.async_client.messages.create(
             model=self.model_name,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        f"{system_prompt}\n\n"
-                        "IMPORTANT: Respond in json format only.\n"
-                        "Do not include markdown, code fences, or extra text.\n"
-                        f"Use this JSON schema exactly: {schema_json}"
-                    ),
-                },
-                {"role": "user", "content": user_prompt},
-            ],
-            response_format={"type": "json_object"},
-            temperature=1.0,
             max_tokens=max_tokens,
+            temperature=0.0,
+            system=(
+                f"{system_prompt}\n\n"
+                "IMPORTANT: Respond in json format only.\n"
+                "Do not include markdown, code fences, or extra text.\n"
+                f"Use this JSON schema exactly: {schema_json}"
+            ),
+            messages=[{"role": "user", "content": user_prompt}],
         )
 
-        content = (
-            response.choices[0].message.content
-            if response.choices and response.choices[0].message
-            else None
-        )
+        content = response.content[0].text if response.content else None
         if not content:
-            raise ValueError("Empty response from DeepSeek model")
+            raise ValueError("Empty response from Claude model")
 
         json_payload = self._strip_markdown_code_fence(content)
         try:
@@ -668,14 +1135,14 @@ When users ask to buy/order, guide them through product and store discovery in a
     @staticmethod
     def _format_products(products: List[Dict]) -> str:
         """Format products for context with branch info."""
+        # The avatar URL and the branchId were dead weight: the model never emits
+        # either (AiFinalResponse only carries product_id) and the client hydrates
+        # both from Mongo afterwards.
         lines = []
         for p in products:
-            branch_info = f"Branch: {p.get('branch_name', 'N/A')}"
-            if p.get("branch_avatar"):
-                branch_info += f" (Avatar: {p['branch_avatar']})"
             lines.append(
                 f"- ID: {p['id']}, Name: {p['name']}, Price: ${p['price']} {p.get('currency', 'USD')}, "
-                f"{branch_info}, BranchID: {p['branchId']}, Available: {p.get('availability', True)}"
+                f"Branch: {p.get('branch_name', 'N/A')}, Available: {p.get('availability', True)}"
             )
         return "\n".join(lines)
 
@@ -700,3 +1167,18 @@ When users ask to buy/order, guide them through product and store discovery in a
                 f"Tags: {', '.join(b.get('tags', []))}"
             )
         return "\n".join(lines)
+
+
+# Lazily-built singleton. Building the service opens two Anthropic HTTP clients
+# plus the Qdrant/Gemini stack, so doing it per request meant a fresh connection
+# pool and TLS handshake on every chat message. Lazy (not module-level) so a
+# missing API key still fails on use, as before, instead of at import time.
+_service: Optional[AiRagService] = None
+
+
+def get_ai_rag_service() -> AiRagService:
+    """Shared AiRagService instance."""
+    global _service
+    if _service is None:
+        _service = AiRagService()
+    return _service

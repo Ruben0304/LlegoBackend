@@ -1,10 +1,10 @@
-"""Error analysis service using DeepSeek AI."""
+"""Error analysis service using Claude AI."""
 import re
 import json
 import asyncio
 from typing import Optional, Dict, Any
 
-from openai import OpenAI
+import anthropic
 from core.config import settings
 from domain.error_logs import GeminiAnalysis
 
@@ -68,19 +68,16 @@ Criterios de severidad:
 
 
 class ErrorAnalysisService:
-    """Service for analyzing errors using DeepSeek AI."""
+    """Service for analyzing errors using Claude AI."""
 
     def __init__(self):
-        if not settings.deepseek_api_key:
-            print("⚠ DeepSeek API key not configured. Error analysis will be disabled.")
+        if not settings.anthropic_api_key:
+            print("⚠ Anthropic API key not configured. Error analysis will be disabled.")
             self.client = None
             self.model_name = None
         else:
-            self.client = OpenAI(
-                api_key=settings.deepseek_api_key,
-                base_url=settings.deepseek_base_url
-            )
-            self.model_name = settings.deepseek_model
+            self.client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+            self.model_name = settings.anthropic_model
 
     def _build_prompt(
         self,
@@ -110,8 +107,7 @@ class ErrorAnalysisService:
         http_method: Optional[str] = None,
         source: str = "backend"
     ) -> Optional[GeminiAnalysis]:
-        """Analyze an error using DeepSeek AI."""
-        # Skip if DeepSeek is not configured
+        """Analyze an error using Claude AI."""
         if not self.client:
             return None
 
@@ -121,30 +117,23 @@ class ErrorAnalysisService:
                 endpoint, http_method, source
             )
 
-            # Use OpenAI client with DeepSeek
             response = await asyncio.to_thread(
-                self.client.chat.completions.create,
+                self.client.messages.create,
                 model=self.model_name,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "Eres un asistente experto en análisis de errores de aplicaciones Python/FastAPI. "
-                            "Responde ÚNICAMENTE con un JSON válido (sin markdown, sin explicaciones adicionales)."
-                        )
-                    },
-                    {"role": "user", "content": prompt}
-                ],
-                response_format={"type": "json_object"},
+                max_tokens=2000,
                 temperature=0.7,
-                max_tokens=2000
+                system=(
+                    "Eres un asistente experto en análisis de errores de aplicaciones Python/FastAPI. "
+                    "Responde ÚNICAMENTE con un JSON válido (sin markdown, sin explicaciones adicionales)."
+                ),
+                messages=[{"role": "user", "content": prompt}],
             )
 
-            if not response.choices or not response.choices[0].message.content:
+            if not response.content:
                 return None
 
             # Parse JSON response
-            text = response.choices[0].message.content.strip()
+            text = response.content[0].text.strip()
             # Remove markdown code blocks if present
             if text.startswith("```"):
                 text = re.sub(r'^```(?:json)?\n?', '', text)
@@ -154,7 +143,7 @@ class ErrorAnalysisService:
             return GeminiAnalysis(**data)
 
         except Exception as e:
-            print(f"Error analyzing with DeepSeek: {e}")
+            print(f"Error analyzing with Claude: {e}")
             return None
 
     async def analyze_and_update(self, error_id: str, error_data: Dict[str, Any]) -> None:
@@ -188,7 +177,7 @@ class ErrorAnalysisService:
                     severity=analysis.severidad
                 )
             else:
-                print(f"⚠️ No analysis returned from DeepSeek")
+                print(f"⚠️ No analysis returned from Claude")
 
         except Exception as e:
             print(f"❌ Error in background analysis for {error_id}: {e}")

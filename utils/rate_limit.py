@@ -1,5 +1,6 @@
 """Rate limiting configuration using Redis."""
 import redis
+import threading
 import time
 from typing import Optional
 from fastapi import Request, HTTPException
@@ -7,6 +8,11 @@ from fastapi.responses import JSONResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+
+# In-memory fallback counters used when Redis is unavailable.
+# Keys encode the minute window so old entries never produce false positives.
+_memory_fallback: dict[str, int] = {}
+_memory_lock = threading.Lock()
 
 from core.config import settings
 from utils.auth import decode_access_token
@@ -92,30 +98,54 @@ def check_rate_limit(identifier: str, limit_type: str) -> tuple[bool, int]:
         Tuple of (allowed: bool, current_count: int)
     """
     global redis_client
-    
-    if redis_client is None:
-        return True, 0  # Allow if Redis not available
-    
-    limit = RATE_LIMITS.get(limit_type, 20)
+
+    limit = RATE_LIMITS.get(limit_type, 30)
     key = _get_rate_limit_key(identifier, limit_type)
+
+    if redis_client is None:
+        return _check_memory_fallback(key, limit)
     
     try:
         current = redis_client.get(key)
         current_count = int(current) if current else 0
-        
+
         if current_count >= limit:
             return False, current_count
-        
+
         # Increment counter
         pipe = redis_client.pipeline()
         pipe.incr(key)
         pipe.expire(key, 60)  # Expire after 1 minute
         pipe.execute()
-        
+
         return True, current_count + 1
     except Exception as e:
         print(f"Rate limit check error: {e}")
-        return True, 0  # Allow on error
+        return _check_memory_fallback(key, limit)
+
+
+def _check_memory_fallback(key: str, limit: int) -> tuple[bool, int]:
+    """
+    In-memory rate limit fallback used when Redis is unavailable or errors.
+
+    Keys already encode the current minute window (via _get_rate_limit_key),
+    so stale entries from previous minutes are harmless — they live under
+    different keys and are purged lazily on each call.
+    """
+    current_minute = int(time.time() // 60)
+
+    with _memory_lock:
+        # Purge keys that belong to a previous minute window
+        stale = [k for k in _memory_fallback
+                 if not k.endswith(f":{current_minute}")]
+        for k in stale:
+            del _memory_fallback[k]
+
+        count = _memory_fallback.get(key, 0)
+        if count >= limit:
+            return False, count
+        _memory_fallback[key] = count + 1
+        return True, count + 1
 
 
 def get_identifier_from_context(info) -> str:
@@ -153,7 +183,7 @@ def rate_limit_graphql(info, limit_type: str = "graphql"):
     allowed, count = check_rate_limit(identifier, limit_type)
     
     if not allowed:
-        limit = RATE_LIMITS.get(limit_type, 20)
+        limit = RATE_LIMITS.get(limit_type, 30)
         raise Exception(f"Rate limit exceeded ({limit}/min). Try again later.")
 
 

@@ -6,7 +6,9 @@ Hybrid repository pattern:
 - Create/Update/Delete: Sync both databases
 """
 
+import asyncio
 import uuid
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
@@ -19,9 +21,15 @@ _UUID_NAMESPACE = uuid.UUID("b1e7a000-0000-0000-0000-000000000000")
 def _mongo_id_to_uuid(mongo_id: str) -> str:
     return str(uuid.uuid5(_UUID_NAMESPACE, mongo_id))
 
-from clients import get_database, get_qdrant_client
+from clients import delete_by_mongo_id, get_database, get_qdrant_client
 from domain.models import Business
 from services.embeddings.gemini_service import GeminiEmbeddingService
+from services.qdrant_payloads import (
+    BUSINESS_PAYLOAD_FIELDS,
+    BUSINESS_TEXT_FIELDS,
+    business_embedding_text,
+    business_payload,
+)
 from utils.cache import (
     TTL_DEFAULT,
     get_business_cache_key,
@@ -35,9 +43,6 @@ from utils.cache import (
 class BusinessRepository:
     mongo_collection_name = "bussisnes"  # Note: intentional typo for compatibility
     qdrant_collection_name = "businesses"
-
-    # RAG fields stored in Qdrant
-    rag_fields = {"name", "description"}
 
     # --- GET Methods (MongoDB) ---
 
@@ -180,16 +185,19 @@ class BusinessRepository:
         try:
             # Generate embedding for query
             embedding_service = GeminiEmbeddingService()
-            query_vector = embedding_service.generate_embedding(query)
+            query_vector = await asyncio.to_thread(
+                embedding_service.generate_embedding, query
+            )
 
             qdrant_client = get_qdrant_client()
 
-            # Vector similarity search
-            results = await qdrant_client.search(
+            # Vector similarity search (query_points replaces deprecated .search() in 1.16+)
+            response = await qdrant_client.query_points(
                 collection_name=self.qdrant_collection_name,
-                query_vector=query_vector,
+                query=query_vector,
                 limit=limit,
             )
+            results = response.points if hasattr(response, "points") else response
 
             if not results:
                 return []
@@ -254,15 +262,23 @@ class BusinessRepository:
                 return None
 
             # 1. Update MongoDB
+            updates = {**updates, "updatedAt": datetime.now()}
             await db[self.mongo_collection_name].update_one(
                 {"_id": ObjectId(business_id)}, {"$set": updates}
             )
 
-            # 2. If RAG fields changed, update Qdrant
-            if self.rag_fields.intersection(updates.keys()):
+            # 2. Sync Qdrant. Re-embed only when text fields changed; otherwise
+            #    do a cheap payload-only update (keeps rating/approvalStatus/tags
+            #    filterable without burning a Gemini call).
+            changed = set(updates.keys())
+            if changed & BUSINESS_TEXT_FIELDS:
                 updated_business = await self.get_by_id(business_id)
                 if updated_business:
                     await self._upsert_to_qdrant(updated_business)
+            elif changed & BUSINESS_PAYLOAD_FIELDS:
+                updated_business = await self.get_by_id(business_id)
+                if updated_business:
+                    await self._set_qdrant_payload(updated_business)
 
             # Invalidate cache for this business and all businesses
             invalidate_business_cache(business_id=business_id)
@@ -311,29 +327,22 @@ class BusinessRepository:
     # --- Qdrant Helper Methods ---
 
     async def _upsert_to_qdrant(self, business: Business):
-        """Upsert business to Qdrant with RAG-only payload."""
+        """Upsert business to Qdrant with the enriched payload + fresh embedding."""
         try:
             embedding_service = GeminiEmbeddingService()
-            text_to_embed = f"{business.name} {business.description or ''}"
+            text_to_embed = business_embedding_text(business)
             embedding = embedding_service.generate_embedding(text_to_embed)
 
             qdrant_client = get_qdrant_client()
 
-            # First, try to find existing point
+            # First, try to find existing point (reuses legacy point ids if any)
             existing = await self._find_qdrant_point(str(business.id))
-
-            # RAG-only payload
-            payload = {
-                "mongo_id": str(business.id),
-                "name": business.name,
-                "description": business.description,
-            }
 
             point_id = existing.id if existing else _mongo_id_to_uuid(str(business.id))
             point = PointStruct(
                 id=point_id,
                 vector=embedding,
-                payload=payload,
+                payload=business_payload(business),
             )
 
             await qdrant_client.upsert(
@@ -345,22 +354,24 @@ class BusinessRepository:
             print(f"Error upserting business to Qdrant: {e}")
             # Don't raise - MongoDB is the source of truth
 
-    async def _delete_from_qdrant(self, business_id: str):
-        """Delete business from Qdrant by mongo_id."""
+    async def _set_qdrant_payload(self, business: Business):
+        """Update only the payload of an existing point (no re-embedding)."""
         try:
             qdrant_client = get_qdrant_client()
-
-            # Find point by mongo_id
-            existing = await self._find_qdrant_point(business_id)
-            if existing:
-                await qdrant_client.delete(
-                    collection_name=self.qdrant_collection_name,
-                    points_selector=qdrant_models.PointIdsList(points=[existing.id]),
-                )
-
+            existing = await self._find_qdrant_point(str(business.id))
+            point_id = existing.id if existing else _mongo_id_to_uuid(str(business.id))
+            await qdrant_client.set_payload(
+                collection_name=self.qdrant_collection_name,
+                payload=business_payload(business),
+                points=[point_id],
+            )
         except Exception as e:
-            print(f"Error deleting business from Qdrant: {e}")
+            print(f"Error setting business payload in Qdrant: {e}")
             # Don't raise - MongoDB is the source of truth
+
+    async def _delete_from_qdrant(self, business_id: str):
+        """Delete business from Qdrant (all points sharing this mongo_id)."""
+        await delete_by_mongo_id(self.qdrant_collection_name, str(business_id))
 
     async def _find_qdrant_point(self, mongo_id: str):
         """Find Qdrant point by mongo_id."""
