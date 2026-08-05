@@ -149,6 +149,7 @@ class BusinessMutation:
             approvedAt=created_business.approvedAt,
             rejectedAt=created_business.rejectedAt,
             createdAt=created_business.createdAt,
+            predefinedDeliveryFee=created_business.predefinedDeliveryFee,
         )
 
     @strawberry.mutation(description="Actualizar un negocio")
@@ -192,6 +193,10 @@ class BusinessMutation:
             if business.avatar:
                 await delete_file(business.avatar)
             updates["avatar"] = input.avatar
+        if input.predefinedDeliveryFee is not None:
+            if input.predefinedDeliveryFee < 0:
+                raise Exception("La tarifa debe ser mayor o igual a cero")
+            updates["predefinedDeliveryFee"] = input.predefinedDeliveryFee
 
         if not updates:
             raise Exception("No hay campos para actualizar")
@@ -215,6 +220,7 @@ class BusinessMutation:
             approvedAt=updated_business.approvedAt,
             rejectedAt=updated_business.rejectedAt,
             createdAt=updated_business.createdAt,
+            predefinedDeliveryFee=updated_business.predefinedDeliveryFee,
         )
 
     @strawberry.mutation(
@@ -358,6 +364,7 @@ class BusinessMutation:
                     approvedAt=b.approvedAt,
                     rejectedAt=b.rejectedAt,
                     createdAt=b.createdAt,
+                    predefinedDeliveryFee=b.predefinedDeliveryFee,
                 )
                 for b in created_businesses
             ]
@@ -422,6 +429,7 @@ class BusinessMutation:
             approvedAt=updated.approvedAt,
             rejectedAt=updated.rejectedAt,
             createdAt=updated.createdAt,
+            predefinedDeliveryFee=updated.predefinedDeliveryFee,
         )
 
     @strawberry.mutation(description="[Admin] Rechazar un negocio")
@@ -464,6 +472,7 @@ class BusinessMutation:
             approvedAt=updated.approvedAt,
             rejectedAt=updated.rejectedAt,
             createdAt=updated.createdAt,
+            predefinedDeliveryFee=updated.predefinedDeliveryFee,
         )
 
     @strawberry.mutation(description="Eliminar un negocio y todas sus sucursales")

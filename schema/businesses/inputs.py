@@ -30,6 +30,7 @@ class UpdateBusinessInput:
     tags: Optional[List[str]] = None
     isActive: Optional[bool] = None
     avatar: Optional[str] = None  # Path from /upload/business/avatar
+    predefinedDeliveryFee: Optional[float] = None  # Informational only — see domain/models.py
 
 
 @strawberry.input

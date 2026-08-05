@@ -105,6 +105,11 @@ class Business(BaseModel):
     approvedAt: Optional[datetime] = None
     rejectedAt: Optional[datetime] = None
     createdAt: datetime
+    # Business-set default delivery fee. Purely informational — it's shown to
+    # the business alongside a data-driven suggestion, but it never feeds
+    # into the real per-order fee, which is still calculate_delivery_fee_h3
+    # (services/orders_utils.py) based on delivery zones.
+    predefinedDeliveryFee: Optional[float] = None
 
     class Config:
         populate_by_name = True
