@@ -2,6 +2,20 @@
 
 ---
 
+## 📅 6 de Agosto, 2026
+
+### Resumen de cambios (últimas 24h)
+
+Sin commits nuevos de código. Los cambios del 5 de Agosto (admin orders, cola de revisión KYC, delivery fee recommendation, concurrency fixes en branch delivery requests) ya fueron cubiertos en la entrada de ayer. No hay cambios en producción hoy.
+
+---
+
+### Puede dar bateo
+
+Sin cambios nuevos — sin riesgos nuevos.
+
+---
+
 ## 📅 5 de Agosto, 2026
 
 ### Resumen de cambios (últimas 24h)
