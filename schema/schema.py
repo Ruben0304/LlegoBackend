@@ -24,7 +24,7 @@ from .businesses.queries import BusinessQuery
 from .categories.queries import CategoryQuery
 from .combos.mutations import ComboMutation
 from .combos.queries import ComboQuery
-from .extensions import ErrorLoggingExtension, UserIdExtension
+from .extensions import ErrorLoggingExtension, LastSeenExtension, UserIdExtension
 from .favorites_cart.mutations import FavoritesCartMutation
 from .feed.mutations import FeedMutation
 from .feed.queries import FeedQuery
@@ -140,5 +140,5 @@ schema = strawberry.Schema(
     query=Query,
     mutation=Mutation,
     subscription=Subscription,
-    extensions=[UserIdExtension, ErrorLoggingExtension],
+    extensions=[UserIdExtension, ErrorLoggingExtension, LastSeenExtension],
 )

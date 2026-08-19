@@ -218,6 +218,19 @@ async def _create_user_indexes():
             background=True,
         )
 
+        # Both back admin_user_metrics (signup counts/series and the active
+        # window); without them every dashboard load scans the collection.
+        await users_collection.create_index(
+            [("createdAt", -1)],
+            name="idx_users_created_at",
+            background=True,
+        )
+        await users_collection.create_index(
+            [("lastSeenAt", -1)],
+            name="idx_users_last_seen_at",
+            background=True,
+        )
+
         print("✓ User indexes created/verified")
     except Exception as e:
         print(f"⚠ Warning: Could not create user indexes: {e}")

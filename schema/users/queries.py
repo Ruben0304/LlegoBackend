@@ -1,5 +1,6 @@
 """GraphQL query resolvers for User entity."""
 
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 import strawberry
@@ -7,10 +8,16 @@ from strawberry.types import Info
 
 from repositories import users_repo
 from schema.wallet.types import WalletBalanceType
+from services.user_metrics import compute_user_segments
 from utils.graphql_auth import apply_optional_jwt, require_auth, require_role
 from utils.serialization import to_strawberry_dict
 
-from .types import UserType
+from .types import (
+    DailyCountType,
+    UserMetricsType,
+    UserSegmentMetricsType,
+    UserType,
+)
 
 
 @strawberry.type
@@ -42,6 +49,42 @@ class UserQuery:
             )
             for u in users
         ]
+
+    @strawberry.field(
+        description=(
+            "(Admin) Métricas de usuarios de la plataforma, segmentadas por app. "
+            "Los segmentos se solapan: un mensajero o dueño de negocio también "
+            "puede pedir como cliente."
+        )
+    )
+    async def admin_user_metrics(
+        self, info: Info, jwt: str, activeDays: int = 30
+    ) -> UserMetricsType:
+        require_role(jwt, info, ["admin", "manager"])
+
+        window_days = max(1, activeDays)
+        since = datetime.utcnow() - timedelta(days=window_days)
+
+        sources = await users_repo.get_metrics_sources(since)
+        segments = compute_user_segments(
+            total_users=sources["total_users"],
+            courier_ids=sources["courier_ids"],
+            business_ids=sources["business_ids"],
+            active_ids=sources["active_ids"],
+        )
+        signups = await users_repo.get_signups_by_day(since)
+
+        return UserMetricsType(
+            totalUsers=segments["totalUsers"],
+            activeUsers=segments["activeUsers"],
+            newUsersInPeriod=sources["new_users"],
+            customersOnly=UserSegmentMetricsType(**segments["customersOnly"]),
+            couriers=UserSegmentMetricsType(**segments["couriers"]),
+            businesses=UserSegmentMetricsType(**segments["businesses"]),
+            multiRoleUsers=segments["multiRoleUsers"],
+            signupsByDay=[DailyCountType(**row) for row in signups],
+            activeDays=window_days,
+        )
 
     @strawberry.field(
         description="Obtener usuario por ID (requiere rol admin o manager)"

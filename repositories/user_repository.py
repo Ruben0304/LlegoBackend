@@ -1,6 +1,8 @@
 """User repository for database operations."""
 
-from typing import Any, Dict, List, Optional
+import asyncio
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Set
 
 from bson import ObjectId
 
@@ -414,6 +416,96 @@ class UserRepository:
             Updated user or None
         """
         return await self.update(user_id, {"walletStatus": status})
+
+    # ------------------------------------------------------------------
+    # Admin metrics
+    # ------------------------------------------------------------------
+
+    async def get_metrics_sources(self, active_since: datetime) -> Dict[str, Any]:
+        """Gather the raw sets/counts the user metrics are computed from.
+
+        Segment membership is derived by joining other collections because
+        `User.role` is always "customer" (see services/user_metrics for why).
+
+        "Active" is the union of two things: the `lastSeenAt` we now record
+        (schema/extensions.LastSeenExtension) and behavioural proxies that
+        already existed — orders placed, searches run, and courier records
+        touched by location/online updates. The union is what makes this metric
+        meaningful before `lastSeenAt` has had time to accumulate.
+        """
+        db = get_database()
+
+        (
+            total_users,
+            new_users,
+            last_seen_ids,
+            courier_ids,
+            active_courier_ids,
+            owner_ids,
+            manager_id_lists,
+            access_user_ids,
+            ordering_ids,
+            searching_ids,
+        ) = await asyncio.gather(
+            db[self.collection_name].count_documents({}),
+            db[self.collection_name].count_documents(
+                {"createdAt": {"$gte": active_since}}
+            ),
+            db[self.collection_name].distinct(
+                "_id", {"lastSeenAt": {"$gte": active_since}}
+            ),
+            db["delivery_persons"].distinct("userId"),
+            db["delivery_persons"].distinct(
+                "userId", {"updatedAt": {"$gte": active_since}}
+            ),
+            # Intentional misspelling of the businesses collection — see CLAUDE.md.
+            db["bussisnes"].distinct("ownerId"),
+            db["branches"].distinct("managerIds"),
+            db["business_access"].distinct("userId", {"isActive": True}),
+            db["orders"].distinct("customerId", {"createdAt": {"$gte": active_since}}),
+            db["searches"].distinct("userId", {"createdAt": {"$gte": active_since}}),
+        )
+
+        def as_str_set(*id_lists) -> Set[str]:
+            out: Set[str] = set()
+            for ids in id_lists:
+                for value in ids or []:
+                    if value is not None:
+                        out.add(str(value))
+            return out
+
+        return {
+            "total_users": total_users,
+            "new_users": new_users,
+            "courier_ids": as_str_set(courier_ids),
+            "business_ids": as_str_set(owner_ids, manager_id_lists, access_user_ids),
+            "active_ids": as_str_set(
+                last_seen_ids, active_courier_ids, ordering_ids, searching_ids
+            ),
+        }
+
+    async def get_signups_by_day(self, since: datetime) -> List[Dict[str, Any]]:
+        """Registrations per day, oldest first.
+
+        First time-series aggregation in the backend — everything else that
+        needed one (e.g. the Panel Admin orders chart) resorted to N queries,
+        one per day.
+        """
+        db = get_database()
+        pipeline = [
+            {"$match": {"createdAt": {"$gte": since}}},
+            {
+                "$group": {
+                    "_id": {
+                        "$dateToString": {"format": "%Y-%m-%d", "date": "$createdAt"}
+                    },
+                    "count": {"$sum": 1},
+                }
+            },
+            {"$sort": {"_id": 1}},
+        ]
+        rows = await db[self.collection_name].aggregate(pipeline).to_list(None)
+        return [{"day": r["_id"], "count": r["count"]} for r in rows]
 
     @staticmethod
     def _convert_id(doc: Dict[str, Any]) -> Dict[str, Any]:

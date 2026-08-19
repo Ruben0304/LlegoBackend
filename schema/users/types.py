@@ -56,6 +56,7 @@ class UserType:
     defaultAddressId: Optional[str] = None
     deliveredOrdersCount: int = 0
     scheduledDeletionAt: Optional[datetime] = None
+    lastSeenAt: Optional[datetime] = None
 
     @strawberry.field(description="URL firmada del avatar del usuario")
     def avatar_url(self) -> Optional[str]:
@@ -63,3 +64,38 @@ class UserType:
         if self.avatar:
             return get_public_url(self.avatar)
         return None
+
+
+@strawberry.type
+class UserSegmentMetricsType:
+    """Registered vs. active count for one app segment."""
+
+    total: int
+    active: int
+
+
+@strawberry.type
+class DailyCountType:
+    day: str
+    count: int
+
+
+@strawberry.type
+class UserMetricsType:
+    """Platform user metrics, split by which app a user belongs to.
+
+    Segments overlap by design: a courier or business owner can also order as a
+    customer. `customersOnly` is therefore the remainder (users who are neither),
+    which keeps the three segment totals summing to `totalUsers`, and
+    `multiRoleUsers` exposes the courier/business intersection.
+    """
+
+    totalUsers: int
+    activeUsers: int
+    newUsersInPeriod: int
+    customersOnly: UserSegmentMetricsType
+    couriers: UserSegmentMetricsType
+    businesses: UserSegmentMetricsType
+    multiRoleUsers: int
+    signupsByDay: List[DailyCountType]
+    activeDays: int
