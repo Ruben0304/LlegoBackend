@@ -61,3 +61,42 @@ def compute_user_segments(
         },
         "multiRoleUsers": len(both),
     }
+
+
+# Segment keys shared by the metrics cards and the drill-down list, so tapping
+# a card can't diverge from the number printed on it.
+SEGMENT_ALL = "all"
+SEGMENT_ACTIVE = "active"
+SEGMENT_NEW = "new"
+SEGMENT_CUSTOMERS_ONLY = "customers_only"
+SEGMENT_COURIERS = "couriers"
+SEGMENT_BUSINESSES = "businesses"
+
+
+def build_segment_spec(
+    segment: str,
+    *,
+    courier_ids: Set[str],
+    business_ids: Set[str],
+    active_ids: Set[str],
+) -> Dict[str, Any]:
+    """Describe which users a segment card contains, as an include/exclude spec.
+
+    Kept separate from the repository (and free of Mongo types) so the mapping
+    from "card the admin tapped" to "set of users" is testable on its own — the
+    list must match the count shown on the card exactly.
+    """
+    non_customers = courier_ids | business_ids
+
+    if segment == SEGMENT_COURIERS:
+        return {"include_ids": set(courier_ids), "exclude_ids": None, "only_new": False}
+    if segment == SEGMENT_BUSINESSES:
+        return {"include_ids": set(business_ids), "exclude_ids": None, "only_new": False}
+    if segment == SEGMENT_CUSTOMERS_ONLY:
+        return {"include_ids": None, "exclude_ids": set(non_customers), "only_new": False}
+    if segment == SEGMENT_ACTIVE:
+        return {"include_ids": set(active_ids), "exclude_ids": None, "only_new": False}
+    if segment == SEGMENT_NEW:
+        return {"include_ids": None, "exclude_ids": None, "only_new": True}
+    # SEGMENT_ALL and anything unrecognised: no restriction.
+    return {"include_ids": None, "exclude_ids": None, "only_new": False}

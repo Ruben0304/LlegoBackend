@@ -1,6 +1,7 @@
 """GraphQL type definitions for User entity."""
 
 from datetime import datetime
+from enum import Enum
 from typing import Any, Dict, List, Optional
 
 import strawberry
@@ -99,3 +100,56 @@ class UserMetricsType:
     multiRoleUsers: int
     signupsByDay: List[DailyCountType]
     activeDays: int
+
+
+@strawberry.enum
+class UserSegmentEnum(Enum):
+    """Which metrics card the admin drilled into."""
+
+    ALL = "all"
+    ACTIVE = "active"
+    NEW = "new"
+    CUSTOMERS_ONLY = "customers_only"
+    COURIERS = "couriers"
+    BUSINESSES = "businesses"
+
+
+@strawberry.type
+class AdminUserRowType:
+    """A user as shown in the admin drill-down list.
+
+    Built field by field rather than by unpacking the domain model, so adding a
+    field to `User` can't silently change what the admin panel exposes — and
+    `password` can never leak in by accident.
+    """
+
+    id: str
+    name: str
+    email: str
+    username: str
+    phone: Optional[str] = None
+    createdAt: Optional[datetime] = None
+    lastSeenAt: Optional[datetime] = None
+    authProvider: str = "local"
+    walletStatus: str = "active"
+    deliveredOrdersCount: int = 0
+    scheduledDeletionAt: Optional[datetime] = None
+    # Which apps this user belongs to — the same joins the metrics use.
+    isCourier: bool = False
+    isBusiness: bool = False
+    isActive: bool = False
+
+    _avatar_path: strawberry.Private[Optional[str]] = None
+
+    @strawberry.field(description="URL firmada del avatar")
+    def avatarUrl(self) -> Optional[str]:
+        if not self._avatar_path:
+            return None
+        return get_public_url(self._avatar_path)
+
+
+@strawberry.type
+class AdminUsersConnectionType:
+    rows: List[AdminUserRowType]
+    totalCount: int
+    hasMore: bool

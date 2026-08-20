@@ -1,6 +1,7 @@
 """User repository for database operations."""
 
 import asyncio
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set
 
@@ -483,6 +484,54 @@ class UserRepository:
                 last_seen_ids, active_courier_ids, ordering_ids, searching_ids
             ),
         }
+
+    async def list_segment(
+        self,
+        *,
+        spec: Dict[str, Any],
+        since: datetime,
+        search: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple:
+        """Page through the users of one segment, newest signups first.
+
+        `spec` comes from services.user_metrics.build_segment_spec, so the list
+        behind a metrics card is always the same set the card counted.
+        """
+        db = get_database()
+        query: Dict[str, Any] = {}
+
+        include_ids = spec.get("include_ids")
+        if include_ids is not None:
+            # An empty segment must return nothing, not everything.
+            query["_id"] = {"$in": [self._to_object_id(i) for i in include_ids]}
+
+        exclude_ids = spec.get("exclude_ids")
+        if exclude_ids:
+            query.setdefault("_id", {})["$nin"] = [
+                self._to_object_id(i) for i in exclude_ids
+            ]
+
+        if spec.get("only_new"):
+            query["createdAt"] = {"$gte": since}
+
+        if search:
+            escaped = re.escape(search.strip())
+            if escaped:
+                query["$or"] = [
+                    {"name": {"$regex": escaped, "$options": "i"}},
+                    {"email": {"$regex": escaped, "$options": "i"}},
+                    {"phone": {"$regex": escaped, "$options": "i"}},
+                ]
+
+        collection = db[self.collection_name]
+        total = await collection.count_documents(query)
+        cursor = (
+            collection.find(query).sort("createdAt", -1).skip(offset).limit(limit)
+        )
+        docs = await cursor.to_list(length=limit)
+        return [User(**self._convert_id(d)) for d in docs], total
 
     async def get_signups_by_day(self, since: datetime) -> List[Dict[str, Any]]:
         """Registrations per day, oldest first.

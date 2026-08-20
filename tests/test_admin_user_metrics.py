@@ -22,7 +22,7 @@ os.environ.setdefault("S3_BUCKET_NAME", "test")
 
 import schema.extensions as extensions
 import schema.users.queries as queries
-from services.user_metrics import compute_user_segments
+from services.user_metrics import build_segment_spec, compute_user_segments
 
 
 # ---------------------------------------------------------------------------
@@ -232,3 +232,176 @@ def test_last_seen_tracks_each_user_separately(monkeypatch):
     _extension_with_context({"user_id": "u2"}).on_request_end()
 
     assert len(calls) == 2
+
+
+# ---------------------------------------------------------------------------
+# build_segment_spec (pure) — the list behind a card must match its count
+# ---------------------------------------------------------------------------
+
+COURIERS = {"c1", "c2"}
+BUSINESSES = {"b1", "c2"}
+ACTIVES = {"c1", "b1", "x9"}
+
+
+def _spec(segment):
+    return build_segment_spec(
+        segment, courier_ids=COURIERS, business_ids=BUSINESSES, active_ids=ACTIVES
+    )
+
+
+def test_spec_all_has_no_restriction():
+    spec = _spec("all")
+    assert spec == {"include_ids": None, "exclude_ids": None, "only_new": False}
+
+
+def test_spec_couriers_includes_exactly_the_courier_set():
+    assert _spec("couriers")["include_ids"] == COURIERS
+
+
+def test_spec_businesses_includes_exactly_the_business_set():
+    assert _spec("businesses")["include_ids"] == BUSINESSES
+
+
+def test_spec_customers_only_excludes_the_union():
+    spec = _spec("customers_only")
+    assert spec["include_ids"] is None
+    assert spec["exclude_ids"] == COURIERS | BUSINESSES
+
+
+def test_spec_active_includes_the_active_set():
+    assert _spec("active")["include_ids"] == ACTIVES
+
+
+def test_spec_new_filters_by_date_only():
+    spec = _spec("new")
+    assert spec["only_new"] is True
+    assert spec["include_ids"] is None
+
+
+def test_spec_segment_sizes_match_the_card_counts():
+    """Guard against the list and the metric card drifting apart."""
+    total_users = 10
+    metrics = compute_user_segments(
+        total_users=total_users,
+        courier_ids=COURIERS,
+        business_ids=BUSINESSES,
+        active_ids=ACTIVES,
+    )
+    assert len(_spec("couriers")["include_ids"]) == metrics["couriers"]["total"]
+    assert len(_spec("businesses")["include_ids"]) == metrics["businesses"]["total"]
+    assert (
+        total_users - len(_spec("customers_only")["exclude_ids"])
+        == metrics["customersOnly"]["total"]
+    )
+    assert len(_spec("active")["include_ids"]) == metrics["activeUsers"]
+
+
+def test_spec_unknown_segment_falls_back_to_all():
+    assert _spec("nonsense") == _spec("all")
+
+
+# ---------------------------------------------------------------------------
+# admin_segment_users resolver
+# ---------------------------------------------------------------------------
+
+
+def test_admin_segment_users_denies_non_admin_role(monkeypatch):
+    def _deny(jwt, info, allowed_roles):
+        raise Exception("Acceso denegado")
+
+    monkeypatch.setattr(queries, "require_role", _deny)
+    sources = AsyncMock()
+    monkeypatch.setattr(queries.users_repo, "get_metrics_sources", sources)
+
+    query = queries.UserQuery()
+    with pytest.raises(Exception, match="Acceso denegado"):
+        asyncio.run(query.admin_segment_users(info=None, jwt="token"))
+    sources.assert_not_awaited()
+
+
+def _mock_user(uid, **over):
+    base = dict(
+        id=uid,
+        name="Ana",
+        email="ana@example.com",
+        username="ana",
+        phone=None,
+        createdAt=None,
+        lastSeenAt=None,
+        authProvider="local",
+        walletStatus="active",
+        deliveredOrdersCount=0,
+        scheduledDeletionAt=None,
+        avatar=None,
+    )
+    base.update(over)
+    return SimpleNamespace(**base)
+
+
+def _patch_sources(monkeypatch):
+    monkeypatch.setattr(queries, "require_role", lambda jwt, info, roles: "admin-id")
+    monkeypatch.setattr(
+        queries.users_repo,
+        "get_metrics_sources",
+        AsyncMock(
+            return_value={
+                "total_users": 10,
+                "new_users": 1,
+                "courier_ids": {"c1"},
+                "business_ids": {"b1"},
+                "active_ids": {"c1"},
+            }
+        ),
+    )
+
+
+def test_admin_segment_users_flags_app_membership(monkeypatch):
+    _patch_sources(monkeypatch)
+    monkeypatch.setattr(
+        queries.users_repo,
+        "list_segment",
+        AsyncMock(return_value=([_mock_user("c1"), _mock_user("z9")], 2)),
+    )
+
+    query = queries.UserQuery()
+    result = asyncio.run(query.admin_segment_users(info=None, jwt="t"))
+
+    courier_row, plain_row = result.rows
+    assert (courier_row.isCourier, courier_row.isActive) == (True, True)
+    assert (plain_row.isCourier, plain_row.isBusiness, plain_row.isActive) == (
+        False,
+        False,
+        False,
+    )
+    assert result.totalCount == 2
+    assert result.hasMore is False
+
+
+def test_admin_segment_users_reports_has_more(monkeypatch):
+    _patch_sources(monkeypatch)
+    monkeypatch.setattr(
+        queries.users_repo,
+        "list_segment",
+        AsyncMock(return_value=([_mock_user("a1")], 25)),
+    )
+
+    query = queries.UserQuery()
+    result = asyncio.run(
+        query.admin_segment_users(info=None, jwt="t", limit=1, offset=0)
+    )
+    assert result.hasMore is True
+
+
+def test_admin_segment_users_clamps_limit_and_offset(monkeypatch):
+    _patch_sources(monkeypatch)
+    list_segment = AsyncMock(return_value=([], 0))
+    monkeypatch.setattr(queries.users_repo, "list_segment", list_segment)
+
+    query = queries.UserQuery()
+    asyncio.run(
+        query.admin_segment_users(info=None, jwt="t", limit=9999, offset=-5)
+    )
+
+    kwargs = list_segment.await_args.kwargs
+    assert kwargs["limit"] == 200
+    assert kwargs["offset"] == 0

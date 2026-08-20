@@ -8,13 +8,16 @@ from strawberry.types import Info
 
 from repositories import users_repo
 from schema.wallet.types import WalletBalanceType
-from services.user_metrics import compute_user_segments
+from services.user_metrics import build_segment_spec, compute_user_segments
 from utils.graphql_auth import apply_optional_jwt, require_auth, require_role
 from utils.serialization import to_strawberry_dict
 
 from .types import (
+    AdminUserRowType,
+    AdminUsersConnectionType,
     DailyCountType,
     UserMetricsType,
+    UserSegmentEnum,
     UserSegmentMetricsType,
     UserType,
 )
@@ -84,6 +87,76 @@ class UserQuery:
             multiRoleUsers=segments["multiRoleUsers"],
             signupsByDay=[DailyCountType(**row) for row in signups],
             activeDays=window_days,
+        )
+
+    @strawberry.field(
+        description=(
+            "(Admin) Usuarios de un segmento concreto de admin_user_metrics, "
+            "paginados. Permite abrir la lista detrás de cada tarjeta."
+        )
+    )
+    async def admin_segment_users(
+        self,
+        info: Info,
+        jwt: str,
+        segment: UserSegmentEnum = UserSegmentEnum.ALL,
+        activeDays: int = 30,
+        search: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> AdminUsersConnectionType:
+        require_role(jwt, info, ["admin", "manager"])
+
+        window_days = max(1, activeDays)
+        since = datetime.utcnow() - timedelta(days=window_days)
+
+        # Same sources as the cards, so a list can never disagree with its count.
+        sources = await users_repo.get_metrics_sources(since)
+        spec = build_segment_spec(
+            segment.value,
+            courier_ids=sources["courier_ids"],
+            business_ids=sources["business_ids"],
+            active_ids=sources["active_ids"],
+        )
+        users, total = await users_repo.list_segment(
+            spec=spec,
+            since=since,
+            search=search,
+            limit=max(1, min(limit, 200)),
+            offset=max(0, offset),
+        )
+
+        courier_ids = sources["courier_ids"]
+        business_ids = sources["business_ids"]
+        active_ids = sources["active_ids"]
+
+        rows = []
+        for u in users:
+            uid = str(u.id)
+            rows.append(
+                AdminUserRowType(
+                    id=uid,
+                    name=u.name,
+                    email=u.email,
+                    username=u.username,
+                    phone=u.phone,
+                    createdAt=u.createdAt,
+                    lastSeenAt=u.lastSeenAt,
+                    authProvider=u.authProvider,
+                    walletStatus=u.walletStatus,
+                    deliveredOrdersCount=u.deliveredOrdersCount,
+                    scheduledDeletionAt=u.scheduledDeletionAt,
+                    isCourier=uid in courier_ids,
+                    isBusiness=uid in business_ids,
+                    isActive=uid in active_ids,
+                    _avatar_path=u.avatar,
+                )
+            )
+
+        return AdminUsersConnectionType(
+            rows=rows,
+            totalCount=total,
+            hasMore=(offset + len(rows)) < total,
         )
 
     @strawberry.field(
