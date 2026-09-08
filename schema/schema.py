@@ -24,6 +24,8 @@ from .businesses.queries import BusinessQuery
 from .categories.queries import CategoryQuery
 from .combos.mutations import ComboMutation
 from .combos.queries import ComboQuery
+from .error_logs.mutations import ErrorLogMutation
+from .error_logs.queries import ErrorLogQuery
 from .extensions import ErrorLoggingExtension, LastSeenExtension, UserIdExtension
 from .favorites_cart.mutations import FavoritesCartMutation
 from .feed.mutations import FeedMutation
@@ -64,6 +66,7 @@ from .wallet.queries import WalletQuery
 @strawberry.type
 class Query(
     UserQuery,
+    ErrorLogQuery,
     BusinessQuery,
     BranchQuery,
     ProductQuery,
@@ -103,6 +106,7 @@ class Query(
 @strawberry.type
 class Mutation(
     AuthMutation,
+    ErrorLogMutation,
     UserMutation,
     BusinessMutation,
     BranchMutation,
