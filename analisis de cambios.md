@@ -2,6 +2,20 @@
 
 ---
 
+## 📅 14 de Septiembre, 2026
+
+### Resumen de cambios (últimas 24h)
+
+Sin commits nuevos de código. No hay cambios en producción en LlegoBackend.
+
+---
+
+### Puede dar bateo
+
+Sin cambios nuevos — sin riesgos nuevos.
+
+---
+
 ## 📅 11 de Septiembre, 2026
 
 ### Resumen de cambios (últimas 24h)
