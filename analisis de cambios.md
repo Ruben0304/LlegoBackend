@@ -2,6 +2,42 @@
 
 ---
 
+## 📅 16 de Septiembre, 2026
+
+### Resumen de cambios (últimas 24h)
+
+**1 commit real** — brianmojena (co-authored Claude Opus 5). Commit puramente de documentación: se reorganiza la referencia del proyecto en un `context.md` maestro y se eliminan 19 archivos .md obsoletos o redundantes.
+
+---
+
+### Área 1: docs — consolidar la documentación en context.md maestro (07:28)
+
+- **`docs: consolidar la documentación en un context.md maestro`** — La raíz del repo tenía 19 archivos .md dispersos: una transcripción de chat Codex (103 KB), tres specs de Kiro ya completadas, dos README vacíos, un duplicado con espacio en el nombre e informes puntuales obsoletos.
+
+  Se añade **`context.md`** como documento único de referencia, verificado contra el código con referencias `archivo:línea`: arquitectura, modelo de datos e índices, autenticación, superficie GraphQL y REST, flujo de pedidos, pagos y KYC, IA y búsqueda, workers, trampas conocidas, bugs abiertos y convenciones.
+
+  **Borrado**: `Codex.md`, specs `.kiro/`, `README_QVAPAY.md`, `README_STRIPE.md`, `"analisis de cambios .md"` (duplicado con espacio en el nombre), `IMPLEMENTACION_COMBO_PRICING.md`, `DELIVERY_FLOW_CONTRACT.md`, los tres `FRONTEND_*_DELIVERY.md` (fusionados en `context.md` §7; además listaban 11 estados de `OrderStatus` cuando hay 12), y `runtime_schema.graphql` (era un traceback de un export fallido, no un schema).
+
+  **Movido a `docs/`**: `AI_ASSISTANT_API.md` → `docs/ai-assistant-api.md`, `README_COMBOS.md` → `docs/combos.md`, `README_STRIPE_RECHARGE.md` → `docs/stripe-recharge.md`, con referencias cruzadas corregidas.
+
+  **`README.md`**: corregía prefijos REST erróneos (`/api/users` → `/users`, `/api/uploads` → `/upload`, `/api/push-notifications` → `/api/push`) y mencionaba solo Stripe como pasarela de pago (se añade QvaPay).
+
+  **`CLAUDE.md`**: ahora apunta a `context.md` en vez de duplicar su contenido.
+
+---
+
+### Puede dar bateo
+
+1. **Rutas de docs movidas — links rotos**: `AI_ASSISTANT_API.md`, `README_COMBOS.md` y `README_STRIPE_RECHARGE.md` se movieron a `docs/`. Cualquier herramienta, wiki externa, script CI o bookmark que apunte a las rutas antiguas en la raíz verá 404.
+
+2. **`DELIVERY_FLOW_CONTRACT.md` y `FRONTEND_*_DELIVERY.md` eliminados**: Fusionados en `context.md` §7. Si el frontend de apps móviles o algún cliente usaba estos archivos como contrato de integración, necesita actualizarse a esa sección.
+
+3. **`OrderStatus` listaba 11 estados, hay 12**: Los archivos eliminados tenían este error. Confirmar que el frontend de las apps (móvil, cliente) conoce los 12 estados actuales de `OrderStatus`.
+
+4. **`runtime_schema.graphql` borrado**: Era un traceback de export fallido. Si algún script CI, herramienta de introspección o pipeline de generación de tipos lo busca como input, falla silenciosamente.
+
+---
+
 ## 📅 15 de Septiembre, 2026
 
 ### Resumen de cambios (últimas 24h)
