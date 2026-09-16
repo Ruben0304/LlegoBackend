@@ -1,5 +1,14 @@
 # 🌍 Stripe Payment Link - Recarga Internacional
 
+> ⚠️ **Roto en producción (verificado 2026-09-16).** El cobro en Stripe funciona, pero el
+> crédito a la wallet no: `WalletRepository.add_balance`
+> (`repositories/wallet_repository.py:67`) llama a `self._to_object_id`, que solo existe en
+> `WalletTransactionRepository` (`:12`), así que lanza `AttributeError` siempre. Además hace
+> `$inc` sobre `wallet.balance`, cuando el esquema real de `User.wallet` es
+> `{"local", "usd"}` (`domain/models.py:70`). Los dos call sites en
+> `api/endpoints/stripe_payments.py` (`:338`, `:396`) lo envuelven en un `try/except` que
+> solo loguea, así que falla en silencio. Ver `context.md`, sección 12.
+
 Sistema de recarga internacional que permite a usuarios de Llego recibir dinero desde el extranjero mediante Stripe Payment Links.
 
 ## ✨ Características
@@ -178,8 +187,6 @@ stripe listen --forward-to localhost:8000/stripe/webhook
 
 ## 📚 Documentación
 
-- [Documentación completa](docs/stripe-recharge-link.md)
-- [Integración iOS](docs/stripe-recharge-link-ios.md)
 - [Stripe Payment Links](https://stripe.com/docs/payment-links)
 - [Stripe Webhooks](https://stripe.com/docs/webhooks)
 

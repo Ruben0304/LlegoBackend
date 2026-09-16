@@ -1,105 +1,75 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guía para Claude Code (claude.ai/code) al trabajar en este repositorio.
 
-## Architecture Overview
+## Lee esto primero
 
-**Llego Backend** is a FastAPI app with GraphQL (Strawberry) + REST endpoints.
-The project follows a layered structure:
+**[context.md](context.md) es el documento maestro del proyecto.** Contiene arquitectura,
+modelo de datos, autenticación, flujo de pedidos, pagos, trampas conocidas y la lista de
+bugs abiertos verificados. Consúltalo antes de planificar cualquier cambio, y **actualízalo**
+cuando un cambio tuyo invalide algo de lo que dice.
 
-- `api/` and `schema/` for interfaces
-- `services/` for business logic
-- `repositories/` for data access
-- `domain/` for Pydantic domain models
-- `clients/` for infrastructure clients (MongoDB, Qdrant, Gemini, S3)
+Contratos de API más largos: `docs/ai-assistant-api.md`, `docs/combos.md`,
+`docs/stripe-recharge.md`.
 
-## Project Structure
+## Resumen
 
-```text
-LlegoBackend/
-├── main.py
-├── api/
-├── schema/
-├── services/
-│   ├── orders_service.py
-│   ├── payments_service.py
-│   └── payments/
-├── repositories/
-│   ├── orders_repository.py
-│   ├── payments_attempt_repository.py
-│   ├── platform_repository.py
-│   └── __init__.py
-├── domain/
-│   ├── models.py
-│   ├── orders.py
-│   ├── payments.py
-│   ├── business_types.py
-│   ├── error_logs.py
-│   └── platform.py
-├── clients/
-├── scripts/
-│   ├── export_schema.py
-│   ├── seed_business_types.py
-│   ├── seed_delivery_zones.py
-│   ├── seed_product_categories.py
-│   └── *.py migrations/utilities
-├── data/
-└── docs/
+**Llego Backend**: FastAPI con GraphQL (Strawberry) + REST, sobre MongoDB.
+
+```
+api/ + schema/   interfaz
+services/        lógica de negocio
+repositories/    acceso a datos
+domain/          modelos Pydantic
+clients/         infraestructura (MongoDB, Qdrant, Gemini, S3)
+core/            configuración
+utils/           auth, serialización, caché, S3, rate limit
+scripts/         seeds, migraciones, utilidades de un solo uso
+tests/           pytest
 ```
 
-## Development Commands
-
-### Run API
+## Comandos
 
 ```bash
-python main.py
-```
-
-or
-
-```bash
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
-```
-
-### Environment Setup
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-### Export GraphQL Schema
-
-```bash
+python main.py                       # o: uvicorn main:app --reload --host 0.0.0.0 --port 8000
+pytest tests/ -v                     # ⚠️ 46-48 fallos preexistentes: compara contra esa base
 python scripts/export_schema.py
 ```
 
-### Seed Data
+Entorno: `python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`
 
-```bash
-python scripts/seed_business_types.py
-python scripts/seed_delivery_zones.py
-python scripts/seed_product_categories.py
-```
+## Convenciones
 
-## Architectural Conventions
+- Entidades de dominio solo en `domain/`, nunca en la raíz.
+- Lógica de negocio en `services/`; persistencia en `repositories/`; proveedores externos en `clients/`.
+- Scripts de un solo uso, seeds y migraciones en `scripts/`.
+- Importa los repositorios desde las instancias ya exportadas en `repositories/__init__.py`.
+- Extrae la lógica pura a funciones testeables sin Mongo (`services/orders_utils.py`,
+  `services/user_metrics.py` son el precedente).
 
-- Keep all domain entities in `domain/` (no model files in repo root).
-- Keep business logic in `services/`.
-- Keep persistence logic in `repositories/`.
-- Keep external providers/SDK wiring in `clients/`.
-- Keep one-off scripts, seeds, and migration utilities in `scripts/`.
-- Import repositories via `repositories/__init__.py` exported instances when possible.
+## Avisos críticos
 
-## Notes
+- La colección MongoDB `bussisnes` **está mal escrita a propósito**; mantenla así.
+- El entrypoint GraphQL es `/graphql`; los endpoints de descarga del schema se montan en `main.py`.
+- **No hay middleware de autenticación.** Cada resolver debe llamar a `require_auth` /
+  `require_role` en su primera línea; si lo olvidas, el resolver queda abierto.
 
-- MongoDB collection `bussisnes` is intentionally misspelled and must be kept as-is for compatibility.
-- GraphQL entrypoint is `/graphql`; schema download endpoints are mounted in `main.py`.
-- ⚠️ **Adding a field to `Business`/`Branch`/`Product` in `domain/models.py`**: these models get converted to their GraphQL types (`BusinessType`, `BranchType`, `ProductType`, `ScoredProductType`, `ScoredBranchType`, `NearbyBranchType`, ...) by dumping the *entire* model via `to_strawberry_dict()` and unpacking it as `SomeType(**data)`. A new field not declared on the target GraphQL type breaks every query using that type with "unexpected keyword argument" at request time — `py_compile`/syntax checks won't catch it, and this already happened twice (see the warning comments in `domain/models.py` above `Business`/`Branch`/`Product`, and in `utils/serialization.py`'s `to_strawberry_dict`). Before adding a field to these 3 models: `grep -rn "BusinessType(\|BranchType(\|ProductType("` across `schema/` to find every construction site, then either add the field to the corresponding GraphQL type(s) or exclude it (for Branch, via `branch_to_dict()`'s `exclude` set in `schema/branches/utils.py`, which covers `BranchType`/`ScoredBranchType`/`NearbyBranchType` in one place).
+- ⚠️ **Añadir un campo a `Business`, `Branch`, `Product` o `User` en `domain/models.py`
+  rompe queries en tiempo de request.** Esos modelos se convierten a sus tipos GraphQL
+  volcando el modelo *entero* con `to_strawberry_dict()` y desempaquetándolo como
+  `SomeType(**data)` (78 sitios). Un campo nuevo no declarado en el tipo destino revienta
+  toda query que lo use con "unexpected keyword argument" — y `py_compile`, mypy y el
+  linter **no lo detectan**. Ya ha pasado dos veces.
 
-# important-instruction-reminders
-Do what has been asked; nothing more, nothing less.
-NEVER create files unless they're absolutely necessary for achieving your goal.
-ALWAYS prefer editing an existing file to creating a new one.
-NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.
+  Antes de añadir un campo a esos cuatro modelos:
+
+  ```bash
+  grep -rn "BusinessType(\|BranchType(\|ProductType(\|UserType(" schema/
+  ```
+
+  Luego, o lo declaras en cada tipo GraphQL afectado, o lo excluyes. Para `Branch` hay un
+  único sitio central: el set `exclude` de `branch_to_dict()` en `schema/branches/utils.py`,
+  que cubre `BranchType`/`ScoredBranchType`/`NearbyBranchType` de una vez. `Business`,
+  `Product` y `User` no tienen helper central: hay que tocar cada call site.
+
+  Ver `context.md` sección 11 para el detalle completo.
