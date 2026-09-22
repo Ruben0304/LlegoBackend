@@ -2,6 +2,20 @@
 
 ---
 
+## 📅 22 de Septiembre, 2026
+
+### Resumen de cambios (últimas 24h)
+
+Sin commits nuevos de código. El único commit del período es "Analisis diario Claude" (generado automáticamente). No hay cambios en producción en LlegoBackend.
+
+---
+
+### Puede dar bateo
+
+Sin cambios nuevos — sin riesgos nuevos.
+
+---
+
 ## 📅 17 de Septiembre, 2026
 
 ### Resumen de cambios (últimas 24h)
@@ -84,46 +98,4 @@ Sin cambios nuevos — sin riesgos nuevos.
 
 ---
 
-## 📅 14 de Septiembre, 2026
-
-### Resumen de cambios (últimas 24h)
-
-Sin commits nuevos de código. No hay cambios en producción en LlegoBackend.
-
----
-
-### Puede dar bateo
-
-Sin cambios nuevos — sin riesgos nuevos.
-
----
-
-## 📅 11 de Septiembre, 2026
-
-### Resumen de cambios (últimas 24h)
-
-Sin commits nuevos de código. El único commit del período es "Analisis diario Claude" (generado automáticamente). No hay cambios en producción en LlegoBackend.
-
----
-
-### Puede dar bateo
-
-Sin cambios nuevos — sin riesgos nuevos.
-
----
-
-## 📅 10 de Septiembre, 2026
-
-### Resumen de cambios (últimas 24h)
-
-Sin commits nuevos de código. El único commit del período es "Analisis diario Claude" (generado automáticamente). No hay cambios en producción en LlegoBackend.
-
----
-
-### Puede dar bateo
-
-Sin cambios nuevos — sin riesgos nuevos.
-
----
-
-> ⚠️ **Nota de mantenimiento**: La entrada del **9 de Septiembre** fue eliminada el 17 de Septiembre al superar los 7 días de antigüedad (política de retención semanal). La entrada del **7 de Septiembre** fue eliminada el 15 de Septiembre. La entrada del **2 de Septiembre** fue eliminada el 10 de Septiembre. Anteriores eliminadas progresivamente desde Mayo.
+> ⚠️ **Nota de mantenimiento**: La entrada del **14 de Septiembre** fue eliminada el 22 de Septiembre al superar los 7 días de antigüedad (política de retención semanal). La entrada del **11 de Septiembre** fue eliminada el 22 de Septiembre. La entrada del **10 de Septiembre** fue eliminada el 22 de Septiembre. La entrada del **9 de Septiembre** fue eliminada el 17 de Septiembre. La entrada del **7 de Septiembre** fue eliminada el 15 de Septiembre. La entrada del **2 de Septiembre** fue eliminada el 10 de Septiembre. Anteriores eliminadas progresivamente desde Mayo.
