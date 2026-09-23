@@ -77,6 +77,11 @@ class Settings(BaseSettings):
         True  # True for development/TestFlight, False for App Store
     )
 
+    # Push Notifications - Firebase Cloud Messaging (Android)
+    # Full JSON content of a Firebase service account key (Railway env var).
+    # project_id is derived from this JSON; leave empty to disable FCM sending.
+    fcm_service_account_json: str = ""
+
     # Apple Web Auth (for Android/Kotlin)
     apple_team_id: str = ""
     apple_key_id: str = ""

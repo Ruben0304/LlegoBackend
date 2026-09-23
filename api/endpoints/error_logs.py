@@ -1,5 +1,5 @@
 """REST endpoints for error logging system."""
-from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from typing import Optional
 from math import ceil
 import logging
@@ -12,7 +12,14 @@ from domain.error_logs import (
     ErrorSource
 )
 from repositories.error_log_repository import error_log_repo
+from utils.auth import require_admin_api_key
 from services.error_analysis_service import error_analysis_service, sanitize_sensitive_data
+
+# Everything here except the mobile intake exposes or mutates internal
+# diagnostics — stack traces, client IPs, user ids — or sends real push
+# notifications, so it is admin-only. `POST /mobile-report` stays open on
+# purpose: it is the crash-report intake for the apps, which have no admin key.
+_admin_only = [Depends(require_admin_api_key)]
 
 router = APIRouter(prefix="/api/error-logs", tags=["Error Logs"])
 logger = logging.getLogger(__name__)
@@ -46,7 +53,7 @@ def _to_response(error_log) -> ErrorLogResponse:
     )
 
 
-@router.get("/", response_model=PaginatedErrorLogs)
+@router.get("/", response_model=PaginatedErrorLogs, dependencies=_admin_only)
 async def list_error_logs(
     page: int = Query(1, ge=1, description="Número de página"),
     page_size: int = Query(20, ge=1, le=100, description="Elementos por página"),
@@ -78,7 +85,7 @@ async def list_error_logs(
     )
 
 
-@router.get("/stats", response_model=ErrorStats)
+@router.get("/stats", response_model=ErrorStats, dependencies=_admin_only)
 async def get_error_stats(
     days: int = Query(7, ge=1, le=365, description="Período en días para estadísticas")
 ):
@@ -87,7 +94,7 @@ async def get_error_stats(
     return ErrorStats(**stats)
 
 
-@router.get("/{error_id}", response_model=ErrorLogResponse)
+@router.get("/{error_id}", response_model=ErrorLogResponse, dependencies=_admin_only)
 async def get_error_log(error_id: str):
     """Get a specific error log by ID."""
     error_log = await error_log_repo.get_by_id(error_id)
@@ -168,7 +175,7 @@ async def report_mobile_error(
         raise
 
 
-@router.patch("/{error_id}/resolve")
+@router.patch("/{error_id}/resolve", dependencies=_admin_only)
 async def resolve_error(error_id: str, resolved_by: Optional[str] = None):
     """Mark an error as resolved."""
     error_log = await error_log_repo.get_by_id(error_id)
@@ -182,7 +189,7 @@ async def resolve_error(error_id: str, resolved_by: Optional[str] = None):
     return {"message": "Error marcado como resuelto", "id": error_id}
 
 
-@router.patch("/{error_id}/unresolve")
+@router.patch("/{error_id}/unresolve", dependencies=_admin_only)
 async def unresolve_error(error_id: str):
     """Reopen an error (mark as unresolved)."""
     error_log = await error_log_repo.get_by_id(error_id)
@@ -196,7 +203,7 @@ async def unresolve_error(error_id: str):
     return {"message": "Error reabierto", "id": error_id}
 
 
-@router.delete("/cleanup")
+@router.delete("/cleanup", dependencies=_admin_only)
 async def cleanup_old_errors(
     days: int = Query(30, ge=7, description="Eliminar errores resueltos más antiguos que N días")
 ):
@@ -209,7 +216,7 @@ async def cleanup_old_errors(
     }
 
 
-@router.post("/test-push/clientes")
+@router.post("/test-push/clientes", dependencies=_admin_only)
 async def test_push_clientes():
     """Test push notification to Llego Clientes app (com.ruben.LlegoiOS)."""
     from services.push_notification_service import push_service
@@ -234,7 +241,7 @@ async def test_push_clientes():
     return {"bundle_id": bundle_id, "tokens": len(ios_tokens), "result": result}
 
 
-@router.post("/test-push/negocios")
+@router.post("/test-push/negocios", dependencies=_admin_only)
 async def test_push_negocios():
     """Test push notification to Llego Negocios app (com.llego.business.LlegoBusiness)."""
     from services.push_notification_service import push_service

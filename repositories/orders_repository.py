@@ -142,6 +142,44 @@ class OrderRepository:
         orders = [self._doc_to_order(doc) async for doc in cursor]
         return orders, total
 
+    async def list_filtered(
+        self,
+        *,
+        status_in: Optional[List[str]] = None,
+        business_id: Optional[str] = None,
+        branch_id: Optional[str] = None,
+        from_date: Optional[datetime] = None,
+        to_date: Optional[datetime] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Tuple[List[Order], int]:
+        """
+        Global admin listing: any combination of status/business/branch/date
+        range, no field required. Backs both the "live" queue (statusIn = active
+        statuses, no date range) and "history" (date range, any status) views —
+        see admin_orders in schema/orders/queries.py.
+        """
+        collection = self._get_collection()
+        query: Dict[str, Any] = {}
+
+        if status_in:
+            query["status"] = {"$in": status_in}
+        if business_id:
+            query["businessId"] = self._to_object_id(business_id)
+        if branch_id:
+            query["branchId"] = self._to_object_id(branch_id)
+        if from_date or to_date:
+            query.setdefault("createdAt", {})
+            if from_date:
+                query["createdAt"]["$gte"] = from_date
+            if to_date:
+                query["createdAt"]["$lte"] = to_date
+
+        total = await collection.count_documents(query)
+        cursor = collection.find(query).sort("createdAt", -1).skip(offset).limit(limit)
+        orders = [self._doc_to_order(doc) async for doc in cursor]
+        return orders, total
+
     async def get_pending_by_branch(self, branch_id: str) -> List[Order]:
         """Get pending orders for a branch."""
         collection = self._get_collection()
@@ -944,6 +982,47 @@ class OrderRepository:
             "avgRating": 0,
         }
 
+    async def get_recent_delivery_fees(
+        self, business_id: str, recency_limit: int = 30
+    ) -> Dict[str, Any]:
+        """Recent real delivery fees for a business, for the fee recommendation.
+
+        Single aggregation call — never loads full order history into memory,
+        just the last `recency_limit` delivered orders' fees. The actual
+        statistics (median, confidence) are computed by
+        services.orders_utils.compute_fee_recommendation from the returned
+        "fees" list — this method only filters, sorts by recency, and limits.
+        """
+        collection = self._get_collection()
+        pipeline = [
+            {
+                "$match": {
+                    "businessId": self._to_object_id(business_id),
+                    "status": OrderStatus.DELIVERED.value,
+                    "deliveryFee": {"$gt": 0},
+                }
+            },
+            {"$sort": {"completedAt": -1}},
+            {"$limit": recency_limit},
+            {
+                "$group": {
+                    "_id": None,
+                    "fees": {"$push": "$deliveryFee"},
+                    "oldestUsed": {"$min": "$completedAt"},
+                    "newestUsed": {"$max": "$completedAt"},
+                }
+            },
+        ]
+        result = await collection.aggregate(pipeline).to_list(1)
+        if not result:
+            return {"fees": [], "oldestUsed": None, "newestUsed": None}
+        doc = result[0]
+        return {
+            "fees": doc.get("fees", []),
+            "oldestUsed": doc.get("oldestUsed"),
+            "newestUsed": doc.get("newestUsed"),
+        }
+
 
 class DeliveryPersonRepository:
     """Repository for delivery person operations."""
@@ -1277,10 +1356,18 @@ class BranchDeliveryRequestRepository:
         status: DeliveryRequestStatus,
         responded_by: str,
     ) -> Optional[BranchDeliveryRequest]:
+        """Atomic compare-and-swap: only applies when the document is still
+        "pending". Two concurrent responses to the same request (e.g. an
+        accept and a reject race) can no longer both succeed — the loser's
+        filter matches nothing and this returns None, which callers must
+        treat as "someone else already responded", not as success."""
         collection = self._get_collection()
         now = datetime.utcnow()
         result = await collection.find_one_and_update(
-            {"_id": self._to_object_id(request_id)},
+            {
+                "_id": self._to_object_id(request_id),
+                "status": DeliveryRequestStatus.PENDING.value,
+            },
             {
                 "$set": {
                     "status": status.value,

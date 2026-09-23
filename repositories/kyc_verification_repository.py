@@ -1,7 +1,7 @@
 """Repository for cash KYC verifications."""
 
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from bson import ObjectId
 
@@ -193,6 +193,42 @@ class KycVerificationRepository:
             )
         return self._doc_to_model(doc) if doc else None
 
+    async def list_filtered(
+        self,
+        *,
+        status_in: Optional[List[str]] = None,
+        verdict_in: Optional[List[str]] = None,
+        merchant_id: Optional[str] = None,
+        branch_id: Optional[str] = None,
+        from_date: Optional[datetime] = None,
+        to_date: Optional[datetime] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Tuple[List[KycVerification], int]:
+        """List KYC verifications with admin filters, newest first."""
+        collection = self._collection()
+        query: Dict[str, Any] = {}
+
+        if status_in:
+            query["status"] = {"$in": status_in}
+        if verdict_in:
+            query["verdict"] = {"$in": verdict_in}
+        if merchant_id:
+            query["merchantId"] = self._to_object_id(merchant_id)
+        if branch_id:
+            query["branchId"] = self._to_object_id(branch_id)
+        if from_date or to_date:
+            query.setdefault("createdAt", {})
+            if from_date:
+                query["createdAt"]["$gte"] = from_date
+            if to_date:
+                query["createdAt"]["$lte"] = to_date
+
+        total = await collection.count_documents(query)
+        cursor = collection.find(query).sort("createdAt", -1).skip(offset).limit(limit)
+        rows = [self._doc_to_model(doc) async for doc in cursor]
+        return rows, total
+
 
 kyc_verifications_repo = KycVerificationRepository()
 
@@ -217,6 +253,9 @@ async def create_kyc_indexes():
         [("kycScope", 1), ("customerId", 1), ("status", 1), ("expiresAt", -1)]
     )
     await verifications.create_index("correlationId")
+    # Used by the admin review queue (admin_kyc_verifications): filter by
+    # status/verdict, sorted newest-first.
+    await verifications.create_index([("status", 1), ("createdAt", -1)])
 
     await notifications.create_index(
         [("kycVerificationId", 1), ("eventType", 1), ("channel", 1)]

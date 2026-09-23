@@ -1,11 +1,14 @@
 """Authentication utilities for password hashing and JWT tokens."""
 
+import secrets
 from datetime import datetime, timedelta
 from hashlib import sha256
 from typing import List, Optional, Union
 
 import bcrypt
 from bson import ObjectId
+from fastapi import HTTPException, Security
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 
 from core.config import settings
@@ -254,3 +257,30 @@ def get_current_user_id_from_header(
         return payload.get("user_id") if payload else None
     except Exception:
         return None
+
+
+_admin_bearer = HTTPBearer(auto_error=False)
+
+
+def require_admin_api_key(
+    credentials: Optional[HTTPAuthorizationCredentials] = Security(_admin_bearer),
+) -> None:
+    """Verify the static admin API key for admin-only REST endpoints.
+
+    Same scheme the other admin routers use (api/endpoints/admin_payouts.py,
+    admin_tests.py), shared here so new admin endpoints don't each grow their
+    own copy. Fails closed: if no key is configured the endpoint is unusable
+    rather than open.
+
+    Note this is for machine/ops callers. Panel Admin authenticates with a user
+    JWT instead and goes through GraphQL (require_role), because embedding a
+    static key in a distributed app would let anyone extract it.
+    """
+    key = settings.admin_api_key
+    if not key:
+        raise HTTPException(
+            status_code=503,
+            detail="Admin API key not configured on server.",
+        )
+    if not credentials or not secrets.compare_digest(credentials.credentials, key):
+        raise HTTPException(status_code=401, detail="Invalid or missing admin token.")

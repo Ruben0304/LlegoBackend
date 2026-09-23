@@ -170,26 +170,10 @@ mutation {
 - `domain/models.py` - Modelo de dominio `Combo`
 
 ### Repositorio
-- `repositories/combos_repository.py` - Acceso a datos
+- `repositories/combo_repository.py` - Acceso a datos
 
 ### Tests
 - `tests/test_combo_pricing.py` - Tests de cálculo de precios
-
-## Documentación Adicional
-
-- [Especificación de Campos de Pricing](docs/COMBO_PRICING_FIELDS.md)
-- [Ejemplos de Queries GraphQL](docs/COMBO_PRICING_EXAMPLE.graphql)
-- [Resumen de Implementación](docs/COMBO_PRICING_IMPLEMENTATION_SUMMARY.md)
-
-## Scripts de Prueba
-
-```bash
-# Probar campos de pricing en combos reales
-python3 scripts/test_combo_pricing_fields.py
-
-# Probar un combo específico
-python3 scripts/test_combo_pricing_fields.py <combo_id>
-```
 
 ## Tests
 

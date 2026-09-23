@@ -21,6 +21,7 @@ class BusinessType:
     approvedAt: Optional[datetime]
     rejectedAt: Optional[datetime]
     createdAt: datetime
+    predefinedDeliveryFee: Optional[float]
     updatedAt: Optional[datetime] = None
 
     @strawberry.field(description="Presigned URL for the business avatar")
@@ -44,3 +45,15 @@ class BusinessType:
         if self.avatar:
             return get_public_image_variant_url(self.avatar, "avatar_alta")
         return None
+
+
+@strawberry.type
+class DeliveryFeeRecommendationType:
+    """A suggested delivery fee based on a business's own recent delivery
+    history — purely informational, never applied automatically."""
+
+    recommendedFee: Optional[float]
+    sampleSize: int
+    confidence: str  # "insufficient_data" | "low" | "medium" | "high"
+    oldestUsed: Optional[datetime]
+    newestUsed: Optional[datetime]

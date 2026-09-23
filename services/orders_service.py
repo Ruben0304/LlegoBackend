@@ -2517,10 +2517,11 @@ class OrderService:
     async def user_can_access_order(
         self, order: Order, user_id: Optional[str], user_role: Optional[str] = None
     ) -> bool:
-        """Cliente dueno, admin, staff con acceso a la sucursal o mensajero asignado."""
+        """Cliente dueno, staff de plataforma (admin/manager, igual que el panel
+        admin), staff con acceso a la sucursal o mensajero asignado."""
         if not user_id:
             return False
-        if self._ids_equal(order.customerId, user_id) or user_role == "admin":
+        if self._ids_equal(order.customerId, user_id) or user_role in ("admin", "manager"):
             return True
         has_access, _ = await access_checker.check_branch_access(
             user_id, str(order.branchId)
@@ -2535,14 +2536,24 @@ class OrderService:
                 return True
         return False
 
-    async def get_order_tracking(self, order_id: str, user_id: str) -> dict:
-        """Get order tracking information."""
+    async def get_order_tracking(
+        self, order_id: str, user_id: str, bypass_authorization: bool = False
+    ) -> dict:
+        """Get order tracking information.
+
+        bypass_authorization is only for the platform-admin resolver
+        (admin_order_tracking, gated by require_role(["admin","manager"]) at
+        the GraphQL layer) — it lets an admin view tracking for any order
+        regardless of the customer/business/delivery-person ownership check
+        below. Never set it from a resolver that hasn't already verified the
+        caller's role.
+        """
         order = await self.orders_repo.get_by_id(order_id)
         if not order:
             raise ValueError("Pedido no encontrado")
 
         # Verify access
-        if not self._ids_equal(order.customerId, user_id):
+        if not bypass_authorization and not self._ids_equal(order.customerId, user_id):
             branch = await branches_repo.get_by_id(order.branchId)
             business = await businesses_repo.get_by_id(order.businessId)
             delivery_person = None

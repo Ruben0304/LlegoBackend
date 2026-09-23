@@ -87,6 +87,12 @@ class User(BaseModel):
     deliveredOrdersCount: int = 0
     # Account deletion scheduled at (Apple Guideline 5.1.1(v) — 30-day grace period)
     scheduledDeletionAt: Optional[datetime] = None
+    # Last authenticated GraphQL request, written throttled by LastSeenExtension
+    # (schema/extensions.py). The only activity signal the backend has — login
+    # writes nothing and JWTs are stateless. ⚠️ Any new field here must also be
+    # declared on UserType (schema/users/types.py), which is built with
+    # UserType(**to_strawberry_dict(user)) — see the warning above Business.
+    lastSeenAt: Optional[datetime] = None
 
     class Config:
         populate_by_name = True
@@ -126,6 +132,11 @@ class Business(BaseModel):
     rejectedAt: Optional[datetime] = None
     createdAt: datetime
     updatedAt: Optional[datetime] = None
+    # Business-set default delivery fee. Purely informational — it's shown to
+    # the business alongside a data-driven suggestion, but it never feeds
+    # into the real per-order fee, which is still calculate_delivery_fee_h3
+    # (services/orders_utils.py) based on delivery zones.
+    predefinedDeliveryFee: Optional[float] = None
 
     class Config:
         populate_by_name = True

@@ -2,7 +2,7 @@
 
 import math
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import h3
 
@@ -192,3 +192,66 @@ def estimate_delivery_time(distance_km: float, avg_speed_kmh: float = 25.0) -> i
     travel_time = (distance_km / avg_speed_kmh) * 60
 
     return int(prep_time + travel_time)
+
+
+# Confidence thresholds for compute_fee_recommendation. Below LOW_CONFIDENCE_MIN
+# there's only 1-2 data points — a median is still returned, but flagged low
+# confidence rather than presented as a solid suggestion.
+LOW_CONFIDENCE_MIN = 3
+HIGH_CONFIDENCE_MIN = 8
+
+
+def compute_fee_recommendation(fees: List[float]) -> dict:
+    """Suggest a delivery fee from a business's recent real delivery fees.
+
+    Pure function, no I/O: the caller (OrderRepository.get_delivery_fee_recommendation)
+    does the recency-limited Mongo fetch and passes the resulting list of
+    floats here — this only does the statistics, which is what makes it
+    testable without a MongoDB instance.
+
+    Uses the median rather than the mean or the mode:
+    - Median is robust to a single outlier by construction (an incorrectly
+      entered $50 fee among a run of $5 fees shifts a median computed over
+      3+ points by at most one position, unlike the mean, which it drags
+      proportionally).
+    - Real delivery fees are H3-zone-computed floats with fine-grained
+      variation, so a strict mode would likely find every value unique and
+      return a meaningless tie; median degrades gracefully instead.
+
+    Recency is handled entirely by the caller (it only ever passes in the
+    last N delivered orders) — this function does not reorder or re-weight
+    by date, it just needs the list to already be in "most relevant first"
+    order for that N to mean anything upstream.
+
+    Returns:
+        {
+            "recommendedFee": float | None,  # None only when fees is empty
+            "sampleSize": int,
+            "confidence": "insufficient_data" | "low" | "medium" | "high",
+        }
+    """
+    valid_fees = [f for f in fees if f is not None and f > 0]
+    n = len(valid_fees)
+
+    if n == 0:
+        return {"recommendedFee": None, "sampleSize": 0, "confidence": "insufficient_data"}
+
+    sorted_fees = sorted(valid_fees)
+    mid = n // 2
+    if n % 2 == 1:
+        median = sorted_fees[mid]
+    else:
+        median = (sorted_fees[mid - 1] + sorted_fees[mid]) / 2
+
+    if n < LOW_CONFIDENCE_MIN:
+        confidence = "low"
+    elif n < HIGH_CONFIDENCE_MIN:
+        confidence = "medium"
+    else:
+        confidence = "high"
+
+    return {
+        "recommendedFee": round(median, 2),
+        "sampleSize": n,
+        "confidence": confidence,
+    }
