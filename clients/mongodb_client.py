@@ -5,6 +5,7 @@ from typing import Optional
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
 from core.config import settings
+from core.sandbox import is_sandbox, sandbox_database_name
 
 # Global database instance
 mongo_client: Optional[AsyncIOMotorClient] = None
@@ -492,6 +493,12 @@ async def _create_order_indexes():
             background=True,
         )
         await orders.create_index(
+            [("attentionAt", -1)],
+            name="idx_orders_requires_attention",
+            partialFilterExpression={"requiresAttention": True},
+            background=True,
+        )
+        await orders.create_index(
             [("status", 1), ("deliveryPersonId", 1), ("branchH3", 1)],
             name="idx_orders_status_dp_h3",
             background=True,
@@ -560,7 +567,13 @@ async def close_mongo_connection():
 
 
 def get_database() -> AsyncIOMotorDatabase:
-    """Get database instance"""
+    """Get database instance.
+
+    En una peticion del sandbox E2E (core/sandbox.py) devuelve la base de datos
+    del sandbox en vez de la de produccion.
+    """
     if database is None:
         raise RuntimeError("Database not initialized. Call connect_to_mongo() first.")
+    if is_sandbox():
+        return mongo_client[sandbox_database_name()]
     return database

@@ -25,9 +25,19 @@ from repositories.orders_repository import (
     orders_repo,
 )
 from repositories.vehicle_repository import vehicles_repo
+from services.access_checker import access_checker
 from services.orders_service import OrderValidationError, order_service
 from utils.graphql_auth import apply_optional_jwt, require_auth, require_role
 from utils.rate_limit import redis_client
+
+# Estados a los que el negocio puede mover un pedido con updateOrderStatus. El
+# resto tiene su propio flujo con validaciones (aceptar, rechazar, pago,
+# entrega con codigo...) y no debe saltarse por aqui.
+BUSINESS_UPDATABLE_STATUSES = {
+    OrderStatus.PREPARING,
+    OrderStatus.READY_FOR_PICKUP,
+    OrderStatus.ON_THE_WAY,
+}
 
 from .inputs import (
     AddOrderCommentInput,
@@ -418,13 +428,44 @@ class OrderMutation:
             raise Exception("Usuario no autenticado")
 
         try:
-            order = await order_service.update_status(
-                input.orderId,
-                OrderStatus(input.status.value),
-                OrderActor.BUSINESS,
-                input.message,
+            order = await orders_repo.get_by_id(input.orderId)
+            if not order:
+                raise ValueError("Pedido no encontrado")
+            new_status = OrderStatus(input.status.value)
+
+            # Antes cualquier usuario autenticado podia mover cualquier pedido
+            # (p. ej. marcar el suyo como aceptado sin pagar, o entregado sin
+            # codigo). Ahora cada actor solo puede lo que le toca.
+            if info.context.get("user_role") == "admin":
+                order = await order_service.update_status(
+                    input.orderId, new_status, OrderActor.SYSTEM, input.message
+                )
+                return order_to_type(order)
+
+            has_access, _ = await access_checker.check_branch_access(
+                user_id, str(order.branchId)
             )
-            return order_to_type(order)
+            if has_access:
+                if new_status not in BUSINESS_UPDATABLE_STATUSES:
+                    raise ValueError(
+                        f"El negocio no puede pasar el pedido a {new_status.value} "
+                        "desde aqui"
+                    )
+                order = await order_service.update_status(
+                    input.orderId, new_status, OrderActor.BUSINESS, input.message
+                )
+                return order_to_type(order)
+
+            # App de mensajeros: "Cancelar pedido" devuelve el pedido a espera.
+            # Se enruta al flujo propio, que ademas limpia el mensajero asignado
+            # (antes quedaba puesto y el pedido no lo podia tomar nadie mas).
+            if new_status == OrderStatus.AWAITING_DELIVERY_ACCEPTANCE:
+                order = await order_service.reject_order_for_payment(
+                    input.orderId, user_id
+                )
+                return order_to_type(order)
+
+            raise ValueError("No autorizado para cambiar el estado de este pedido")
         except ValueError as e:
             raise Exception(str(e))
 
@@ -436,6 +477,15 @@ class OrderMutation:
             raise Exception("Usuario no autenticado")
 
         try:
+            order = await orders_repo.get_by_id(orderId)
+            if not order:
+                raise ValueError("Pedido no encontrado")
+            has_access, error_msg = await access_checker.check_branch_access(
+                user_id, str(order.branchId)
+            )
+            if not has_access:
+                raise ValueError(error_msg or "No autorizado para este pedido")
+
             order = await order_service.update_status(
                 orderId,
                 OrderStatus.READY_FOR_PICKUP,
@@ -613,12 +663,7 @@ class OrderMutation:
     async def assign_delivery_person(
         self, info: Info, input: AssignDeliveryPersonInput, jwt: str
     ) -> OrderType:
-        apply_optional_jwt(jwt, info)
-        user_id = info.context.get("user_id")
-        if not user_id:
-            raise Exception("Usuario no autenticado")
-
-        # TODO: Verify admin permissions
+        require_role(jwt, info, ["admin"])
 
         estimated_minutes = input.estimatedMinutes or 30
         estimated_time = datetime.utcnow() + timedelta(minutes=estimated_minutes)
@@ -821,12 +866,7 @@ class OrderMutation:
     async def force_order_status(
         self, info: Info, orderId: str, status: OrderStatusEnum, reason: str, jwt: str
     ) -> OrderType:
-        apply_optional_jwt(jwt, info)
-        user_id = info.context.get("user_id")
-        if not user_id:
-            raise Exception("Usuario no autenticado")
-
-        # TODO: Verify admin permissions
+        require_role(jwt, info, ["admin"])
 
         try:
             order = await order_service.update_status(

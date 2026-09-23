@@ -3,6 +3,7 @@ import asyncio
 import traceback
 from strawberry.extensions import SchemaExtension
 
+from core.sandbox import is_sandbox
 from services.error_analysis_service import error_analysis_service, sanitize_sensitive_data
 from domain.error_logs import ErrorSource
 
@@ -28,6 +29,11 @@ class ErrorLoggingExtension(SchemaExtension):
     def on_request_end(self) -> None:
         result = self.execution_context.result
         if not result or not result.errors:
+            return
+
+        # Los tests E2E provocan errores a proposito (permisos, estados
+        # invalidos...): ni se registran ni se mandan a analizar con IA.
+        if is_sandbox():
             return
 
         context = self.execution_context.context

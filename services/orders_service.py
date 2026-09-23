@@ -26,7 +26,6 @@ from domain.orders import (
     OrderTimeline,
     PaymentStatus,
     PickupAddress,
-    VehicleType,
 )
 from repositories import (
     branches_repo,
@@ -42,6 +41,7 @@ from repositories.orders_repository import (
     OrderLocationRepository,
     OrderRepository,
 )
+from repositories.payments_attempt_repository import payment_attempts_repo
 from services.access_checker import access_checker
 from services.orders_utils import (
     calculate_delivery_fee_h3,
@@ -69,9 +69,25 @@ class OrderService:
         OrderStatus.REJECTED_BY_STORE: 15,
         OrderStatus.AWAITING_DELIVERY_ACCEPTANCE: 15,
         OrderStatus.PENDING_PAYMENT: 15,
+        # Cliente ya dijo que pago: el negocio tiene este plazo para confirmarlo.
+        # Al vencer NO se cancela (hay dinero de por medio), se escala a un admin.
+        OrderStatus.PAYMENT_IN_PROGRESS: 30,
         OrderStatus.ACCEPTED: 20,
     }
     PRE_PREPARATION_TIMEOUT_STATUSES = set(STATUS_TIMEOUT_MINUTES.keys())
+    # Tiempo que se le da al cliente para completar la transferencia desde que
+    # pulsa "Pagar" (se suma al plazo de PENDING_PAYMENT, nunca lo acorta).
+    PAYMENT_START_GRACE_MINUTES = 15
+    # Intentos en los que el cliente ya declaro haber pagado (o el dinero esta
+    # en manos del proveedor): nunca se cancelan solos.
+    MONEY_CLAIMED_ATTEMPT_STATUSES = {
+        "awaiting_business",
+        "processing",
+        "disputed",
+        "completed",
+        "refund_requested",
+        "refund_processing",
+    }
     CASH_PAYMENT_METHODS = {"cash", "efectivo", "cashondelivery", "contrareembolso"}
     NON_CASH_PAYMENT_METHODS = {
         "transfer",
@@ -111,7 +127,9 @@ class OrderService:
             userId=user_id,
             name=user.name or "",
             phone=user.phone,
-            vehicleType=VehicleType.A_PIE,
+            # Antes VehicleType.A_PIE, que ya no existe (el enum quedo en
+            # bicicleta/triciclo) y reventaba el primer pedido de un mensajero nuevo.
+            vehicleType=None,
             createdAt=now,
             updatedAt=now,
         )
@@ -120,6 +138,36 @@ class OrderService:
     @staticmethod
     def _ids_equal(a, b) -> bool:
         return str(a) == str(b)
+
+    async def _money_claimed_reason(self, order: Order) -> Optional[str]:
+        """Motivo si el pedido tiene dinero pagado o declarado como enviado.
+
+        Un pedido asi nunca debe cancelarse ni rehacerse automaticamente: el
+        cliente ya puso (o dice haber puesto) su dinero.
+        """
+        if order.paymentStatus == PaymentStatus.COMPLETED:
+            return "El pedido ya esta pagado"
+        if order.status == OrderStatus.PAYMENT_IN_PROGRESS:
+            return "El cliente ya envio el pago y esta pendiente de confirmacion"
+        for attempt in await payment_attempts_repo.get_by_order_id(str(order.id)):
+            status = getattr(attempt.status, "value", attempt.status)
+            if status in self.MONEY_CLAIMED_ATTEMPT_STATUSES:
+                return "El pedido tiene un pago enviado o en revision"
+        return None
+
+    async def _payment_started_reason(self, order: Order) -> Optional[str]:
+        """Motivo si el cliente ya empezo a pagar (aunque no haya confirmado).
+
+        Mientras el pago esta en curso no se puede cambiar el monto del pedido ni
+        devolverlo a estados anteriores: el cliente podria estar transfiriendo
+        el monto que ve en pantalla.
+        """
+        reason = await self._money_claimed_reason(order)
+        if reason:
+            return reason
+        if await payment_attempts_repo.get_active_by_order_id(str(order.id)):
+            return "El cliente ya inicio el pago de este pedido"
+        return None
 
     @classmethod
     def _next_deadline_for_status(
@@ -211,6 +259,9 @@ class OrderService:
             ),
             OrderStatus.PENDING_PAYMENT: (
                 "Cancelado automaticamente: el cliente no completo el pago a tiempo"
+            ),
+            OrderStatus.PAYMENT_IN_PROGRESS: (
+                "Cancelado automaticamente: el pago no se confirmo a tiempo"
             ),
             OrderStatus.ACCEPTED: (
                 "Cancelado automaticamente: la tienda no inicio la elaboracion a tiempo"
@@ -1514,11 +1565,24 @@ class OrderService:
         message: Optional[str] = None,
         force: bool = False,
         extra_fields: Optional[Dict[str, Any]] = None,
+        expected_status: Optional[OrderStatus] = None,
+        require_expired_deadline: bool = False,
     ) -> Order:
-        """Update order status with validation."""
+        """Update order status with validation.
+
+        `expected_status`: el llamador decidio en base a ese estado (p. ej. el
+        worker de timeouts). Si el pedido ya cambio, no se escribe: antes el
+        worker releia el pedido y cancelaba el estado NUEVO (un pedido recien
+        aceptado, o con el pago recien enviado).
+        """
         order = await self.orders_repo.get_by_id(order_id)
         if not order:
             raise ValueError("Pedido no encontrado")
+        if expected_status is not None and order.status != expected_status:
+            raise ValueError(
+                "El pedido cambio de estado mientras se procesaba. "
+                "Actualiza e intenta de nuevo."
+            )
 
         now = datetime.utcnow()
 
@@ -1594,10 +1658,18 @@ class OrderService:
             new_status,
             timeline_entry,
             extra_set_fields=extra_set_fields,
+            expected_status=order.status,
+            require_expired_deadline=require_expired_deadline,
         )
 
         if not updated_order:
-            raise ValueError("Error al actualizar el pedido")
+            raise ValueError(
+                "El pedido cambio de estado mientras se procesaba. "
+                "Actualiza e intenta de nuevo."
+            )
+
+        if new_status == OrderStatus.CANCELLED:
+            updated_order = await self._settle_payments_on_cancel(updated_order)
 
         # Count customer delivered orders exactly once per order.
         if new_status == OrderStatus.DELIVERED:
@@ -1620,6 +1692,96 @@ class OrderService:
         await self._emit_tracking_event(updated_order)
 
         return updated_order
+
+    async def _settle_payments_on_cancel(self, order: Order) -> Order:
+        """Al cancelar: anula los intentos de pago sin dinero y marca el pedido
+        para reembolso/revision si el cliente ya pago o dice haber pagado."""
+        await payment_attempts_repo.cancel_open_attempts_for_order(str(order.id))
+        reason = await self._money_claimed_reason(order)
+        if not reason:
+            return order
+        flagged = await self.orders_repo.mark_requires_attention(
+            str(order.id),
+            f"Pedido cancelado con dinero de por medio ({reason}). "
+            "Revisar y reembolsar al cliente.",
+        )
+        return flagged or order
+
+    async def mark_payment_sent(self, order_id: str) -> Order:
+        """El cliente declaro que envio la transferencia: PENDING_PAYMENT ->
+        PAYMENT_IN_PROGRESS. A partir de aqui el pedido no se cancela solo."""
+        return await self.update_status(
+            order_id,
+            OrderStatus.PAYMENT_IN_PROGRESS,
+            OrderActor.CUSTOMER,
+            "El cliente indico que envio el pago. Esperando confirmacion del negocio",
+        )
+
+    async def extend_payment_deadline(self, order_id: str) -> None:
+        """El cliente pulso "Pagar": le damos un plazo fresco para transferir."""
+        await self.orders_repo.extend_deadline(
+            order_id,
+            datetime.utcnow() + timedelta(minutes=self.PAYMENT_START_GRACE_MINUTES),
+            expected_status=OrderStatus.PENDING_PAYMENT,
+        )
+
+    async def mark_order_paid(self, order_id: str, attempt_id: str) -> Optional[Order]:
+        """Registra un pago completado y, si el pedido lo estaba esperando, lo pasa
+        a ACCEPTED con un plazo nuevo para que el negocio empiece a preparar.
+
+        Si el pago llega cuando el pedido ya no lo esperaba (p. ej. cancelado),
+        NO se revive el pedido: se registra el pago y se marca para reembolso.
+        """
+        now = datetime.utcnow()
+        paid_order = await self.orders_repo.mark_paid(
+            order_id,
+            attempt_id,
+            from_statuses=[OrderStatus.PENDING_PAYMENT, OrderStatus.PAYMENT_IN_PROGRESS],
+            new_status=OrderStatus.ACCEPTED,
+            timeline_entry=OrderTimeline(
+                status=OrderStatus.ACCEPTED,
+                timestamp=now,
+                message="Pago confirmado. El negocio puede iniciar la elaboracion",
+                actor=OrderActor.SYSTEM,
+            ),
+            deadline_at=self._next_deadline_for_status(OrderStatus.ACCEPTED, now),
+        )
+        if paid_order:
+            await self._emit_tracking_event(paid_order)
+            return paid_order
+
+        order = await self.orders_repo.get_by_id(order_id)
+        if not order:
+            return None
+
+        # Reintento del mismo pago sobre un pedido que ya avanzo: idempotente.
+        if order.paymentStatus == PaymentStatus.COMPLETED and self._ids_equal(
+            order.paymentId, attempt_id
+        ):
+            return order
+
+        # Pedido aceptado que aun no tenia el pago registrado (flujos legados):
+        # es justo el pago que esperaba, no hay nada que revisar.
+        if (
+            order.status == OrderStatus.ACCEPTED
+            and order.paymentStatus != PaymentStatus.COMPLETED
+        ):
+            return await self.orders_repo.record_payment(order_id, attempt_id)
+
+        return await self.orders_repo.record_payment(
+            order_id,
+            attempt_id,
+            attention_reason=(
+                f"Pago confirmado con el pedido en estado '{order.status.value}'. "
+                "Revisar: posible reembolso o pago duplicado."
+            ),
+            timeline_entry=OrderTimeline(
+                status=order.status,
+                timestamp=now,
+                message="Se recibio un pago fuera de tiempo. Soporte revisara el caso",
+                actor=OrderActor.SYSTEM,
+            ),
+        )
 
     async def accept_order(
         self,
@@ -1649,8 +1811,19 @@ class OrderService:
         if not has_access:
             raise ValueError(error_msg or "No autorizado para aceptar este pedido")
 
+        # Validar el estado ANTES de tocar montos: antes el override de envio se
+        # escribia aunque la transicion fallara despues (o sobre un pedido que el
+        # cliente ya estaba pagando).
+        if order.status != OrderStatus.PENDING_ACCEPTANCE:
+            raise ValueError(
+                "El pedido ya no esta pendiente de aceptacion "
+                f"(estado actual: {order.status.value})"
+            )
+
         # If branch sets its own delivery fee, update it before accepting
         if delivery_fee_override is not None:
+            if order.deliveryMode == "pickup":
+                raise ValueError("Un pedido de recogida en tienda no lleva envio")
             if delivery_fee_override < 0:
                 raise ValueError("El precio de envio no puede ser negativo")
             total_discounts = sum(d.amount for d in order.discounts)
@@ -1696,7 +1869,12 @@ class OrderService:
         if not has_access:
             raise ValueError(error_msg or "No autorizado para rechazar este pedido")
 
-        # TODO: Process refund if payment was made
+        payment_reason = await self._payment_started_reason(order)
+        if payment_reason:
+            raise ValueError(
+                f"No se puede rechazar: {payment_reason}. "
+                "Comunicate con el cliente por el chat del pedido."
+            )
 
         return await self.update_status(
             order_id,
@@ -1727,6 +1905,16 @@ class OrderService:
         )
         if not has_access:
             raise ValueError(error_msg or "No autorizado para modificar este pedido")
+
+        # Modificar reinicia el ciclo del pedido y olvida el intento de pago: si
+        # el cliente ya pago (o esta pagando) eso termina en cobro doble o en un
+        # pedido cancelado sin reembolso.
+        payment_reason = await self._payment_started_reason(order)
+        if payment_reason:
+            raise ValueError(
+                f"No se puede modificar: {payment_reason}. "
+                "Comunicate con el cliente por el chat del pedido."
+            )
 
         branch = await branches_repo.get_by_id(order.branchId)
         if not branch:
@@ -1860,6 +2048,12 @@ class OrderService:
         if order.status not in allowed_statuses:
             raise ValueError("El pedido no puede reenviarse en este estado")
 
+        # Reenviar borra el intento de pago del pedido: con un pago en curso eso
+        # deja la transferencia huerfana y obliga a pagar de nuevo.
+        payment_reason = await self._payment_started_reason(order)
+        if payment_reason:
+            raise ValueError(f"No se puede reenviar el pedido: {payment_reason}")
+
         branch = await branches_repo.get_by_id(order.branchId)
         if not branch:
             raise ValueError("Sucursal no encontrada")
@@ -1925,15 +2119,25 @@ class OrderService:
         if not self._ids_equal(order.customerId, user_id):
             raise ValueError("No autorizado")
 
-        # Customer can explicitly abandon only editable pre-preparation flows.
+        # El cliente puede abandonar el pedido mientras no haya dinero de por
+        # medio (antes solo en MODIFIED/REJECTED, aunque la app mostraba el boton
+        # "Cancelar" tambien esperando a la tienda o al pago y siempre fallaba).
         cancellable_statuses = [
+            OrderStatus.PENDING_ACCEPTANCE,
+            OrderStatus.AWAITING_DELIVERY_ACCEPTANCE,
+            OrderStatus.PENDING_PAYMENT,
             OrderStatus.MODIFIED_BY_STORE,
             OrderStatus.REJECTED_BY_STORE,
         ]
         if order.status not in cancellable_statuses:
             raise ValueError("No se puede cancelar el pedido en este estado")
 
-        # TODO: Process refund based on status
+        money_reason = await self._money_claimed_reason(order)
+        if money_reason:
+            raise ValueError(
+                f"No se puede cancelar: {money_reason}. "
+                "Escribe al negocio por el chat del pedido."
+            )
 
         message = "Pedido cancelado por el cliente"
         if reason:
@@ -2079,6 +2283,13 @@ class OrderService:
         ):
             raise ValueError("No autorizado para rechazar este pedido")
 
+        # Si el cliente ya esta pagando, soltar el pedido lo devuelve a "esperando
+        # mensajero" con la transferencia en el aire: termina cancelado o
+        # pidiendo un segundo pago.
+        payment_reason = await self._payment_started_reason(order)
+        if payment_reason:
+            raise ValueError(f"No puedes soltar este pedido: {payment_reason}")
+
         cleared_order = await self.orders_repo.clear_delivery_person(order_id)
         if not cleared_order:
             raise ValueError("No se pudo liberar el pedido")
@@ -2180,18 +2391,65 @@ class OrderService:
         )
         expired_count = 0
         for order in expired_orders:
-            try:
-                await self.update_status(
-                    str(order.id),
-                    OrderStatus.CANCELLED,
-                    OrderActor.SYSTEM,
-                    self._timeout_cancel_message(order.status),
-                )
+            if await self.expire_order(order) == "cancelled":
                 expired_count += 1
-            except ValueError:
-                # Race-safe: if status changed concurrently, skip it.
-                continue
         return expired_count
+
+    async def expire_order(self, order: Order) -> str:
+        """Aplica el vencimiento de plazo a UN pedido ya vencido.
+
+        Devuelve "cancelled", "escalated" o "skipped" (cambio de estado en
+        paralelo). Lo usa el worker y el sandbox E2E para simular timeouts.
+        """
+        try:
+            # Con dinero de por medio no se cancela nunca: el cliente se
+            # quedaria sin pedido y sin su dinero. Se escala a un admin.
+            money_reason = await self._money_claimed_reason(order)
+            if money_reason:
+                await self._escalate_expired_order(order, money_reason)
+                return "escalated"
+
+            await self.update_status(
+                str(order.id),
+                OrderStatus.CANCELLED,
+                OrderActor.SYSTEM,
+                self._timeout_cancel_message(order.status),
+                # Solo si sigue en el estado que se evaluo y su plazo sigue
+                # vencido: si en paralelo la tienda acepto o el cliente pago /
+                # empezo a pagar, no se cancela.
+                expected_status=order.status,
+                require_expired_deadline=True,
+            )
+            return "cancelled"
+        except ValueError:
+            # Race-safe: if status changed concurrently, skip it.
+            return "skipped"
+
+    async def _escalate_expired_order(self, order: Order, reason: str) -> None:
+        """Deadline vencido en un pedido con dinero: se marca para seguimiento y
+        se quita el deadline para que el worker no lo vuelva a procesar."""
+        stage = {
+            OrderStatus.PAYMENT_IN_PROGRESS: "el negocio no confirmo el pago a tiempo",
+            OrderStatus.ACCEPTED: "el negocio no inicio la elaboracion a tiempo",
+        }.get(order.status, f"el pedido no avanzo a tiempo ({order.status.value})")
+        flagged = await self.orders_repo.mark_requires_attention(
+            str(order.id),
+            f"{reason}; {stage}",
+            timeline_entry=OrderTimeline(
+                status=order.status,
+                timestamp=datetime.utcnow(),
+                message="Tu pedido esta tardando mas de lo normal. Soporte ya fue avisado",
+                actor=OrderActor.SYSTEM,
+            ),
+            expected_status=order.status,
+            clear_deadline=True,
+        )
+        if flagged:
+            print(
+                f"[ORDER TIMEOUT] Pedido {order.id} escalado en vez de cancelado: "
+                f"{flagged.attentionReason}"
+            )
+            await self._emit_tracking_event(flagged)
 
     async def add_comment(self, order_id: str, user_id: str, message: str) -> Order:
         """Add a comment to an order."""
@@ -2255,6 +2513,27 @@ class OrderService:
             await self.delivery_repo.update_rating(order.deliveryPersonId, rating)
 
         return updated_order
+
+    async def user_can_access_order(
+        self, order: Order, user_id: Optional[str], user_role: Optional[str] = None
+    ) -> bool:
+        """Cliente dueno, admin, staff con acceso a la sucursal o mensajero asignado."""
+        if not user_id:
+            return False
+        if self._ids_equal(order.customerId, user_id) or user_role == "admin":
+            return True
+        has_access, _ = await access_checker.check_branch_access(
+            user_id, str(order.branchId)
+        )
+        if has_access:
+            return True
+        if order.deliveryPersonId:
+            delivery_person = await self.delivery_repo.get_by_user_id(user_id)
+            if delivery_person and self._ids_equal(
+                delivery_person.id, order.deliveryPersonId
+            ):
+                return True
+        return False
 
     async def get_order_tracking(self, order_id: str, user_id: str) -> dict:
         """Get order tracking information."""

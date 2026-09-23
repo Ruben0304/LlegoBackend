@@ -97,7 +97,18 @@ class PaymentAttemptType:
     # Status
     status: PaymentAttemptStatusEnum = strawberry.field(description="Current status")
 
-    # Stripe fields
+    # Generic digital-provider fields (Grupo A: stripe, qvapay, trondealer, futuro
+    # tropipay)
+    providerReference: Optional[str] = strawberry.field(
+        description="Referencia opaca del proveedor (payment intent id, transaction uuid, wallet address, etc.)",
+        default=None,
+    )
+    providerPayload: Optional[strawberry.scalars.JSON] = strawberry.field(
+        description="Payload específico del proveedor necesario para completar el pago en el cliente",
+        default=None,
+    )
+
+    # Stripe fields (deprecated: usar providerReference/providerPayload)
     stripePaymentIntentId: Optional[str] = strawberry.field(
         description="Stripe Payment Intent ID"
     )
@@ -419,6 +430,8 @@ def payment_attempt_to_type(attempt) -> PaymentAttemptType:
         totalAmount=attempt.totalAmount,
         currency=attempt.currency,
         status=PaymentAttemptStatusEnum(attempt.status),
+        providerReference=attempt.providerReference,
+        providerPayload=attempt.providerPayload,
         stripePaymentIntentId=attempt.stripePaymentIntentId,
         stripeClientSecret=attempt.stripeClientSecret,
         sendsSmsNotification=attempt.sendsSmsNotification,

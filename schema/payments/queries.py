@@ -23,6 +23,7 @@ from schema.payments.types import (
     PaymentType,
     payment_attempt_to_type,
 )
+from services.payments.enabled_methods import ENABLED_PAYMENT_METHOD_TYPES
 from services.payments_service import payment_service
 from utils.graphql_auth import apply_optional_jwt, require_role
 from utils.serialization import to_strawberry_dict
@@ -32,6 +33,12 @@ def _payment_method_to_type(pm) -> PaymentMethodType:
     data = to_strawberry_dict(pm)
     data["id"] = str(pm.id)
     return PaymentMethodType(**data)
+
+
+def _is_enabled(pm) -> bool:
+    """Filtra métodos dormidos (ver ENABLED_PAYMENT_METHOD_TYPES) para que no
+    lleguen al cliente, independiente de su isActive individual en Mongo."""
+    return pm.method.lower() in ENABLED_PAYMENT_METHOD_TYPES
 
 
 def _to_object_id(value: str):
@@ -61,7 +68,9 @@ class PaymentMethodQuery:
         else:
             payment_methods = await payment_methods_repo.get_all()
 
-        return [_payment_method_to_type(pm) for pm in payment_methods]
+        return [
+            _payment_method_to_type(pm) for pm in payment_methods if _is_enabled(pm)
+        ]
 
     @strawberry.field(description="Obtener método de pago por ID")
     async def payment_method(
@@ -79,7 +88,7 @@ class PaymentMethodQuery:
         apply_optional_jwt(jwt, info)
 
         payment_method = await payment_methods_repo.get_by_id(id)
-        if payment_method:
+        if payment_method and _is_enabled(payment_method):
             return _payment_method_to_type(payment_method)
         return None
 
@@ -99,7 +108,9 @@ class PaymentMethodQuery:
         apply_optional_jwt(jwt, info)
 
         payment_methods = await payment_methods_repo.get_by_currency(currency)
-        return [_payment_method_to_type(pm) for pm in payment_methods]
+        return [
+            _payment_method_to_type(pm) for pm in payment_methods if _is_enabled(pm)
+        ]
 
     @strawberry.field(description="Obtener métodos de pago por tipo")
     async def payment_methods_by_method(
@@ -117,7 +128,9 @@ class PaymentMethodQuery:
         apply_optional_jwt(jwt, info)
 
         payment_methods = await payment_methods_repo.get_by_method(method)
-        return [_payment_method_to_type(pm) for pm in payment_methods]
+        return [
+            _payment_method_to_type(pm) for pm in payment_methods if _is_enabled(pm)
+        ]
 
     # ============================================
     # Payment Attempt Queries
@@ -169,6 +182,13 @@ class PaymentMethodQuery:
         if not user_id:
             raise Exception("Usuario no autenticado")
 
+        try:
+            await payment_service.assert_can_view_order_payments(
+                orderId, user_id, info.context.get("user_role")
+            )
+        except ValueError as e:
+            raise Exception(str(e))
+
         attempts = await payment_attempts_repo.get_by_order_id(orderId)
         return [payment_attempt_to_type(a) for a in attempts]
 
@@ -190,6 +210,13 @@ class PaymentMethodQuery:
         user_id = info.context.get("user_id")
         if not user_id:
             raise Exception("Usuario no autenticado")
+
+        try:
+            await payment_service.assert_can_view_order_payments(
+                orderId, user_id, info.context.get("user_role")
+            )
+        except ValueError as e:
+            raise Exception(str(e))
 
         attempt = await payment_attempts_repo.get_active_by_order_id(orderId)
         return payment_attempt_to_type(attempt) if attempt else None

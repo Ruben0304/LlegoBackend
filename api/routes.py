@@ -18,6 +18,7 @@ from .endpoints.admin_payouts import router as admin_payouts_router
 from .endpoints.admin_tests import router as admin_tests_router
 from .endpoints.apple_auth import router as apple_auth_router
 from .endpoints.device_tokens import router as device_tokens_router
+from .endpoints.e2e_sandbox import router as e2e_sandbox_router
 from .endpoints.error_logs import router as error_logs_router
 from .endpoints.kyc import router as kyc_router
 from .endpoints.legal import router as legal_router
@@ -45,6 +46,7 @@ router.include_router(qvapay_webhooks_router)
 router.include_router(trondealer_webhooks_router)
 router.include_router(admin_payouts_router)
 router.include_router(admin_tests_router)
+router.include_router(e2e_sandbox_router)  # solo responde dentro del sandbox E2E
 router.include_router(legal_router)
 
 

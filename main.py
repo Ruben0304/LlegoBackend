@@ -6,7 +6,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import PlainTextResponse, Response
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from slowapi.errors import RateLimitExceeded
 from starlette.websockets import WebSocket
 from strawberry.fastapi import BaseContext, GraphQLRouter
@@ -17,6 +17,10 @@ from strawberry.fastapi.handlers.graphql_ws_handler import (
 from api import router
 from clients import lifespan
 from core.config import settings
+from core.sandbox import SANDBOX_HEADER, SANDBOX_RESPONSE_HEADER
+from core.sandbox import activate as activate_sandbox
+from core.sandbox import deactivate as deactivate_sandbox
+from core.sandbox import key_matches as sandbox_key_matches
 from schema import schema
 from utils.dataloaders import create_dataloaders
 from utils.exception_handler import global_exception_handler, http_exception_handler
@@ -84,6 +88,38 @@ async def limit_body_size(request: Request, call_next):
             except ValueError:
                 pass
     return await call_next(request)
+
+
+@app.middleware("http")
+async def e2e_sandbox(request: Request, call_next):
+    """Activa el sandbox E2E si la peticion trae la clave (ver core/sandbox.py).
+
+    Con header y clave invalida (o sandbox deshabilitado) responde 403: nunca
+    deja que una peticion de tests caiga en produccion.
+    """
+    provided = request.headers.get(SANDBOX_HEADER)
+    if provided is None:
+        return await call_next(request)
+    if not sandbox_key_matches(provided):
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "Sandbox E2E deshabilitado o clave invalida"},
+        )
+    token = activate_sandbox()
+    try:
+        response = await call_next(request)
+    except Exception as exc:  # noqa: BLE001
+        # Se responde aqui: si la excepcion saliera de este middleware, el
+        # handler global la registraria en la BD de PRODUCCION (el sandbox ya
+        # estaria desactivado).
+        logger.error(f"[E2E SANDBOX] Error no controlado: {exc}", exc_info=True)
+        response = JSONResponse(
+            status_code=500, content={"detail": f"Error interno (sandbox E2E): {exc}"}
+        )
+    finally:
+        deactivate_sandbox(token)
+    response.headers[SANDBOX_RESPONSE_HEADER] = "1"
+    return response
 
 
 # Request logging middleware

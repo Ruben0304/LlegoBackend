@@ -262,8 +262,18 @@ class OrderRepository:
         status: OrderStatus,
         timeline_entry: OrderTimeline,
         extra_set_fields: Optional[Dict[str, Any]] = None,
+        expected_status: Optional[OrderStatus] = None,
+        require_expired_deadline: bool = False,
     ) -> Optional[Order]:
-        """Update order status and add timeline entry."""
+        """Update order status and add timeline entry.
+
+        Si se pasa `expected_status`, la escritura solo ocurre si el pedido sigue
+        en ese estado (compare-and-set). Evita que, por ejemplo, el worker de
+        timeouts cancele un pedido que acaba de pagarse en paralelo. Con
+        `require_expired_deadline` ademas exige que el deadline siga vencido (un
+        plazo recien extendido, p. ej. al iniciar el pago, invalida la escritura).
+        Devuelve None si la condicion ya no se cumple.
+        """
         collection = self._get_collection()
         now = datetime.utcnow()
         set_fields: Dict[str, Any] = {
@@ -285,8 +295,14 @@ class OrderRepository:
         if extra_set_fields:
             set_fields.update(extra_set_fields)
 
+        query: Dict[str, Any] = {"_id": self._to_object_id(order_id)}
+        if expected_status is not None:
+            query["status"] = expected_status.value
+        if require_expired_deadline:
+            query["deadlineAt"] = {"$lte": now}
+
         result = await collection.find_one_and_update(
-            {"_id": self._to_object_id(order_id)},
+            query,
             {
                 "$set": set_fields,
                 "$push": {"timeline": timeline_entry.model_dump()},
@@ -294,6 +310,136 @@ class OrderRepository:
             return_document=True,
         )
         return self._doc_to_order(result) if result else None
+
+    async def mark_paid(
+        self,
+        order_id: str,
+        attempt_id: str,
+        from_statuses: List[OrderStatus],
+        new_status: OrderStatus,
+        timeline_entry: OrderTimeline,
+        deadline_at: Optional[datetime],
+    ) -> Optional[Order]:
+        """Registra el pago y avanza el estado solo si el pedido sigue en uno de
+        `from_statuses` (compare-and-set). None si ya no estaba ahi."""
+        collection = self._get_collection()
+        now = datetime.utcnow()
+        result = await collection.find_one_and_update(
+            {
+                "_id": self._to_object_id(order_id),
+                "status": {"$in": [s.value for s in from_statuses]},
+            },
+            {
+                "$set": {
+                    "status": new_status.value,
+                    "paymentStatus": PaymentStatus.COMPLETED.value,
+                    "paymentId": attempt_id,
+                    "paidAt": now,
+                    "deadlineAt": deadline_at,
+                    "updatedAt": now,
+                    "lastStatusAt": now,
+                },
+                "$push": {"timeline": timeline_entry.model_dump()},
+            },
+            return_document=True,
+        )
+        return self._doc_to_order(result) if result else None
+
+    async def record_payment(
+        self,
+        order_id: str,
+        attempt_id: str,
+        attention_reason: Optional[str] = None,
+        timeline_entry: Optional[OrderTimeline] = None,
+    ) -> Optional[Order]:
+        """Registra que el pedido esta pagado sin tocar su estado. Si se pasa
+        `attention_reason`, ademas marca el pedido para revision de un admin."""
+        collection = self._get_collection()
+        now = datetime.utcnow()
+        set_fields: Dict[str, Any] = {
+            "paymentStatus": PaymentStatus.COMPLETED.value,
+            "paymentId": attempt_id,
+            "paidAt": now,
+            "updatedAt": now,
+        }
+        if attention_reason:
+            set_fields.update(
+                {
+                    "requiresAttention": True,
+                    "attentionReason": attention_reason,
+                    "attentionAt": now,
+                }
+            )
+        update: Dict[str, Any] = {"$set": set_fields}
+        if timeline_entry is not None:
+            update["$push"] = {"timeline": timeline_entry.model_dump()}
+        result = await collection.find_one_and_update(
+            {"_id": self._to_object_id(order_id)},
+            update,
+            return_document=True,
+        )
+        return self._doc_to_order(result) if result else None
+
+    async def mark_requires_attention(
+        self,
+        order_id: str,
+        reason: str,
+        timeline_entry: Optional[OrderTimeline] = None,
+        expected_status: Optional[OrderStatus] = None,
+        clear_deadline: bool = False,
+    ) -> Optional[Order]:
+        """Marca un pedido para seguimiento manual (dinero en riesgo)."""
+        collection = self._get_collection()
+        now = datetime.utcnow()
+        set_fields: Dict[str, Any] = {
+            "requiresAttention": True,
+            "attentionReason": reason,
+            "attentionAt": now,
+            "updatedAt": now,
+        }
+        if clear_deadline:
+            set_fields["deadlineAt"] = None
+        query: Dict[str, Any] = {"_id": self._to_object_id(order_id)}
+        if expected_status is not None:
+            query["status"] = expected_status.value
+        update: Dict[str, Any] = {"$set": set_fields}
+        if timeline_entry is not None:
+            update["$push"] = {"timeline": timeline_entry.model_dump()}
+        result = await collection.find_one_and_update(
+            query, update, return_document=True
+        )
+        return self._doc_to_order(result) if result else None
+
+    async def extend_deadline(
+        self, order_id: str, deadline_at: datetime, expected_status: OrderStatus
+    ) -> Optional[Order]:
+        """Mueve el deadline hacia adelante (nunca lo acorta) si el pedido sigue
+        en `expected_status`."""
+        collection = self._get_collection()
+        result = await collection.find_one_and_update(
+            {
+                "_id": self._to_object_id(order_id),
+                "status": expected_status.value,
+            },
+            {
+                "$max": {"deadlineAt": deadline_at},
+                "$set": {"updatedAt": datetime.utcnow()},
+            },
+            return_document=True,
+        )
+        return self._doc_to_order(result) if result else None
+
+    async def get_requiring_attention(
+        self, limit: int = 50, offset: int = 0
+    ) -> Tuple[List[Order], int]:
+        """Pedidos marcados para seguimiento manual, mas recientes primero."""
+        collection = self._get_collection()
+        query = {"requiresAttention": True}
+        total = await collection.count_documents(query)
+        cursor = (
+            collection.find(query).sort("attentionAt", -1).skip(offset).limit(limit)
+        )
+        return [self._doc_to_order(doc) async for doc in cursor], total
 
     async def mark_delivered_counted_for_customer(self, order_id: str) -> Optional[str]:
         """

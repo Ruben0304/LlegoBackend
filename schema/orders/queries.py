@@ -22,6 +22,7 @@ from repositories.orders_repository import (
     orders_repo,
 )
 from repositories.vehicle_repository import vehicles_repo
+from services.access_checker import access_checker
 from services.delivered_orders_query_service import delivered_orders_query_service
 from services.orders_service import order_service
 from utils.graphql_auth import apply_optional_jwt, require_auth, require_role
@@ -59,6 +60,19 @@ class DeliveryPersonStatsType:
     avgDurationMin: float
     avgRating: float
 
+
+
+async def _require_branch_access_or_admin(
+    info: Info, user_id: str, branch_id: str
+) -> None:
+    """Pedidos de una sucursal: solo su staff (owner/managers/invitados) o admin."""
+    if info.context.get("user_role") == "admin":
+        return
+    has_access, error_msg = await access_checker.check_branch_access(
+        user_id, branch_id
+    )
+    if not has_access:
+        raise Exception(error_msg or "No autorizado")
 
 
 async def _get_or_create_delivery_person(user_id: str) -> DeliveryPerson:
@@ -122,12 +136,12 @@ class OrderQuery:
         if not order:
             return None
 
-        # Verify access (customer, business owner, branch manager, or delivery person)
-        # For simplicity, just return if user is customer
-        # Full authorization should check all roles
-        if str(order.customerId) != str(user_id):
-            # TODO: Check if user is business owner, branch manager, or delivery person
-            pass
+        # Antes devolvia cualquier pedido (direccion, telefono, comprobantes) a
+        # cualquier usuario autenticado.
+        if not await order_service.user_can_access_order(
+            order, user_id, info.context.get("user_role")
+        ):
+            raise Exception("No autorizado")
 
         return order_to_type(order)
 
@@ -143,6 +157,11 @@ class OrderQuery:
         order = await orders_repo.get_by_order_number(orderNumber)
         if not order:
             return None
+
+        if not await order_service.user_can_access_order(
+            order, user_id, info.context.get("user_role")
+        ):
+            raise Exception("No autorizado")
 
         return order_to_type(order)
 
@@ -200,7 +219,7 @@ class OrderQuery:
         if not user_id:
             raise Exception("Usuario no autenticado")
 
-        # TODO: Verify user is branch manager or business owner
+        await _require_branch_access_or_admin(info, user_id, branchId)
 
         status_filter = OrderStatus(status.value) if status else None
         orders, total = await orders_repo.get_by_branch(
@@ -232,7 +251,11 @@ class OrderQuery:
         if not user_id:
             raise Exception("Usuario no autenticado")
 
-        # TODO: Verificar permisos (manager/owner/admin) según tu modelo
+        if branchId:
+            await _require_branch_access_or_admin(info, user_id, branchId)
+        elif info.context.get("user_role") != "admin":
+            # Sin branchId devuelve pedidos de todas las sucursales: solo admin.
+            raise Exception("No autorizado")
         orders, total = await orders_repo.get_active(
             branch_id=branchId, limit=limit, offset=offset
         )
@@ -251,8 +274,31 @@ class OrderQuery:
         if not user_id:
             raise Exception("Usuario no autenticado")
 
+        await _require_branch_access_or_admin(info, user_id, branchId)
+
         orders = await orders_repo.get_pending_by_branch(branchId)
         return [order_to_type(o) for o in orders]
+
+    @strawberry.field(
+        description=(
+            "(Admin) Pedidos con dinero en riesgo que requieren seguimiento manual: "
+            "pagados sin avanzar, pagos enviados sin confirmar, cancelados con pago, "
+            "disputas."
+        )
+    )
+    async def orders_requiring_attention(
+        self, info: Info, jwt: str, limit: int = 50, offset: int = 0
+    ) -> OrdersConnectionType:
+        require_role(jwt, info, ["admin"])
+
+        orders, total = await orders_repo.get_requiring_attention(
+            limit=limit, offset=offset
+        )
+        return OrdersConnectionType(
+            orders=[order_to_type(o) for o in orders],
+            totalCount=total,
+            hasMore=(offset + len(orders)) < total,
+        )
 
     @strawberry.field(description="Pedidos disponibles para repartidores cerca")
     async def available_orders_for_delivery(

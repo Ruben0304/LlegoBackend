@@ -294,6 +294,14 @@ class Order(BaseModel):
 
     rating: Optional[int] = None
     ratingComment: Optional[str] = None
+
+    # Pedido con dinero en riesgo que el sistema no puede resolver solo (pagado
+    # sin avanzar, pago enviado sin confirmar, cancelado con pago...). En vez de
+    # cancelarlo automaticamente se marca para que un admin le de seguimiento.
+    requiresAttention: bool = False
+    attentionReason: Optional[str] = None
+    attentionAt: Optional[datetime] = None
+
     createdAt: datetime
     updatedAt: datetime
     lastStatusAt: datetime
@@ -402,6 +410,7 @@ ALLOWED_TRANSITIONS: Dict[str, List[str]] = {
         OrderStatus.CANCELLED.value,
     ],
     OrderStatus.PENDING_PAYMENT.value: [
+        OrderStatus.PAYMENT_IN_PROGRESS.value,  # Cliente indico que envio el pago
         OrderStatus.ACCEPTED.value,
         OrderStatus.AWAITING_DELIVERY_ACCEPTANCE.value,
         OrderStatus.PENDING_ACCEPTANCE.value,

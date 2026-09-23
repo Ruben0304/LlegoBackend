@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Optional, Union
+from typing import Any, Dict, Optional, Union
 
 from bson import ObjectId
 from pydantic import BaseModel, Field
@@ -67,7 +67,15 @@ class PaymentAttempt(BaseModel):
     # Status
     status: PaymentAttemptStatus = PaymentAttemptStatus.PENDING
 
-    # Stripe-specific fields
+    # Generic digital-provider fields (Grupo A: stripe, qvapay, trondealer, futuro
+    # tropipay). Cada proveedor guarda aquí su propia referencia/payload en vez de
+    # crecer el modelo central con campos nuevos por proveedor.
+    providerReference: Optional[str] = None
+    providerPayload: Optional[Dict[str, Any]] = None
+
+    # Stripe-specific fields (deprecated: usar providerReference/providerPayload).
+    # Se mantienen poblados en paralelo durante la transición para no romper
+    # versiones viejas de la app que todavía piden estos campos por nombre.
     stripePaymentIntentId: Optional[str] = None
     stripeClientSecret: Optional[str] = None
 

@@ -81,6 +81,37 @@ class PaymentAttemptRepository:
         )
         return self._doc_to_payment_attempt(doc) if doc else None
 
+    async def cancel_open_attempts_for_order(self, order_id: str) -> int:
+        """Cancela los intentos del pedido en los que el cliente todavia NO ha
+        declarado haber pagado (pending/awaiting_proof/awaiting_kyc/awaiting_delivery).
+
+        Los intentos con dinero de por medio (awaiting_business, processing,
+        disputed, completed...) no se tocan: los resuelve una persona.
+        """
+        collection = self._get_collection()
+        now = datetime.utcnow()
+        result = await collection.update_many(
+            {
+                "orderId": self._to_object_id(order_id),
+                "status": {
+                    "$in": [
+                        PaymentAttemptStatus.PENDING.value,
+                        PaymentAttemptStatus.AWAITING_PROOF.value,
+                        PaymentAttemptStatus.AWAITING_KYC.value,
+                        PaymentAttemptStatus.AWAITING_DELIVERY.value,
+                    ]
+                },
+            },
+            {
+                "$set": {
+                    "status": PaymentAttemptStatus.CANCELLED.value,
+                    "failedReason": "Pedido cancelado",
+                    "updatedAt": now,
+                }
+            },
+        )
+        return result.modified_count
+
     async def get_by_stripe_payment_intent(
         self, payment_intent_id: str
     ) -> Optional[PaymentAttempt]:

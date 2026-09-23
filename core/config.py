@@ -117,6 +117,15 @@ class Settings(BaseSettings):
     # Shortcuts API Key (fixed, non-expiring, for iOS Shortcuts)
     shortcuts_api_key: str = ""
 
+    # E2E sandbox (ver core/sandbox.py). Vacio = modo sandbox deshabilitado.
+    e2e_sandbox_key: str = ""
+    # Base de datos del sandbox. Vacio = "<mongodb_database>_e2e".
+    e2e_database: str = ""
+    # URLs objetivo de scripts/run_e2e.sh (solo las lee el script; declararlas
+    # aqui evita que pydantic rechace el .env por "extra inputs").
+    e2e_url_local: str = ""
+    e2e_url_desplegado: str = ""
+
     # Stripe Configuration
     stripe_secret_key: str = ""
     stripe_publishable_key: str = ""

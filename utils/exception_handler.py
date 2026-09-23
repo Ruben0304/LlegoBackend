@@ -48,8 +48,14 @@ async def log_exception(
 ) -> str:
     """Log exception to database and trigger background analysis."""
     # Import here to avoid circular imports at module load time
+    from core.sandbox import is_sandbox
     from repositories.error_log_repository import error_log_repo
     from services.error_analysis_service import error_analysis_service
+
+    # Errores de los tests E2E: ni se registran ni se analizan con IA.
+    if is_sandbox():
+        print(f"[E2E SANDBOX] {type(exc).__name__}: {exc}")
+        return "e2e-sandbox"
     
     # Build stack trace
     stack_trace = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))

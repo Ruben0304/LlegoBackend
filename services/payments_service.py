@@ -1,7 +1,6 @@
 """Payment service for handling payment processing logic."""
 
 import asyncio
-import functools
 import logging
 import mimetypes
 from datetime import datetime, timedelta
@@ -22,6 +21,12 @@ from repositories import (
 )
 from repositories.payments_attempt_repository import PaymentAttemptRepository
 from services.access_checker import access_checker
+from services.payments import support as payments_support
+from services.payments.enabled_methods import ENABLED_PAYMENT_METHOD_TYPES
+from services.payments.providers.registry import (
+    ALL_DIGITAL_PROVIDERS,
+    DIGITAL_PAYMENT_PROVIDERS,
+)
 from services.shortcut_transfer_service import shortcut_transfer_service
 from utils.currency import branch_accepts_currency, normalize_currency
 
@@ -54,12 +59,7 @@ class PaymentService:
 
     @staticmethod
     def _to_object_id(value: Optional[str]):
-        if value is None:
-            return None
-        try:
-            return ObjectId(value)
-        except Exception:
-            return value
+        return payments_support.to_object_id(value)
 
     @staticmethod
     def _map_provider_error_code(provider_error: Optional[str]) -> Optional[str]:
@@ -78,28 +78,15 @@ class PaymentService:
 
     async def _get_order(self, order_id: str):
         """Get order by ID."""
-        db = get_database()
-        try:
-            doc = await db.orders.find_one({"_id": ObjectId(order_id)})
-        except Exception:
-            doc = await db.orders.find_one({"_id": order_id})
-        return doc
+        return await payments_support.get_order(order_id)
 
     async def _get_payment_method(self, payment_method_id: str):
         """Get payment method by ID."""
-        db = get_database()
-        try:
-            doc = await db.payment_methods.find_one(
-                {"_id": ObjectId(payment_method_id)}
-            )
-        except Exception:
-            doc = await db.payment_methods.find_one({"_id": payment_method_id})
-        return doc
+        return await payments_support.get_payment_method(payment_method_id)
 
     async def _get_branch(self, branch_id: str):
         """Get branch by ID using the branch repository."""
-        branch = await branches_repo.get_by_id(branch_id)
-        return branch.model_dump() if branch else None
+        return await payments_support.get_branch(branch_id)
 
     async def _resolve_cash_kyc_policy_context(
         self,
@@ -253,15 +240,41 @@ class PaymentService:
         # Check order status - must be in a payable state
         # Solo permitir pago después de que negocio acepte
         payable_statuses = ["pending_payment"]
+        if order.get("status") == "payment_in_progress":
+            # Versiones viejas de la app siguen mostrando "Pagar" en este estado.
+            raise ValueError(
+                "Ya enviaste el pago de este pedido. El negocio lo esta verificando."
+            )
         if order.get("status") not in payable_statuses:
             raise ValueError(
                 f"El pedido no está en un estado que permita pago: {order.get('status')}"
             )
 
-        # Check if there's already an active payment attempt
+        # Si ya hay un intento activo (el cliente cerro la pantalla, se le cayo la
+        # conexion o reabrio la app), se reutiliza en vez de fallar: antes el
+        # cliente quedaba sin poder volver a la pantalla de transferencia y el
+        # pedido se cancelaba con el dinero posiblemente ya enviado.
         existing = await self.payment_attempts_repo.get_active_by_order_id(order_id)
         if existing:
-            raise ValueError("Ya existe un intento de pago activo para este pedido")
+            reusable_statuses = {
+                PaymentAttemptStatus.PENDING,
+                PaymentAttemptStatus.AWAITING_PROOF,
+                PaymentAttemptStatus.AWAITING_KYC,
+            }
+            if existing.status not in reusable_statuses:
+                raise ValueError(
+                    "Ya enviaste el pago de este pedido. "
+                    "El negocio lo esta verificando."
+                )
+            if str(existing.paymentMethodId) == str(payment_method_id):
+                await self._update_order_payment_attempt(order_id, str(existing.id))
+                return existing
+            # Cambio de metodo antes de declarar el pago: se descarta el anterior.
+            await self.payment_attempts_repo.update_status(
+                str(existing.id),
+                PaymentAttemptStatus.CANCELLED,
+                failedReason="Reemplazado por otro metodo de pago",
+            )
 
         # Get payment method
         payment_method = await self._get_payment_method(payment_method_id)
@@ -338,15 +351,19 @@ class PaymentService:
         # Handle based on payment method type
         method_type = payment_method.get("method", "").lower()
 
-        if method_type == "wallet":
-            # Process wallet payment immediately
-            payment_attempt = await self._process_wallet_payment(
+        if method_type not in ENABLED_PAYMENT_METHOD_TYPES:
+            raise ValueError(f"Método de pago no disponible temporalmente: {method_type}")
+
+        if method_type in DIGITAL_PAYMENT_PROVIDERS:
+            # Grupo A: proveedores de pago digital externos (stripe, qvapay,
+            # trondealer, futuro tropipay). Agregar uno nuevo no toca esta rama.
+            payment_attempt = await DIGITAL_PAYMENT_PROVIDERS[method_type].initiate(
                 payment_attempt, order, payment_method, user_id
             )
 
-        elif method_type == "stripe":
-            # Create Stripe Payment Intent
-            payment_attempt = await self._create_stripe_payment_intent(
+        elif method_type == "wallet":
+            # Process wallet payment immediately
+            payment_attempt = await self._process_wallet_payment(
                 payment_attempt, order, payment_method, user_id
             )
 
@@ -369,6 +386,18 @@ class PaymentService:
 
         # Update order with current payment attempt
         await self._update_order_payment_attempt(order_id, attempt_id)
+
+        # Plazo fresco para completar la transferencia desde que pulsa "Pagar"
+        # (el de PENDING_PAYMENT empezo a correr cuando acepto el mensajero).
+        if payment_attempt.status in {
+            PaymentAttemptStatus.PENDING,
+            PaymentAttemptStatus.AWAITING_PROOF,
+            PaymentAttemptStatus.AWAITING_KYC,
+            PaymentAttemptStatus.PROCESSING,
+        }:
+            from services.orders_service import order_service
+
+            await order_service.extend_payment_deadline(order_id)
 
         return payment_attempt
 
@@ -1168,50 +1197,6 @@ class PaymentService:
 
         return payment_attempt
 
-    async def _create_stripe_payment_intent(
-        self,
-        payment_attempt: PaymentAttempt,
-        order: dict,
-        payment_method: dict,
-        user_id: str,
-    ) -> PaymentAttempt:
-        """Create a Stripe Payment Intent."""
-        try:
-            # Convert to cents
-            amount_cents = int(payment_attempt.totalAmount * 100)
-
-            # Create Payment Intent (run in thread pool to avoid blocking event loop)
-            intent = await asyncio.to_thread(
-                functools.partial(
-                    stripe.PaymentIntent.create,
-                    amount=amount_cents,
-                    currency=payment_attempt.currency,
-                    description=f"Pedido #{order.get('orderNumber', '')} - Llego",
-                    metadata={
-                        "user_id": user_id,
-                        "order_id": str(order.get("_id")),
-                        "payment_attempt_id": payment_attempt.id,
-                        "type": "order_payment",
-                    },
-                    automatic_payment_methods={"enabled": True},
-                )
-            )
-
-            payment_attempt.stripePaymentIntentId = intent.id
-            payment_attempt.stripeClientSecret = intent.client_secret
-            payment_attempt.status = PaymentAttemptStatus.PROCESSING
-
-            logger.info(
-                f"Created Stripe Payment Intent: {intent.id} for order {order.get('_id')}"
-            )
-
-        except stripe.error.StripeError as e:
-            logger.error(f"Stripe error: {e}")
-            payment_attempt.status = PaymentAttemptStatus.FAILED
-            payment_attempt.failedReason = f"Error de Stripe: {str(e)}"
-
-        return payment_attempt
-
     async def confirm_payment_sent(
         self, payment_attempt_id: str, user_id: str, proof_url: Optional[str] = None
     ) -> PaymentAttempt:
@@ -1232,14 +1217,39 @@ class PaymentService:
         if not order or str(order.get("customerId")) != str(user_id):
             raise ValueError("No autorizado")
 
+        if attempt.status == PaymentAttemptStatus.AWAITING_BUSINESS:
+            # Reintento tras perder la respuesta: ya quedo registrado.
+            return attempt
         if attempt.status != PaymentAttemptStatus.AWAITING_PROOF:
             raise ValueError(f"Estado no válido para confirmar: {attempt.status}")
+
+        # Antes se aceptaba aunque el pedido ya estuviera cancelado y la app
+        # mostraba "¡Listo!" al cliente.
+        if order.get("status") != "pending_payment":
+            raise ValueError(
+                "Este pedido ya no está esperando el pago "
+                f"(estado: {order.get('status')}). Si ya transferiste, escribe al "
+                "negocio por el chat del pedido."
+            )
 
         # Update attempt
         normalized_proof = (proof_url or "").strip() or None
         updated = await self.payment_attempts_repo.set_proof(
             payment_attempt_id, normalized_proof
         )
+
+        # El pedido pasa a PAYMENT_IN_PROGRESS: deja de mostrarse "Pagar", el
+        # negocio ve el cambio en vivo y el pedido ya no se cancela solo.
+        from services.orders_service import order_service
+
+        try:
+            await order_service.mark_payment_sent(str(attempt.orderId))
+        except ValueError as e:
+            # El intento ya quedo en AWAITING_BUSINESS: el worker de timeouts lo
+            # escala en vez de cancelar, asi que el dinero no se pierde de vista.
+            logger.warning(
+                f"No se pudo pasar el pedido {attempt.orderId} a payment_in_progress: {e}"
+            )
 
         # Notify business that customer submitted payment proof
         try:
@@ -1304,22 +1314,22 @@ class PaymentService:
         if not order:
             raise ValueError("Pedido no encontrado")
 
-        # Verify business ownership
-        branch = await self._get_branch(order.get("branchId"))
-        if not branch:
-            raise ValueError("Sucursal no encontrada")
+        # Mismo criterio que aceptar/rechazar pedidos (owner, managers y staff
+        # invitado con acceso vigente). Antes se comparaba ObjectId con str y el
+        # staff invitado recibia "No autorizado".
+        has_access, error = await access_checker.check_branch_access(
+            user_id, str(order.get("branchId"))
+        )
+        if not has_access:
+            raise ValueError(error or "No autorizado para confirmar este pago")
 
-        # Check if user is manager or owner
-        business = await businesses_repo.get_by_id(branch.get("businessId"))
-
-        is_authorized = (
-            business and business.ownerId == user_id
-        ) or user_id in branch.get("managerIds", [])
-
-        if not is_authorized:
-            raise ValueError("No autorizado para confirmar este pago")
-
-        if attempt.status != PaymentAttemptStatus.AWAITING_BUSINESS:
+        if attempt.status == PaymentAttemptStatus.COMPLETED:
+            # Doble toque / reintento: ya estaba confirmado.
+            return attempt
+        if attempt.status not in {
+            PaymentAttemptStatus.AWAITING_BUSINESS,
+            PaymentAttemptStatus.DISPUTED,
+        }:
             raise ValueError(f"Estado no válido para confirmar: {attempt.status}")
 
         # Confirm payment
@@ -1475,21 +1485,26 @@ class PaymentService:
         if not order:
             raise ValueError("Pedido no encontrado")
 
-        # Verify business ownership
-        branch = await self._get_branch(order.get("branchId"))
-        business = await businesses_repo.get_by_id(branch.get("businessId"))
-
-        is_authorized = (
-            business and business.ownerId == user_id
-        ) or user_id in branch.get("managerIds", [])
-
-        if not is_authorized:
-            raise ValueError("No autorizado")
+        has_access, error = await access_checker.check_branch_access(
+            user_id, str(order.get("branchId"))
+        )
+        if not has_access:
+            raise ValueError(error or "No autorizado")
 
         if attempt.status != PaymentAttemptStatus.AWAITING_BUSINESS:
             raise ValueError(f"Estado no válido para disputar: {attempt.status}")
 
-        return await self.payment_attempts_repo.dispute(payment_attempt_id, reason)
+        disputed = await self.payment_attempts_repo.dispute(payment_attempt_id, reason)
+
+        # Una disputa es dinero en discusion entre cliente y negocio: el pedido no
+        # se cancela solo y queda a la vista de soporte.
+        from repositories import orders_repo
+
+        await orders_repo.mark_requires_attention(
+            str(attempt.orderId),
+            f"El negocio disputa el pago del cliente: {reason}",
+        )
+        return disputed
 
     async def request_refund(
         self, payment_attempt_id: str, user_id: str, reason: str
@@ -1543,8 +1558,10 @@ class PaymentService:
 
         if method_type == "wallet":
             return await self._process_wallet_refund(attempt)
-        elif method_type == "stripe":
-            return await self._process_stripe_refund(attempt)
+        elif method_type in ALL_DIGITAL_PROVIDERS:
+            # Usa el mapa SIN gatear: un pago viejo de un proveedor hoy dormido
+            # debe poder seguir reembolsándose.
+            return await ALL_DIGITAL_PROVIDERS[method_type].refund(attempt)
         else:
             # Manual refunds for other methods
             return await self.payment_attempts_repo.update_status(
@@ -1615,201 +1632,31 @@ class PaymentService:
             attempt.id, refund_amount, str(refund_tx_id)
         )
 
-    async def _process_stripe_refund(self, attempt: PaymentAttempt) -> PaymentAttempt:
-        """Process a Stripe refund."""
-        if not attempt.stripePaymentIntentId:
-            raise ValueError("No hay Payment Intent de Stripe asociado")
-
-        try:
-            # Create Stripe refund (run in thread pool to avoid blocking event loop)
-            refund = await asyncio.to_thread(
-                functools.partial(
-                    stripe.Refund.create,
-                    payment_intent=attempt.stripePaymentIntentId,
-                )
-            )
-
-            logger.info(f"Stripe refund created: {refund.id}")
-
-            return await self.payment_attempts_repo.complete_refund(
-                attempt.id, attempt.totalAmount, refund.id
-            )
-
-        except stripe.error.StripeError as e:
-            logger.error(f"Stripe refund error: {e}")
-            raise ValueError(f"Error de Stripe: {str(e)}")
-
     async def handle_stripe_webhook(
         self, payment_intent_id: str, event_type: str
     ) -> Optional[PaymentAttempt]:
         """
         Handle Stripe webhook for order payments.
 
+        Delgado a StripeProvider.handle_confirmed_event — la lógica vive ahí
+        (services/payments/providers/stripe_provider.py). Este método se
+        mantiene con la misma firma para no tocar api/endpoints/stripe_payments.py.
+
         Args:
             payment_intent_id: Stripe Payment Intent ID
             event_type: Stripe event type
         """
-        attempt = await self.payment_attempts_repo.get_by_stripe_payment_intent(
-            payment_intent_id
-        )
-
-        if not attempt:
-            logger.warning(f"No payment attempt found for PI: {payment_intent_id}")
-            return None
-
-        if event_type == "payment_intent.succeeded":
-            # Payment successful
-            updated = await self.payment_attempts_repo.update_status(
-                attempt.id,
-                PaymentAttemptStatus.COMPLETED,
-            )
-
-            # Process the payment completion (credit business, etc.)
-            order = await self._get_order(attempt.orderId)
-            if order:
-                await self._process_stripe_payment_completion(attempt, order)
-                await self._complete_order_payment(attempt.orderId, attempt.id)
-
-            return updated
-
-        elif event_type == "payment_intent.payment_failed":
-            # Payment failed
-            return await self.payment_attempts_repo.update_status(
-                attempt.id,
-                PaymentAttemptStatus.FAILED,
-                failedReason="Pago rechazado por Stripe",
-            )
-
-        return attempt
-
-    async def _process_stripe_payment_completion(
-        self, attempt: PaymentAttempt, order: dict
-    ):
-        """Process wallet credits after successful Stripe payment."""
-        db = get_database()
-        now = datetime.utcnow()
-
-        amount_to_business = attempt.subtotal + attempt.deliveryFee
-        commission = attempt.commissionAmount
-        currency = attempt.currency
-
-        # Credit business wallet
-        branch_id = order.get("branchId")
-        await db.branches.update_one(
-            {"_id": self._to_object_id(branch_id)},
-            {"$inc": {f"wallet.{currency}": amount_to_business}},
-        )
-
-        # Credit platform commission
-        if commission > 0:
-            await db.platform.update_one(
-                {"_id": "platform"},
-                {
-                    "$inc": {
-                        f"wallet.{currency}": commission,
-                        "totalCommissionsCollected": commission
-                        if currency == "usd"
-                        else 0,
-                    }
-                },
-            )
-
-        # Create transaction records
-        business_tx = {
-            "_id": ObjectId(),
-            "fromOwnerId": "stripe",
-            "fromOwnerType": "external",
-            "toOwnerId": self._to_object_id(order.get("branchId")),
-            "toOwnerType": "branch",
-            "amount": amount_to_business,
-            "currency": currency,
-            "type": "stripe_payment",
-            "status": "completed",
-            "description": f"Pago Stripe pedido #{order.get('orderNumber', '')}",
-            "metadata": {
-                "orderId": str(order.get("_id")),
-                "paymentAttemptId": attempt.id,
-                "stripePaymentIntentId": attempt.stripePaymentIntentId,
-            },
-            "createdAt": now,
-            "completedAt": now,
-        }
-        await db.wallet_transactions.insert_one(business_tx)
-
-        if commission > 0:
-            commission_tx = {
-                "_id": ObjectId(),
-                "fromOwnerId": "stripe",
-                "fromOwnerType": "external",
-                "toOwnerId": "platform",
-                "toOwnerType": "platform",
-                "amount": commission,
-                "currency": currency,
-                "type": "commission",
-                "status": "completed",
-                "description": f"Comisión Stripe pedido #{order.get('orderNumber', '')}",
-                "metadata": {
-                    "orderId": str(order.get("_id")),
-                    "paymentAttemptId": attempt.id,
-                },
-                "createdAt": now,
-                "completedAt": now,
-            }
-            await db.wallet_transactions.insert_one(commission_tx)
-
-        # Update platform stats
-        await db.platform.update_one(
-            {"_id": "platform"}, {"$inc": {"totalOrdersProcessed": 1}}
+        return await ALL_DIGITAL_PROVIDERS["stripe"].handle_confirmed_event(
+            {"payment_intent_id": payment_intent_id, "event_type": event_type}
         )
 
     async def _update_order_payment_attempt(self, order_id: str, attempt_id: str):
         """Update order with current payment attempt ID."""
-        db = get_database()
-        try:
-            order_id_obj = ObjectId(order_id)
-        except Exception:
-            order_id_obj = order_id
-
-        await db.orders.update_one(
-            {"_id": order_id_obj},
-            {
-                "$set": {
-                    "currentPaymentAttemptId": attempt_id,
-                    "updatedAt": datetime.utcnow(),
-                }
-            },
-        )
+        await payments_support.update_order_payment_attempt(order_id, attempt_id)
 
     async def _complete_order_payment(self, order_id: str, attempt_id: str):
         """Mark order payment as completed."""
-        db = get_database()
-        try:
-            order_id_obj = ObjectId(order_id)
-        except Exception:
-            order_id_obj = order_id
-
-        order_doc = await db.orders.find_one({"_id": order_id_obj}, {"status": 1})
-        current_status = (order_doc or {}).get("status")
-        if current_status == "pending_payment":
-            next_status = "accepted"
-        elif current_status == "accepted":
-            next_status = "accepted"
-        else:
-            # Defensive fallback for legacy flows.
-            next_status = current_status or "accepted"
-
-        await db.orders.update_one(
-            {"_id": order_id_obj},
-            {
-                "$set": {
-                    "paymentStatus": "completed",
-                    "paymentId": attempt_id,
-                    "paidAt": datetime.utcnow(),
-                    "status": next_status,
-                    "updatedAt": datetime.utcnow(),
-                }
-            },
-        )
+        await payments_support.complete_order_payment(order_id, attempt_id)
 
     async def confirm_transfer_by_shortcut(
         self,
@@ -1929,21 +1776,21 @@ class PaymentService:
         if not attempt:
             raise ValueError("Intento de pago no encontrado")
 
-        order = await self._get_order(attempt.orderId)
+        await self.assert_can_view_order_payments(str(attempt.orderId), user_id)
+        return attempt
+
+    async def assert_can_view_order_payments(
+        self, order_id: str, user_id: str, user_role: Optional[str] = None
+    ) -> None:
+        """Cliente dueno, admin, staff de la sucursal o mensajero asignado."""
+        from repositories import orders_repo
+        from services.orders_service import order_service
+
+        order = await orders_repo.get_by_id(order_id)
         if not order:
             raise ValueError("Pedido no encontrado")
-
-        # Check authorization - customer, business manager, or delivery person
-        is_customer = str(order.get("customerId")) == str(user_id)
-        is_delivery = str(order.get("deliveryPersonId")) == str(user_id) if order.get("deliveryPersonId") else False
-
-        branch = await self._get_branch(order.get("branchId"))
-        is_business = user_id in branch.get("managerIds", []) if branch else False
-
-        if not (is_customer or is_business or is_delivery):
+        if not await order_service.user_can_access_order(order, user_id, user_role):
             raise ValueError("No autorizado")
-
-        return attempt
 
     async def expire_payments(self) -> int:
         """

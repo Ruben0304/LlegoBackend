@@ -12,6 +12,7 @@ from strawberry.file_uploads import Upload
 from strawberry.types import Info
 
 from repositories import payment_methods_repo, payments_repo
+from services.payments.enabled_methods import ENABLED_PAYMENT_METHOD_TYPES
 from services.payments_service import payment_service
 from utils.graphql_auth import apply_optional_jwt
 from utils.serialization import to_strawberry_dict
@@ -571,6 +572,9 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
 
         Solo disponible si la sucursal tiene `acceptsQvapay = true`.
         """
+        if "qvapay" not in ENABLED_PAYMENT_METHOD_TYPES:
+            raise Exception("QvaPay no está disponible temporalmente")
+
         apply_optional_jwt(jwt, info)
         user_id = info.context.get("user_id")
         if not user_id:
@@ -638,6 +642,9 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
 
         Solo disponible si la sucursal tiene `acceptsZelle = true`.
         """
+        if "usdt" not in ENABLED_PAYMENT_METHOD_TYPES:
+            raise Exception("USDT/TronDealer no está disponible temporalmente")
+
         apply_optional_jwt(jwt, info)
         user_id = info.context.get("user_id")
         if not user_id:

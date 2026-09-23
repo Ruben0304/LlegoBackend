@@ -4,6 +4,7 @@ import time
 from typing import Optional, Any, List, Callable
 from utils.rate_limit import redis_client
 from core.config import settings
+from core.sandbox import is_sandbox
 
 
 # =============================================================================
@@ -69,7 +70,13 @@ _cache_all_mode = False
 
 
 def is_cache_enabled() -> bool:
-    """Master switch for cache reads/writes."""
+    """Master switch for cache reads/writes.
+
+    Apagado en el sandbox E2E: las claves de Redis son compartidas con
+    produccion y datos del sandbox no deben terminar en la cache de produccion.
+    """
+    if is_sandbox():
+        return False
     return settings.cache_enabled
 
 

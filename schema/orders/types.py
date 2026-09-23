@@ -393,6 +393,12 @@ class OrderType:
     rating: Optional[int] = None
     ratingComment: Optional[str] = None
 
+    # Pedido con dinero en riesgo marcado para seguimiento manual (ver
+    # Order.requiresAttention). Solo informativo para admin/soporte.
+    requiresAttention: bool = False
+    attentionReason: Optional[str] = None
+    attentionAt: Optional[datetime] = None
+
     # Internal fields for resolvers
     _items: strawberry.Private[List[dict]]
     _discounts: strawberry.Private[List[dict]]
@@ -637,8 +643,14 @@ class OrderType:
 
     @strawberry.field(description="Whether order can be cancelled")
     def can_cancel(self) -> bool:
+        # Debe coincidir con OrderService.cancel_order. Un pedido pagado nunca
+        # esta aqui (ya paso a ACCEPTED) y PAYMENT_IN_PROGRESS tampoco: con el
+        # pago enviado el cliente ya no puede abandonarlo solo.
+        if self.paymentStatus == PaymentStatusEnum.COMPLETED:
+            return False
         return self.status in {
             OrderStatusEnum.PENDING_ACCEPTANCE,
+            OrderStatusEnum.AWAITING_DELIVERY_ACCEPTANCE,
             OrderStatusEnum.PENDING_PAYMENT,
             OrderStatusEnum.MODIFIED_BY_STORE,
             OrderStatusEnum.REJECTED_BY_STORE,
@@ -757,6 +769,9 @@ def order_to_type(order) -> OrderType:
         estimatedMinutes=order.estimatedMinutes,
         rating=order.rating,
         ratingComment=order.ratingComment,
+        requiresAttention=order.requiresAttention,
+        attentionReason=order.attentionReason,
+        attentionAt=order.attentionAt,
         _items=[item.model_dump() for item in order.items],
         _discounts=[d.model_dump() for d in order.discounts],
         _delivery_address=delivery_address_payload,

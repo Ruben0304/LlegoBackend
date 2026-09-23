@@ -9,6 +9,7 @@ from bson import ObjectId
 from jose import JWTError, jwt
 
 from core.config import settings
+from core.sandbox import is_sandbox, sandbox_jwt_secret
 
 # JWT configuration
 ALGORITHM = "HS256"
@@ -39,6 +40,9 @@ def _get_jwt_secret() -> str:
     secret = settings.jwt_secret
     if not secret:
         raise RuntimeError("JWT_SECRET is not configured")
+    if is_sandbox():
+        # Tokens del sandbox E2E aislados de los de produccion en ambos sentidos.
+        return sandbox_jwt_secret(secret)
     return secret
 
 
