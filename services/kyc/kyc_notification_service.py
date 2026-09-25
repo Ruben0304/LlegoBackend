@@ -8,6 +8,7 @@ from repositories import (
     businesses_repo,
     device_token_repo,
 )
+from repositories.device_token_repository import AUDIENCE_BUSINESS, BUSINESS_IOS_BUNDLE_ID
 from repositories.kyc_notification_log_repository import kyc_notification_logs_repo
 from services.push_notification_service import push_service
 
@@ -34,7 +35,7 @@ class KycNotificationService:
         if business:
             manager_ids.add(str(business.ownerId))
 
-        all_tokens = await device_token_repo.get_all_active()
+        all_tokens = await device_token_repo.get_all_active(audience=AUDIENCE_BUSINESS)
         merchant_tokens = [
             token.token
             for token in all_tokens
@@ -59,7 +60,7 @@ class KycNotificationService:
             body=body,
             data=data,
             platform="IOS",
-            bundle_id="com.llego.business.LlegoBusiness",
+            bundle_id=BUSINESS_IOS_BUNDLE_ID,
         )
 
         await kyc_notification_logs_repo.create(

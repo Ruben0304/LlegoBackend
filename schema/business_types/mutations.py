@@ -15,7 +15,7 @@ from .types import (
     DevicePlatformEnum
 )
 from repositories.business_type_repository import business_type_repo
-from repositories.device_token_repository import device_token_repo
+from repositories.device_token_repository import AUDIENCE_CUSTOMER, device_token_repo
 from services.push_notification_service import push_service
 from domain.business_types import BusinessTypeConfig, DeviceToken
 from utils.graphql_auth import apply_optional_jwt, require_role
@@ -104,7 +104,8 @@ class BusinessTypeMutation:
             "token": input.token,
             "platform": input.platform.value,
             "appVersion": input.app_version,
-            "osVersion": input.os_version
+            "osVersion": input.os_version,
+            "bundleId": input.bundle_id,
         }
         
         device_token = await device_token_repo.create_or_update(token_data)
@@ -175,7 +176,7 @@ class BusinessTypeMutation:
         new_config = await business_type_repo.create(config_data)
         
         # Get all active device tokens
-        all_tokens = await device_token_repo.get_all_active()
+        all_tokens = await device_token_repo.get_all_active(audience=AUDIENCE_CUSTOMER)
         
         # Group tokens by platform
         ios_tokens = [t.token for t in all_tokens if t.platform == "IOS"]
@@ -284,7 +285,7 @@ class BusinessTypeMutation:
             raise ValueError(f"Business type configuration with id {id} not found")
         
         # Send push notifications for the update
-        all_tokens = await device_token_repo.get_all_active()
+        all_tokens = await device_token_repo.get_all_active(audience=AUDIENCE_CUSTOMER)
         
         ios_tokens = [t.token for t in all_tokens if t.platform == "IOS"]
         android_tokens = [t.token for t in all_tokens if t.platform == "ANDROID"]

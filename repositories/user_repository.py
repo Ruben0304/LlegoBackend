@@ -27,6 +27,12 @@ class UserRepository:
         users = await cursor.to_list(length=None)
         return [User(**self._convert_id(user)) for user in users]
 
+    async def get_ids_by_role(self, role: str) -> List[str]:
+        db = get_database()
+        cursor = db[self.collection_name].find({"role": role}, {"_id": 1})
+        docs = await cursor.to_list(length=None)
+        return [str(d["_id"]) for d in docs]
+
     async def get_by_id(self, user_id: str) -> Optional[User]:
         db = get_database()
         try:

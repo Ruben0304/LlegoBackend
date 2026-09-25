@@ -220,10 +220,10 @@ async def cleanup_old_errors(
 async def test_push_clientes():
     """Test push notification to Llego Clientes app (com.ruben.LlegoiOS)."""
     from services.push_notification_service import push_service
-    from repositories.device_token_repository import device_token_repo
+    from repositories.device_token_repository import AUDIENCE_CUSTOMER, device_token_repo
     
     bundle_id = "com.ruben.LlegoiOS"
-    tokens = await device_token_repo.get_all_active()
+    tokens = await device_token_repo.get_all_active(audience=AUDIENCE_CUSTOMER)
     ios_tokens = [t.token for t in tokens if t.platform == "IOS"]
     
     if not ios_tokens:
@@ -245,10 +245,14 @@ async def test_push_clientes():
 async def test_push_negocios():
     """Test push notification to Llego Negocios app (com.llego.business.LlegoBusiness)."""
     from services.push_notification_service import push_service
-    from repositories.device_token_repository import device_token_repo
+    from repositories.device_token_repository import (
+        AUDIENCE_BUSINESS,
+        BUSINESS_IOS_BUNDLE_ID,
+        device_token_repo,
+    )
     
-    bundle_id = "com.llego.business.LlegoBusiness"
-    tokens = await device_token_repo.get_all_active()
+    bundle_id = BUSINESS_IOS_BUNDLE_ID
+    tokens = await device_token_repo.get_all_active(audience=AUDIENCE_BUSINESS)
     ios_tokens = [t.token for t in tokens if t.platform == "IOS"]
     
     if not ios_tokens:

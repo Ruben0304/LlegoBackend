@@ -2715,12 +2715,17 @@ class OrderService:
     async def _send_order_status_notification(self, order: Order):
         """Send push notification to customer about order status change."""
         try:
-            from repositories.device_token_repository import device_token_repo
+            from repositories.device_token_repository import (
+                AUDIENCE_BUSINESS,
+                AUDIENCE_CUSTOMER,
+                BUSINESS_IOS_BUNDLE_ID,
+                device_token_repo,
+            )
             from services.push_notification_service import push_service
 
             # Get customer's device tokens
             device_tokens = await device_token_repo.get_by_user_id(
-                str(order.customerId)
+                str(order.customerId), audience=AUDIENCE_CUSTOMER
             )
 
             if not device_tokens:
@@ -2817,7 +2822,12 @@ class OrderService:
     ):
         """Send push notification to business managers/owner when new order arrives."""
         try:
-            from repositories.device_token_repository import device_token_repo
+            from repositories.device_token_repository import (
+                AUDIENCE_BUSINESS,
+                AUDIENCE_CUSTOMER,
+                BUSINESS_IOS_BUNDLE_ID,
+                device_token_repo,
+            )
             from services.push_notification_service import push_service
 
             # Collect user IDs to notify (owner + managers)
@@ -2831,7 +2841,9 @@ class OrderService:
             # Get device tokens for all managers/owner
             all_tokens = []
             for user_id in user_ids_to_notify:
-                tokens = await device_token_repo.get_by_user_id(user_id)
+                tokens = await device_token_repo.get_by_user_id(
+                    user_id, audience=AUDIENCE_BUSINESS
+                )
                 all_tokens.extend(tokens)
 
             if not all_tokens:
@@ -2861,7 +2873,12 @@ class OrderService:
             # Send to iOS devices
             if ios_tokens:
                 await push_service.send_to_all(
-                    tokens=ios_tokens, title=title, body=body, data=data, platform="IOS"
+                    tokens=ios_tokens,
+                    title=title,
+                    body=body,
+                    data=data,
+                    platform="IOS",
+                    bundle_id=BUSINESS_IOS_BUNDLE_ID,
                 )
                 print(
                     f"[PUSH BUSINESS] New order sent to {len(ios_tokens)} iOS devices"
@@ -2889,7 +2906,12 @@ class OrderService:
     async def _send_order_status_update_to_business(self, order: Order):
         """Send push notification to business managers/owner about order status updates."""
         try:
-            from repositories.device_token_repository import device_token_repo
+            from repositories.device_token_repository import (
+                AUDIENCE_BUSINESS,
+                AUDIENCE_CUSTOMER,
+                BUSINESS_IOS_BUNDLE_ID,
+                device_token_repo,
+            )
             from services.push_notification_service import push_service
 
             # Only notify business for specific status changes
@@ -2918,7 +2940,9 @@ class OrderService:
             # Get device tokens
             all_tokens = []
             for user_id in user_ids_to_notify:
-                tokens = await device_token_repo.get_by_user_id(user_id)
+                tokens = await device_token_repo.get_by_user_id(
+                    user_id, audience=AUDIENCE_BUSINESS
+                )
                 all_tokens.extend(tokens)
 
             if not all_tokens:
@@ -2961,6 +2985,7 @@ class OrderService:
                     body=notification["body"],
                     data=data,
                     platform="IOS",
+                    bundle_id=BUSINESS_IOS_BUNDLE_ID,
                 )
                 print(
                     f"[PUSH BUSINESS] Status update sent to {len(ios_tokens)} iOS devices"

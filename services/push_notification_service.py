@@ -319,10 +319,16 @@ class PushNotificationService:
                         )
                         failed_tokens.append(token)
 
-                        # Auto-cleanup invalid tokens
-                        # APNs status codes that indicate the token should be removed:
-                        # 400 BadDeviceToken, 410 Unregistered
-                        if response.status_code in [400, 410]:
+                        # Auto-cleanup invalid tokens: solo 410 Unregistered o 400 BadDeviceToken.
+                        # Otros 400 (p.ej. DeviceTokenNotForTopic = token de otra app) no
+                        # significan que el token sea inválido y no deben desactivarlo.
+                        try:
+                            apns_reason = response.json().get("reason")
+                        except Exception:
+                            apns_reason = None
+                        if response.status_code == 410 or (
+                            response.status_code == 400 and apns_reason == "BadDeviceToken"
+                        ):
                             try:
                                 from repositories.device_token_repository import (
                                     device_token_repo,
@@ -486,20 +492,26 @@ async def notify_critical_error(
     """
     Send push notification for critical errors to admin devices.
     """
-    from repositories.device_token_repository import device_token_repo
+    from repositories import users_repo
+    from repositories.device_token_repository import (
+        AUDIENCE_CUSTOMER,
+        device_token_repo,
+    )
 
     logger.info(
         f"🔔 notify_critical_error called - severity: {severity}, error_type: {error_type}"
     )
 
-    # Get all active iOS tokens
-    tokens = await device_token_repo.get_all_active()
+    # Solo dispositivos de usuarios admin (en la app de clientes). Nunca a todos
+    # los tokens: eso enviaba mensajes internos de error a todos los clientes.
+    admin_ids = await users_repo.get_ids_by_role("admin")
+    tokens = await device_token_repo.get_by_user_ids(admin_ids, audience=AUDIENCE_CUSTOMER)
     ios_tokens = [t.token for t in tokens if t.platform == "IOS"]
 
-    logger.info(f"📱 Found {len(ios_tokens)} iOS device tokens")
+    logger.info(f"📱 Found {len(ios_tokens)} admin iOS device tokens")
 
     if not ios_tokens:
-        logger.warning("⚠️ No iOS devices registered for error notifications")
+        logger.warning("⚠️ No admin iOS devices registered for error notifications")
         return {"success": 0, "failed": 0, "no_devices": True}
 
     # Build notification

@@ -6,7 +6,12 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 
 from services.push_notification_service import push_service
-from repositories.device_token_repository import device_token_repo
+from repositories.device_token_repository import (
+    AUDIENCE_BUSINESS,
+    AUDIENCE_CUSTOMER,
+    BUSINESS_IOS_BUNDLE_ID,
+    device_token_repo,
+)
 
 router = APIRouter(prefix="/api/push", tags=["Push Notifications"])
 
@@ -65,7 +70,7 @@ async def send_push_clientes(
     """
     bundle_id = "com.ruben.LlegoiOS"
     
-    tokens = await device_token_repo.get_all_active()
+    tokens = await device_token_repo.get_all_active(audience=AUDIENCE_CUSTOMER)
     ios_tokens = [t.token for t in tokens if t.platform == "IOS"]
     
     if not ios_tokens:
@@ -132,9 +137,9 @@ async def send_push_negocios(
     If scheduled_at is provided, the notification will be sent at that time.
     Otherwise, it sends immediately.
     """
-    bundle_id = "com.llego.business.LlegoBusiness"
+    bundle_id = BUSINESS_IOS_BUNDLE_ID
     
-    tokens = await device_token_repo.get_all_active()
+    tokens = await device_token_repo.get_all_active(audience=AUDIENCE_BUSINESS)
     ios_tokens = [t.token for t in tokens if t.platform == "IOS"]
     
     if not ios_tokens:

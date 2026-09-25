@@ -1253,7 +1253,12 @@ class PaymentService:
 
         # Notify business that customer submitted payment proof
         try:
-            from repositories.device_token_repository import device_token_repo
+            from repositories.device_token_repository import (
+                AUDIENCE_BUSINESS,
+                AUDIENCE_CUSTOMER,
+                BUSINESS_IOS_BUNDLE_ID,
+                device_token_repo,
+            )
             from services.push_notification_service import push_service
 
             order_num = str(order.get("orderNumber", ""))
@@ -1271,7 +1276,9 @@ class PaymentService:
 
             all_tokens = []
             for uid in user_ids:
-                all_tokens.extend(await device_token_repo.get_by_user_id(uid))
+                all_tokens.extend(
+                    await device_token_repo.get_by_user_id(uid, audience=AUDIENCE_BUSINESS)
+                )
 
             if all_tokens:
                 title = "Comprobante de pago recibido"
@@ -1285,7 +1292,12 @@ class PaymentService:
                 android_tokens = [t.token for t in all_tokens if t.platform == "ANDROID"]
                 if ios_tokens:
                     await push_service.send_to_all(
-                        tokens=ios_tokens, title=title, body=body, data=data, platform="IOS"
+                        tokens=ios_tokens,
+                        title=title,
+                        body=body,
+                        data=data,
+                        platform="IOS",
+                        bundle_id=BUSINESS_IOS_BUNDLE_ID,
                     )
                 if android_tokens:
                     await push_service.send_to_all(
@@ -1342,13 +1354,20 @@ class PaymentService:
 
         # Notify customer that business confirmed their payment
         try:
-            from repositories.device_token_repository import device_token_repo
+            from repositories.device_token_repository import (
+                AUDIENCE_BUSINESS,
+                AUDIENCE_CUSTOMER,
+                BUSINESS_IOS_BUNDLE_ID,
+                device_token_repo,
+            )
             from services.push_notification_service import push_service
 
             customer_id = str(order.get("customerId", ""))
             order_num = str(order.get("orderNumber", ""))
 
-            device_tokens = await device_token_repo.get_by_user_id(customer_id)
+            device_tokens = await device_token_repo.get_by_user_id(
+                customer_id, audience=AUDIENCE_CUSTOMER
+            )
             if device_tokens:
                 title = "Pago confirmado"
                 body = f"El negocio confirmó tu pago del pedido #{order_num}. ¡Todo listo!"

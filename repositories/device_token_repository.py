@@ -5,6 +5,26 @@ from bson import ObjectId
 from clients import get_database
 from domain.business_types import DeviceToken, DevicePlatform
 
+# Apps que registran tokens. Un token sin bundleId es de la app de clientes
+# (LlegoiOS / LlegoApk registran sin bundleId).
+AUDIENCE_CUSTOMER = "customer"
+AUDIENCE_BUSINESS = "business"
+BUSINESS_BUNDLE_PREFIX = "com.llego.business"
+BUSINESS_IOS_BUNDLE_ID = "com.llego.business.LlegoBusiness"
+
+
+def token_audience(token: DeviceToken) -> str:
+    bundle_id = token.bundleId or ""
+    if bundle_id.startswith(BUSINESS_BUNDLE_PREFIX):
+        return AUDIENCE_BUSINESS
+    return AUDIENCE_CUSTOMER
+
+
+def _filter_audience(tokens: List[DeviceToken], audience: Optional[str]) -> List[DeviceToken]:
+    if audience is None:
+        return tokens
+    return [t for t in tokens if token_audience(t) == audience]
+
 
 class DeviceTokenRepository:
     collection_name = "device_tokens"
@@ -18,12 +38,12 @@ class DeviceTokenRepository:
         except Exception:
             return value
 
-    async def get_all_active(self) -> List[DeviceToken]:
-        """Get all active device tokens."""
+    async def get_all_active(self, audience: Optional[str] = None) -> List[DeviceToken]:
+        """Get all active device tokens, optionally only those of one app (audience)."""
         db = get_database()
         cursor = db[self.collection_name].find({"isActive": True})
         tokens = await cursor.to_list(length=None)
-        return [DeviceToken(**self._convert_id(t)) for t in tokens]
+        return _filter_audience([DeviceToken(**self._convert_id(t)) for t in tokens], audience)
 
     async def get_by_token(self, token: str) -> Optional[DeviceToken]:
         """Get device token by token string."""
@@ -31,14 +51,32 @@ class DeviceTokenRepository:
         device = await db[self.collection_name].find_one({"token": token})
         return DeviceToken(**self._convert_id(device)) if device else None
 
-    async def get_by_user_id(self, user_id: str) -> List[DeviceToken]:
-        """Get all device tokens for a specific user."""
+    async def get_by_user_id(
+        self, user_id: str, audience: Optional[str] = None
+    ) -> List[DeviceToken]:
+        """Get active device tokens for a user, optionally only those of one app (audience)."""
         db = get_database()
         cursor = db[self.collection_name].find(
             {"userId": self._to_object_id(user_id), "isActive": True}
         )
         tokens = await cursor.to_list(length=None)
-        return [DeviceToken(**self._convert_id(t)) for t in tokens]
+        return _filter_audience([DeviceToken(**self._convert_id(t)) for t in tokens], audience)
+
+    async def get_by_user_ids(
+        self, user_ids: List[str], audience: Optional[str] = None
+    ) -> List[DeviceToken]:
+        """Get active device tokens for several users, optionally filtered by audience."""
+        if not user_ids:
+            return []
+        db = get_database()
+        cursor = db[self.collection_name].find(
+            {
+                "userId": {"$in": [self._to_object_id(uid) for uid in user_ids]},
+                "isActive": True,
+            }
+        )
+        tokens = await cursor.to_list(length=None)
+        return _filter_audience([DeviceToken(**self._convert_id(t)) for t in tokens], audience)
 
     async def create_or_update(self, token_data: Dict[str, Any]) -> DeviceToken:
         """Create or update a device token."""
@@ -58,6 +96,9 @@ class DeviceTokenRepository:
                 "isActive": True,
                 "updatedAt": now
             }
+            # Solo sobrescribir bundleId si el cliente lo envía (clientes viejos no lo mandan)
+            if token_data.get("bundleId"):
+                update_data["bundleId"] = token_data["bundleId"]
             await db[self.collection_name].update_one(
                 {"token": token_data["token"]},
                 {"$set": update_data}

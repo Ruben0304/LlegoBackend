@@ -165,3 +165,8 @@ class RegisterDeviceTokenInput:
     platform: DevicePlatformEnum
     app_version: Optional[str] = strawberry.field(name="appVersion", default=None)
     os_version: Optional[str] = strawberry.field(name="osVersion", default=None)
+    bundle_id: Optional[str] = strawberry.field(
+        name="bundleId",
+        default=None,
+        description="Bundle ID / package de la app. Omitir = app de clientes.",
+    )
