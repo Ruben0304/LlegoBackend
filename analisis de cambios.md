@@ -2,6 +2,45 @@
 
 ---
 
+## 📅 25 de Septiembre, 2026
+
+### Resumen de cambios (últimas 24h)
+
+**2 commits** — brianmojena (co-authored Claude Opus 5.5). Día enfocado en push notifications: fix crítico de enrutamiento de pushes por app + suite de tests.
+
+---
+
+### Área 1: fix(push) + test(push) — Enrutamiento correcto de pushes y cobertura de tests (16:31–16:45)
+
+- **`fix(push): enrutar pushes a su app y no desactivar tokens válidos`** (16:31, brianmojena) — Fix de alta importancia en el sistema de notificaciones push:
+  - **Separación por app según `bundleId`**: los device tokens se clasifican en app de clientes (sin bundleId o bundleId que no empieza con `com.llego.business*`) o app de negocio (LlegoBusiness). Cada push solo llega a la app correcta: `new_order`, `order_status_update_business`, `payment_proof_submitted` y KYC usan el bundle de LlegoBusiness; pushes de clientes y broadcasts de tipos de negocio van solo a la app de clientes.
+  - **`registerDeviceToken` con `bundleId` opcional**: retro-compatible con clientes que no lo envían. Al actualizar un token existente no se borra el `bundleId` ya guardado.
+  - **APNs desactiva tokens solo en 410 Unregistered o 400 BadDeviceToken**: antes cualquier 400 desactivaba el token. `DeviceTokenNotForTopic` (token de otra app) desactivaba tokens válidos, p.ej. el token de clientes de dueños por el flujo de KYC.
+  - **`notify_critical_error` solo a admins**: antes enviaba a todos los iPhones de clientes; ahora solo a usuarios con `role=admin`.
+  - Tests en `tests/test_push_audience_routing.py`.
+
+- **`test(push): cubrir el enrutado de cada punto que envía pushes`** (16:45, brianmojena) — Suite de tests con mocks (sin red ni base de datos) que verifica que cada envío pide los tokens de su app y usa el bundle correcto:
+  - Pedidos: estado al cliente (app clientes), nuevo pedido y estado al negocio (app negocio, bundle LlegoBusiness).
+  - KYC: solo tokens de la app de negocio de los managers.
+  - Alertas de errores: solo admins; sin admins no se envía nada.
+  - Endpoints `/api/push/clientes`, `/api/push/negocios` y test-push de admin en `/api/error-logs`.
+
+---
+
+### Puede dar bateo
+
+1. **Tokens registrados antes del fix no tienen `bundleId` — dueños de negocio pierden pushes de negocio**: Todos los tokens pre-existentes sin `bundleId` se tratan como clientes. Los dueños que solo tienen la app de negocio instalada no recibirán `new_order` ni `order_status_update_business` hasta que vuelvan a registrar el token con el `bundleId` correcto. Confirmar si hay notificación al usuario o si se requiere re-registro manual.
+
+2. **APNs ya no desactiva en `DeviceTokenNotForTopic` — tokens stale de otra app quedan en BD indefinidamente**: No es un bug activo, pero la colección de tokens puede crecer con tokens inservibles de otra app. Considerar una tarea de limpieza periódica.
+
+3. **`notify_critical_error` solo a admins — confirmar que hay admins con token registrado en producción**: Si ningún usuario con `role=admin` tiene token registrado, los errores críticos no llegan a nadie por push. Verificar que los admins de producción tienen la app instalada y token activo.
+
+4. **Patrón `com.llego.business*` — confirmar que cubre todas las variantes del bundle de la app de negocio**: Si la app usa `com.llego.businesspro` u otro prefijo diferente, no matcheará y los pushes de negocio irán a la app de clientes. Confirmar el glob exacto contra el `bundleId` real publicado en App Store.
+
+5. **Tests con mocks — el mock puede diferir del comportamiento real de APNs**: Si el código de error real de APNs difiere del simulado (p.ej. formato distinto del body de error), los tests pasan pero en producción el token no se desactiva cuando debería.
+
+---
+
 ## 📅 24 de Septiembre, 2026
 
 ### Resumen de cambios (últimas 24h)
@@ -62,18 +101,4 @@ Sin cambios nuevos — sin riesgos nuevos. Se mantienen las consideraciones del 
 
 ---
 
-## 📅 17 de Septiembre, 2026
-
-### Resumen de cambios (últimas 24h)
-
-Sin commits nuevos de código. El único commit del período es "Analisis diario Claude" (generado automáticamente). No hay cambios en producción en LlegoBackend.
-
----
-
-### Puede dar bateo
-
-Sin cambios nuevos — sin riesgos nuevos.
-
----
-
-> ⚠️ **Nota de mantenimiento**: La entrada del **16 de Septiembre** fue eliminada el 24 de Septiembre al superar los 7 días de antigüedad (política de retención semanal). Las entradas del **10, 11, 14 y 15 de Septiembre** fueron eliminadas el 23 de Septiembre. La entrada del **9 de Septiembre** fue eliminada el 17 de Septiembre. La entrada del **7 de Septiembre** fue eliminada el 15 de Septiembre. La entrada del **2 de Septiembre** fue eliminada el 10 de Septiembre. Anteriores eliminadas progresivamente desde Mayo.
+> ⚠️ **Nota de mantenimiento**: La entrada del **17 de Septiembre** fue eliminada el 25 de Septiembre al superar los 7 días de antigüedad (política de retención semanal). Las entradas del **16 de Septiembre** y anteriores fueron eliminadas progresivamente.
