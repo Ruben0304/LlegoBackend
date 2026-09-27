@@ -2,11 +2,25 @@
 
 ---
 
+## 📅 27 de Septiembre, 2026
+
+### Resumen de cambios (últimas 24h)
+
+Sin commits de código nuevos. El único commit del período es el "Analisis diario Claude" automático generado en el análisis del 26-sep. No hay cambios en producción en LlegoBackend hoy.
+
+---
+
+### Puede dar bateo
+
+Sin cambios nuevos — sin riesgos nuevos. Se mantienen las consideraciones del 25 de septiembre (enrutamiento de push notifications, tokens sin bundleId, desactivación de tokens APNs).
+
+---
+
 ## 📅 26 de Septiembre, 2026
 
 ### Resumen de cambios (últimas 24h)
 
-Sin commits de código nuevos. El único commit del período es el "Analisis diario Claude" automático generado en el análisis del 25-sep. No hay cambios en producción en LlegoBackend hoy.
+Sin commits de código nuevos. El único commit del período es el "Analisis diario Claude" automático del 25-sep. No hay cambios en producción en LlegoBackend hoy.
 
 ---
 
