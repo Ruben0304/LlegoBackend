@@ -319,6 +319,16 @@ class DeliveryRequestStatus(str, Enum):
     REJECTED = "rejected"
 
 
+class CourierVerificationStatus(str, Enum):
+    """Alta de un mensajero: rellena sus datos (INCOMPLETE -> PENDING) y un
+    admin de plataforma lo aprueba o rechaza desde el Panel Admin."""
+
+    INCOMPLETE = "incomplete"
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
 class DeliveryPerson(BaseModel):
     """Delivery person model."""
 
@@ -337,8 +347,22 @@ class DeliveryPerson(BaseModel):
     currentLocation: Optional[GeoPoint] = None
     currentOrderId: Optional[PyObjectId] = None
     linkedBranchIds: List[PyObjectId] = []
+    # Datos de identidad y verificación. Los documentos anteriores a esto no
+    # tienen los campos y quedan como INCOMPLETE: deben rellenar el formulario.
+    firstName: Optional[str] = None
+    lastName: Optional[str] = None
+    identityCard: Optional[str] = None
+    verificationStatus: CourierVerificationStatus = CourierVerificationStatus.INCOMPLETE
+    verificationSubmittedAt: Optional[datetime] = None
+    verificationReviewedAt: Optional[datetime] = None
+    verificationReviewedBy: Optional[PyObjectId] = None
+    verificationRejectionReason: Optional[str] = None
     createdAt: datetime
     updatedAt: datetime
+
+    @property
+    def is_approved(self) -> bool:
+        return self.verificationStatus == CourierVerificationStatus.APPROVED
 
     @field_validator("vehicleType", mode="before")
     @classmethod

@@ -404,16 +404,15 @@ class OrderQuery:
 
         delivery_person = await _get_or_create_delivery_person(user_id)
 
-        if delivery_person.linkedBranchIds:
+        # Solo un mensajero aprobado ve pedidos, y solo los de las sucursales
+        # que le asignó un admin. Sin sucursales no ve nada (ya no hay
+        # fallback por radio). latitude/longitude/radiusKm quedan por
+        # compatibilidad con clientes antiguos.
+        orders = []
+        if delivery_person.is_approved and delivery_person.linkedBranchIds:
             orders = list(
                 await orders_repo.get_awaiting_delivery_acceptance_by_branches(
                     delivery_person.linkedBranchIds
-                )
-            )
-        else:
-            orders = list(
-                await orders_repo.get_awaiting_delivery_acceptance_nearby(
-                    longitude, latitude, radiusKm
                 )
             )
 

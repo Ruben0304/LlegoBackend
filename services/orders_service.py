@@ -139,6 +139,16 @@ class OrderService:
     def _ids_equal(a, b) -> bool:
         return str(a) == str(b)
 
+    @staticmethod
+    def _ensure_courier_can_take(delivery_person: DeliveryPerson, order: Order) -> None:
+        """Un mensajero solo puede tomar pedidos si está aprobado y el pedido
+        es de una de sus sucursales asignadas."""
+        if not delivery_person.is_approved:
+            raise ValueError("Tu cuenta de mensajero aún no está verificada")
+        linked = {str(b) for b in delivery_person.linkedBranchIds}
+        if str(order.branchId) not in linked:
+            raise ValueError("Este pedido no pertenece a tus sucursales asignadas")
+
     async def _money_claimed_reason(self, order: Order) -> Optional[str]:
         """Motivo si el pedido tiene dinero pagado o declarado como enviado.
 
@@ -2185,6 +2195,9 @@ class OrderService:
         ):
             raise ValueError("El pedido ya tiene un repartidor asignado")
 
+        if not order.deliveryPersonId:
+            self._ensure_courier_can_take(delivery_person, order)
+
         if delivery_person.currentOrderId and not self._ids_equal(
             delivery_person.currentOrderId, order_id
         ):
@@ -2226,6 +2239,8 @@ class OrderService:
 
         if order.status != OrderStatus.AWAITING_DELIVERY_ACCEPTANCE:
             raise ValueError("El pedido no está esperando confirmación del mensajero")
+
+        self._ensure_courier_can_take(delivery_person, order)
 
         if order.deliveryPersonId:
             raise ValueError("El pedido ya fue tomado por otro mensajero")

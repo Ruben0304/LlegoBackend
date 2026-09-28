@@ -24,6 +24,8 @@ from .businesses.queries import BusinessQuery
 from .categories.queries import CategoryQuery
 from .combos.mutations import ComboMutation
 from .combos.queries import ComboQuery
+from .couriers.mutations import CourierMutation
+from .couriers.queries import CourierQuery
 from .error_logs.mutations import ErrorLogMutation
 from .error_logs.queries import ErrorLogQuery
 from .extensions import ErrorLoggingExtension, LastSeenExtension, UserIdExtension
@@ -76,6 +78,7 @@ class Query(
     ComboQuery,
     AiAssistantQuery,
     OrderQuery,
+    CourierQuery,
     BusinessTypeQuery,
     PaymentMethodQuery,
     WalletQuery,
@@ -114,6 +117,7 @@ class Mutation(
     ShowcaseMutation,
     ComboMutation,
     OrderMutation,
+    CourierMutation,
     BusinessTypeMutation,
     PaymentMutation,
     WalletMutation,

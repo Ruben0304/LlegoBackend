@@ -1,5 +1,6 @@
 """Repository classes for Orders, Delivery Persons, and Location Updates."""
 
+import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -8,6 +9,7 @@ from bson import ObjectId
 from clients.mongodb_client import get_database
 from domain.orders import (
     BranchDeliveryRequest,
+    CourierVerificationStatus,
     DeliveryPerson,
     DeliveryRequestStatus,
     Order,
@@ -1187,6 +1189,126 @@ class DeliveryPersonRepository:
         )
         return self._doc_to_delivery_person(result) if result else None
 
+    async def get_by_identity_card(
+        self, identity_card: str
+    ) -> Optional[DeliveryPerson]:
+        collection = self._get_collection()
+        doc = await collection.find_one({"identityCard": identity_card})
+        return self._doc_to_delivery_person(doc) if doc else None
+
+    async def submit_verification(
+        self,
+        delivery_person_id: str,
+        first_name: str,
+        last_name: str,
+        identity_card: str,
+    ) -> Optional[DeliveryPerson]:
+        """Guarda los datos del mensajero y lo deja PENDING. Un mensajero ya
+        aprobado no puede reenviar (el filtro lo excluye y devuelve None)."""
+        collection = self._get_collection()
+        now = datetime.utcnow()
+        result = await collection.find_one_and_update(
+            {
+                "_id": self._to_object_id(delivery_person_id),
+                "verificationStatus": {
+                    "$ne": CourierVerificationStatus.APPROVED.value
+                },
+            },
+            {
+                "$set": {
+                    "firstName": first_name,
+                    "lastName": last_name,
+                    "name": f"{first_name} {last_name}",
+                    "identityCard": identity_card,
+                    "verificationStatus": CourierVerificationStatus.PENDING.value,
+                    "verificationSubmittedAt": now,
+                    "verificationRejectionReason": None,
+                    "updatedAt": now,
+                }
+            },
+            return_document=True,
+        )
+        return self._doc_to_delivery_person(result) if result else None
+
+    async def review_verification(
+        self,
+        delivery_person_id: str,
+        status: CourierVerificationStatus,
+        reviewer_id: str,
+        rejection_reason: Optional[str] = None,
+    ) -> Optional[DeliveryPerson]:
+        collection = self._get_collection()
+        now = datetime.utcnow()
+        result = await collection.find_one_and_update(
+            {"_id": self._to_object_id(delivery_person_id)},
+            {
+                "$set": {
+                    "verificationStatus": status.value,
+                    "verificationReviewedAt": now,
+                    "verificationReviewedBy": self._to_object_id(reviewer_id),
+                    "verificationRejectionReason": rejection_reason,
+                    "updatedAt": now,
+                }
+            },
+            return_document=True,
+        )
+        return self._doc_to_delivery_person(result) if result else None
+
+    async def set_linked_branches(
+        self, delivery_person_id: str, branch_ids: List[str]
+    ) -> Optional[DeliveryPerson]:
+        """Reemplaza por completo las sucursales asignadas (Panel Admin)."""
+        collection = self._get_collection()
+        unique_ids = list(dict.fromkeys(branch_ids))
+        result = await collection.find_one_and_update(
+            {"_id": self._to_object_id(delivery_person_id)},
+            {
+                "$set": {
+                    "linkedBranchIds": [self._to_object_id(b) for b in unique_ids],
+                    "updatedAt": datetime.utcnow(),
+                }
+            },
+            return_document=True,
+        )
+        return self._doc_to_delivery_person(result) if result else None
+
+    async def list_for_admin(
+        self,
+        status: Optional[CourierVerificationStatus],
+        search: Optional[str],
+        skip: int,
+        limit: int,
+    ) -> Tuple[List[DeliveryPerson], int]:
+        """Mensajeros para el Panel Admin. Los documentos sin
+        verificationStatus cuentan como INCOMPLETE."""
+        collection = self._get_collection()
+        query: Dict[str, Any] = {}
+        if status == CourierVerificationStatus.INCOMPLETE:
+            query["$or"] = [
+                {"verificationStatus": CourierVerificationStatus.INCOMPLETE.value},
+                {"verificationStatus": {"$exists": False}},
+            ]
+        elif status is not None:
+            query["verificationStatus"] = status.value
+        if search:
+            pattern = {"$regex": re.escape(search.strip()), "$options": "i"}
+            search_or = [
+                {"name": pattern},
+                {"firstName": pattern},
+                {"lastName": pattern},
+                {"identityCard": pattern},
+                {"phone": pattern},
+            ]
+            query = {"$and": [query, {"$or": search_or}]} if query else {"$or": search_or}
+        total = await collection.count_documents(query)
+        cursor = (
+            collection.find(query)
+            .sort([("verificationSubmittedAt", -1), ("createdAt", -1)])
+            .skip(skip)
+            .limit(limit)
+        )
+        return [self._doc_to_delivery_person(doc) async for doc in cursor], total
+
     async def unlink_all_from_branch(self, branch_id: str) -> int:
         """Remove a branch from all delivery persons' linkedBranchIds."""
         collection = self._get_collection()
@@ -1411,6 +1533,16 @@ async def create_order_indexes():
     await delivery_persons.create_index([("currentLocation", "2dsphere")])
     await delivery_persons.create_index([("isActive", 1), ("isOnline", 1)])
     await delivery_persons.create_index("userId", unique=True)
+    # Un carnet solo puede pertenecer a una cuenta de mensajero.
+    await delivery_persons.create_index(
+        "identityCard",
+        unique=True,
+        name="idx_delivery_person_identity_card_unique",
+        partialFilterExpression={"identityCard": {"$type": "string"}},
+    )
+    await delivery_persons.create_index(
+        [("verificationStatus", 1), ("verificationSubmittedAt", -1)]
+    )
 
     # Order location updates indexes (with TTL)
     order_locations = db.order_location_updates

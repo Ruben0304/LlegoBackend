@@ -303,6 +303,25 @@ Regla: no pasar a `preparing` si es no-efectivo y `paymentStatus != completed`. 
 `rejectOrderForPayment`, `acceptDelivery` (legacy), `confirmPickup`,
 `updateDeliveryLocation`, `confirmDelivery`.
 
+### Alta y verificación de mensajeros
+
+`DeliveryPerson.verificationStatus`: `incomplete → pending → approved | rejected`. Los
+documentos sin el campo cuentan como `incomplete`. Tras el login, la app de mensajeros
+consulta `myCourierProfile` y, si hace falta, envía nombre, apellido y carnet (11 dígitos,
+AAMMDD válido) con `submitCourierProfile` → `pending`. El carnet es único (índice parcial
+`idx_delivery_person_identity_card_unique`). Un aprobado no puede reenviar sus datos.
+
+El Panel Admin (`admin`/`manager`) usa `adminCouriers`, `adminCourier`,
+`adminCourierBranchOptions`, `reviewCourier` (aprobar con `branchIds` opcional o rechazar
+con motivo) y `setCourierBranches` (reemplaza `linkedBranchIds`).
+
+**Regla de pedidos:** `availableOrdersForDelivery` devuelve pedidos solo si el mensajero
+está `approved`, y solo de sus `linkedBranchIds` (sin sucursales no ve nada; ya no hay
+fallback por radio). `acceptOrderForPayment`/`acceptDelivery` aplican la misma regla en
+`OrderService._ensure_courier_can_take`. El flujo antiguo `requestBranchLink` /
+`respondBranchLinkRequest` (manager de sucursal) sigue en el schema, pero la app ya no lo usa.
+Lógica pura de validación: [services/courier_verification.py](services/courier_verification.py).
+
 ### Presencia de mensajeros
 
 `updateDeliveryLocation` escribe en Redis (`presence:courier:{id}:loc`, TTL 45 s) y en
