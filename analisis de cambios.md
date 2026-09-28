@@ -2,6 +2,39 @@
 
 ---
 
+## 📅 28 de Septiembre, 2026
+
+### Resumen de cambios (últimas 24h)
+
+**1 commit** — brianmojena (co-authored Claude Opus 5.5). Día dedicado a ampliar la cobertura de tests de push notifications: contrato de payload FCM, pushes de pagos, mutations de business_types y JWT de APNs.
+
+---
+
+### Área 1: test(push) — Cobertura completa del contrato de payload y JWT de APNs (17:02)
+
+- **`test(push): contrato de payload, pagos, business_types y JWT de APNs`** (17:02, brianmojena) — Nuevo archivo `tests/test_push_notification_contract.py` (311 líneas). Completa la cobertura de notificaciones push:
+  - **Contrato FCM por tipo**: `data` solo strings (no objetos), claves que consumen las apps (`type`, `orderId`, `status`) y `channel_id llego_orders`. Garantiza que un campo de tipo dict/list en el payload no rompa silenciosamente el envío en FCM.
+  - **Pushes de pagos**: "comprobante enviado" (`payment_proof_submitted`) y "pago confirmado por el negocio". Verifica que llegan al bundle y audiencia correctos según el fix de enrutamiento del 25-sep.
+  - **Mutations de business_types**: audiencia, bundle y payload. Confirma que `updateBusinessType` y similares envían el push al segmento correcto.
+  - **JWT de APNs real**: firmado con clave EC P-256 efímera (ES256, `kid`, `iss`, `iat`); testea el caché del JWT y su renovación antes de expirar.
+  - **Resiliencia a timeouts**: FCM/APNs con timeout no rompen el flujo del pedido ni desactivan el token.
+
+---
+
+### Puede dar bateo
+
+1. **Clave EC P-256 efímera — `kid` debe coincidir con el registrado en Apple Developer**: Si el código genera un `kid` distinto en cada arranque o no coincide con el configurado en el Apple Developer Portal, APNs rechazará todos los JWT con 403 `InvalidProviderToken`. Confirmar que el `kid` es estático o se carga desde config y coincide con el registrado.
+
+2. **Caché del JWT de APNs en memoria — se pierde en cada reinicio**: Si el caché se almacena en memoria de proceso (no Redis ni DB), cada deploy o reinicio arranca sin caché. No es un bug crítico (APNs admite nuevos JWT), pero si la renovación ocurre muy cerca de la expiración (~5 min de margen de APNs) puede haber una ventana de rechazo. Confirmar el almacenamiento del caché.
+
+3. **Contrato FCM `data` solo strings — un campo `int`/`bool`/`dict` añadido después rompe silenciosamente todo el envío**: El test lo verifica en el estado actual, pero no hay validación en runtime que lo garantice para campos futuros. Considerar una función helper `to_fcm_data_dict()` que convierta todos los valores a string antes de enviar.
+
+4. **Tests con mocks de FCM/APNs — comportamiento real puede diferir**: Si FCM cambia el formato del error de timeout o APNs cambia el código de un JWT inválido, los tests seguirán en verde pero producción fallará. Complementar con un test de integración contra sandbox de APNs o proyecto FCM de prueba si es posible.
+
+5. **`channel_id llego_orders` fijo en Android — usuarios que desactivaron el canal no reciben nada**: Si un usuario de Android desactivó el canal `llego_orders` en los ajustes del sistema, ningún push de pedidos llegará. No hay fallback a otro canal. Confirmar si es un caso conocido y si se quiere manejar.
+
+---
+
 ## 📅 27 de Septiembre, 2026
 
 ### Resumen de cambios (últimas 24h)
