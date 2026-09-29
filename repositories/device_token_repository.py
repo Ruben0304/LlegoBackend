@@ -1,5 +1,6 @@
 """Device token repository for push notification management."""
-from typing import List, Optional, Dict, Any
+import re
+from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
 from bson import ObjectId
 from clients import get_database
@@ -18,6 +19,16 @@ def token_audience(token: DeviceToken) -> str:
     if bundle_id.startswith(BUSINESS_BUNDLE_PREFIX):
         return AUDIENCE_BUSINESS
     return AUDIENCE_CUSTOMER
+
+
+def _audience_query(audience: Optional[str]) -> Dict[str, Any]:
+    """Filtro Mongo equivalente a token_audience (sin bundleId = clientes)."""
+    business = re.compile("^" + re.escape(BUSINESS_BUNDLE_PREFIX))
+    if audience == AUDIENCE_BUSINESS:
+        return {"bundleId": business}
+    if audience == AUDIENCE_CUSTOMER:
+        return {"bundleId": {"$not": business}}
+    return {}
 
 
 def _filter_audience(tokens: List[DeviceToken], audience: Optional[str]) -> List[DeviceToken]:
@@ -77,6 +88,45 @@ class DeviceTokenRepository:
         )
         tokens = await cursor.to_list(length=None)
         return _filter_audience([DeviceToken(**self._convert_id(t)) for t in tokens], audience)
+
+    async def get_active_by_ids(self, device_ids: List[str]) -> List[DeviceToken]:
+        """Active device tokens by document id."""
+        if not device_ids:
+            return []
+        db = get_database()
+        cursor = db[self.collection_name].find(
+            {
+                "_id": {"$in": [self._to_object_id(d) for d in device_ids]},
+                "isActive": True,
+            }
+        )
+        tokens = await cursor.to_list(length=None)
+        return [DeviceToken(**self._convert_id(t)) for t in tokens]
+
+    async def list_for_admin(
+        self,
+        audience: Optional[str] = None,
+        platform: Optional[str] = None,
+        user_ids: Optional[List[str]] = None,
+        anonymous_only: bool = False,
+        skip: int = 0,
+        limit: int = 20,
+    ) -> Tuple[List[DeviceToken], int]:
+        """Active devices for the Panel Admin, most recently seen first."""
+        query: Dict[str, Any] = {"isActive": True, **_audience_query(audience)}
+        if platform:
+            query["platform"] = platform
+        if anonymous_only:
+            query["userId"] = None
+        elif user_ids is not None:
+            query["userId"] = {"$in": [self._to_object_id(u) for u in user_ids]}
+
+        db = get_database()
+        collection = db[self.collection_name]
+        total = await collection.count_documents(query)
+        cursor = collection.find(query).sort("updatedAt", -1).skip(skip).limit(limit)
+        docs = await cursor.to_list(length=limit)
+        return [DeviceToken(**self._convert_id(d)) for d in docs], total
 
     async def create_or_update(self, token_data: Dict[str, Any]) -> DeviceToken:
         """Create or update a device token."""
