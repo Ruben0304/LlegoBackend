@@ -9,6 +9,7 @@ from bson import ObjectId
 
 from clients import get_database
 from domain.models import User
+from utils.phone import cuban_phone_regex
 
 
 class UserRepository:
@@ -62,6 +63,23 @@ class UserRepository:
             query["_id"] = {"$ne": object_id}
 
         user = await db[self.collection_name].find_one(query)
+        return user is not None
+
+    async def phone_used_by_other_user(
+        self, phone: str, exclude_user_id: Optional[str] = None
+    ) -> bool:
+        """True si otra cuenta tiene el mismo teléfono (en cualquier formato habitual)."""
+        db = get_database()
+        pattern = cuban_phone_regex(phone)
+        query: dict = {"phone": {"$regex": pattern}} if pattern else {"phone": phone.strip()}
+        if exclude_user_id:
+            try:
+                object_id = ObjectId(exclude_user_id)
+            except Exception:
+                object_id = exclude_user_id
+            query["_id"] = {"$ne": object_id}
+
+        user = await db[self.collection_name].find_one(query, {"_id": 1})
         return user is not None
 
     async def search(self, query: str, limit: int = 50) -> List[User]:

@@ -334,6 +334,21 @@ muestran nada** para pedidos pagados por esas dos vías. Solo aparecen en
 Las sucursales demo (`branch.isDemoStore`) se auto-completan sin pasar por nada de esto
 ([services/payments_service.py:330](services/payments_service.py:330)).
 
+### Transferencia confirmada por Atajos (SMS)
+
+Un Atajo de iOS en el teléfono que recibe el SMS de Transfermóvil llama a
+`POST /shortcuts/register-transfer` (API key estática) con `transfer_id`, `amount` y el
+teléfono del pagador. `confirmTransferByShortcut` (la app iOS lo sondea cada 5 s sin
+`transferId`) empareja ese registro con el pago por el teléfono del perfil o por el ID.
+
+El teléfono del perfil es texto libre y **no se verifica**, así que
+`confirm_transfer_by_shortcut` exige además: intento en CUP (el SMS no trae moneda),
+monto de la transferencia ≥ total, transferencia registrada después de crear el pedido,
+que ninguna otra cuenta tenga ese teléfono (solo en el camino por teléfono) y activación
+compare-and-set (`activated: False`) para que una transferencia no pague dos pedidos.
+Los teléfonos se comparan normalizados a 8 dígitos nacionales con
+[utils/phone.py](utils/phone.py): el perfil puede tener `+53 5XXX XXXX` y el SMS `5XXXXXXX`.
+
 ### Habilitar métodos por sucursal
 
 Dos mecanismos distintos, y hay que conocer los dos:

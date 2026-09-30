@@ -22,6 +22,9 @@ class ShortcutTransfer(BaseModel):
     transfer_id: str  # Bank transfer ID extracted from SMS
     amount: float  # Transfer amount
     phone: Optional[str] = None  # Phone number that received the SMS
+    # `phone` normalizado a los 8 dígitos nacionales (utils.phone) para comparar sin
+    # depender del formato; None si no es un número cubano o en registros antiguos.
+    phone_national: Optional[str] = None
     date: Optional[datetime] = None  # Transfer date from SMS
     activated: bool = False  # Whether this transfer has been used to confirm a payment
     activated_at: Optional[datetime] = None

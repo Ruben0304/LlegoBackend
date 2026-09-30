@@ -27,7 +27,10 @@ from services.payments.providers.registry import (
     ALL_DIGITAL_PROVIDERS,
     DIGITAL_PAYMENT_PROVIDERS,
 )
-from services.shortcut_transfer_service import shortcut_transfer_service
+from services.shortcut_transfer_service import (
+    shortcut_transfer_service,
+    transfers_covering_amount,
+)
 from utils.currency import branch_accepts_currency, normalize_currency
 
 logger = logging.getLogger(__name__)
@@ -1692,6 +1695,15 @@ class PaymentService:
           3. If a matching pending shortcut transfer is found → activate it and
              complete the payment immediately (no manual business confirmation needed).
 
+        Safeguards (the profile phone is free text and never verified):
+          - Only CUP attempts: the SMS amount carries no currency, so a CUP transfer
+            must never confirm a USD order.
+          - The transfer must cover the attempt total and be registered after the
+            order was created.
+          - Phone matching ignores format ("+53 5XXX XXXX" == "5XXXXXXX") and is
+            refused when another account has the same phone.
+          - Activation is compare-and-set, so one transfer can't pay two orders.
+
         Args:
             payment_attempt_id: The payment attempt to confirm.
             user_id: The authenticated customer's ID.
@@ -1715,16 +1727,26 @@ class PaymentService:
         if not attempt.sendsSmsNotification:
             raise ValueError("Este pago no fue marcado como transferencia con SMS")
 
+        if str(attempt.currency or "").strip().lower() not in {"local", "cup"}:
+            raise ValueError(
+                "La confirmación automática por SMS solo está disponible para pagos en CUP"
+            )
+
+        order_created_at = order.get("createdAt")
+        created_after = order_created_at if isinstance(order_created_at, datetime) else None
+
+        user_phone = None
         if transfer_id:
             transfers = await shortcut_transfer_service.find_pending_transfer(
-                transfer_id=transfer_id.strip()
+                transfer_id=transfer_id.strip(), created_after=created_after
             )
         else:
             user = await self._get_user(user_id)
             if not user or not user.get("phone"):
                 raise ValueError("El usuario no tiene número de teléfono en su perfil")
+            user_phone = user["phone"]
             transfers = await shortcut_transfer_service.find_pending_transfer(
-                phone=user["phone"]
+                phone=user_phone, created_after=created_after
             )
 
         if not transfers:
@@ -1734,9 +1756,29 @@ class PaymentService:
                 )
             raise ValueError("phone_not_found")
 
-        matched = transfers[0]
+        candidates = transfers_covering_amount(transfers, attempt.totalAmount)
+        if not candidates:
+            raise ValueError(
+                "La transferencia encontrada es por un monto menor al total del pedido"
+            )
 
-        await shortcut_transfer_service.activate_transfer(matched.id)
+        # Un teléfono compartido con otra cuenta no identifica a quién pagó (o alguien
+        # puso en su perfil el número de otro): exigir el ID de la transferencia.
+        if user_phone and await users_repo.phone_used_by_other_user(
+            user_phone, exclude_user_id=user_id
+        ):
+            raise ValueError(
+                "Tu teléfono está registrado en otra cuenta. "
+                "Confirma el pago con el ID de la transferencia."
+            )
+
+        matched = None
+        for candidate in candidates:
+            if await shortcut_transfer_service.activate_transfer(candidate.id):
+                matched = candidate
+                break
+        if not matched:
+            raise ValueError("La transferencia ya fue usada para confirmar otro pago")
 
         updated = await self.payment_attempts_repo.update_status(
             payment_attempt_id,
