@@ -2,6 +2,20 @@
 
 ---
 
+## 📅 30 de Septiembre, 2026
+
+### Resumen de cambios (últimas 24h)
+
+Sin commits de código nuevos. No hay cambios en producción en LlegoBackend hoy.
+
+---
+
+### Puede dar bateo
+
+Sin cambios nuevos — sin riesgos nuevos. Se mantienen las consideraciones del 28 de septiembre (cobertura de tests de push notifications, contrato FCM, JWT de APNs).
+
+---
+
 ## 📅 28 de Septiembre, 2026
 
 ### Resumen de cambios (últimas 24h)
