@@ -38,6 +38,10 @@ class BusinessWithBranchesType:
     branches: List[BranchType]
     isOwner: bool  # True if user is the owner, False if invited
     role: str  # "owner", "manager", or "employee"
+    # Mismo campo que BusinessType.predefinedDeliveryFee: la app de negocios lo
+    # pide en el fragment BusinessRoleFields. Si falta aquí, la query entera
+    # falla en validación y la app no puede cargar sus negocios.
+    predefinedDeliveryFee: Optional[float] = None
 
     @strawberry.field(description="Presigned URL for the business avatar")
     def avatar_url(self) -> Optional[str]:
@@ -272,6 +276,7 @@ class BusinessQuery:
                     approvedAt=business.approvedAt,
                     rejectedAt=business.rejectedAt,
                     createdAt=business.createdAt,
+                    predefinedDeliveryFee=business.predefinedDeliveryFee,
                     branches=branches,
                     isOwner=is_owner,
                     role=role,
