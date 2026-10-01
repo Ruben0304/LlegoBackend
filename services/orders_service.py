@@ -1,6 +1,7 @@
 """Order service with business logic."""
 
 import asyncio
+import logging
 import re
 import unicodedata
 import uuid
@@ -59,6 +60,9 @@ from services.orders_utils import (
     scheduled_preparation_floor,
 )
 from utils.currency import branch_accepts_currency, normalize_currency
+
+
+logger = logging.getLogger(__name__)
 
 
 class OrderValidationError(ValueError):
@@ -1452,6 +1456,9 @@ class OrderService:
 
         created_order = await self.orders_repo.create(order)
 
+        # 7.5. Tiempo real para la app de negocios (newBranchOrder)
+        await self._publish_branch_order_event(created_order, is_new=True)
+
         # 8. Send push notification to branch managers/owner
         await self._send_new_order_notification_to_business(
             created_order, branch, business
@@ -1771,11 +1778,14 @@ class OrderService:
 
     async def extend_payment_deadline(self, order_id: str) -> None:
         """El cliente pulso "Pagar": le damos un plazo fresco para transferir."""
-        await self.orders_repo.extend_deadline(
+        updated = await self.orders_repo.extend_deadline(
             order_id,
             datetime.utcnow() + timedelta(minutes=self.PAYMENT_START_GRACE_MINUTES),
             expected_status=OrderStatus.PENDING_PAYMENT,
         )
+        # La tienda ve que el cliente empezo a pagar (ya no puede modificar el
+        # pedido) y el plazo nuevo de la cuenta atras.
+        await self._publish_branch_order_event(updated)
 
     async def mark_order_paid(self, order_id: str, attempt_id: str) -> Optional[Order]:
         """Registra un pago completado y, si el pedido lo estaba esperando, lo pasa
@@ -1824,9 +1834,11 @@ class OrderService:
             order.status == OrderStatus.ACCEPTED
             and order.paymentStatus != PaymentStatus.COMPLETED
         ):
-            return await self.orders_repo.record_payment(order_id, attempt_id)
+            recorded = await self.orders_repo.record_payment(order_id, attempt_id)
+            await self._publish_branch_order_event(recorded)
+            return recorded
 
-        return await self.orders_repo.record_payment(
+        recorded = await self.orders_repo.record_payment(
             order_id,
             attempt_id,
             attention_reason=(
@@ -1840,6 +1852,8 @@ class OrderService:
                 actor=OrderActor.SYSTEM,
             ),
         )
+        await self._publish_branch_order_event(recorded)
+        return recorded
 
     async def accept_order(
         self,
@@ -2694,13 +2708,64 @@ class OrderService:
             "estimatedMinutes": estimated_minutes,
         }
 
+    async def _publish_branch_order_event(
+        self, order: Optional[Order], is_new: bool = False
+    ) -> None:
+        """Tiempo real para la app de negocios.
+
+        - `newBranchOrder` (canal `branch:{branchId}`): pedido recien creado, o
+          reenviado por el cliente (vuelve a PENDING_ACCEPTANCE y la tienda
+          tiene que responder otra vez; la app suena con este canal).
+        - `branchOrderUpdated` (canal `branch_updates:{branchId}`): cualquier
+          cambio de estado o de pago posterior a la creacion.
+
+        El pubsub es en memoria del proceso (schema/orders/subscriptions.py,
+        context.md §5): publicar solo encola en colas sin limite, no espera red.
+        Nunca rompe ni frena la operacion principal: un fallo solo se loguea.
+        """
+        if order is None:
+            return
+        try:
+            from schema.orders.subscriptions import (
+                publish_branch_order,
+                publish_branch_order_update,
+            )
+
+            branch_id = str(order.branchId)
+            if is_new:
+                await publish_branch_order(branch_id, order)
+                return
+            await publish_branch_order_update(branch_id, order)
+            if order.status == OrderStatus.PENDING_ACCEPTANCE:
+                await publish_branch_order(branch_id, order)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "No se pudo publicar el evento de sucursal del pedido %s: %s",
+                getattr(order, "id", "?"),
+                exc,
+            )
+
+    async def publish_branch_order_changed(self, order_id: str) -> None:
+        """Para quien cambia un pedido fuera de OrderService (webhooks de
+        QvaPay/TronDealer): relee el pedido y avisa a la sucursal. Nunca lanza."""
+        try:
+            order = await self.orders_repo.get_by_id(str(order_id))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "No se pudo releer el pedido %s para publicarlo: %s", order_id, exc
+            )
+            return
+        await self._publish_branch_order_event(order)
+
     async def _emit_tracking_event(self, order: Order):
         """
         Emit tracking event for real-time subscription.
 
         Called when order status changes or delivery location updates.
-        Also sends push notification to customer.
+        Also sends push notification to customer, and publishes the change to
+        the branch (branchOrderUpdated) for the business app.
         """
+        await self._publish_branch_order_event(order)
         try:
             # Import here to avoid circular dependency
             from schema.orders.subscriptions import publish_order_tracking

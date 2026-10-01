@@ -24,6 +24,7 @@ from .subscriptions import (
     OrderSubscription,
     order_pubsub,
     publish_branch_order,
+    publish_branch_order_update,
     publish_delivery_location,
     publish_order_update,
 )
@@ -116,5 +117,6 @@ __all__ = [
     "order_pubsub",
     "publish_order_update",
     "publish_branch_order",
+    "publish_branch_order_update",
     "publish_delivery_location",
 ]

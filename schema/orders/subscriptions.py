@@ -2,8 +2,10 @@
 import strawberry
 from typing import AsyncGenerator, Optional, List
 import asyncio
+import logging
 
 from strawberry.types import Info
+from services.access_checker import access_checker
 from utils.graphql_auth import require_auth
 
 from .types import (
@@ -61,8 +63,13 @@ async def publish_order_update(order_id: str, order):
 
 
 async def publish_branch_order(branch_id: str, order):
-    """Publish new/updated order to branch subscribers."""
+    """Publish a new (or resubmitted) order to branch subscribers (newBranchOrder)."""
     await order_pubsub.publish(f"branch:{branch_id}", order)
+
+
+async def publish_branch_order_update(branch_id: str, order):
+    """Publish an order status/payment change to branch subscribers (branchOrderUpdated)."""
+    await order_pubsub.publish(f"branch_updates:{branch_id}", order)
 
 
 async def publish_delivery_location(order_id: str, location_update: dict):
@@ -73,6 +80,34 @@ async def publish_delivery_location(order_id: str, location_update: dict):
 async def publish_order_tracking(order_id: str, tracking_data: OrderTrackingStreamPayload):
     """Publish order tracking update for streaming subscription."""
     await order_pubsub.publish(f"order_tracking:{order_id}", tracking_data)
+
+
+logger = logging.getLogger(__name__)
+
+
+async def _authorize_branch_stream(info: Info, branch_id: str, jwt: Optional[str]) -> bool:
+    """Autoriza newBranchOrder / branchOrderUpdated.
+
+    Los eventos llevan el pedido completo (cliente, dirección, importes): solo
+    los recibe quien tiene acceso a la sucursal. Con un jwt inválido o sin
+    acceso se lanza error. Sin jwt devuelve False: las versiones de la app de
+    negocios anteriores a este cambio se suscriben sin jwt y, si se les
+    devolviera un error, reintentarían en bucle; su suscripción queda abierta
+    sin emitir (igual que antes, cuando no había publicador).
+    """
+    if not jwt:
+        logger.info(
+            "Suscripción de sucursal %s sin jwt: no recibirá eventos", branch_id
+        )
+        return False
+    user_id = require_auth(jwt, info)
+    await access_checker.require_branch_access(user_id, branch_id)
+    return True
+
+
+async def _idle_forever() -> None:
+    """Mantiene abierta una suscripción que no va a emitir nada."""
+    await asyncio.Event().wait()
 
 
 @strawberry.type
@@ -146,9 +181,19 @@ class OrderSubscription:
         finally:
             await order_pubsub.unsubscribe(f"delivery_location:{orderId}", queue)
     
-    @strawberry.subscription(description="Nuevos pedidos para una sucursal")
-    async def new_branch_order(self, branchId: str) -> AsyncGenerator[OrderType, None]:
+    @strawberry.subscription(
+        description=(
+            "Nuevos pedidos para una sucursal (también los reenviados por el "
+            "cliente). Requiere jwt con acceso a la sucursal; sin jwt no emite."
+        )
+    )
+    async def new_branch_order(
+        self, info: Info, branchId: str, jwt: Optional[str] = None
+    ) -> AsyncGenerator[OrderType, None]:
         """Subscribe to new orders for a branch."""
+        if not await _authorize_branch_stream(info, branchId, jwt):
+            await _idle_forever()
+            return
         queue = await order_pubsub.subscribe(f"branch:{branchId}")
         try:
             while True:
@@ -157,9 +202,19 @@ class OrderSubscription:
         finally:
             await order_pubsub.unsubscribe(f"branch:{branchId}", queue)
     
-    @strawberry.subscription(description="Cambios en pedidos de una sucursal")
-    async def branch_order_updated(self, branchId: str) -> AsyncGenerator[OrderType, None]:
+    @strawberry.subscription(
+        description=(
+            "Cambios de estado o de pago en pedidos de una sucursal. Requiere "
+            "jwt con acceso a la sucursal; sin jwt no emite."
+        )
+    )
+    async def branch_order_updated(
+        self, info: Info, branchId: str, jwt: Optional[str] = None
+    ) -> AsyncGenerator[OrderType, None]:
         """Subscribe to order updates for a branch."""
+        if not await _authorize_branch_stream(info, branchId, jwt):
+            await _idle_forever()
+            return
         queue = await order_pubsub.subscribe(f"branch_updates:{branchId}")
         try:
             while True:
