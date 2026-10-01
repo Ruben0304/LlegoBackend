@@ -259,6 +259,34 @@ def get_current_user_id_from_header(
         return None
 
 
+def require_admin_user_from_header(
+    authorization: Optional[str] = Header(None),
+) -> str:
+    """JWT de usuario con rol admin para endpoints REST; devuelve su user_id.
+
+    Equivalente REST de `require_role(jwt, info, ["admin"])`: lo usan los
+    endpoints que llaman las herramientas de admin con la sesion del usuario
+    (p. ej. la web de tutoriales), no con la clave estatica ADMIN_API_KEY.
+    401 si falta el token o no es valido; 403 si el rol no es admin.
+    """
+    if not authorization:
+        raise HTTPException(status_code=401, detail="No autorizado")
+    try:
+        scheme, token = authorization.split()
+    except ValueError:
+        raise HTTPException(status_code=401, detail="No autorizado")
+    if scheme.lower() != "bearer":
+        raise HTTPException(status_code=401, detail="No autorizado")
+    payload = decode_access_token(token)
+    if not payload or not payload.get("user_id"):
+        raise HTTPException(status_code=401, detail="No autorizado")
+    if payload.get("role") != "admin":
+        raise HTTPException(
+            status_code=403, detail="Se requiere rol de administrador"
+        )
+    return payload["user_id"]
+
+
 _admin_bearer = HTTPBearer(auto_error=False)
 
 

@@ -69,6 +69,37 @@ class TronDealerRepository:
         )
         return TronDealerWallet(**result) if result else None
 
+    async def mark_underpaid(
+        self,
+        address: str,
+        received_amount: Optional[float],
+        tx_hash: str,
+        token: str,
+        confirmations: int,
+    ) -> Optional[TronDealerWallet]:
+        """Marca la wallet como pagada de menos (mismo guard idempotente que
+        mark_completed); devuelve None si ya no estaba pendiente."""
+        now = datetime.utcnow()
+        result = await self._col.find_one_and_update(
+            {
+                "address": address,
+                "status": TronDealerWalletStatus.PENDING,
+            },
+            {
+                "$set": {
+                    "status": TronDealerWalletStatus.UNDERPAID,
+                    "receivedAmount": received_amount,
+                    "txHash": tx_hash,
+                    "token": token,
+                    "confirmations": confirmations,
+                    "webhookReceivedAt": now,
+                    "updatedAt": now,
+                }
+            },
+            return_document=True,
+        )
+        return TronDealerWallet(**result) if result else None
+
     async def mark_expired(self, address: str) -> None:
         now = datetime.utcnow()
         await self._col.update_one(

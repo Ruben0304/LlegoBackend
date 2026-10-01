@@ -5,7 +5,9 @@ Flow:
                          saves QvaPayInvoice in DB, returns payment URL.
   2. handle_webhook()  → receives POST /api/v1/webhooks/qvapay
                          validates signature, deduplicates by transactionUuid,
-                         marks order PAID, creates PendingPayout.
+                         checks the amount against the invoice, marks order
+                         PAID, creates PendingPayout. If less arrived, the
+                         invoice is UNDERPAID and the order requiresAttention.
 """
 
 import hashlib
@@ -24,6 +26,12 @@ from domain.crypto_payments import PendingPayout, QvaPayInvoice, QvaPayInvoiceSt
 from repositories.payout_repository import PayoutRepository
 from repositories.qvapay_repository import QvaPayRepository
 from services.payments.qvapay_transfer_service import qvapay_transfer_service
+from services.payments.webhook_amounts import (
+    flag_underpaid_order,
+    is_underpaid,
+    parse_amount,
+    underpayment_reason,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -192,6 +200,7 @@ class QvaPayService:
             transactionUuid=invoice_resp.transaction_uuid,
             remoteId=order_id,
             amount=amount,  # Store REAL amount, not test amount
+            invoicedAmount=invoice_amount,  # what QvaPay will charge (webhook check)
             description=description,
             paymentUrl=invoice_resp.url,
             expireAt=expire_at,
@@ -242,26 +251,47 @@ class QvaPayService:
             )
             return False
 
-        # 4. Idempotency: attempt to mark invoice as completed atomically
-        invoice = await self._invoices.mark_completed(payload.transaction_uuid)
-        if invoice is None:
-            # Already processed or not found
-            existing = await self._invoices.get_by_transaction_uuid(
-                payload.transaction_uuid
-            )
-            if existing and existing.status == QvaPayInvoiceStatus.COMPLETED:
-                logger.info(
-                    "QvaPay duplicate webhook ignored uuid=%s", payload.transaction_uuid
-                )
-                return False
+        # 4. Monto: lo recibido debe cubrir lo facturado (con tolerancia de
+        # redondeo). Si llega menos, no se completa el pago ni se genera payout:
+        # el pedido queda para revision de un admin.
+        amount_float = parse_amount(payload.amount)
+        existing = await self._invoices.get_by_transaction_uuid(
+            payload.transaction_uuid
+        )
+        if existing is None:
             logger.warning(
                 "QvaPay webhook: invoice not found for uuid=%s",
                 payload.transaction_uuid,
             )
             return False
+        if existing.status != QvaPayInvoiceStatus.PENDING:
+            logger.info(
+                "QvaPay duplicate webhook ignored uuid=%s status=%s",
+                payload.transaction_uuid,
+                existing.status,
+            )
+            return False
 
-        # Convertir amount de string a float
-        amount_float = payload.amount_float
+        expected = (
+            existing.invoicedAmount
+            if existing.invoicedAmount is not None
+            else existing.amount
+        )
+        if is_underpaid(amount_float, expected):
+            return await self._handle_underpayment(
+                existing, payload, amount_float, expected
+            )
+
+        # 5. Idempotency: attempt to mark invoice as completed atomically
+        invoice = await self._invoices.mark_completed(
+            payload.transaction_uuid, received_amount=amount_float
+        )
+        if invoice is None:
+            # Otro webhook igual lo proceso en paralelo
+            logger.info(
+                "QvaPay duplicate webhook ignored uuid=%s", payload.transaction_uuid
+            )
+            return False
 
         logger.info(
             "QvaPay payment completed order=%s uuid=%s amount=%s",
@@ -270,7 +300,7 @@ class QvaPayService:
             amount_float,
         )
 
-        # 5. Mark order as PAID (same pattern as payments_service.py)
+        # 6. Mark order as PAID (same pattern as payments_service.py)
         db = get_database()
         order_doc = await db.orders.find_one({"_id": invoice.orderId}, {"status": 1})
         current_status = (order_doc or {}).get("status")
@@ -292,7 +322,7 @@ class QvaPayService:
             },
         )
 
-        # 6. Register pending payout
+        # 7. Register pending payout
         payout = PendingPayout(
             _id=ObjectId(),
             orderId=invoice.orderId,
@@ -313,9 +343,41 @@ class QvaPayService:
             amount_float,
         )
 
-        # 7. Attempt automatic transfer to business QvaPay account
+        # 8. Attempt automatic transfer to business QvaPay account
         await self._attempt_auto_transfer(payout, invoice)
 
+        return True
+
+    async def _handle_underpayment(
+        self,
+        invoice: QvaPayInvoice,
+        payload: QvaPayWebhookPayload,
+        received: Optional[float],
+        expected: float,
+    ) -> bool:
+        """Llego menos de lo facturado: factura UNDERPAID, pedido sin pagar y
+        marcado para revision, y sin payout ni transferencia automatica."""
+        claimed = await self._invoices.mark_underpaid(
+            payload.transaction_uuid, received
+        )
+        if claimed is None:
+            logger.info(
+                "QvaPay duplicate webhook ignored uuid=%s", payload.transaction_uuid
+            )
+            return False
+
+        reason = underpayment_reason(
+            "QvaPay", received, expected, payload.transaction_uuid
+        )
+        logger.warning(
+            "QvaPay underpayment order=%s uuid=%s received=%s expected=%s raw_amount=%r",
+            str(invoice.orderId),
+            payload.transaction_uuid,
+            received,
+            expected,
+            payload.amount,
+        )
+        await flag_underpaid_order(str(invoice.orderId), reason)
         return True
 
     async def handle_success_callback(self, transaction_uuid: str) -> dict:

@@ -1,7 +1,8 @@
 """GraphQL subscriptions for real-time order updates."""
 import strawberry
-from typing import AsyncGenerator, Optional, List
+from typing import AsyncGenerator, NoReturn, Optional, List
 import asyncio
+import logging
 
 from strawberry.types import Info
 from utils.graphql_auth import require_auth
@@ -15,11 +16,15 @@ from .types import (
     order_to_type,
 )
 from repositories.orders_repository import orders_repo, delivery_persons_repo
+from services.access_checker import access_checker
 from services.courier_presence import (
     enrich_courier_snapshot as _enrich_courier_snapshot,
     fetch_courier_presence_snapshot_sync as _redis_fetch_courier_presence_snapshot_sync,
 )
+from services.orders_service import order_service
 from bson import ObjectId
+
+logger = logging.getLogger(__name__)
 
 
 # In-memory pub/sub for demo (replace with Redis in production)
@@ -75,6 +80,117 @@ async def publish_order_tracking(order_id: str, tracking_data: OrderTrackingStre
     await order_pubsub.publish(f"order_tracking:{order_id}", tracking_data)
 
 
+# ---------------------------------------------------------------------------
+# Autorizacion de subscriptions
+#
+# Como en queries y mutations, no hay middleware: cada subscription comprueba
+# quien escucha antes de suscribirse al canal. Sin esto cualquiera con un
+# orderId/branchId podia seguir la ubicacion del mensajero o los pedidos de una
+# sucursal ajena (context.md §12.5).
+# ---------------------------------------------------------------------------
+
+# Staff de plataforma: mismo criterio que adminCouriersPresence/adminOrderTracking.
+PLATFORM_STAFF_ROLES = ("admin", "manager")
+
+
+class SubscriptionAuthRequired(Exception):
+    """Quien se suscribe no manda jwt y el contexto no trae usuario."""
+
+
+def _context_user(info: Info) -> tuple[Optional[str], Optional[str]]:
+    context = info.context
+    if isinstance(context, dict):
+        return context.get("user_id"), context.get("user_role")
+    return getattr(context, "user_id", None), getattr(context, "user_role", None)
+
+
+def _authenticate_subscription(info: Info, jwt: Optional[str]) -> tuple[str, Optional[str]]:
+    """(user_id, rol) de quien se suscribe: del contexto (connection_init) o del
+    parametro jwt. Lanza si no hay un JWT valido."""
+    user_id, user_role = _context_user(info)
+    if not user_id and jwt:
+        require_auth(jwt, info)
+        user_id, user_role = _context_user(info)
+    if not user_id:
+        raise SubscriptionAuthRequired("Autenticación requerida. Proporciona un JWT válido.")
+    return user_id, user_role
+
+
+async def _require_order_subscription_access(info: Info, jwt: Optional[str], order_id: str):
+    """Cliente dueno, personal de la sucursal, mensajero asignado o staff de
+    plataforma (OrderService.user_can_access_order). Devuelve el pedido."""
+    user_id, user_role = _authenticate_subscription(info, jwt)
+    order = await orders_repo.get_by_id(order_id)
+    if not order:
+        raise Exception("Pedido no encontrado")
+    if not await order_service.user_can_access_order(order, user_id, user_role):
+        raise Exception("No autorizado")
+    return order
+
+
+async def _require_branch_subscription_access(info: Info, jwt: Optional[str], branch_id: str) -> None:
+    """Dueno o manager de la sucursal (access_checker) o staff de plataforma."""
+    user_id, user_role = _authenticate_subscription(info, jwt)
+    if user_role in PLATFORM_STAFF_ROLES:
+        return
+    has_access, error_message = await access_checker.check_branch_access(user_id, branch_id)
+    if not has_access:
+        raise Exception(error_message or "No autorizado")
+
+
+# ---------------------------------------------------------------------------
+# Denegar sin provocar bucles de reconexion
+#
+# LlegoBusiness (version actual) abre newBranchOrder, branchOrderUpdated y
+# deliveryLocationUpdated sin jwt, y SubscriptionManager.collectWithReconnect se
+# vuelve a suscribir AL INSTANTE cuando el stream termina sin excepcion (Apollo
+# Kotlin 4 entrega el error como respuesta y completa el flow). Si el servidor
+# cerrara el stream al denegar, cada sucursal y dispositivo entraria en un bucle
+# de reconexion a velocidad de RTT, con un traceback por intento en el log.
+# Por eso, en esas subscriptions y en orderUpdated:
+#   - Sin credenciales (ni jwt ni usuario en el contexto): el stream queda
+#     abierto sin emitir nada hasta que el cliente lo cierre; un warning al abrir.
+#   - JWT invalido, pedido inexistente o sin acceso: se espera
+#     SUBSCRIPTION_DENIED_DELAY_SECONDS antes de devolver el error, asi un
+#     cliente que reintenta sin pausa lo hace como mucho una vez por intervalo.
+# En ningun caso se llega a escuchar el canal.
+# ---------------------------------------------------------------------------
+
+SUBSCRIPTION_DENIED_DELAY_SECONDS = 30.0
+
+
+async def _hold_or_reject_subscription(name: str, target_id: str, error: Exception) -> NoReturn:
+    if isinstance(error, SubscriptionAuthRequired):
+        logger.warning(
+            "Subscription %s(%s) sin jwt: queda abierta sin emitir eventos hasta que "
+            "el cliente la cierre",
+            name,
+            target_id,
+        )
+        await asyncio.Event().wait()  # Nunca se activa: solo sale si se cancela.
+    logger.warning("Subscription %s(%s) denegada: %s", name, target_id, error)
+    await asyncio.sleep(SUBSCRIPTION_DENIED_DELAY_SECONDS)
+    raise error
+
+
+async def _guard_order_subscription(
+    name: str, info: Info, jwt: Optional[str], order_id: str
+) -> None:
+    try:
+        await _require_order_subscription_access(info, jwt, order_id)
+    except Exception as exc:
+        await _hold_or_reject_subscription(name, order_id, exc)
+
+
+async def _guard_branch_subscription(
+    name: str, info: Info, jwt: Optional[str], branch_id: str
+) -> None:
+    try:
+        await _require_branch_subscription_access(info, jwt, branch_id)
+    except Exception as exc:
+        await _hold_or_reject_subscription(name, branch_id, exc)
+
+
 @strawberry.type
 class OrderSubscription:
     @strawberry.subscription(
@@ -92,16 +208,13 @@ class OrderSubscription:
         - Fuente: Redis keys `presence:courier:{id}:loc` (con TTL)
         - Para 50 mensajeros, polling cada ~2s es suficiente y simple.
         """
-        # Auth (allow jwt param or connection_init context)
-        user_id = None
-        if isinstance(info.context, dict):
-            user_id = info.context.get("user_id")
-        else:
-            user_id = getattr(info.context, "user_id", None)
-        if not user_id and jwt:
-            user_id = require_auth(jwt, info)
-        if not user_id:
-            raise Exception("Autenticación requerida. Proporciona un JWT válido.")
+        # Ubicacion de TODOS los mensajeros: solo staff de plataforma, igual
+        # que la query adminCouriersPresence. Antes bastaba cualquier JWT.
+        _, user_role = _authenticate_subscription(info, jwt)
+        if user_role not in PLATFORM_STAFF_ROLES:
+            raise Exception(
+                f"Acceso denegado. Se requiere rol: {', '.join(PLATFORM_STAFF_ROLES)}"
+            )
 
         # Guard interval
         effective_interval = max(0.5, float(intervalSeconds or 2.0))
@@ -113,8 +226,11 @@ class OrderSubscription:
             await asyncio.sleep(effective_interval)
 
     @strawberry.subscription(description="Escuchar cambios en un pedido específico")
-    async def order_updated(self, orderId: str) -> AsyncGenerator[OrderType, None]:
+    async def order_updated(
+        self, info: Info, orderId: str, jwt: Optional[str] = None
+    ) -> AsyncGenerator[OrderType, None]:
         """Subscribe to order updates."""
+        await _guard_order_subscription("orderUpdated", info, jwt, orderId)
         queue = await order_pubsub.subscribe(f"order:{orderId}")
         try:
             while True:
@@ -126,9 +242,12 @@ class OrderSubscription:
     @strawberry.subscription(description="Ubicación del repartidor en tiempo real")
     async def delivery_location_updated(
         self,
-        orderId: str
+        info: Info,
+        orderId: str,
+        jwt: Optional[str] = None,
     ) -> AsyncGenerator[DeliveryLocationUpdateType, None]:
         """Subscribe to delivery location updates."""
+        await _guard_order_subscription("deliveryLocationUpdated", info, jwt, orderId)
         queue = await order_pubsub.subscribe(f"delivery_location:{orderId}")
         try:
             while True:
@@ -147,8 +266,11 @@ class OrderSubscription:
             await order_pubsub.unsubscribe(f"delivery_location:{orderId}", queue)
     
     @strawberry.subscription(description="Nuevos pedidos para una sucursal")
-    async def new_branch_order(self, branchId: str) -> AsyncGenerator[OrderType, None]:
+    async def new_branch_order(
+        self, info: Info, branchId: str, jwt: Optional[str] = None
+    ) -> AsyncGenerator[OrderType, None]:
         """Subscribe to new orders for a branch."""
+        await _guard_branch_subscription("newBranchOrder", info, jwt, branchId)
         queue = await order_pubsub.subscribe(f"branch:{branchId}")
         try:
             while True:
@@ -158,8 +280,11 @@ class OrderSubscription:
             await order_pubsub.unsubscribe(f"branch:{branchId}", queue)
     
     @strawberry.subscription(description="Cambios en pedidos de una sucursal")
-    async def branch_order_updated(self, branchId: str) -> AsyncGenerator[OrderType, None]:
+    async def branch_order_updated(
+        self, info: Info, branchId: str, jwt: Optional[str] = None
+    ) -> AsyncGenerator[OrderType, None]:
         """Subscribe to order updates for a branch."""
+        await _guard_branch_subscription("branchOrderUpdated", info, jwt, branchId)
         queue = await order_pubsub.subscribe(f"branch_updates:{branchId}")
         try:
             while True:
@@ -193,21 +318,8 @@ class OrderSubscription:
 
         try:
             # Authentication - support both connection_init and subscription variables
-            user_id = None
             try:
-                # Try to get user_id from context (set by connection_init)
-                if isinstance(info.context, dict):
-                    user_id = info.context.get("user_id")
-                else:
-                    user_id = getattr(info.context, "user_id", None)
-
-                # If not in context, try jwt parameter
-                if not user_id and jwt:
-                    user_id = require_auth(jwt, info)
-
-                if not user_id:
-                    raise Exception("Autenticación requerida. Proporciona un JWT válido.")
-
+                user_id, user_role = _authenticate_subscription(info, jwt)
             except Exception as e:
                 print(f"[ORDER TRACKING STREAM] Authentication failed: {e}")
                 print(f"{'=' * 80}\n")
@@ -215,25 +327,32 @@ class OrderSubscription:
 
             print(f"[ORDER TRACKING STREAM] User authenticated: {user_id}")
 
-            # Verify order access
+            # Verify order access: cliente dueno, personal de la sucursal,
+            # mensajero asignado o staff de plataforma. Antes solo se comprobaba
+            # que el pedido existiera y cualquiera podia seguir uno ajeno.
             order = await orders_repo.get_by_id(orderId)
             if not order:
                 print(f"[ORDER TRACKING STREAM] Order not found: {orderId}")
                 print(f"{'=' * 80}\n")
                 raise Exception("Pedido no encontrado")
 
-            # TODO: Add authorization check similar to get_order_tracking
-            # For now, just verify it exists
+            if not await order_service.user_can_access_order(order, user_id, user_role):
+                print(f"[ORDER TRACKING STREAM] Access denied for user {user_id} on order {orderId}")
+                print(f"{'=' * 80}\n")
+                raise Exception("No autorizado")
 
             print(f"[ORDER TRACKING STREAM] Order found, subscribing to updates...")
 
             # Subscribe to tracking channel
             queue = await order_pubsub.subscribe(f"order_tracking:{orderId}")
 
-            # Send initial state immediately
-            from services.orders_service import order_service
+            # Send initial state immediately. El acceso ya se verifico arriba con
+            # user_can_access_order (que ademas admite staff de plataforma), por
+            # eso no se repite la comprobacion de get_order_tracking.
             try:
-                initial_tracking = await order_service.get_order_tracking(orderId, user_id)
+                initial_tracking = await order_service.get_order_tracking(
+                    orderId, user_id, bypass_authorization=True
+                )
 
                 # Build initial payload
                 dp_loc = initial_tracking.get("deliveryPersonLocation")
@@ -281,7 +400,9 @@ class OrderSubscription:
                         last_update_time = asyncio.get_event_loop().time()
 
                         try:
-                            current_tracking = await order_service.get_order_tracking(orderId, user_id)
+                            current_tracking = await order_service.get_order_tracking(
+                                orderId, user_id, bypass_authorization=True
+                            )
                             current_order = await orders_repo.get_by_id(orderId)
 
                             if current_order:

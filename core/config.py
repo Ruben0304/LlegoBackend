@@ -88,6 +88,21 @@ class Settings(BaseSettings):
     apple_private_key: str = ""  # Contenido del .p8 (sin archivo)
     apple_web_service_id: str = ""
     apple_web_redirect_uri: str = ""
+    # URLs de callback de la web a las que /apple/callback puede redirigir con el
+    # JWT (separadas por comas). Es una lista blanca exacta: /apple/start rechaza
+    # cualquier otro destino para que nadie pueda llevarse el token a su dominio.
+    web_auth_callback_urls: str = (
+        "https://llegoweb-production.up.railway.app/auth/callback"
+    )
+
+    @property
+    def web_auth_callback_url_list(self) -> list[str]:
+        """Parse WEB_AUTH_CALLBACK_URLS (comma-separated) into a list."""
+        return [
+            url.strip()
+            for url in self.web_auth_callback_urls.split(",")
+            if url.strip()
+        ]
 
     # CORS Configuration
     # Comma-separated list of allowed origins for web

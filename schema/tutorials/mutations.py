@@ -6,7 +6,7 @@ import strawberry
 from strawberry.types import Info
 
 from repositories import tutorials_repo
-from utils.graphql_auth import apply_optional_jwt
+from utils.graphql_auth import require_role
 from utils.serialization import to_strawberry_dict
 from utils.s3 import delete_file
 
@@ -24,14 +24,7 @@ class TutorialMutation:
         Create a new tutorial. Upload video first via POST /upload/tutorial/video.
         Only admins can create tutorials.
         """
-        apply_optional_jwt(jwt, info)
-        user_id = info.context.get("user_id")
-        if not user_id:
-            raise Exception("Usuario no autenticado")
-
-        # TODO: Add admin role check when implemented
-        # For now, any authenticated user can create tutorials
-        # In production, add: if user.role != "admin": raise Exception("No autorizado")
+        require_role(jwt, info, ["admin"])
 
         # Create tutorial data
         tutorial_data = {
@@ -58,14 +51,7 @@ class TutorialMutation:
         """
         Update an existing tutorial. Only admins can update tutorials.
         """
-        apply_optional_jwt(jwt, info)
-        user_id = info.context.get("user_id")
-        if not user_id:
-            raise Exception("Usuario no autenticado")
-
-        # TODO: Add admin role check when implemented
-        # For now, any authenticated user can update tutorials
-        # In production, add: if user.role != "admin": raise Exception("No autorizado")
+        require_role(jwt, info, ["admin"])
 
         # Check if tutorial exists
         existing_tutorial = await tutorials_repo.get_by_id(id)
@@ -112,14 +98,7 @@ class TutorialMutation:
         Delete a tutorial. Only admins can delete tutorials.
         Optionally deletes the video file from S3.
         """
-        apply_optional_jwt(jwt, info)
-        user_id = info.context.get("user_id")
-        if not user_id:
-            raise Exception("Usuario no autenticado")
-
-        # TODO: Add admin role check when implemented
-        # For now, any authenticated user can delete tutorials
-        # In production, add: if user.role != "admin": raise Exception("No autorizado")
+        require_role(jwt, info, ["admin"])
 
         # Get tutorial to delete video from S3
         tutorial = await tutorials_repo.get_by_id(id)
@@ -145,14 +124,7 @@ class TutorialMutation:
         """
         Toggle the isActive status of a tutorial. Only admins can toggle tutorials.
         """
-        apply_optional_jwt(jwt, info)
-        user_id = info.context.get("user_id")
-        if not user_id:
-            raise Exception("Usuario no autenticado")
-
-        # TODO: Add admin role check when implemented
-        # For now, any authenticated user can toggle tutorials
-        # In production, add: if user.role != "admin": raise Exception("No autorizado")
+        require_role(jwt, info, ["admin"])
 
         # Toggle status
         updated_tutorial = await tutorials_repo.toggle_active(id)
