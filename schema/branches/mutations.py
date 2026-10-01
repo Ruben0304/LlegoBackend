@@ -18,6 +18,7 @@ from repositories import (
     store_locations_repo,
 )
 from services.access_checker import access_checker
+from services.branch_hours import normalize_daily_override_input
 from utils.graphql_auth import apply_optional_jwt
 from utils.s3 import delete_file
 
@@ -422,6 +423,16 @@ class BranchMutation:
             raise Exception("Usuario no autenticado")
 
         await access_checker.require_branch_access(user_id, branch_id)
+
+        # El override solo aplica el día `date` en hora de Cuba (ver
+        # services/branch_hours.py). Una fecha u hora ilegible lo dejaría
+        # inerte sin avisar, así que se rechaza aquí con un mensaje claro.
+        try:
+            date, open_time, close_time = normalize_daily_override_input(
+                date, open_time, close_time, temporally_closed=temporally_closed
+            )
+        except ValueError as exc:
+            raise Exception(str(exc))
 
         branch = await branches_repo.get_by_id(branch_id)
         if not branch:

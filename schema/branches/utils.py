@@ -12,6 +12,11 @@ from schema.branches.types import (
     TransferAccountType,
 )
 from schema.wallet.types import WalletBalanceType
+from services.branch_hours import (
+    branch_local_now,
+    is_dated_override,
+    temporary_status_applies_on,
+)
 from utils.serialization import to_strawberry_dict
 
 from .transfer_accounts import (
@@ -48,6 +53,17 @@ def schedule_to_type(schedule) -> BranchScheduleType:
             for h in hours_raw
         ]
         days.append(DayScheduleType(day=day_num, isOpen=is_open, hours=hours))
+
+    # Un override diario con fecha solo vale ese día (hora de Cuba). Pasado o
+    # futuro, no se expone: las apps cliente (iOS/Android) leen
+    # temporallyClosed/temporallyOpen sin mirar la fecha y mostrarían la tienda
+    # cerrada (o abierta) indefinidamente. Los legacy sin fecha se exponen igual.
+    if (
+        ts_raw
+        and is_dated_override(ts_raw)
+        and not temporary_status_applies_on(ts_raw, branch_local_now().date())
+    ):
+        ts_raw = None
 
     temporary_status = None
     if ts_raw:

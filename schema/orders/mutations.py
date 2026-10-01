@@ -624,10 +624,13 @@ class OrderMutation:
         )
         await order_locations_repo.create(location_update)
 
-        # Emit tracking event for real-time subscription
+        # Emit tracking event for real-time subscription. Solo se movio el
+        # chofer: no se publica en branch_updates (branchOrderUpdated), que es
+        # para cambios de estado o de pago; la sucursal sigue al chofer por
+        # delivery_location (abajo).
         order = await orders_repo.get_by_id(input.orderId)
         if order:
-            await order_service._emit_tracking_event(order)
+            await order_service._emit_tracking_event(order, publish_to_branch=False)
 
         # Alimentar el canal `delivery_location:{orderId}` que consume la app de
         # negocios para el mapa en vivo del chofer. La subscription

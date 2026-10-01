@@ -5,6 +5,7 @@ import asyncio
 import logging
 
 from strawberry.types import Info
+from services.access_checker import access_checker
 from utils.graphql_auth import require_auth
 
 from .types import (
@@ -66,8 +67,13 @@ async def publish_order_update(order_id: str, order):
 
 
 async def publish_branch_order(branch_id: str, order):
-    """Publish new/updated order to branch subscribers."""
+    """Publish a new (or resubmitted) order to branch subscribers (newBranchOrder)."""
     await order_pubsub.publish(f"branch:{branch_id}", order)
+
+
+async def publish_branch_order_update(branch_id: str, order):
+    """Publish an order status/payment change to branch subscribers (branchOrderUpdated)."""
+    await order_pubsub.publish(f"branch_updates:{branch_id}", order)
 
 
 async def publish_delivery_location(order_id: str, location_update: dict):
@@ -265,7 +271,12 @@ class OrderSubscription:
         finally:
             await order_pubsub.unsubscribe(f"delivery_location:{orderId}", queue)
     
-    @strawberry.subscription(description="Nuevos pedidos para una sucursal")
+    @strawberry.subscription(
+        description=(
+            "Nuevos pedidos para una sucursal (también los reenviados por el "
+            "cliente). Requiere jwt con acceso a la sucursal; sin jwt no emite."
+        )
+    )
     async def new_branch_order(
         self, info: Info, branchId: str, jwt: Optional[str] = None
     ) -> AsyncGenerator[OrderType, None]:
@@ -279,7 +290,12 @@ class OrderSubscription:
         finally:
             await order_pubsub.unsubscribe(f"branch:{branchId}", queue)
     
-    @strawberry.subscription(description="Cambios en pedidos de una sucursal")
+    @strawberry.subscription(
+        description=(
+            "Cambios de estado o de pago en pedidos de una sucursal. Requiere "
+            "jwt con acceso a la sucursal; sin jwt no emite."
+        )
+    )
     async def branch_order_updated(
         self, info: Info, branchId: str, jwt: Optional[str] = None
     ) -> AsyncGenerator[OrderType, None]:

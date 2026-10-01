@@ -1,10 +1,11 @@
 """Order service with business logic."""
 
 import asyncio
+import logging
 import re
 import unicodedata
 import uuid
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
@@ -43,13 +44,25 @@ from repositories.orders_repository import (
 )
 from repositories.payments_attempt_repository import payment_attempts_repo
 from services.access_checker import access_checker
+from services.branch_hours import (
+    branch_local_now,
+    get_temporary_status,
+    override_day_ranges,
+    parse_time_to_minutes,
+    temporary_status_applies_on,
+)
 from services.orders_utils import (
     calculate_delivery_fee_h3,
     coords_to_h3,
+    effective_order_deadline,
     generate_order_number,
     haversine_distance,
+    scheduled_preparation_floor,
 )
 from utils.currency import branch_accepts_currency, normalize_currency
+
+
+logger = logging.getLogger(__name__)
 
 
 class OrderValidationError(ValueError):
@@ -73,6 +86,9 @@ class OrderService:
         # Al vencer NO se cancela (hay dinero de por medio), se escala a un admin.
         OrderStatus.PAYMENT_IN_PROGRESS: 30,
         OrderStatus.ACCEPTED: 20,
+        # Pedidos programados: los plazos de ACCEPTED y PAYMENT_IN_PROGRESS
+        # nunca vencen antes de scheduledFor - SCHEDULED_PREPARATION_LEAD_MINUTES
+        # (services/orders_utils.py). El resto se cuenta igual que en uno inmediato.
     }
     PRE_PREPARATION_TIMEOUT_STATUSES = set(STATUS_TIMEOUT_MINUTES.keys())
     # Tiempo que se le da al cliente para completar la transferencia desde que
@@ -171,13 +187,20 @@ class OrderService:
 
     @classmethod
     def _next_deadline_for_status(
-        cls, status: OrderStatus, now: Optional[datetime] = None
+        cls,
+        status: OrderStatus,
+        now: Optional[datetime] = None,
+        scheduled_for: Optional[datetime] = None,
     ) -> Optional[datetime]:
+        """Plazo del estado contado desde `now`. Si el pedido es programado y el
+        plazo exige empezar la elaboración, nunca antes de scheduledFor - 30 min."""
         minutes = cls.STATUS_TIMEOUT_MINUTES.get(status)
         if minutes is None:
             return None
         base = now or datetime.utcnow()
-        return base + timedelta(minutes=minutes)
+        return effective_order_deadline(
+            status, base + timedelta(minutes=minutes), scheduled_for
+        )
 
     @staticmethod
     def _normalize_payment_token(value: Any) -> str:
@@ -271,21 +294,7 @@ class OrderService:
 
     @staticmethod
     def _parse_time_to_minutes(time_value: Any) -> Optional[int]:
-        raw = str(time_value or "").strip()
-        if not re.fullmatch(r"\d{1,2}:\d{2}", raw):
-            return None
-
-        hour_str, minute_str = raw.split(":")
-        hour = int(hour_str)
-        minute = int(minute_str)
-
-        if hour == 24 and minute == 0:
-            return 24 * 60
-        if hour < 0 or hour > 23:
-            return None
-        if minute < 0 or minute > 59:
-            return None
-        return hour * 60 + minute
+        return parse_time_to_minutes(time_value)
 
     @staticmethod
     def _python_weekday_to_schedule_day(python_weekday: int) -> int:
@@ -319,9 +328,72 @@ class OrderService:
         return result
 
     @classmethod
-    def _format_schedule_for_day(cls, schedule: Any, target_python_weekday: int) -> str:
+    def _weekly_day_ranges(cls, schedule: Any, local_date: date) -> List[tuple[int, int]]:
+        """Rangos del horario semanal para el día de la semana de `local_date`."""
+        day_sched = cls._get_day_sched(
+            schedule, cls._python_weekday_to_schedule_day(local_date.weekday())
+        )
+        if not day_sched:
+            return []
+        is_open = (
+            day_sched.isOpen if hasattr(day_sched, "isOpen") else day_sched.get("isOpen", True)
+        )
+        if not is_open:
+            return []
+        return cls._day_sched_hours(day_sched)
+
+    @staticmethod
+    def _override_ranges_for_date(
+        schedule: Any, local_date: date, include_undated: bool
+    ) -> Optional[List[tuple[int, int]]]:
+        """Rangos impuestos por el override diario si aplica en `local_date`, o None.
+
+        Ver services/branch_hours.py para las reglas (fecha en hora de Cuba,
+        openTime/closeTime, overrides legacy sin fecha).
+        """
+        ts = get_temporary_status(schedule)
+        if not temporary_status_applies_on(ts, local_date, include_undated=include_undated):
+            return None
+        return override_day_ranges(ts)
+
+    @classmethod
+    def _effective_day_ranges(
+        cls, schedule: Any, local_date: date, include_undated: bool = True
+    ) -> List[tuple[int, int]]:
+        """Rangos de apertura reales de un día: el override si aplica, si no el semanal."""
+        override = cls._override_ranges_for_date(schedule, local_date, include_undated)
+        if override is not None:
+            return override
+        return cls._weekly_day_ranges(schedule, local_date)
+
+    @staticmethod
+    def _format_ranges(ranges: List[tuple[int, int]]) -> str:
+        return ", ".join(
+            f"{s // 60:02d}:{s % 60:02d}-{e // 60:02d}:{e % 60:02d}" for s, e in ranges
+        )
+
+    @classmethod
+    def _format_schedule_for_day(
+        cls,
+        schedule: Any,
+        target_python_weekday: int,
+        local_date: Optional[date] = None,
+        include_undated: bool = True,
+    ) -> str:
+        """Horario de un día para mensajes de error.
+
+        Si se pasa `local_date` y ese día tiene override diario, se muestra el
+        horario especial en vez del semanal.
+        """
         if not schedule:
             return "no configurado"
+
+        if local_date is not None:
+            override = cls._override_ranges_for_date(schedule, local_date, include_undated)
+            if override is not None:
+                if not override:
+                    return "cerrado (horario especial del día)"
+                return f"{cls._format_ranges(override)} (horario especial del día)"
 
         target_day = cls._python_weekday_to_schedule_day(target_python_weekday)
         day_sched = cls._get_day_sched(schedule, target_day)
@@ -338,87 +410,66 @@ class OrderService:
         if not ranges:
             return "cerrado"
 
-        return ", ".join(f"{s // 60:02d}:{s % 60:02d}-{e // 60:02d}:{e % 60:02d}" for s, e in ranges)
+        return cls._format_ranges(ranges)
 
     @staticmethod
     def _get_branch_local_now() -> datetime:
-        try:
-            return datetime.now(ZoneInfo("America/Havana"))
-        except Exception:
-            return datetime.now()
+        return branch_local_now()
 
     @classmethod
     def _is_branch_open_now(cls, schedule: Any, now_local: datetime) -> bool:
+        """¿Está abierta la sucursal en `now_local` (hora de Cuba)?
+
+        El override diario (temporaryStatus) solo cuenta si su fecha es la de
+        hoy; los legacy sin fecha siguen aplicando indefinidamente. "Cerrado
+        hoy" cierra el día entero, incluida la cola de un turno nocturno de
+        ayer. Un override de ayer con horario especial que cruza la medianoche
+        cuenta para la madrugada de hoy, igual que los rangos nocturnos del
+        horario semanal.
+        """
         if not schedule:
             return True
 
-        # Check temporary status override
-        ts = (
-            schedule.temporaryStatus
-            if hasattr(schedule, "temporaryStatus")
-            else schedule.get("temporaryStatus")
-        )
-        if ts:
-            if ts.temporallyClosed if hasattr(ts, "temporallyClosed") else ts.get("temporallyClosed", False):
-                return False
-            if ts.temporallyOpen if hasattr(ts, "temporallyOpen") else ts.get("temporallyOpen", False):
+        current_minutes = now_local.hour * 60 + now_local.minute
+        today = now_local.date()
+        yesterday = today - timedelta(days=1)
+
+        today_ranges = cls._effective_day_ranges(schedule, today)
+        if cls._override_ranges_for_date(schedule, today, include_undated=True) == []:
+            return False
+
+        for start, end in today_ranges:
+            if start == 0 and end == 24 * 60:
+                return True
+            if start < end and start <= current_minutes < end:
+                return True
+            if start > end and current_minutes >= start:  # overnight start
                 return True
 
-        current_minutes = now_local.hour * 60 + now_local.minute
-        today = cls._python_weekday_to_schedule_day(now_local.weekday())
-        yesterday = (today - 1) % 7
-
-        today_sched = cls._get_day_sched(schedule, today)
-        if today_sched:
-            is_open = (
-                today_sched.isOpen
-                if hasattr(today_sched, "isOpen")
-                else today_sched.get("isOpen", True)
-            )
-            if is_open:
-                for start, end in cls._day_sched_hours(today_sched):
-                    if start == 0 and end == 24 * 60:
-                        return True
-                    if start < end and start <= current_minutes < end:
-                        return True
-                    if start > end and current_minutes >= start:  # overnight start
-                        return True
-
         # Overnight ranges inherited from yesterday (e.g. 22:00-02:00)
-        yesterday_sched = cls._get_day_sched(schedule, yesterday)
-        if yesterday_sched:
-            is_open = (
-                yesterday_sched.isOpen
-                if hasattr(yesterday_sched, "isOpen")
-                else yesterday_sched.get("isOpen", True)
-            )
-            if is_open:
-                for start, end in cls._day_sched_hours(yesterday_sched):
-                    if start > end and current_minutes < end:
-                        return True
+        for start, end in cls._effective_day_ranges(schedule, yesterday):
+            if start > end and current_minutes < end:
+                return True
 
         return False
 
     @classmethod
     def _is_branch_open_at(cls, schedule: Any, target_local: datetime) -> bool:
-        """Check if branch is open at a specific future datetime (ignores temporaryStatus)."""
+        """Check if branch is open at a specific future datetime.
+
+        Aplica el override diario solo si tiene fecha y es la de `target_local`
+        (p. ej. "cerrado hoy" rechaza un pedido programado para hoy, pero no uno
+        para mañana). Los overrides legacy sin fecha se ignoran aquí, como antes.
+        """
         if not schedule:
             return True
 
         target_minutes = target_local.hour * 60 + target_local.minute
-        target_day = cls._python_weekday_to_schedule_day(target_local.weekday())
-
-        day_sched = cls._get_day_sched(schedule, target_day)
-        if not day_sched:
-            return False
-
-        is_open = (
-            day_sched.isOpen if hasattr(day_sched, "isOpen") else day_sched.get("isOpen", True)
+        ranges = cls._effective_day_ranges(
+            schedule, target_local.date(), include_undated=False
         )
-        if not is_open:
-            return False
 
-        for start, end in cls._day_sched_hours(day_sched):
+        for start, end in ranges:
             if start == 0 and end == 24 * 60:
                 return True
             if start < end and start <= target_minutes < end:
@@ -1116,7 +1167,10 @@ class OrderService:
 
             if not self._is_branch_open_at(branch.schedule, scheduled_local):
                 target_schedule = self._format_schedule_for_day(
-                    branch.schedule, scheduled_local.weekday()
+                    branch.schedule,
+                    scheduled_local.weekday(),
+                    local_date=scheduled_local.date(),
+                    include_undated=False,
                 )
                 raise OrderValidationError(
                     f"La sucursal no está abierta a las {scheduled_local.strftime('%H:%M')} "
@@ -1130,7 +1184,7 @@ class OrderService:
                 if not self._is_branch_open_now(branch.schedule, branch_now):
                     day_index = branch_now.weekday()
                     today_schedule = self._format_schedule_for_day(
-                        branch.schedule, day_index
+                        branch.schedule, day_index, local_date=branch_now.date()
                     )
                     raise ValueError(
                         "La sucursal esta cerrada en este momento "
@@ -1402,6 +1456,9 @@ class OrderService:
 
         created_order = await self.orders_repo.create(order)
 
+        # 7.5. Tiempo real para la app de negocios (newBranchOrder)
+        await self._publish_branch_order_event(created_order, is_new=True)
+
         # 8. Send push notification to branch managers/owner
         await self._send_new_order_notification_to_business(
             created_order, branch, business
@@ -1629,7 +1686,9 @@ class OrderService:
             )
 
         extra_set_fields: Dict[str, Any] = {
-            "deadlineAt": self._next_deadline_for_status(new_status, now)
+            "deadlineAt": self._next_deadline_for_status(
+                new_status, now, getattr(order, "scheduledFor", None)
+            )
         }
         if new_status == OrderStatus.CANCELLED and order.paymentStatus not in {
             PaymentStatus.COMPLETED
@@ -1719,11 +1778,14 @@ class OrderService:
 
     async def extend_payment_deadline(self, order_id: str) -> None:
         """El cliente pulso "Pagar": le damos un plazo fresco para transferir."""
-        await self.orders_repo.extend_deadline(
+        updated = await self.orders_repo.extend_deadline(
             order_id,
             datetime.utcnow() + timedelta(minutes=self.PAYMENT_START_GRACE_MINUTES),
             expected_status=OrderStatus.PENDING_PAYMENT,
         )
+        # La tienda ve que el cliente empezo a pagar (ya no puede modificar el
+        # pedido) y el plazo nuevo de la cuenta atras.
+        await self._publish_branch_order_event(updated)
 
     async def mark_order_paid(self, order_id: str, attempt_id: str) -> Optional[Order]:
         """Registra un pago completado y, si el pedido lo estaba esperando, lo pasa
@@ -1733,6 +1795,10 @@ class OrderService:
         NO se revive el pedido: se registra el pago y se marca para reembolso.
         """
         now = datetime.utcnow()
+        # scheduledFor no cambia nunca tras crear el pedido: se lee antes para
+        # que el plazo de ACCEPTED respete la hora de un pedido programado.
+        current = await self.orders_repo.get_by_id(order_id)
+        scheduled_for = getattr(current, "scheduledFor", None) if current else None
         paid_order = await self.orders_repo.mark_paid(
             order_id,
             attempt_id,
@@ -1744,7 +1810,9 @@ class OrderService:
                 message="Pago confirmado. El negocio puede iniciar la elaboracion",
                 actor=OrderActor.SYSTEM,
             ),
-            deadline_at=self._next_deadline_for_status(OrderStatus.ACCEPTED, now),
+            deadline_at=self._next_deadline_for_status(
+                OrderStatus.ACCEPTED, now, scheduled_for
+            ),
         )
         if paid_order:
             await self._emit_tracking_event(paid_order)
@@ -1766,9 +1834,11 @@ class OrderService:
             order.status == OrderStatus.ACCEPTED
             and order.paymentStatus != PaymentStatus.COMPLETED
         ):
-            return await self.orders_repo.record_payment(order_id, attempt_id)
+            recorded = await self.orders_repo.record_payment(order_id, attempt_id)
+            await self._publish_branch_order_event(recorded)
+            return recorded
 
-        return await self.orders_repo.record_payment(
+        recorded = await self.orders_repo.record_payment(
             order_id,
             attempt_id,
             attention_reason=(
@@ -1782,6 +1852,8 @@ class OrderService:
                 actor=OrderActor.SYSTEM,
             ),
         )
+        await self._publish_branch_order_event(recorded)
+        return recorded
 
     async def accept_order(
         self,
@@ -2398,9 +2470,23 @@ class OrderService:
     async def expire_order(self, order: Order) -> str:
         """Aplica el vencimiento de plazo a UN pedido ya vencido.
 
-        Devuelve "cancelled", "escalated" o "skipped" (cambio de estado en
-        paralelo). Lo usa el worker y el sandbox E2E para simular timeouts.
+        Devuelve "cancelled", "escalated", "deferred" (pedido programado cuyo
+        plazo real aún no llegó) o "skipped" (cambio de estado en paralelo).
+        Lo usa el worker y el sandbox E2E para simular timeouts.
         """
+        # Pedido programado: el plazo para empezar a elaborar no vence antes de
+        # scheduledFor - 30 min, aunque el deadlineAt guardado sea anterior
+        # (pedidos de antes de esta regla, o caminos que pasan a ACCEPTED sin
+        # recalcular el plazo, como los webhooks de QvaPay/TronDealer). Se
+        # corre el deadline a ese mínimo: el worker no lo vuelve a coger hasta
+        # entonces y las apps ven el plazo real.
+        floor = scheduled_preparation_floor(order.status, getattr(order, "scheduledFor", None))
+        if floor is not None and floor > datetime.utcnow():
+            await self.orders_repo.extend_deadline(
+                str(order.id), floor, expected_status=order.status
+            )
+            return "deferred"
+
         try:
             # Con dinero de por medio no se cancela nunca: el cliente se
             # quedaria sin pedido y sin su dinero. Se escala a un admin.
@@ -2622,13 +2708,73 @@ class OrderService:
             "estimatedMinutes": estimated_minutes,
         }
 
-    async def _emit_tracking_event(self, order: Order):
+    async def _publish_branch_order_event(
+        self, order: Optional[Order], is_new: bool = False
+    ) -> None:
+        """Tiempo real para la app de negocios.
+
+        - `newBranchOrder` (canal `branch:{branchId}`): pedido recien creado, o
+          reenviado por el cliente (vuelve a PENDING_ACCEPTANCE y la tienda
+          tiene que responder otra vez; la app suena con este canal).
+        - `branchOrderUpdated` (canal `branch_updates:{branchId}`): cualquier
+          cambio de estado o de pago posterior a la creacion.
+
+        El pubsub es en memoria del proceso (schema/orders/subscriptions.py,
+        context.md §5): publicar solo encola en colas sin limite, no espera red.
+        Nunca rompe ni frena la operacion principal: un fallo solo se loguea.
+        """
+        if order is None:
+            return
+        try:
+            from schema.orders.subscriptions import (
+                publish_branch_order,
+                publish_branch_order_update,
+            )
+
+            branch_id = str(order.branchId)
+            if is_new:
+                await publish_branch_order(branch_id, order)
+                return
+            await publish_branch_order_update(branch_id, order)
+            if order.status == OrderStatus.PENDING_ACCEPTANCE:
+                await publish_branch_order(branch_id, order)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "No se pudo publicar el evento de sucursal del pedido %s: %s",
+                getattr(order, "id", "?"),
+                exc,
+            )
+
+    async def publish_branch_order_changed(self, order_id: str) -> None:
+        """Para quien cambia un pedido fuera de OrderService (webhooks de
+        QvaPay/TronDealer): relee el pedido y avisa a la sucursal. Nunca lanza."""
+        try:
+            order = await self.orders_repo.get_by_id(str(order_id))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "No se pudo releer el pedido %s para publicarlo: %s", order_id, exc
+            )
+            return
+        await self._publish_branch_order_event(order)
+
+    async def _emit_tracking_event(
+        self, order: Order, *, publish_to_branch: bool = True
+    ):
         """
         Emit tracking event for real-time subscription.
 
         Called when order status changes or delivery location updates.
-        Also sends push notification to customer.
+        Also sends push notification to customer, and publishes the change to
+        the branch (branchOrderUpdated) for the business app.
+
+        `publish_to_branch=False` para los pings de ubicacion del chofer
+        (updateDeliveryLocation, cada ~10 s por pedido activo): no hay cambio
+        de estado ni de pago, asi que no se reenvia el pedido entero por
+        `branch_updates:{branchId}`. El mapa en vivo de la app de negocios va
+        por `delivery_location:{orderId}` (deliveryLocationUpdated).
         """
+        if publish_to_branch:
+            await self._publish_branch_order_event(order)
         try:
             # Import here to avoid circular dependency
             from schema.orders.subscriptions import publish_order_tracking

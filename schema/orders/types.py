@@ -13,7 +13,11 @@ from schema.branches.types import BranchType, CoordinatesType
 from schema.businesses.types import BusinessType
 from schema.users.types import UserType
 from schema.wallet.types import WalletBalanceType
-from services.orders_utils import calculate_delivery_fee_h3, haversine_distance
+from services.orders_utils import (
+    calculate_delivery_fee_h3,
+    effective_order_deadline,
+    haversine_distance,
+)
 from utils.serialization import to_strawberry_dict
 
 
@@ -757,7 +761,12 @@ def order_to_type(order) -> OrderType:
         if order.currentPaymentAttemptId
         else None,
         paidAt=order.paidAt,
-        deadlineAt=order.deadlineAt,
+        # Plazo real: en pedidos programados, ACCEPTED/PAYMENT_IN_PROGRESS no
+        # vencen antes de scheduledFor - 30 min aunque el guardado sea anterior
+        # (la app de negocios muestra la cuenta atrás con este campo).
+        deadlineAt=effective_order_deadline(
+            order.status, order.deadlineAt, order.scheduledFor
+        ),
         scheduledFor=order.scheduledFor,
         resubmissionCount=order.resubmissionCount,
         assignedAt=order.assignedAt,

@@ -44,6 +44,18 @@ logger = logging.getLogger(__name__)
 TRONDEALER_API_BASE = "https://trondealer.com/api/v2"
 
 
+async def _publish_branch_order_changed(order_id) -> None:
+    """El webhook escribe el pedido directamente en Mongo, sin pasar por
+    OrderService: avisa en vivo a la app de negocios (branchOrderUpdated).
+    Nunca lanza: el pago ya quedó registrado."""
+    try:
+        from services.orders_service import order_service
+
+        await order_service.publish_branch_order_changed(str(order_id))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("No se pudo publicar el pedido %s a su sucursal: %s", order_id, exc)
+
+
 # ---------------------------------------------------------------------------
 # Pydantic schemas for TronDealer API interaction
 # ---------------------------------------------------------------------------
@@ -304,6 +316,7 @@ class TronDealerService:
                 }
             },
         )
+        await _publish_branch_order_changed(wallet.orderId)
 
         # 6. Register pending payout
         payout = PendingPayout(
