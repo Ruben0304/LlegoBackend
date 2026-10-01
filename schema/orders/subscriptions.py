@@ -1,7 +1,8 @@
 """GraphQL subscriptions for real-time order updates."""
 import strawberry
-from typing import AsyncGenerator, Optional, List
+from typing import AsyncGenerator, NoReturn, Optional, List
 import asyncio
+import logging
 
 from strawberry.types import Info
 from utils.graphql_auth import require_auth
@@ -22,6 +23,8 @@ from services.courier_presence import (
 )
 from services.orders_service import order_service
 from bson import ObjectId
+
+logger = logging.getLogger(__name__)
 
 
 # In-memory pub/sub for demo (replace with Redis in production)
@@ -90,6 +93,10 @@ async def publish_order_tracking(order_id: str, tracking_data: OrderTrackingStre
 PLATFORM_STAFF_ROLES = ("admin", "manager")
 
 
+class SubscriptionAuthRequired(Exception):
+    """Quien se suscribe no manda jwt y el contexto no trae usuario."""
+
+
 def _context_user(info: Info) -> tuple[Optional[str], Optional[str]]:
     context = info.context
     if isinstance(context, dict):
@@ -105,7 +112,7 @@ def _authenticate_subscription(info: Info, jwt: Optional[str]) -> tuple[str, Opt
         require_auth(jwt, info)
         user_id, user_role = _context_user(info)
     if not user_id:
-        raise Exception("Autenticación requerida. Proporciona un JWT válido.")
+        raise SubscriptionAuthRequired("Autenticación requerida. Proporciona un JWT válido.")
     return user_id, user_role
 
 
@@ -129,6 +136,59 @@ async def _require_branch_subscription_access(info: Info, jwt: Optional[str], br
     has_access, error_message = await access_checker.check_branch_access(user_id, branch_id)
     if not has_access:
         raise Exception(error_message or "No autorizado")
+
+
+# ---------------------------------------------------------------------------
+# Denegar sin provocar bucles de reconexion
+#
+# LlegoBusiness (version actual) abre newBranchOrder, branchOrderUpdated y
+# deliveryLocationUpdated sin jwt, y SubscriptionManager.collectWithReconnect se
+# vuelve a suscribir AL INSTANTE cuando el stream termina sin excepcion (Apollo
+# Kotlin 4 entrega el error como respuesta y completa el flow). Si el servidor
+# cerrara el stream al denegar, cada sucursal y dispositivo entraria en un bucle
+# de reconexion a velocidad de RTT, con un traceback por intento en el log.
+# Por eso, en esas subscriptions y en orderUpdated:
+#   - Sin credenciales (ni jwt ni usuario en el contexto): el stream queda
+#     abierto sin emitir nada hasta que el cliente lo cierre; un warning al abrir.
+#   - JWT invalido, pedido inexistente o sin acceso: se espera
+#     SUBSCRIPTION_DENIED_DELAY_SECONDS antes de devolver el error, asi un
+#     cliente que reintenta sin pausa lo hace como mucho una vez por intervalo.
+# En ningun caso se llega a escuchar el canal.
+# ---------------------------------------------------------------------------
+
+SUBSCRIPTION_DENIED_DELAY_SECONDS = 30.0
+
+
+async def _hold_or_reject_subscription(name: str, target_id: str, error: Exception) -> NoReturn:
+    if isinstance(error, SubscriptionAuthRequired):
+        logger.warning(
+            "Subscription %s(%s) sin jwt: queda abierta sin emitir eventos hasta que "
+            "el cliente la cierre",
+            name,
+            target_id,
+        )
+        await asyncio.Event().wait()  # Nunca se activa: solo sale si se cancela.
+    logger.warning("Subscription %s(%s) denegada: %s", name, target_id, error)
+    await asyncio.sleep(SUBSCRIPTION_DENIED_DELAY_SECONDS)
+    raise error
+
+
+async def _guard_order_subscription(
+    name: str, info: Info, jwt: Optional[str], order_id: str
+) -> None:
+    try:
+        await _require_order_subscription_access(info, jwt, order_id)
+    except Exception as exc:
+        await _hold_or_reject_subscription(name, order_id, exc)
+
+
+async def _guard_branch_subscription(
+    name: str, info: Info, jwt: Optional[str], branch_id: str
+) -> None:
+    try:
+        await _require_branch_subscription_access(info, jwt, branch_id)
+    except Exception as exc:
+        await _hold_or_reject_subscription(name, branch_id, exc)
 
 
 @strawberry.type
@@ -170,7 +230,7 @@ class OrderSubscription:
         self, info: Info, orderId: str, jwt: Optional[str] = None
     ) -> AsyncGenerator[OrderType, None]:
         """Subscribe to order updates."""
-        await _require_order_subscription_access(info, jwt, orderId)
+        await _guard_order_subscription("orderUpdated", info, jwt, orderId)
         queue = await order_pubsub.subscribe(f"order:{orderId}")
         try:
             while True:
@@ -187,7 +247,7 @@ class OrderSubscription:
         jwt: Optional[str] = None,
     ) -> AsyncGenerator[DeliveryLocationUpdateType, None]:
         """Subscribe to delivery location updates."""
-        await _require_order_subscription_access(info, jwt, orderId)
+        await _guard_order_subscription("deliveryLocationUpdated", info, jwt, orderId)
         queue = await order_pubsub.subscribe(f"delivery_location:{orderId}")
         try:
             while True:
@@ -210,7 +270,7 @@ class OrderSubscription:
         self, info: Info, branchId: str, jwt: Optional[str] = None
     ) -> AsyncGenerator[OrderType, None]:
         """Subscribe to new orders for a branch."""
-        await _require_branch_subscription_access(info, jwt, branchId)
+        await _guard_branch_subscription("newBranchOrder", info, jwt, branchId)
         queue = await order_pubsub.subscribe(f"branch:{branchId}")
         try:
             while True:
@@ -224,7 +284,7 @@ class OrderSubscription:
         self, info: Info, branchId: str, jwt: Optional[str] = None
     ) -> AsyncGenerator[OrderType, None]:
         """Subscribe to order updates for a branch."""
-        await _require_branch_subscription_access(info, jwt, branchId)
+        await _guard_branch_subscription("branchOrderUpdated", info, jwt, branchId)
         queue = await order_pubsub.subscribe(f"branch_updates:{branchId}")
         try:
             while True:
