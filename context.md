@@ -14,15 +14,16 @@ API de Llegó: plataforma de delivery multi-negocio para Cuba. FastAPI + GraphQL
 (Strawberry) + MongoDB, con Qdrant para búsqueda semántica y Gemini/Anthropic para
 el asistente de IA.
 
-Sirve a cinco clientes, todos en repos separados:
+Sirve a seis clientes, todos en repos separados:
 
 | App | Repo | Plataforma | Rol |
 |---|---|---|---|
 | Llegó (cliente) | `LlegoApk` | Android / Kotlin + Compose | Pedir |
-| Llegó (cliente) | `LlegoiOS` | iOS / SwiftUI | Pedir |
-| LlegoBusiness | `LlegoBusiness` | iOS / SwiftUI | Negocio: aceptar, preparar |
-| AppMensajeros | `AppMensajeros` | — | Chofer: recoger, entregar |
-| Panel Admin | `Panel Admin` | SwiftUI (macOS + iOS) | Operación interna |
+| Llegó (cliente) | `LlegoiOS` | iOS / SwiftUI (Apollo iOS) | Pedir |
+| LlegoBusiness | `LlegoBussisnes` (sic) | Kotlin Multiplatform, Android + iOS (Compose Multiplatform, Apollo Kotlin 4) | Negocio: aceptar, preparar |
+| AppMensajeros | `AppMensajeros` | Kotlin Multiplatform, Android + iOS | Chofer: recoger, entregar |
+| Web | `LlegoWeb` | Astro 5 + Svelte 5, SSR con `@astrojs/node` | Web pública (marketing, legales) y portal de negocios (alta de negocio/sucursal, tutoriales); proxy GraphQL en `/api/graphql` |
+| Panel Admin | `llegoadmin` (proyecto Xcode `Panel Admin`) | SwiftUI (macOS + iOS) | Operación interna de los fundadores |
 
 No hay codegen automático de GraphQL desde este repo: no existe `codegen.yml` ni
 `.graphqlconfig`. Cada app maneja su propio schema. `LlegoApk` en concreto tiene el
@@ -204,15 +205,36 @@ app distribuida la puede extraer cualquiera.
 
 ### Subscriptions — rotas con más de un worker
 
-`OrderPubSub` ([schema/orders/subscriptions.py:26](schema/orders/subscriptions.py:26)) es un `dict` de colas en memoria
+`OrderPubSub` ([schema/orders/subscriptions.py:28](schema/orders/subscriptions.py:28)) es un `dict` de colas en memoria
 **del proceso**, con un comentario explícito de "reemplazar con Redis en producción".
 Si publisher y subscriber caen en workers distintos, el evento no llega nunca.
 
-La excepción es `couriers_presence_stream` ([:83](schema/orders/subscriptions.py:83)), que lee Redis directamente y sí
+La excepción es `couriers_presence_stream` ([:118](schema/orders/subscriptions.py:118)), que lee Redis directamente y sí
 funciona multi-worker.
 
-`order_tracking_stream` ([:172](schema/orders/subscriptions.py:172)) tiene un `TODO` en [:225](schema/orders/subscriptions.py:225): solo comprueba que
-el pedido exista, **no que quien escucha sea su dueño**.
+`order_tracking_stream` ([:227](schema/orders/subscriptions.py:227)) tiene un `TODO` en [:280](schema/orders/subscriptions.py:280): solo comprueba que
+el pedido exista, **no que quien escucha sea su dueño**. `deliveryLocationUpdated` y
+`orderUpdated` tampoco piden auth (`orderUpdated` no tiene publicador, así que no emite).
+
+**Eventos de sucursal** (`newBranchOrder` → canal `branch:{branchId}`, `branchOrderUpdated`
+→ `branch_updates:{branchId}`), para la app de negocios. Los publica
+`OrderService._publish_branch_order_event` ([services/orders_service.py:2711](services/orders_service.py:2711)):
+
+- `newBranchOrder`: al crear el pedido y cuando el cliente lo reenvía (vuelve a
+  `pending_acceptance`: la tienda tiene que responder otra vez).
+- `branchOrderUpdated`: en cada cambio de estado (todo lo que pasa por
+  `_emit_tracking_event`: `update_status`, `mark_order_paid`, modificar/reenviar, escalado
+  por timeout) y de pago (el cliente pulsa "Pagar", pagos registrados sin cambio de estado,
+  y los webhooks de QvaPay/TronDealer vía `publish_branch_order_changed`, porque escriben
+  el pedido directo en Mongo). Si añades otro camino que cambie un pedido fuera de
+  `update_status`, publica tú también.
+- Publicar nunca rompe ni frena la operación: solo encola, y un fallo se loguea.
+- Auth ([:88](schema/orders/subscriptions.py:88)): argumento `jwt` opcional. Con jwt se exige
+  acceso a la sucursal (`access_checker`); sin jwt la suscripción **queda abierta y no emite
+  nada** (la app de negocios actual se suscribe sin jwt; si la suscripción terminara con
+  error, su `collectWithReconnect` podría reintentar en bucle). La app tiene que mandar
+  `$jwt` para recibir eventos.
+- Mismo límite multi-worker que el resto: la app debe seguir refrescando por HTTP.
 
 Si necesitas tiempo real fiable hoy, haz polling HTTP, no subscriptions.
 
@@ -269,11 +291,55 @@ Las transiciones válidas están en `ALLOWED_TRANSITIONS` ([domain/orders.py:389
 7. Chofer recoge (desde `preparing` o `ready_for_pickup`) → `on_the_way`
 8. Chofer entrega con código → `delivered`
 
-### Timeout de 15 minutos
+### Timeouts
 
-`services/order_timeout_worker.py`, cada 60 s ([clients/lifespan.py:66](clients/lifespan.py:66)). Cancela
-automáticamente si vence `deadlineAt` en: `pending_acceptance`, `modified_by_store`,
-`rejected_by_store`, `awaiting_delivery_acceptance`, `pending_payment`.
+`services/order_timeout_worker.py`, cada 60 s ([clients/lifespan.py:66](clients/lifespan.py:66)), actúa sobre
+los pedidos con `deadlineAt` vencido. Plazos en `OrderService.STATUS_TIMEOUT_MINUTES`
+([services/orders_service.py:79](services/orders_service.py:79)): 15 min en `pending_acceptance`,
+`modified_by_store`, `rejected_by_store`, `awaiting_delivery_acceptance` y `pending_payment`;
+30 min en `payment_in_progress`; 20 min en `accepted` (empezar la elaboración).
+Al vencer se cancela, salvo que haya dinero de por medio (pagado o declarado como
+enviado): entonces se escala a soporte (`requiresAttention`) y se borra el deadline
+(`expire_order`, [:2470](services/orders_service.py:2470)).
+
+### Pedidos programados (`scheduledFor`)
+
+El cliente puede programar para hoy más tarde o para mañana (hora de Cuba); se valida
+contra el horario de la sucursal de ese día, incluido su override diario.
+
+- El plazo de aceptación de la tienda (`pending_acceptance`) y el resto de plazos previos
+  (mensajero, pago, reenvío) **no cambian**.
+- Los plazos que exigen empezar la elaboración (`accepted` y `payment_in_progress`)
+  **nunca vencen antes de `scheduledFor - 30 min`**
+  (`SCHEDULED_PREPARATION_LEAD_MINUTES`, [services/orders_utils.py:270](services/orders_utils.py:270)):
+  `deadline = max(ahora + plazo normal, scheduledFor - 30 min)`.
+- Se aplica al calcular el plazo (`_next_deadline_for_status`), en el worker (si el mínimo
+  aún no llegó, corre el deadline y devuelve `"deferred"`: cubre pedidos viejos y los
+  webhooks de QvaPay/TronDealer, que pasan a `accepted` sin recalcular el plazo) y en el
+  `deadlineAt` expuesto por GraphQL (`order_to_type`), que es lo que usa la cuenta atrás de
+  la app de negocios.
+- `scheduledFor` puede llegar *aware* desde GraphQL y `deadlineAt` es UTC *naive*: se
+  normalizan antes de compararlos.
+
+### Horario de la sucursal: override diario ("solo hoy")
+
+`Branch.schedule.temporaryStatus` lo escribe `setBranchDailyOverride`
+([schema/branches/mutations.py:408](schema/branches/mutations.py:408)) desde el chip de estado de la app de
+negocios, siempre con `date` = hoy. Reglas en [services/branch_hours.py](services/branch_hours.py):
+
+- Con `date` (YYYY-MM-DD): aplica **solo ese día en hora de Cuba** (`America/Havana`).
+  Sin `date` (legacy: seeds como la tienda demo, `updateBranch`): aplica indefinidamente.
+- Cuando aplica: `temporallyClosed` cierra el día entero (también la cola de un turno
+  nocturno de ayer); `openTime`/`closeTime` sustituyen al horario semanal ese día (pueden
+  cruzar la medianoche); `temporallyOpen` sin horas abre todo el día; sin flags ni horas
+  no decide.
+- Lo usan `_is_branch_open_now` (pedido inmediato) y `_is_branch_open_at` (programado;
+  aquí solo cuentan los overrides con fecha, los legacy se ignoran como antes).
+- `schedule_to_type` ([schema/branches/utils.py:30](schema/branches/utils.py:30)) no expone un override con fecha
+  distinta de hoy: iOS y Android leen `temporallyClosed`/`temporallyOpen` sin mirar la
+  fecha.
+- La mutación valida fecha y horas (las dos o ninguna, `HH:MM`) y las normaliza. Ojo:
+  `updateBranch` con `schedule` reescribe `temporaryStatus` (lo borra si no lo manda).
 
 ### Código de entrega
 
@@ -295,6 +361,7 @@ solo en `pending_payment`; `ready_for_pickup` y `on_the_way` se muestran ambos c
 
 **Negocio** — `pendingBranchOrders`, `branchOrders`, `order`, `orderStats`. Mutations:
 `acceptOrder`, `modifyOrderItems`, `rejectOrder`, `updateOrderStatus`, `markOrderReady`.
+Tiempo real: `newBranchOrder` y `branchOrderUpdated` (con `jwt`, ver sección 5).
 Regla: no pasar a `preparing` si es no-efectivo y `paymentStatus != completed`. Desde
 `preparing` el pedido ya no es cancelable.
 
@@ -365,7 +432,7 @@ leerlos del `Branch`. No existe un `acceptsUsdt`: USDT va colgado de `acceptsZel
 ### Efectivo vs no efectivo
 
 Dos clasificadores independientes que pueden divergir:
-- `OrderService.CASH_PAYMENT_METHODS` / `NON_CASH_PAYMENT_METHODS` ([services/orders_service.py:75](services/orders_service.py:75)):
+- `OrderService.CASH_PAYMENT_METHODS` / `NON_CASH_PAYMENT_METHODS` ([services/orders_service.py:107](services/orders_service.py:107)):
   sets estáticos, normaliza el token, cae a buscar el doc en `payment_methods`, y ante la
   duda asume **no efectivo** (conservador).
 - `PaymentService` confía directamente en `PaymentMethod.method == "cash"` de la BD.
@@ -430,7 +497,7 @@ try/except propio para que un fallo no impida arrancar.
 
 | Worker | Cadencia | Qué hace |
 |---|---|---|
-| `order_timeout_worker` | 60 s | Cancela pedidos con `deadlineAt` vencido ([lifespan.py:66](clients/lifespan.py:66)) |
+| `order_timeout_worker` | 60 s | Cancela (o escala si hay dinero) pedidos con `deadlineAt` vencido; difiere los programados (sección 7) ([lifespan.py:66](clients/lifespan.py:66)) |
 | `access_expiration_worker` | 15 min | Revoca `business_access` e invitaciones caducadas ([:44](clients/lifespan.py:44)) |
 | `account_deletion_worker` | 24 h | Borrado definitivo tras los 30 días de gracia de Apple ([:91](clients/lifespan.py:91)) |
 | recomendaciones nocturnas | 24 h (tras 180 s de warmup) | Recalcula taste vectors, price positioning y complementos ([:116](clients/lifespan.py:116)) |
@@ -461,7 +528,7 @@ grep -rn "BusinessType(\|BranchType(\|ProductType(\|UserType(" schema/
 Y entonces o lo declaras en cada tipo GraphQL, o lo excluyes.
 
 - **Branch** tiene un único sitio central: `branch_to_dict()` con su set `exclude`
-  ([schema/branches/utils.py:76](schema/branches/utils.py:76)), que cubre `BranchType`/`ScoredBranchType`/`NearbyBranchType`
+  ([schema/branches/utils.py:92](schema/branches/utils.py:92)), que cubre `BranchType`/`ScoredBranchType`/`NearbyBranchType`
   de una vez.
 - **Business, Product y User no tienen helper central**: hay que tocar cada call site.
 - El aviso está escrito en el propio código, encima de `Business` ([domain/models.py:102](domain/models.py:102)) y
@@ -518,14 +585,15 @@ Todos comprobados leyendo el código, no reportados por nadie. No están arregla
 
 4. **Los webhooks de QvaPay y TronDealer no validan el monto recibido.**
    QvaPay lee `amount_float` del cuerpo y nunca lo compara con `invoice.amount`
-   ([services/payments/qvapay_service.py:214](services/payments/qvapay_service.py:214)). TronDealer es peor: el registro guarda
-   `expectedAmount` ([trondealer_service.py:171](services/payments/trondealer_service.py:171)) y aun así `handle_webhook`
-   ([:185](services/payments/trondealer_service.py:185)) nunca lo compara con lo recibido. **Un pago de menos confirma el pedido
+   ([services/payments/qvapay_service.py:226](services/payments/qvapay_service.py:226)). TronDealer es peor: el registro guarda
+   `expectedAmount` ([trondealer_service.py:183](services/payments/trondealer_service.py:183)) y aun así `handle_webhook`
+   ([:197](services/payments/trondealer_service.py:197)) nunca lo compara con lo recibido. **Un pago de menos confirma el pedido
    igual** y genera el payout por lo que sea que llegó.
 
 5. **`order_tracking_stream` no verifica propiedad.** Solo comprueba que el pedido exista
-   ([schema/orders/subscriptions.py:225](schema/orders/subscriptions.py:225), con `TODO` escrito). Cualquiera con un `orderId`
-   puede seguir la ubicación de un pedido ajeno.
+   ([schema/orders/subscriptions.py:280](schema/orders/subscriptions.py:280), con `TODO` escrito). Cualquiera con un `orderId`
+   puede seguir la ubicación de un pedido ajeno. Lo mismo pasa con `deliveryLocationUpdated`
+   ([:162](schema/orders/subscriptions.py:162)), que no pide auth y sí recibe la posición del chofer.
 
 6. **`POST /payments/validate` es público y sin rate limit** ([api/routes.py:183](api/routes.py:183)):
    corre OCR de Gemini sobre imágenes subidas y puede persistir un registro de pago.
@@ -567,5 +635,6 @@ son scripts manuales.
 - Colección nueva que se vaya a consultar en caliente → añádele índices en
   `clients/mongodb_client.py`.
 - Entidad nueva con búsqueda semántica → replica el patrón dual Mongo+Qdrant a mano.
-- Tiempo real fiable → polling, no subscriptions (sección 5).
+- Tiempo real fiable → polling, no subscriptions (sección 5). Si cambias un pedido fuera de
+  `OrderService.update_status`, publica el evento de sucursal (`publish_branch_order_changed`).
 - Exportar el schema: `python scripts/export_schema.py`, o `GET /graphql/schema.graphql` en vivo.
