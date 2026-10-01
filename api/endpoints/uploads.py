@@ -13,7 +13,10 @@ from services.image_processing import (
     process_image_for_store_async,
     process_product_image_async,
 )
-from utils.auth import get_current_user_id_from_header
+from utils.auth import (
+    get_current_user_id_from_header,
+    require_admin_user_from_header,
+)
 from utils.rate_limit import RATE_LIMIT_UPLOADS, limiter
 from utils.s3 import (
     AVATAR_IMAGE_VARIANT_KEYS,
@@ -750,7 +753,7 @@ async def upload_business_type_model3d(
 async def upload_tutorial_video(
     request: Request,
     video: UploadFile = File(...),
-    user_id: str = Depends(get_current_user_id_from_header),
+    user_id: str = Depends(require_admin_user_from_header),
 ):
     """
     Upload video for a tutorial.
@@ -759,15 +762,9 @@ async def upload_tutorial_video(
     This endpoint uploads the video to S3 and returns the path and presigned URL.
     Use the returned video_path in the createTutorial or updateTutorial mutation.
 
-    Note: Only admins should use this endpoint (validated in the GraphQL mutation).
+    Solo admins: la dependencia exige JWT con rol admin (401/403), igual que
+    las mutations de tutoriales.
     """
-    if not user_id:
-        raise HTTPException(status_code=401, detail="No autorizado")
-
-    # TODO: Add admin role check when implemented
-    # For now, any authenticated user can upload tutorial videos
-    # In production, add: if user.role != "admin": raise Exception("No autorizado")
-
     # Validate and read the video file
     file_content, extension = await validate_video_upload(
         video, MAX_FILE_SIZES["video"]
@@ -791,7 +788,7 @@ async def upload_tutorial_video(
 async def upload_tutorial_thumbnail(
     request: Request,
     image: UploadFile = File(...),
-    user_id: str = Depends(get_current_user_id_from_header),
+    user_id: str = Depends(require_admin_user_from_header),
 ):
     """
     Upload thumbnail image for a tutorial.
@@ -800,15 +797,9 @@ async def upload_tutorial_thumbnail(
     This endpoint uploads the thumbnail to S3 and returns the path and presigned URL.
     Use the returned thumbnail_path in the createTutorial or updateTutorial mutation.
 
-    Note: Only admins should use this endpoint (validated in the GraphQL mutation).
+    Solo admins: la dependencia exige JWT con rol admin (401/403), igual que
+    las mutations de tutoriales.
     """
-    if not user_id:
-        raise HTTPException(status_code=401, detail="No autorizado")
-
-    # TODO: Add admin role check when implemented
-    # For now, any authenticated user can upload tutorial thumbnails
-    # In production, add: if user.role != "admin": raise Exception("No autorizado")
-
     file_content = await validate_upload(
         image, "thumbnail", MAX_FILE_SIZES["thumbnail"]
     )
