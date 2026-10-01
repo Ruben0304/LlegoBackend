@@ -223,6 +223,8 @@ class WalletMutation:
         )
         
         # Get transaction details
+        from clients.mongodb_client import get_database
+        db = get_database()
         transaction = await db.wallet_transactions.find_one({"_id": result["transaction_id"]})
         
         return WalletTransactionType(
@@ -283,6 +285,8 @@ class WalletMutation:
         )
         
         # Get transaction details
+        from clients.mongodb_client import get_database
+        db = get_database()
         transaction = await db.wallet_transactions.find_one({"_id": result["transaction_id"]})
         
         return WalletTransactionType(
