@@ -193,10 +193,13 @@ def rate_limit_graphql(info, limit_type: str = "graphql"):
 
 def get_user_or_ip(request: Request) -> str:
     """Get rate limit key: user_id if authenticated, IP otherwise."""
-    auth_header = request.headers.get("Authorization")
-    if auth_header and auth_header.startswith("Bearer "):
-        token = auth_header.split(" ")[1]
-        payload = decode_access_token(token)
+    auth_header = request.headers.get("Authorization") or ""
+    scheme, _, token = auth_header.partition(" ")
+    # El esquema no distingue mayusculas: la app iOS manda "bearer <jwt>" (el
+    # token_type que devuelve el login) y con "Bearer " estricto caia al limite
+    # por IP, compartido entre todos los usuarios detras de la misma NAT.
+    if scheme.lower() == "bearer" and token.strip():
+        payload = decode_access_token(token.strip())
         if payload and "user_id" in payload:
             return f"user:{payload['user_id']}"
     

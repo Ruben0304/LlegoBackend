@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
@@ -11,8 +11,8 @@ from core.config import settings
 from repositories import auth_repo
 from utils.s3 import generate_presigned_url
 from services.payments import validate_payment_image_with_transfer_id
-from utils.auth import create_access_token
-from utils.rate_limit import RATE_LIMIT_AUTH, limiter
+from utils.auth import create_access_token, get_current_user_id_from_header
+from utils.rate_limit import RATE_LIMIT_AUTH, RATE_LIMIT_UPLOADS, limiter
 
 from .endpoints.admin_payouts import router as admin_payouts_router
 from .endpoints.admin_tests import router as admin_tests_router
@@ -187,13 +187,24 @@ async def login(request: Request, data: LoginRequest):
     response_model=PaymentValidationResponse,
     tags=["Payments"],
 )
+@limiter.limit(RATE_LIMIT_UPLOADS)
 async def validate_payment_image(
+    request: Request,
     transfer_id: str = Form(
         ..., description="ID de transferencia proporcionado por el cliente"
     ),
     file: UploadFile = File(..., description="Captura del SMS bancario"),
+    user_id: Optional[str] = Depends(get_current_user_id_from_header),
 ):
-    """Validate a payment image using Gemini OCR."""
+    """Validate a payment image using Gemini OCR.
+
+    Requiere JWT y tiene rate limit por usuario: cada llamada ejecuta OCR con
+    Gemini (coste por peticion) y, si el id coincide, guarda un registro de
+    pago. Lo llama la app iOS desde la hoja de transferencia, con sesion.
+    """
+    if not user_id:
+        raise HTTPException(status_code=401, detail="No autorizado")
+
     try:
         file_bytes = await file.read()
         content_type = file.content_type or "image/jpeg"
