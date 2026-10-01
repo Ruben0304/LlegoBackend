@@ -339,6 +339,11 @@ negocios, siempre con `date` = hoy. Reglas en [services/branch_hours.py](service
   nocturno de ayer); `openTime`/`closeTime` sustituyen al horario semanal ese día (pueden
   cruzar la medianoche); `temporallyOpen` sin horas abre todo el día; sin flags ni horas
   no decide.
+- Pendiente de producto: el switch "Abierto hoy" de la app de negocios (`BranchStatusChip.kt`)
+  manda `temporallyOpen=true` sin horas al deshacer un "Cerrado hoy", y con esta regla
+  la sucursal queda abierta las 24 h de ese día. Si encenderlo debe volver al horario
+  semanal, lo coherente es que la app llame a `clearBranchDailyOverride` cuando no hay
+  horario especial (iOS/Android muestran `temporallyOpen` como "abierto" sin mirar horas).
 - Lo usan `_is_branch_open_now` (pedido inmediato) y `_is_branch_open_at` (programado;
   aquí solo cuentan los overrides con fecha, los legacy se ignoran como antes).
 - `schedule_to_type` ([schema/branches/utils.py:30](schema/branches/utils.py:30)) no expone un override con fecha
