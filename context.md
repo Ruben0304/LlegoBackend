@@ -54,14 +54,15 @@ busques aquí.
 
 ### Variables de entorno
 
-Obligatorias (sin default — la app no arranca sin ellas), [core/config.py:12](core/config.py:12), [:27](core/config.py:27), [:164](core/config.py:164):
+Obligatorias (sin default — la app no arranca sin ellas), [core/config.py:12](core/config.py:12), [:27](core/config.py:27), [:188](core/config.py:188):
 `MONGODB_URL`, `GEMINI_API_KEY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
 `AWS_DEFAULT_REGION`, `AWS_ENDPOINT_URL`, `S3_BUCKET_NAME`.
 
-El resto tiene default y está agrupado en [core/config.py](core/config.py): Qdrant (`:16`), IA y
-cuotas (`:27`), cash-KYC (`:34`), feature flags de rollout (`:42`), auth (`:65`),
-push APNs/FCM (`:72`), CORS (`:94`), Redis y caché (`:106`), Stripe (`:126`),
-QvaPay (`:131`), TronDealer (`:147`), comisiones (`:154`), `ADMIN_API_KEY` (`:161`).
+El resto tiene default y está agrupado en [core/config.py](core/config.py): Qdrant (`:15`), IA y
+cuotas (`:26`), cash-KYC (`:33`), feature flags de rollout (`:41`), auth (`:64`),
+push APNs/FCM (`:72`), Apple web + `WEB_AUTH_CALLBACK_URLS` (`:85`, ver §6), CORS (`:107`),
+Redis y caché (`:123`), Stripe (`:149`), QvaPay (`:154`), TronDealer (`:170`),
+comisiones (`:178`), `ADMIN_API_KEY` (`:185`).
 
 ---
 
@@ -184,8 +185,11 @@ la operación, no en la cabecera. Es deliberado (sirve igual para HTTP y para We
 - `require_role` se invoca a mano en 43 sitios. No hay `PermissionExtension` ni registro
   central: **si olvidas la llamada, el resolver queda abierto.**
 
-`get_current_user_id_from_header` ([utils/auth.py:242](utils/auth.py:242)) es solo para REST.
-`require_admin_api_key` ([utils/auth.py:261](utils/auth.py:261)) es una clave estática compartida, solo para
+`get_current_user_id_from_header` ([utils/auth.py:246](utils/auth.py:246)) es solo para REST.
+`require_admin_user_from_header` ([utils/auth.py:262](utils/auth.py:262)) es su variante para admins con
+sesión de usuario (JWT con `role == "admin"`; 401 sin token, 403 con otro rol): el
+equivalente REST de `require_role(..., ["admin"])`, usado por `/upload/tutorial/*`.
+`require_admin_api_key` ([utils/auth.py:293](utils/auth.py:293)) es una clave estática compartida, solo para
 endpoints REST de ops — **nunca para GraphQL**, porque una clave estática embebida en una
 app distribuida la puede extraer cualquiera.
 
@@ -204,15 +208,30 @@ app distribuida la puede extraer cualquiera.
 
 ### Subscriptions — rotas con más de un worker
 
-`OrderPubSub` ([schema/orders/subscriptions.py:26](schema/orders/subscriptions.py:26)) es un `dict` de colas en memoria
+`OrderPubSub` ([schema/orders/subscriptions.py:28](schema/orders/subscriptions.py:28)) es un `dict` de colas en memoria
 **del proceso**, con un comentario explícito de "reemplazar con Redis en producción".
 Si publisher y subscriber caen en workers distintos, el evento no llega nunca.
 
-La excepción es `couriers_presence_stream` ([:83](schema/orders/subscriptions.py:83)), que lee Redis directamente y sí
+La excepción es `couriers_presence_stream` ([:139](schema/orders/subscriptions.py:139)), que lee Redis directamente y sí
 funciona multi-worker.
 
-`order_tracking_stream` ([:172](schema/orders/subscriptions.py:172)) tiene un `TODO` en [:225](schema/orders/subscriptions.py:225): solo comprueba que
-el pedido exista, **no que quien escucha sea su dueño**.
+Hoy solo reciben eventos `orderTrackingStream` y `deliveryLocationUpdated`:
+`publish_order_update` y `publish_branch_order` no se llaman desde ningún sitio, así que
+`orderUpdated`, `newBranchOrder` y `branchOrderUpdated` no emiten nada.
+
+**Autorización.** Como en queries y mutations, cada subscription comprueba quién escucha
+antes de suscribirse al canal (helpers en [:100](schema/orders/subscriptions.py:100)–[:124](schema/orders/subscriptions.py:124)). El JWT viaja en el
+argumento `jwt` (el contexto WebSocket nace sin usuario; `connection_init` no se lee):
+
+| Subscription | Quién puede escuchar |
+|---|---|
+| `orderTrackingStream`, `orderUpdated`, `deliveryLocationUpdated` | `OrderService.user_can_access_order`: cliente dueño, dueño/manager de la sucursal (`access_checker`), mensajero asignado, o `admin`/`manager` de plataforma |
+| `newBranchOrder`, `branchOrderUpdated` | dueño/manager de esa sucursal (`access_checker.check_branch_access`) o `admin`/`manager` |
+| `couriersPresenceStream` | solo `admin`/`manager`, igual que la query `adminCouriersPresence` |
+
+⚠️ LlegoBusiness llama a `newBranchOrder`, `branchOrderUpdated` y
+`deliveryLocationUpdated` **sin** `jwt`: hasta que lo envíe, esas subscriptions le
+devuelven error de autenticación (el diálogo de ubicación del chofer deja de actualizarse).
 
 Si necesitas tiempo real fiable hoy, haz polling HTTP, no subscriptions.
 
@@ -224,12 +243,12 @@ Si necesitas tiempo real fiable hoy, haz polling HTTP, no subscriptions.
 
 | Router | Prefijo | Auth |
 |---|---|---|
-| uploads | `/upload` | JWT por cabecera |
-| apple_auth | `/apple` | Público (flujo OAuth, por diseño) |
+| uploads | `/upload` | JWT por cabecera; `/upload/tutorial/*` además rol `admin` |
+| apple_auth | `/apple` | Público (flujo OAuth, por diseño); destinos del callback en lista blanca (abajo) |
 | error_logs | `/api/error-logs` | `ADMIN_API_KEY`, salvo `POST /mobile-report` (público a propósito: intake de crasheos) |
 | kyc | `/kyc` | JWT |
-| device_tokens | `/api/device-tokens` | **ninguna** ⚠️ |
-| push_notifications | `/api/push` | **ninguna** ⚠️ |
+| device_tokens | `/api/device-tokens` | `ADMIN_API_KEY` para listar y `cleanup-invalid`; `/register` y `/unregister` públicos a propósito (equivalen a las mutations públicas `registerDeviceToken`/`unregisterDeviceToken`) |
+| push_notifications | `/api/push` | `ADMIN_API_KEY` (todo el router) |
 | users | `/users` | JWT |
 | stripe | `/stripe` | Bearer manual; `/webhook` por firma de Stripe; `/config` público |
 | product_detection | `/products` | JWT |
@@ -239,8 +258,29 @@ Si necesitas tiempo real fiable hoy, haz polling HTTP, no subscriptions.
 | admin_payouts | `/admin` | Bearer estático (`ADMIN_API_KEY`) |
 | admin_tests | `/admin` | JWT con `role == "admin"` |
 | legal | — | HTML público |
+| (raíz, [api/routes.py](api/routes.py)) | `/payments/validate` | JWT por cabecera + rate limit `RATE_LIMIT_UPLOADS` (6/min por usuario) |
 
 `api/endpoints/qvapay_test.py` existe pero **no está montado** — router muerto.
+
+Ninguna app ni el Panel Admin llaman a `/api/push` ni a `/api/device-tokens`: las apps
+registran el token por GraphQL y el panel solo usa GraphQL y `/upload/promo/*`.
+
+### Apple Sign-In web: lista blanca de destinos
+
+`GET /apple/start?redirect_scheme=…` guarda en el `state` a dónde redirigirá
+`POST /apple/callback` con `?token=JWT`. Por eso solo acepta
+([api/endpoints/apple_auth.py:27](api/endpoints/apple_auth.py:27), [:44](api/endpoints/apple_auth.py:44)):
+
+- `llego` → `llego://auth/callback` (LlegoApk). Es también el default sin parámetro.
+- `llegobusiness` → `llegobusiness://auth/callback` (LlegoBusiness Android).
+- Una URL de `WEB_AUTH_CALLBACK_URLS` (separadas por comas; por defecto
+  `https://llegoweb-production.up.railway.app/auth/callback`), comparada exacta salvo la
+  barra final. Es la vía de la web: `/apple/start?redirect_scheme=<URL url-encoded>`.
+
+Cualquier otro valor → 400 y no se crea `state`. Antes aceptaba cualquier esquema y
+`redirect_scheme=https://atacante/x?` se llevaba el token. Ojo: hoy LlegoWeb llama a
+`/apple/start` sin parámetro (vuelve a `llego://`) y LlegoBusiness Android tampoco pasa
+`redirect_scheme=llegobusiness`; ambos tienen que pasarlo para volver a su app/web.
 
 ---
 
@@ -330,6 +370,18 @@ documento en `payment_attempts`; mutan `orders` directamente desde el webhook. C
 práctica: `paymentAttemptsByOrder`, `activePaymentAttempt` y `adminPaymentAttempts` **no
 muestran nada** para pedidos pagados por esas dos vías. Solo aparecen en
 `pending_payouts` / `admin_payouts`.
+
+**Monto del webhook.** Antes de completar nada, los dos webhooks comparan lo recibido con
+lo esperado ([services/payments/webhook_amounts.py](services/payments/webhook_amounts.py)), con tolerancia de un centavo:
+QvaPay contra `QvaPayInvoice.invoicedAmount` (lo facturado, que difiere de `amount` con
+`QVAPAY_TEST_AMOUNT`; las facturas anteriores al campo usan `amount`) y TronDealer contra
+`TronDealerWallet.expectedAmount`. Si llega menos, o el monto es ilegible: la
+factura/wallet queda `underpaid` con `receivedAmount`; el pedido **no** se marca pagado ni
+cambia de estado; no hay payout ni transferencia automática; y el pedido queda
+`requiresAttention`, sin `deadlineAt` (el worker de timeout no lo cancela) y con una
+entrada de timeline para el cliente. Resolverlo es manual (cola `ordersRequiringAttention`).
+Un depósito USDT adicional sobre una wallet `underpaid` no se suma solo: vuelve a marcar
+el pedido con el detalle.
 
 Las sucursales demo (`branch.isDemoStore`) se auto-completan sin pasar por nada de esto
 ([services/payments_service.py:330](services/payments_service.py:330)).
@@ -487,15 +539,18 @@ Y entonces o lo declaras en cada tipo GraphQL, o lo excluyes.
 
 ---
 
-## 12. Bugs abiertos verificados
+## 12. Bugs verificados
 
-Todos comprobados leyendo el código, no reportados por nadie. No están arreglados.
+Todos comprobados leyendo el código, no reportados por nadie. Los marcados ✅ se
+arreglaron en la rama `fix/f1-backend-seguridad` (con tests); el resto siguen abiertos.
 
-1. **`branchTransferMoney` y `branchWithdrawMoney` lanzan `NameError` después de mover el
-   dinero.** Usan `db.wallet_transactions` sin que `db` exista en ese scope
-   ([schema/wallet/mutations.py:226](schema/wallet/mutations.py:226), [:286](schema/wallet/mutations.py:286)). Las otras tres mutations del mismo
-   archivo sí hacen `db = get_database()` antes ([:70](schema/wallet/mutations.py:70), [:115](schema/wallet/mutations.py:115), [:160](schema/wallet/mutations.py:160)). La
-   transferencia se ejecuta y el cliente recibe un error.
+1. ✅ **Resuelto — `branchTransferMoney` y `branchWithdrawMoney` lanzaban `NameError`
+   después de mover el dinero.** Usaban `db.wallet_transactions` sin definir `db`. Ahora
+   hacen `db = get_database()` como las otras tres mutations del archivo
+   ([schema/wallet/mutations.py:226](schema/wallet/mutations.py:226), [:288](schema/wallet/mutations.py:288)). Arreglo mínimo a propósito: la wallet no es
+   feature del MVP (la app de negocios la tiene comentada). Sigue abierto en esas dos
+   mutations que `is_manager = user_id in branch.managerIds` compara un `str` con
+   `ObjectId`s, así que solo el dueño del negocio pasa la comprobación.
 
 2. **Las recargas de wallet por Stripe no acreditan nada.**
    `WalletRepository.add_balance` ([repositories/wallet_repository.py:67](repositories/wallet_repository.py:67)) llama a
@@ -507,31 +562,50 @@ Todos comprobados leyendo el código, no reportados por nadie. No están arregla
    ([api/endpoints/stripe_payments.py:338](api/endpoints/stripe_payments.py:338), [:396](api/endpoints/stripe_payments.py:396)): **Stripe cobra y el usuario no
    ve el saldo.**
 
-3. **Endpoints de push y device tokens sin autenticación ninguna.**
-   - `GET /api/device-tokens/` lista tokens y metadatos ([api/endpoints/device_tokens.py:11](api/endpoints/device_tokens.py:11)).
-   - `DELETE /api/device-tokens/cleanup-invalid` borra **todos** los tokens ([:106](api/endpoints/device_tokens.py:106)).
-   - `POST /api/push/clientes` y `POST /api/push/negocios` permiten a cualquiera mandar una
-     notificación a todos los dispositivos de cualquiera de las dos apps
-     ([api/endpoints/push_notifications.py:54](api/endpoints/push_notifications.py:54)).
+3. ✅ **Resuelto — endpoints de push y device tokens sin autenticación.** `GET
+   /api/device-tokens/`, `DELETE /api/device-tokens/cleanup-invalid` (borraba **todos** los
+   tokens) y todo `/api/push` (notificación a todos los dispositivos de una app) exigen
+   ahora `ADMIN_API_KEY`, el mismo patrón que `/api/error-logs`
+   ([api/endpoints/device_tokens.py:13](api/endpoints/device_tokens.py:13), [api/endpoints/push_notifications.py:20](api/endpoints/push_notifications.py:20)). `/register` y
+   `/unregister` siguen públicos a propósito (ver §6). Ningún cliente los llamaba.
 
-   Es el mismo agujero que se cerró en `/api/error-logs`, pero estos quedaron fuera.
+4. ✅ **Resuelto — los webhooks de QvaPay y TronDealer no validaban el monto recibido.**
+   Un pago de menos confirmaba el pedido y generaba el payout por lo que llegara. Ahora la
+   factura/wallet queda `underpaid`, sin pago ni payout, y el pedido `requiresAttention`
+   ([services/payments/qvapay_service.py:223](services/payments/qvapay_service.py:223), [trondealer_service.py:193](services/payments/trondealer_service.py:193)). Detalle en §8
+   ("Monto del webhook").
 
-4. **Los webhooks de QvaPay y TronDealer no validan el monto recibido.**
-   QvaPay lee `amount_float` del cuerpo y nunca lo compara con `invoice.amount`
-   ([services/payments/qvapay_service.py:214](services/payments/qvapay_service.py:214)). TronDealer es peor: el registro guarda
-   `expectedAmount` ([trondealer_service.py:171](services/payments/trondealer_service.py:171)) y aun así `handle_webhook`
-   ([:185](services/payments/trondealer_service.py:185)) nunca lo compara con lo recibido. **Un pago de menos confirma el pedido
-   igual** y genera el payout por lo que sea que llegó.
+5. ✅ **Resuelto — `order_tracking_stream` no verificaba propiedad.** Cualquiera con un
+   `orderId` podía seguir un pedido ajeno. Ahora usa `user_can_access_order`, y de paso se
+   cerraron `orderUpdated`, `deliveryLocationUpdated`, `newBranchOrder` y
+   `branchOrderUpdated` (no pedían ni JWT) y `couriersPresenceStream` (cualquier usuario veía
+   a todos los mensajeros). Tabla de permisos en §5; ojo con LlegoBusiness, que aún no manda
+   `jwt` a sus subscriptions.
 
-5. **`order_tracking_stream` no verifica propiedad.** Solo comprueba que el pedido exista
-   ([schema/orders/subscriptions.py:225](schema/orders/subscriptions.py:225), con `TODO` escrito). Cualquiera con un `orderId`
-   puede seguir la ubicación de un pedido ajeno.
+6. ✅ **Resuelto — `POST /payments/validate` era público y sin rate limit.** Ahora exige
+   JWT por cabecera y aplica `RATE_LIMIT_UPLOADS` (6/min por usuario) ([api/routes.py:185](api/routes.py:185)).
+   El `key_func` del rate limit (`get_user_or_ip`, [utils/rate_limit.py:194](utils/rate_limit.py:194)) reconoce ahora
+   `bearer` en minúsculas, que es lo que manda la app iOS; antes caía al límite por IP.
 
-6. **`POST /payments/validate` es público y sin rate limit** ([api/routes.py:183](api/routes.py:183)):
-   corre OCR de Gemini sobre imágenes subidas y puede persistir un registro de pago.
+7. ✅ **Resuelto — código muerto en `api/endpoints/kyc.py`.** El `return` iba antes del log
+   `kyc_evaluation_completed`, que nunca se emitía; ahora se asigna `response`, se loguea y
+   se devuelve.
 
-7. **Código muerto** en [api/endpoints/kyc.py:132](api/endpoints/kyc.py:132): un `return response` inalcanzable con
-   `response` sin definir. Inofensivo, pero el log de finalización nunca se emite.
+8. ✅ **Resuelto — Apple Sign-In web aceptaba cualquier `redirect_scheme`**, y
+   `/apple/callback` redirigía allí con `?token=JWT` (robo de sesión con
+   `redirect_scheme=https://atacante/x?`). Ahora hay lista blanca (ver §6). De paso,
+   `GET /apple/callback` referenciaba `ANDROID_DEEP_LINK`, inexistente, y respondía 500.
+
+9. ✅ **Resuelto — tutoriales sin comprobación de rol.** `createTutorial`, `updateTutorial`,
+   `deleteTutorial`, `toggleTutorialActive` y `POST /upload/tutorial/*` dejaban hacerlo a
+   cualquier usuario autenticado (TODO explícito). Ahora exigen rol `admin`
+   (`require_role` / `require_admin_user_from_header`). La web de tutoriales necesita una
+   cuenta con `role: "admin"` en la BD.
+
+10. **Vídeos promocionales sin comprobación de rol.** Mismo patrón que tenían los
+    tutoriales: las mutations de [schema/promotional_videos/mutations.py](schema/promotional_videos/mutations.py) y
+    `POST /upload/promotion/video|thumbnail` ([api/endpoints/uploads.py](api/endpoints/uploads.py)) solo piden JWT, con
+    `TODO: Add admin role check`. Abierto.
 
 ---
 
