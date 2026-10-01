@@ -113,7 +113,7 @@ async def evaluate_global_kyc(
             selfie_live_ref=selfie_ref,
             device_context={"source": "rest_upload"},
         )
-        return {
+        response = {
             "verificationId": result["verificationId"],
             "kycEvalStatus": result["kycEvalStatus"],
             "cashCoverageStatus": result["cashCoverageStatus"],
