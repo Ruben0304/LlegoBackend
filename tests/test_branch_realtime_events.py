@@ -223,6 +223,77 @@ def test_external_writers_publish_by_order_id(service, publishers):
 
 
 # ---------------------------------------------------------------------------
+# Los pings de ubicación del chofer no son cambios para la sucursal
+# ---------------------------------------------------------------------------
+
+
+def test_tracking_event_without_branch_publish_still_feeds_customer(
+    service, publishers, monkeypatch
+):
+    tracking = AsyncMock()
+    monkeypatch.setattr(subscriptions, "publish_order_tracking", tracking)
+    order = make_order(OrderStatus.ON_THE_WAY)
+
+    run(service._emit_tracking_event(order, publish_to_branch=False))
+
+    publishers.update.assert_not_awaited()
+    publishers.new.assert_not_awaited()
+    # El seguimiento del cliente (orderTracking) sí se refresca.
+    tracking.assert_awaited_once()
+    assert tracking.await_args.args[0] == str(order.id)
+
+
+def test_delivery_location_ping_does_not_publish_branch_order_updated(
+    service, publishers, monkeypatch
+):
+    """updateDeliveryLocation llega cada ~10 s por pedido activo
+    (AppMensajeros, MapScreen.kt LOCATION_PUSH_INTERVAL_MS): no debe reenviar
+    el pedido entero por branch_updates:{branchId} en cada ping."""
+    import schema.orders.mutations as mutations
+    from schema.orders.inputs import UpdateDeliveryLocationInput
+
+    courier = SimpleNamespace(id=str(ObjectId()))
+    order = make_order(OrderStatus.ON_THE_WAY, deliveryPersonId=courier.id)
+    order_id = str(order.id)
+
+    monkeypatch.setattr(mutations, "require_auth", lambda jwt, info: USER_ID)
+    monkeypatch.setattr(
+        mutations.delivery_persons_repo, "get_by_user_id", AsyncMock(return_value=courier)
+    )
+    monkeypatch.setattr(mutations.delivery_persons_repo, "update_location", AsyncMock())
+    monkeypatch.setattr(mutations.delivery_persons_repo, "update_online_status", AsyncMock())
+    monkeypatch.setattr(mutations, "_redis_set_courier_presence", lambda *a, **k: None)
+    monkeypatch.setattr(mutations.order_locations_repo, "create", AsyncMock())
+    monkeypatch.setattr(mutations.orders_repo, "get_by_id", AsyncMock(return_value=order))
+    monkeypatch.setattr(mutations, "order_service", service)
+    service.delivery_repo = SimpleNamespace(get_by_id=AsyncMock(return_value=None))
+    tracking = AsyncMock()
+    live_map = AsyncMock()
+    monkeypatch.setattr(subscriptions, "publish_order_tracking", tracking)
+    monkeypatch.setattr(subscriptions, "publish_delivery_location", live_map)
+
+    mutation = mutations.OrderMutation()
+    for _ in range(3):
+        ok = run(
+            mutation.update_delivery_location(
+                info=None,
+                input=UpdateDeliveryLocationInput(
+                    orderId=order_id, latitude=23.13, longitude=-82.38
+                ),
+                jwt="token",
+            )
+        )
+        assert ok is True
+
+    publishers.update.assert_not_awaited()
+    publishers.new.assert_not_awaited()
+    # Cliente y mapa en vivo del negocio siguen recibiendo cada ping.
+    assert tracking.await_count == 3
+    assert live_map.await_count == 3
+    assert live_map.await_args.args[0] == order_id
+
+
+# ---------------------------------------------------------------------------
 # Publicar nunca rompe la operación principal
 # ---------------------------------------------------------------------------
 

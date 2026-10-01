@@ -228,6 +228,12 @@ el pedido exista, **no que quien escucha sea su dueño**. `deliveryLocationUpdat
   y los webhooks de QvaPay/TronDealer vía `publish_branch_order_changed`, porque escriben
   el pedido directo en Mongo). Si añades otro camino que cambie un pedido fuera de
   `update_status`, publica tú también.
+- Los pings de ubicación del chofer **no** publican en `branch_updates`: `updateDeliveryLocation`
+  (cada ~10 s por pedido activo, AppMensajeros `MapScreen.kt`) llama a
+  `_emit_tracking_event(order, publish_to_branch=False)`, porque no cambian ni el estado ni
+  el pago. El mapa en vivo de la sucursal va por `deliveryLocationUpdated`
+  (`delivery_location:{orderId}`). Si añades otro caller de `_emit_tracking_event` que no
+  sea un cambio de estado o de pago, pasa también `publish_to_branch=False`.
 - Publicar nunca rompe ni frena la operación: solo encola, y un fallo se loguea.
 - Auth ([:88](schema/orders/subscriptions.py:88)): argumento `jwt` opcional. Con jwt se exige
   acceso a la sucursal (`access_checker`); sin jwt la suscripción **queda abierta y no emite

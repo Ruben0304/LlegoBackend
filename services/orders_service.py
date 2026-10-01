@@ -2757,15 +2757,24 @@ class OrderService:
             return
         await self._publish_branch_order_event(order)
 
-    async def _emit_tracking_event(self, order: Order):
+    async def _emit_tracking_event(
+        self, order: Order, *, publish_to_branch: bool = True
+    ):
         """
         Emit tracking event for real-time subscription.
 
         Called when order status changes or delivery location updates.
         Also sends push notification to customer, and publishes the change to
         the branch (branchOrderUpdated) for the business app.
+
+        `publish_to_branch=False` para los pings de ubicacion del chofer
+        (updateDeliveryLocation, cada ~10 s por pedido activo): no hay cambio
+        de estado ni de pago, asi que no se reenvia el pedido entero por
+        `branch_updates:{branchId}`. El mapa en vivo de la app de negocios va
+        por `delivery_location:{orderId}` (deliveryLocationUpdated).
         """
-        await self._publish_branch_order_event(order)
+        if publish_to_branch:
+            await self._publish_branch_order_event(order)
         try:
             # Import here to avoid circular dependency
             from schema.orders.subscriptions import publish_order_tracking
