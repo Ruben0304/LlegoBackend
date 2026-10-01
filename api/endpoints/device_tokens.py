@@ -1,14 +1,21 @@
 """REST endpoints for device token registration (push notifications)."""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Literal
 
 from repositories.device_token_repository import device_token_repo
+from utils.auth import require_admin_api_key
+
+# Listar y borrar tokens es de ops: exige ADMIN_API_KEY, igual que
+# /api/error-logs. `/register` y `/unregister` siguen abiertos a proposito: son
+# el equivalente REST de las mutations publicas registerDeviceToken /
+# unregisterDeviceToken (un dispositivo se registra antes de iniciar sesion).
+_admin_only = [Depends(require_admin_api_key)]
 
 router = APIRouter(prefix="/api/device-tokens", tags=["Device Tokens"])
 
 
-@router.get("/")
+@router.get("/", dependencies=_admin_only)
 async def list_device_tokens():
     """List all registered device tokens (for debugging)."""
     tokens = await device_token_repo.get_all_active()
@@ -103,7 +110,7 @@ async def unregister_device_token(token: str):
     return {"success": True, "message": "Token desactivado"}
 
 
-@router.delete("/cleanup-invalid")
+@router.delete("/cleanup-invalid", dependencies=_admin_only)
 async def cleanup_invalid_tokens():
     """
     Remove all invalid/expired device tokens from database.

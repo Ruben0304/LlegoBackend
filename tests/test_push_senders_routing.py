@@ -167,12 +167,20 @@ async def test_critical_error_alert_without_admins_sends_nothing():
 # ---------------------------------------------------------------- endpoints manuales
 
 
-def _push_client():
+ADMIN_KEY = "test-admin-key"
+
+
+def _push_post(path, body):
+    """POST autenticado con ADMIN_API_KEY: /api/push es solo para ops."""
     from api.endpoints.push_notifications import router
+    from core.config import settings
 
     app = FastAPI()
     app.include_router(router)
-    return TestClient(app)
+    with patch.object(settings, "admin_api_key", ADMIN_KEY):
+        return TestClient(app).post(
+            path, json=body, headers={"Authorization": f"Bearer {ADMIN_KEY}"}
+        )
 
 
 def test_manual_push_clientes_uses_customer_tokens_and_customer_bundle():
@@ -180,7 +188,7 @@ def test_manual_push_clientes_uses_customer_tokens_and_customer_bundle():
     send = AsyncMock(return_value=OK)
     with patch.object(device_token_repo, "get_all_active", get_all), \
          patch.object(push_service, "send_to_all", send):
-        res = _push_client().post("/api/push/clientes", json={"title": "Hola", "body": "Mundo"})
+        res = _push_post("/api/push/clientes", {"title": "Hola", "body": "Mundo"})
 
     assert res.status_code == 200, res.text
     get_all.assert_awaited_once_with(audience=AUDIENCE_CUSTOMER)
@@ -192,7 +200,7 @@ def test_manual_push_negocios_uses_business_tokens_and_business_bundle():
     send = AsyncMock(return_value=OK)
     with patch.object(device_token_repo, "get_all_active", get_all), \
          patch.object(push_service, "send_to_all", send):
-        res = _push_client().post("/api/push/negocios", json={"title": "Hola", "body": "Mundo"})
+        res = _push_post("/api/push/negocios", {"title": "Hola", "body": "Mundo"})
 
     assert res.status_code == 200, res.text
     get_all.assert_awaited_once_with(audience=AUDIENCE_BUSINESS)
@@ -202,7 +210,7 @@ def test_manual_push_negocios_uses_business_tokens_and_business_bundle():
 def test_manual_push_negocios_without_business_devices_returns_404():
     with patch.object(device_token_repo, "get_all_active", AsyncMock(return_value=[])), \
          patch.object(push_service, "send_to_all", AsyncMock(return_value=OK)) as send:
-        res = _push_client().post("/api/push/negocios", json={"title": "Hola", "body": "Mundo"})
+        res = _push_post("/api/push/negocios", {"title": "Hola", "body": "Mundo"})
 
     assert res.status_code == 404
     send.assert_not_awaited()

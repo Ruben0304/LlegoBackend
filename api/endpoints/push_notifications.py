@@ -2,7 +2,7 @@
 import asyncio
 from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from services.push_notification_service import push_service
@@ -12,8 +12,16 @@ from repositories.device_token_repository import (
     BUSINESS_IOS_BUNDLE_ID,
     device_token_repo,
 )
+from utils.auth import require_admin_api_key
 
-router = APIRouter(prefix="/api/push", tags=["Push Notifications"])
+# Todo este router manda notificaciones reales a todos los dispositivos de una
+# app: solo ops con ADMIN_API_KEY, igual que /api/error-logs. Ninguna app ni el
+# Panel Admin lo llaman.
+router = APIRouter(
+    prefix="/api/push",
+    tags=["Push Notifications"],
+    dependencies=[Depends(require_admin_api_key)],
+)
 
 
 class SendPushRequest(BaseModel):
