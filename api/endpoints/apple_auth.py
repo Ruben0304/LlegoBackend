@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
+from core.config import settings
 from repositories import auth_repo
 from services.apple_web_auth import (
     exchange_code_for_tokens,
@@ -18,12 +19,16 @@ from utils.auth import create_access_token, get_apple_private_email
 
 router = APIRouter(prefix="/apple", tags=["Apple Auth (Android)"])
 
-# Default deep link schemes for Android apps
+# Lista blanca de destinos del callback. /apple/callback redirige con
+# ?token=JWT, asi que aceptar un destino arbitrario (p. ej.
+# redirect_scheme=https://atacante/x?) le entregaria la sesion a quien lo pida.
+# Solo valen los esquemas de las apps que usan este flujo y las URL web exactas
+# de WEB_AUTH_CALLBACK_URLS.
 DEEP_LINK_SCHEMES = {
-    "llego": "llego://auth/callback",
-    "llegobusiness": "llegobusiness://auth/callback",
+    "llego": "llego://auth/callback",  # LlegoApk
+    "llegobusiness": "llegobusiness://auth/callback",  # LlegoBussisnes Android
 }
-DEFAULT_DEEP_LINK = "llego://auth/callback"
+DEFAULT_DEEP_LINK = DEEP_LINK_SCHEMES["llego"]
 
 # In-memory state storage (use Redis in production for multi-instance)
 _pending_states: dict[str, dict] = {}
@@ -36,26 +41,43 @@ class AppleAuthStartResponse(BaseModel):
     state: str
 
 
+def resolve_redirect_uri(redirect_scheme: str) -> Optional[str]:
+    """Destino permitido para `redirect_scheme`, o None si no esta en la lista blanca.
+
+    Acepta el nombre de un esquema de app (`llego`, `llegobusiness`) o una URL
+    de callback web que coincida exactamente (salvo la barra final) con una de
+    WEB_AUTH_CALLBACK_URLS.
+    """
+    candidate = (redirect_scheme or "").strip()
+    if candidate in DEEP_LINK_SCHEMES:
+        return DEEP_LINK_SCHEMES[candidate]
+    for allowed_url in settings.web_auth_callback_url_list:
+        if candidate.rstrip("/") == allowed_url.rstrip("/"):
+            return allowed_url
+    return None
+
+
 @router.get("/start", response_model=AppleAuthStartResponse)
 async def start_apple_auth(redirect_scheme: str = "llego"):
     """
-    Start Apple Sign In flow for Android.
+    Start Apple Sign In flow (Android apps y web).
 
     Args:
-        redirect_scheme: The app's deep link scheme (e.g., "llego" or "llegobusiness")
+        redirect_scheme: esquema de la app ("llego" o "llegobusiness") o una URL
+            de callback web incluida en WEB_AUTH_CALLBACK_URLS. Cualquier otro
+            valor devuelve 400 y no crea state.
 
     Returns URL to open in Custom Tab/WebView.
     The state should be stored client-side to verify callback.
     """
+    redirect_uri = resolve_redirect_uri(redirect_scheme)
+    if redirect_uri is None:
+        raise HTTPException(
+            status_code=400, detail="redirect_scheme no permitido"
+        )
+
     state = secrets.token_urlsafe(32)
     nonce = secrets.token_urlsafe(16)
-
-    # Determine the redirect URI based on scheme
-    if redirect_scheme in DEEP_LINK_SCHEMES:
-        redirect_uri = DEEP_LINK_SCHEMES[redirect_scheme]
-    else:
-        # Allow custom schemes
-        redirect_uri = f"{redirect_scheme}://auth/callback"
 
     # Store state for verification with the redirect URI
     _pending_states[state] = {"nonce": nonce, "redirect_uri": redirect_uri}
@@ -186,8 +208,9 @@ async def apple_callback_get(request: Request):
     """
     error = request.query_params.get("error")
     if error:
+        # Antes usaba ANDROID_DEEP_LINK, que no existe: NameError y 500.
         return RedirectResponse(
-            url=f"{ANDROID_DEEP_LINK}?error={error}", status_code=303
+            url=f"{DEFAULT_DEEP_LINK}?error={error}", status_code=303
         )
 
     return {"message": "Use POST for Apple callback"}
