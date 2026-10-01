@@ -30,6 +30,7 @@ from domain.orders import (
 )
 from domain.payments import PaymentAttempt, PaymentAttemptStatus
 from services.orders_service import OrderService
+from services.orders_utils import SCHEDULED_PREPARATION_LEAD_MINUTES
 from services.payments_service import PaymentService
 
 CUSTOMER_ID = str(ObjectId())
@@ -632,3 +633,167 @@ def test_only_participants_can_view_an_order(env):
     assert run(can(order, str(ObjectId()), "admin"))
     assert not run(can(order, str(ObjectId())))
     assert not run(can(order, str(ObjectId()), "customer"))
+
+
+# ---------------------------------------------------------------------------
+# Pedidos programados (scheduledFor): los plazos para empezar a elaborar no
+# vencen antes de scheduledFor - 30 min. Antes un pedido para mañana se
+# cancelaba (o escalaba) a los 20 min de aceptarlo.
+# ---------------------------------------------------------------------------
+
+LEAD = timedelta(minutes=SCHEDULED_PREPARATION_LEAD_MINUTES)
+
+
+def _approx(value, expected, tolerance=timedelta(seconds=5)):
+    return abs(value - expected) <= tolerance
+
+
+def _accept_cash(env, order):
+    return run(
+        env["service"].update_status(
+            str(order.id), OrderStatus.ACCEPTED, orders_module.OrderActor.DELIVERY
+        )
+    )
+
+
+def test_immediate_order_keeps_20_minute_accepted_deadline(env):
+    order = env["orders"].add(make_order(OrderStatus.AWAITING_DELIVERY_ACCEPTANCE))
+
+    updated = _accept_cash(env, order)
+
+    assert _approx(updated.deadlineAt, datetime.utcnow() + timedelta(minutes=20))
+
+
+def test_scheduled_order_accepted_deadline_waits_for_its_preparation_window(env):
+    scheduled_for = datetime.utcnow() + timedelta(days=1)
+    order = env["orders"].add(
+        make_order(OrderStatus.AWAITING_DELIVERY_ACCEPTANCE, scheduledFor=scheduled_for)
+    )
+
+    updated = _accept_cash(env, order)
+
+    assert updated.deadlineAt == scheduled_for - LEAD
+    # 20 min después (y en cualquier pasada del worker antes de su hora) sigue vivo.
+    assert run(env["service"].expire_stale_pre_preparation_orders()) == 0
+    assert env["orders"].get_copy(order.id).status == OrderStatus.ACCEPTED
+
+
+def test_scheduled_order_starting_soon_keeps_normal_deadline(env):
+    # Programado para dentro de 40 min: scheduledFor - 30 queda antes que now + 20.
+    order = env["orders"].add(
+        make_order(
+            OrderStatus.AWAITING_DELIVERY_ACCEPTANCE,
+            scheduledFor=datetime.utcnow() + timedelta(minutes=40),
+        )
+    )
+
+    updated = _accept_cash(env, order)
+
+    assert _approx(updated.deadlineAt, datetime.utcnow() + timedelta(minutes=20))
+
+
+def test_scheduled_order_store_acceptance_deadline_is_unchanged(env):
+    order = env["orders"].add(
+        make_order(
+            OrderStatus.AWAITING_DELIVERY_ACCEPTANCE,
+            scheduledFor=datetime.utcnow() + timedelta(days=1),
+        )
+    )
+
+    updated = run(
+        env["service"].update_status(
+            str(order.id), OrderStatus.PENDING_ACCEPTANCE, orders_module.OrderActor.CUSTOMER
+        )
+    )
+
+    assert _approx(updated.deadlineAt, datetime.utcnow() + timedelta(minutes=15))
+
+
+def test_worker_defers_scheduled_order_with_stale_short_deadline(env):
+    """Pedido aceptado antes de esta regla (o pagado por QvaPay/TronDealer, que
+    no recalculan el plazo): el worker no lo cancela y corre su plazo."""
+    scheduled_for = datetime.utcnow() + timedelta(days=1)
+    order = env["orders"].add(make_order(OrderStatus.ACCEPTED, scheduledFor=scheduled_for))
+
+    cancelled = run(env["service"].expire_stale_pre_preparation_orders())
+
+    stored = env["orders"].get_copy(order.id)
+    assert cancelled == 0
+    assert stored.status == OrderStatus.ACCEPTED
+    assert stored.requiresAttention is not True
+    assert stored.deadlineAt == scheduled_for - LEAD
+    assert run(env["service"].expire_order(stored)) == "deferred"
+
+
+def test_scheduled_order_is_cancelled_once_its_real_deadline_passed(env):
+    # Programado para dentro de 10 min: su mínimo (scheduledFor - 30) ya pasó.
+    order = env["orders"].add(
+        make_order(
+            OrderStatus.ACCEPTED, scheduledFor=datetime.utcnow() + timedelta(minutes=10)
+        )
+    )
+
+    assert run(env["service"].expire_stale_pre_preparation_orders()) == 1
+    assert env["orders"].get_copy(order.id).status == OrderStatus.CANCELLED
+
+
+def test_paid_scheduled_order_is_escalated_once_its_real_deadline_passed(env):
+    order = env["orders"].add(
+        make_order(
+            OrderStatus.ACCEPTED,
+            payment_status=PaymentStatus.COMPLETED,
+            scheduledFor=datetime.utcnow() + timedelta(minutes=10),
+        )
+    )
+
+    assert run(env["service"].expire_stale_pre_preparation_orders()) == 0
+    stored = env["orders"].get_copy(order.id)
+    assert stored.status == OrderStatus.ACCEPTED
+    assert stored.requiresAttention is True
+
+
+def test_payment_sent_on_scheduled_order_waits_for_preparation_window(env):
+    scheduled_for = datetime.utcnow() + timedelta(days=1)
+    order = env["orders"].add(
+        make_order(OrderStatus.PENDING_PAYMENT, scheduledFor=scheduled_for)
+    )
+    attempt = env["attempts"].add(order.id, PaymentAttemptStatus.AWAITING_PROOF)
+
+    run(env["payments"].confirm_payment_sent(str(attempt.id), CUSTOMER_ID, None))
+
+    stored = env["orders"].get_copy(order.id)
+    assert stored.status == OrderStatus.PAYMENT_IN_PROGRESS
+    assert stored.deadlineAt == scheduled_for - LEAD
+
+
+def test_payment_confirmation_on_scheduled_order_waits_for_preparation_window(env):
+    scheduled_for = datetime.utcnow() + timedelta(days=1)
+    order = env["orders"].add(
+        make_order(OrderStatus.PAYMENT_IN_PROGRESS, scheduledFor=scheduled_for)
+    )
+    attempt = env["attempts"].add(order.id, PaymentAttemptStatus.COMPLETED)
+
+    run(env["service"].mark_order_paid(str(order.id), str(attempt.id)))
+
+    stored = env["orders"].get_copy(order.id)
+    assert stored.status == OrderStatus.ACCEPTED
+    assert stored.deadlineAt == scheduled_for - LEAD
+
+
+def test_graphql_deadline_reflects_real_deadline_of_scheduled_order(env):
+    from datetime import timezone
+
+    from schema.orders.types import order_to_type
+
+    # scheduledFor puede llegar aware desde GraphQL; deadlineAt es UTC naive.
+    scheduled_for = datetime.now(timezone.utc) + timedelta(days=1)
+    stale = make_order(OrderStatus.ACCEPTED, scheduledFor=scheduled_for)
+    immediate = make_order(OrderStatus.ACCEPTED, deadline_in_minutes=20)
+    pending = make_order(
+        OrderStatus.PENDING_ACCEPTANCE, deadline_in_minutes=15, scheduledFor=scheduled_for
+    )
+
+    expected = scheduled_for.astimezone(timezone.utc).replace(tzinfo=None) - LEAD
+    assert order_to_type(stale).deadlineAt == expected
+    assert order_to_type(immediate).deadlineAt == immediate.deadlineAt
+    assert order_to_type(pending).deadlineAt == pending.deadlineAt

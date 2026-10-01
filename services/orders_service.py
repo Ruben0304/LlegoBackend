@@ -53,8 +53,10 @@ from services.branch_hours import (
 from services.orders_utils import (
     calculate_delivery_fee_h3,
     coords_to_h3,
+    effective_order_deadline,
     generate_order_number,
     haversine_distance,
+    scheduled_preparation_floor,
 )
 from utils.currency import branch_accepts_currency, normalize_currency
 
@@ -80,6 +82,9 @@ class OrderService:
         # Al vencer NO se cancela (hay dinero de por medio), se escala a un admin.
         OrderStatus.PAYMENT_IN_PROGRESS: 30,
         OrderStatus.ACCEPTED: 20,
+        # Pedidos programados: los plazos de ACCEPTED y PAYMENT_IN_PROGRESS
+        # nunca vencen antes de scheduledFor - SCHEDULED_PREPARATION_LEAD_MINUTES
+        # (services/orders_utils.py). El resto se cuenta igual que en uno inmediato.
     }
     PRE_PREPARATION_TIMEOUT_STATUSES = set(STATUS_TIMEOUT_MINUTES.keys())
     # Tiempo que se le da al cliente para completar la transferencia desde que
@@ -178,13 +183,20 @@ class OrderService:
 
     @classmethod
     def _next_deadline_for_status(
-        cls, status: OrderStatus, now: Optional[datetime] = None
+        cls,
+        status: OrderStatus,
+        now: Optional[datetime] = None,
+        scheduled_for: Optional[datetime] = None,
     ) -> Optional[datetime]:
+        """Plazo del estado contado desde `now`. Si el pedido es programado y el
+        plazo exige empezar la elaboración, nunca antes de scheduledFor - 30 min."""
         minutes = cls.STATUS_TIMEOUT_MINUTES.get(status)
         if minutes is None:
             return None
         base = now or datetime.utcnow()
-        return base + timedelta(minutes=minutes)
+        return effective_order_deadline(
+            status, base + timedelta(minutes=minutes), scheduled_for
+        )
 
     @staticmethod
     def _normalize_payment_token(value: Any) -> str:
@@ -1667,7 +1679,9 @@ class OrderService:
             )
 
         extra_set_fields: Dict[str, Any] = {
-            "deadlineAt": self._next_deadline_for_status(new_status, now)
+            "deadlineAt": self._next_deadline_for_status(
+                new_status, now, getattr(order, "scheduledFor", None)
+            )
         }
         if new_status == OrderStatus.CANCELLED and order.paymentStatus not in {
             PaymentStatus.COMPLETED
@@ -1771,6 +1785,10 @@ class OrderService:
         NO se revive el pedido: se registra el pago y se marca para reembolso.
         """
         now = datetime.utcnow()
+        # scheduledFor no cambia nunca tras crear el pedido: se lee antes para
+        # que el plazo de ACCEPTED respete la hora de un pedido programado.
+        current = await self.orders_repo.get_by_id(order_id)
+        scheduled_for = getattr(current, "scheduledFor", None) if current else None
         paid_order = await self.orders_repo.mark_paid(
             order_id,
             attempt_id,
@@ -1782,7 +1800,9 @@ class OrderService:
                 message="Pago confirmado. El negocio puede iniciar la elaboracion",
                 actor=OrderActor.SYSTEM,
             ),
-            deadline_at=self._next_deadline_for_status(OrderStatus.ACCEPTED, now),
+            deadline_at=self._next_deadline_for_status(
+                OrderStatus.ACCEPTED, now, scheduled_for
+            ),
         )
         if paid_order:
             await self._emit_tracking_event(paid_order)
@@ -2436,9 +2456,23 @@ class OrderService:
     async def expire_order(self, order: Order) -> str:
         """Aplica el vencimiento de plazo a UN pedido ya vencido.
 
-        Devuelve "cancelled", "escalated" o "skipped" (cambio de estado en
-        paralelo). Lo usa el worker y el sandbox E2E para simular timeouts.
+        Devuelve "cancelled", "escalated", "deferred" (pedido programado cuyo
+        plazo real aún no llegó) o "skipped" (cambio de estado en paralelo).
+        Lo usa el worker y el sandbox E2E para simular timeouts.
         """
+        # Pedido programado: el plazo para empezar a elaborar no vence antes de
+        # scheduledFor - 30 min, aunque el deadlineAt guardado sea anterior
+        # (pedidos de antes de esta regla, o caminos que pasan a ACCEPTED sin
+        # recalcular el plazo, como los webhooks de QvaPay/TronDealer). Se
+        # corre el deadline a ese mínimo: el worker no lo vuelve a coger hasta
+        # entonces y las apps ven el plazo real.
+        floor = scheduled_preparation_floor(order.status, getattr(order, "scheduledFor", None))
+        if floor is not None and floor > datetime.utcnow():
+            await self.orders_repo.extend_deadline(
+                str(order.id), floor, expected_status=order.status
+            )
+            return "deferred"
+
         try:
             # Con dinero de por medio no se cancela nunca: el cliente se
             # quedaria sin pedido y sin su dinero. Se escala a un admin.

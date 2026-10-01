@@ -1,12 +1,13 @@
 """Utility functions for orders module."""
 
 import math
-from datetime import datetime
-from typing import List, Optional, Tuple
+from datetime import datetime, timedelta, timezone
+from typing import Any, List, Optional, Tuple
 
 import h3
 
 from clients.mongodb_client import get_database
+from domain.orders import OrderStatus
 
 # Default H3 resolution for delivery zones
 H3_RESOLUTION = 7
@@ -255,3 +256,75 @@ def compute_fee_recommendation(fees: List[float]) -> dict:
         "sampleSize": n,
         "confidence": confidence,
     }
+
+
+# =============================================================================
+# Pedidos programados (scheduledFor)
+# =============================================================================
+
+# Un pedido programado tiene que empezar a elaborarse como tarde este margen
+# antes de su hora (scheduledFor). Los plazos que exigen empezar la elaboración
+# nunca vencen antes de `scheduledFor - SCHEDULED_PREPARATION_LEAD_MINUTES`:
+# sin esto, un pedido para mañana se cancelaba (o escalaba) a los 20 min de
+# aceptarlo, como si fuera inmediato.
+SCHEDULED_PREPARATION_LEAD_MINUTES = 30
+
+# Estados cuyo plazo exige empezar la elaboración (ver
+# OrderService.STATUS_TIMEOUT_MINUTES):
+# - ACCEPTED: la tienda tiene que pasar a PREPARING.
+# - PAYMENT_IN_PROGRESS: la tienda tiene que confirmar el pago para poder
+#   elaborar (al vencer se escala, no se cancela).
+# El resto (aceptación de la tienda, del mensajero, pago del cliente, reenvío)
+# no cambia para pedidos programados.
+PREPARATION_START_DEADLINE_STATUSES = frozenset(
+    {OrderStatus.ACCEPTED, OrderStatus.PAYMENT_IN_PROGRESS}
+)
+
+
+def _to_naive_utc(value: datetime) -> datetime:
+    """deadlineAt y los datetimes que devuelve Mongo son UTC naive; scheduledFor
+    puede llegar aware desde GraphQL. Normaliza para poder compararlos."""
+    if value.tzinfo is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
+
+
+def _coerce_order_status(status: Any) -> Optional[OrderStatus]:
+    if isinstance(status, OrderStatus):
+        return status
+    try:
+        return OrderStatus(getattr(status, "value", status))
+    except ValueError:
+        return None
+
+
+def scheduled_preparation_floor(
+    status: Any, scheduled_for: Optional[datetime]
+) -> Optional[datetime]:
+    """Momento (UTC naive) antes del cual no puede vencer el plazo de `status`.
+
+    None si el pedido no es programado o si el plazo de ese estado no exige
+    empezar la elaboración.
+    """
+    if scheduled_for is None:
+        return None
+    if _coerce_order_status(status) not in PREPARATION_START_DEADLINE_STATUSES:
+        return None
+    return _to_naive_utc(scheduled_for) - timedelta(
+        minutes=SCHEDULED_PREPARATION_LEAD_MINUTES
+    )
+
+
+def effective_order_deadline(
+    status: Any,
+    deadline_at: Optional[datetime],
+    scheduled_for: Optional[datetime],
+) -> Optional[datetime]:
+    """Plazo real de un pedido: `deadline_at`, pero nunca antes del mínimo de
+    los pedidos programados. None se respeta (sin plazo, p. ej. escalado)."""
+    if deadline_at is None:
+        return None
+    floor = scheduled_preparation_floor(status, scheduled_for)
+    if floor is None:
+        return deadline_at
+    return max(_to_naive_utc(deadline_at), floor)
