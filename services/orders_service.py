@@ -4,7 +4,7 @@ import asyncio
 import re
 import unicodedata
 import uuid
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
@@ -43,6 +43,13 @@ from repositories.orders_repository import (
 )
 from repositories.payments_attempt_repository import payment_attempts_repo
 from services.access_checker import access_checker
+from services.branch_hours import (
+    branch_local_now,
+    get_temporary_status,
+    override_day_ranges,
+    parse_time_to_minutes,
+    temporary_status_applies_on,
+)
 from services.orders_utils import (
     calculate_delivery_fee_h3,
     coords_to_h3,
@@ -271,21 +278,7 @@ class OrderService:
 
     @staticmethod
     def _parse_time_to_minutes(time_value: Any) -> Optional[int]:
-        raw = str(time_value or "").strip()
-        if not re.fullmatch(r"\d{1,2}:\d{2}", raw):
-            return None
-
-        hour_str, minute_str = raw.split(":")
-        hour = int(hour_str)
-        minute = int(minute_str)
-
-        if hour == 24 and minute == 0:
-            return 24 * 60
-        if hour < 0 or hour > 23:
-            return None
-        if minute < 0 or minute > 59:
-            return None
-        return hour * 60 + minute
+        return parse_time_to_minutes(time_value)
 
     @staticmethod
     def _python_weekday_to_schedule_day(python_weekday: int) -> int:
@@ -319,9 +312,72 @@ class OrderService:
         return result
 
     @classmethod
-    def _format_schedule_for_day(cls, schedule: Any, target_python_weekday: int) -> str:
+    def _weekly_day_ranges(cls, schedule: Any, local_date: date) -> List[tuple[int, int]]:
+        """Rangos del horario semanal para el día de la semana de `local_date`."""
+        day_sched = cls._get_day_sched(
+            schedule, cls._python_weekday_to_schedule_day(local_date.weekday())
+        )
+        if not day_sched:
+            return []
+        is_open = (
+            day_sched.isOpen if hasattr(day_sched, "isOpen") else day_sched.get("isOpen", True)
+        )
+        if not is_open:
+            return []
+        return cls._day_sched_hours(day_sched)
+
+    @staticmethod
+    def _override_ranges_for_date(
+        schedule: Any, local_date: date, include_undated: bool
+    ) -> Optional[List[tuple[int, int]]]:
+        """Rangos impuestos por el override diario si aplica en `local_date`, o None.
+
+        Ver services/branch_hours.py para las reglas (fecha en hora de Cuba,
+        openTime/closeTime, overrides legacy sin fecha).
+        """
+        ts = get_temporary_status(schedule)
+        if not temporary_status_applies_on(ts, local_date, include_undated=include_undated):
+            return None
+        return override_day_ranges(ts)
+
+    @classmethod
+    def _effective_day_ranges(
+        cls, schedule: Any, local_date: date, include_undated: bool = True
+    ) -> List[tuple[int, int]]:
+        """Rangos de apertura reales de un día: el override si aplica, si no el semanal."""
+        override = cls._override_ranges_for_date(schedule, local_date, include_undated)
+        if override is not None:
+            return override
+        return cls._weekly_day_ranges(schedule, local_date)
+
+    @staticmethod
+    def _format_ranges(ranges: List[tuple[int, int]]) -> str:
+        return ", ".join(
+            f"{s // 60:02d}:{s % 60:02d}-{e // 60:02d}:{e % 60:02d}" for s, e in ranges
+        )
+
+    @classmethod
+    def _format_schedule_for_day(
+        cls,
+        schedule: Any,
+        target_python_weekday: int,
+        local_date: Optional[date] = None,
+        include_undated: bool = True,
+    ) -> str:
+        """Horario de un día para mensajes de error.
+
+        Si se pasa `local_date` y ese día tiene override diario, se muestra el
+        horario especial en vez del semanal.
+        """
         if not schedule:
             return "no configurado"
+
+        if local_date is not None:
+            override = cls._override_ranges_for_date(schedule, local_date, include_undated)
+            if override is not None:
+                if not override:
+                    return "cerrado (horario especial del día)"
+                return f"{cls._format_ranges(override)} (horario especial del día)"
 
         target_day = cls._python_weekday_to_schedule_day(target_python_weekday)
         day_sched = cls._get_day_sched(schedule, target_day)
@@ -338,87 +394,66 @@ class OrderService:
         if not ranges:
             return "cerrado"
 
-        return ", ".join(f"{s // 60:02d}:{s % 60:02d}-{e // 60:02d}:{e % 60:02d}" for s, e in ranges)
+        return cls._format_ranges(ranges)
 
     @staticmethod
     def _get_branch_local_now() -> datetime:
-        try:
-            return datetime.now(ZoneInfo("America/Havana"))
-        except Exception:
-            return datetime.now()
+        return branch_local_now()
 
     @classmethod
     def _is_branch_open_now(cls, schedule: Any, now_local: datetime) -> bool:
+        """¿Está abierta la sucursal en `now_local` (hora de Cuba)?
+
+        El override diario (temporaryStatus) solo cuenta si su fecha es la de
+        hoy; los legacy sin fecha siguen aplicando indefinidamente. "Cerrado
+        hoy" cierra el día entero, incluida la cola de un turno nocturno de
+        ayer. Un override de ayer con horario especial que cruza la medianoche
+        cuenta para la madrugada de hoy, igual que los rangos nocturnos del
+        horario semanal.
+        """
         if not schedule:
             return True
 
-        # Check temporary status override
-        ts = (
-            schedule.temporaryStatus
-            if hasattr(schedule, "temporaryStatus")
-            else schedule.get("temporaryStatus")
-        )
-        if ts:
-            if ts.temporallyClosed if hasattr(ts, "temporallyClosed") else ts.get("temporallyClosed", False):
-                return False
-            if ts.temporallyOpen if hasattr(ts, "temporallyOpen") else ts.get("temporallyOpen", False):
+        current_minutes = now_local.hour * 60 + now_local.minute
+        today = now_local.date()
+        yesterday = today - timedelta(days=1)
+
+        today_ranges = cls._effective_day_ranges(schedule, today)
+        if cls._override_ranges_for_date(schedule, today, include_undated=True) == []:
+            return False
+
+        for start, end in today_ranges:
+            if start == 0 and end == 24 * 60:
+                return True
+            if start < end and start <= current_minutes < end:
+                return True
+            if start > end and current_minutes >= start:  # overnight start
                 return True
 
-        current_minutes = now_local.hour * 60 + now_local.minute
-        today = cls._python_weekday_to_schedule_day(now_local.weekday())
-        yesterday = (today - 1) % 7
-
-        today_sched = cls._get_day_sched(schedule, today)
-        if today_sched:
-            is_open = (
-                today_sched.isOpen
-                if hasattr(today_sched, "isOpen")
-                else today_sched.get("isOpen", True)
-            )
-            if is_open:
-                for start, end in cls._day_sched_hours(today_sched):
-                    if start == 0 and end == 24 * 60:
-                        return True
-                    if start < end and start <= current_minutes < end:
-                        return True
-                    if start > end and current_minutes >= start:  # overnight start
-                        return True
-
         # Overnight ranges inherited from yesterday (e.g. 22:00-02:00)
-        yesterday_sched = cls._get_day_sched(schedule, yesterday)
-        if yesterday_sched:
-            is_open = (
-                yesterday_sched.isOpen
-                if hasattr(yesterday_sched, "isOpen")
-                else yesterday_sched.get("isOpen", True)
-            )
-            if is_open:
-                for start, end in cls._day_sched_hours(yesterday_sched):
-                    if start > end and current_minutes < end:
-                        return True
+        for start, end in cls._effective_day_ranges(schedule, yesterday):
+            if start > end and current_minutes < end:
+                return True
 
         return False
 
     @classmethod
     def _is_branch_open_at(cls, schedule: Any, target_local: datetime) -> bool:
-        """Check if branch is open at a specific future datetime (ignores temporaryStatus)."""
+        """Check if branch is open at a specific future datetime.
+
+        Aplica el override diario solo si tiene fecha y es la de `target_local`
+        (p. ej. "cerrado hoy" rechaza un pedido programado para hoy, pero no uno
+        para mañana). Los overrides legacy sin fecha se ignoran aquí, como antes.
+        """
         if not schedule:
             return True
 
         target_minutes = target_local.hour * 60 + target_local.minute
-        target_day = cls._python_weekday_to_schedule_day(target_local.weekday())
-
-        day_sched = cls._get_day_sched(schedule, target_day)
-        if not day_sched:
-            return False
-
-        is_open = (
-            day_sched.isOpen if hasattr(day_sched, "isOpen") else day_sched.get("isOpen", True)
+        ranges = cls._effective_day_ranges(
+            schedule, target_local.date(), include_undated=False
         )
-        if not is_open:
-            return False
 
-        for start, end in cls._day_sched_hours(day_sched):
+        for start, end in ranges:
             if start == 0 and end == 24 * 60:
                 return True
             if start < end and start <= target_minutes < end:
@@ -1116,7 +1151,10 @@ class OrderService:
 
             if not self._is_branch_open_at(branch.schedule, scheduled_local):
                 target_schedule = self._format_schedule_for_day(
-                    branch.schedule, scheduled_local.weekday()
+                    branch.schedule,
+                    scheduled_local.weekday(),
+                    local_date=scheduled_local.date(),
+                    include_undated=False,
                 )
                 raise OrderValidationError(
                     f"La sucursal no está abierta a las {scheduled_local.strftime('%H:%M')} "
@@ -1130,7 +1168,7 @@ class OrderService:
                 if not self._is_branch_open_now(branch.schedule, branch_now):
                     day_index = branch_now.weekday()
                     today_schedule = self._format_schedule_for_day(
-                        branch.schedule, day_index
+                        branch.schedule, day_index, local_date=branch_now.date()
                     )
                     raise ValueError(
                         "La sucursal esta cerrada en este momento "
