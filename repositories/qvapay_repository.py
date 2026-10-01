@@ -35,18 +35,44 @@ class QvaPayRepository:
         doc = await self._col.find_one({"transactionUuid": transaction_uuid})
         return QvaPayInvoice(**doc) if doc else None
 
-    async def mark_completed(self, transaction_uuid: str) -> Optional[QvaPayInvoice]:
+    async def mark_completed(
+        self, transaction_uuid: str, received_amount: Optional[float] = None
+    ) -> Optional[QvaPayInvoice]:
         """Mark invoice as completed idempotently; returns None if already completed."""
         now = datetime.utcnow()
+        set_fields = {
+            "status": QvaPayInvoiceStatus.COMPLETED,
+            "completedAt": now,
+            "webhookReceivedAt": now,
+            "updatedAt": now,
+        }
+        if received_amount is not None:
+            set_fields["receivedAmount"] = received_amount
         result = await self._col.find_one_and_update(
             {
                 "transactionUuid": transaction_uuid,
                 "status": QvaPayInvoiceStatus.PENDING,  # only update if still pending
             },
+            {"$set": set_fields},
+            return_document=True,
+        )
+        return QvaPayInvoice(**result) if result else None
+
+    async def mark_underpaid(
+        self, transaction_uuid: str, received_amount: Optional[float]
+    ) -> Optional[QvaPayInvoice]:
+        """Marca la factura como pagada de menos (mismo guard idempotente que
+        mark_completed); devuelve None si ya no estaba pendiente."""
+        now = datetime.utcnow()
+        result = await self._col.find_one_and_update(
+            {
+                "transactionUuid": transaction_uuid,
+                "status": QvaPayInvoiceStatus.PENDING,
+            },
             {
                 "$set": {
-                    "status": QvaPayInvoiceStatus.COMPLETED,
-                    "completedAt": now,
+                    "status": QvaPayInvoiceStatus.UNDERPAID,
+                    "receivedAmount": received_amount,
                     "webhookReceivedAt": now,
                     "updatedAt": now,
                 }

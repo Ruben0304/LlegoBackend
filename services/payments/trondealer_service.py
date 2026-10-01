@@ -8,7 +8,9 @@ Flow:
   2. handle_webhook() → receives POST /api/v1/webhooks/trondealer
                         validates HMAC-SHA256 signature, checks allowed IP whitelist,
                         deduplicates by wallet address (atomic find_and_update on PENDING),
-                        marks order PAID, creates PendingPayout.
+                        checks the deposit against expectedAmount, marks order
+                        PAID, creates PendingPayout. If less arrived, the wallet
+                        is UNDERPAID and the order requiresAttention.
 """
 
 import hashlib
@@ -30,6 +32,12 @@ from domain.crypto_payments import (
 )
 from repositories.payout_repository import PayoutRepository
 from repositories.trondealer_repository import TronDealerRepository
+from services.payments.webhook_amounts import (
+    flag_underpaid_order,
+    is_underpaid,
+    parse_amount,
+    underpayment_reason,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -201,8 +209,55 @@ class TronDealerService:
         # 2. HMAC signature validation
         self._verify_signature(raw_body, signature_header)
 
-        # 3. Idempotency: atomic mark_completed on PENDING wallet
-        received = float(payload.amount)
+        # 3. Monto: el deposito debe cubrir expectedAmount (con tolerancia de
+        # redondeo). Si llega menos, no se completa el pago ni se genera payout:
+        # el pedido queda para revision de un admin.
+        received = parse_amount(payload.amount)
+        existing = await self._wallets.get_by_address(payload.address)
+        if existing is None:
+            logger.warning(
+                "TronDealer webhook: wallet not found for address=%s", payload.address
+            )
+            return False
+        if existing.status != TronDealerWalletStatus.PENDING:
+            if (
+                existing.status == TronDealerWalletStatus.UNDERPAID
+                and existing.txHash != payload.txhash
+            ):
+                # Deposito adicional sobre una wallet que ya recibio de menos:
+                # no se suma solo; se deja constancia para soporte.
+                logger.warning(
+                    "TronDealer extra deposit on underpaid wallet order=%s address=%s "
+                    "amount=%s txhash=%s",
+                    str(existing.orderId),
+                    payload.address,
+                    received,
+                    payload.txhash,
+                )
+                reason = underpayment_reason(
+                    "USDT",
+                    existing.receivedAmount,
+                    existing.expectedAmount,
+                    existing.txHash or payload.address,
+                )
+                await flag_underpaid_order(
+                    str(existing.orderId),
+                    f"{reason} Despues llego otro deposito de {payload.amount} "
+                    f"(tx {payload.txhash}).",
+                )
+                return False
+            logger.info(
+                "TronDealer duplicate webhook ignored address=%s txhash=%s status=%s",
+                payload.address,
+                payload.txhash,
+                existing.status,
+            )
+            return False
+
+        if is_underpaid(received, existing.expectedAmount):
+            return await self._handle_underpayment(existing, payload, received)
+
+        # 4. Idempotency: atomic mark_completed on PENDING wallet
         wallet = await self._wallets.mark_completed(
             address=payload.address,
             received_amount=received,
@@ -211,16 +266,11 @@ class TronDealerService:
             confirmations=payload.confirmations,
         )
         if wallet is None:
-            existing = await self._wallets.get_by_address(payload.address)
-            if existing and existing.status == TronDealerWalletStatus.COMPLETED:
-                logger.info(
-                    "TronDealer duplicate webhook ignored address=%s txhash=%s",
-                    payload.address,
-                    payload.txhash,
-                )
-                return False
-            logger.warning(
-                "TronDealer webhook: wallet not found for address=%s", payload.address
+            # Otro webhook igual lo proceso en paralelo
+            logger.info(
+                "TronDealer duplicate webhook ignored address=%s txhash=%s",
+                payload.address,
+                payload.txhash,
             )
             return False
 
@@ -233,7 +283,7 @@ class TronDealerService:
             payload.txhash,
         )
 
-        # 4. Mark order as PAID (same pattern as payments_service.py)
+        # 5. Mark order as PAID (same pattern as payments_service.py)
         db = get_database()
         order_doc = await db.orders.find_one({"_id": wallet.orderId}, {"status": 1})
         current_status = (order_doc or {}).get("status")
@@ -255,7 +305,7 @@ class TronDealerService:
             },
         )
 
-        # 5. Register pending payout
+        # 6. Register pending payout
         payout = PendingPayout(
             _id=ObjectId(),
             orderId=wallet.orderId,
@@ -275,6 +325,45 @@ class TronDealerService:
             str(wallet.orderId),
             received,
         )
+        return True
+
+    async def _handle_underpayment(
+        self,
+        wallet: TronDealerWallet,
+        payload: TronDealerWebhookPayload,
+        received: Optional[float],
+    ) -> bool:
+        """Llego menos de expectedAmount: wallet UNDERPAID, pedido sin pagar y
+        marcado para revision, y sin payout."""
+        claimed = await self._wallets.mark_underpaid(
+            address=payload.address,
+            received_amount=received,
+            tx_hash=payload.txhash,
+            token=payload.token,
+            confirmations=payload.confirmations,
+        )
+        if claimed is None:
+            logger.info(
+                "TronDealer duplicate webhook ignored address=%s txhash=%s",
+                payload.address,
+                payload.txhash,
+            )
+            return False
+
+        reason = underpayment_reason(
+            "USDT", received, wallet.expectedAmount, payload.txhash
+        )
+        logger.warning(
+            "TronDealer underpayment order=%s address=%s received=%s expected=%s "
+            "raw_amount=%r txhash=%s",
+            str(wallet.orderId),
+            payload.address,
+            received,
+            wallet.expectedAmount,
+            payload.amount,
+            payload.txhash,
+        )
+        await flag_underpaid_order(str(wallet.orderId), reason)
         return True
 
     # ------------------------------------------------------------------

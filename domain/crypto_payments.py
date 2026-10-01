@@ -13,6 +13,8 @@ from .py_object_id import PyObjectId
 class QvaPayInvoiceStatus(str, Enum):
     PENDING = "pending"
     COMPLETED = "completed"
+    # Llego menos de lo facturado: no se completa el pedido ni se crea payout.
+    UNDERPAID = "underpaid"
     FAILED = "failed"
     EXPIRED = "expired"
     CANCELLED = "cancelled"
@@ -37,6 +39,12 @@ class QvaPayInvoice(BaseModel):
 
     # Payment details
     amount: float
+    # Monto con el que se creo la factura en QvaPay. Difiere de `amount` solo
+    # con QVAPAY_TEST_AMOUNT; es contra lo que se compara el webhook. None en
+    # facturas anteriores a este campo (se usa `amount`).
+    invoicedAmount: Optional[float] = None
+    # Monto que reporto el webhook.
+    receivedAmount: Optional[float] = None
     description: str
     paymentUrl: Optional[str] = None  # shareable URL for the customer
     expireAt: Optional[datetime] = None
@@ -60,6 +68,7 @@ class QvaPayInvoice(BaseModel):
 class TronDealerWalletStatus(str, Enum):
     PENDING = "pending"       # wallet assigned, awaiting deposit
     COMPLETED = "completed"   # deposit confirmed by webhook
+    UNDERPAID = "underpaid"   # deposit below expectedAmount: needs manual review
     FAILED = "failed"
     EXPIRED = "expired"
 
