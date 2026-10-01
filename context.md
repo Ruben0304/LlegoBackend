@@ -208,11 +208,11 @@ app distribuida la puede extraer cualquiera.
 
 ### Subscriptions — rotas con más de un worker
 
-`OrderPubSub` ([schema/orders/subscriptions.py:28](schema/orders/subscriptions.py:28)) es un `dict` de colas en memoria
+`OrderPubSub` ([schema/orders/subscriptions.py:31](schema/orders/subscriptions.py:31)) es un `dict` de colas en memoria
 **del proceso**, con un comentario explícito de "reemplazar con Redis en producción".
 Si publisher y subscriber caen en workers distintos, el evento no llega nunca.
 
-La excepción es `couriers_presence_stream` ([:139](schema/orders/subscriptions.py:139)), que lee Redis directamente y sí
+La excepción es `couriers_presence_stream` ([:199](schema/orders/subscriptions.py:199)), que lee Redis directamente y sí
 funciona multi-worker.
 
 Hoy solo reciben eventos `orderTrackingStream` y `deliveryLocationUpdated`:
@@ -220,7 +220,7 @@ Hoy solo reciben eventos `orderTrackingStream` y `deliveryLocationUpdated`:
 `orderUpdated`, `newBranchOrder` y `branchOrderUpdated` no emiten nada.
 
 **Autorización.** Como en queries y mutations, cada subscription comprueba quién escucha
-antes de suscribirse al canal (helpers en [:100](schema/orders/subscriptions.py:100)–[:124](schema/orders/subscriptions.py:124)). El JWT viaja en el
+antes de suscribirse al canal (helpers en [:107](schema/orders/subscriptions.py:107)–[:138](schema/orders/subscriptions.py:138)). El JWT viaja en el
 argumento `jwt` (el contexto WebSocket nace sin usuario; `connection_init` no se lee):
 
 | Subscription | Quién puede escuchar |
@@ -229,9 +229,44 @@ argumento `jwt` (el contexto WebSocket nace sin usuario; `connection_init` no se
 | `newBranchOrder`, `branchOrderUpdated` | dueño/manager de esa sucursal (`access_checker.check_branch_access`) o `admin`/`manager` |
 | `couriersPresenceStream` | solo `admin`/`manager`, igual que la query `adminCouriersPresence` |
 
-⚠️ LlegoBusiness llama a `newBranchOrder`, `branchOrderUpdated` y
-`deliveryLocationUpdated` **sin** `jwt`: hasta que lo envíe, esas subscriptions le
-devuelven error de autenticación (el diálogo de ubicación del chofer deja de actualizarse).
+**Denegar sin cerrar el stream** (`orderUpdated`, `deliveryLocationUpdated`,
+`newBranchOrder`, `branchOrderUpdated`; [:142](schema/orders/subscriptions.py:142)–[:191](schema/orders/subscriptions.py:191)). Ninguna de las cuatro
+se suscribe al canal si no hay permiso, pero tampoco termina el stream al momento:
+
+- Sin credenciales (ni `jwt` ni usuario en el contexto): el stream **queda abierto sin
+  emitir nada** hasta que el cliente lo cierre. Se loguea un warning al abrirlo.
+- `jwt` inválido, pedido inexistente o sin acceso: el error llega tras
+  `SUBSCRIPTION_DENIED_DELAY_SECONDS` (30 s, [:159](schema/orders/subscriptions.py:159)).
+
+El motivo es la versión actual de LlegoBusiness. Abre `newBranchOrder` y
+`branchOrderUpdated` (dos por sucursal) y `deliveryLocationUpdated` (en
+`DriverLocationDialog`) **sin** `jwt`, y su WebSocket tampoco manda `Authorization`.
+Si el servidor responde `data{errors}` + `complete` (graphql-ws) o `error`
+(graphql-transport-ws), Apollo Kotlin 4 no lanza excepción: completa el flow,
+`OrderSubscriptionSource` lo descarta con `mapNotNull` y
+`SubscriptionManager.collectWithReconnect` (un `while (true)` que solo espera y cuenta
+reintentos en el `catch`) **se vuelve a suscribir al instante**. Con un cierre
+inmediato, cada dispositivo entraría en un bucle de reconexión a velocidad de RTT (dos
+por sucursal), con un traceback de `strawberry.execution` por intento en el log.
+`orderTrackingStream` y `couriersPresenceStream` siguen fallando al momento: ya pedían
+JWT antes y sus clientes lo mandan.
+
+Efecto en las apps de negocio que no se actualicen:
+
+- `newBranchOrder` / `branchOrderUpdated`: ninguno. Nadie publica en esos canales
+  (ver arriba), así que nunca recibían nada; los pedidos llegan por las queries.
+- `deliveryLocationUpdated`: el diálogo de ubicación del chofer se queda sin posición
+  (sin error visible). Es el precio de cerrar §12.5: antes cualquiera con un `orderId`
+  seguía al chofer.
+
+**Orden de despliegue.** Primero este backend (los `jwt` nuevos son opcionales y no
+rompen ninguna operación existente); después la versión de LlegoBusiness que añade
+`$jwt: String` a `NewBranchOrder.graphql`, `BranchOrderUpdated.graphql` y
+`DeliveryLocationUpdated.graphql` y pasa el token de `TokenManager`. Al revés no
+funciona: el backend anterior rechaza esas operaciones en la validación
+(`Unknown argument 'jwt' on field 'Subscription.newBranchOrder'`). Esa versión de la app debe además esperar y contar el reintento en
+`collectWithReconnect` cuando el flow termina normalmente o llega una respuesta con
+errores, no solo en el `catch`.
 
 Si necesitas tiempo real fiable hoy, haz polling HTTP, no subscriptions.
 
@@ -579,8 +614,10 @@ arreglaron en la rama `fix/f1-backend-seguridad` (con tests); el resto siguen ab
    `orderId` podía seguir un pedido ajeno. Ahora usa `user_can_access_order`, y de paso se
    cerraron `orderUpdated`, `deliveryLocationUpdated`, `newBranchOrder` y
    `branchOrderUpdated` (no pedían ni JWT) y `couriersPresenceStream` (cualquier usuario veía
-   a todos los mensajeros). Tabla de permisos en §5; ojo con LlegoBusiness, que aún no manda
-   `jwt` a sus subscriptions.
+   a todos los mensajeros). Tabla de permisos en §5. LlegoBusiness aún no manda `jwt`:
+   para que no entre en un bucle de reconexión, esas subscriptions no se cierran al
+   denegar (se quedan abiertas sin emitir, o el error llega tras 30 s). Orden de
+   despliegue y efecto en la app en §5 ("Denegar sin cerrar el stream").
 
 6. ✅ **Resuelto — `POST /payments/validate` era público y sin rate limit.** Ahora exige
    JWT por cabecera y aplica `RATE_LIMIT_UPLOADS` (6/min por usuario) ([api/routes.py:185](api/routes.py:185)).
