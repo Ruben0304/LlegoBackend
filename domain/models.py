@@ -580,6 +580,14 @@ class BusinessAppConfig(BaseModel):
         json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
+class CourierAppConfig(BusinessAppConfig):
+    """
+    Versiones y mantenimiento de la app de choferes (AppMensajeros), colección
+    `courier_app_config`. Misma forma que la de negocios; la consulta
+    `courierAppConfig` al arrancar para bloquear versiones viejas.
+    """
+
+
 class FeedbackType(str):
     """Enum for feedback types."""
 
@@ -1001,6 +1009,7 @@ __all__ = [
     "MaintenanceConfig",
     "AppConfig",
     "BusinessAppConfig",
+    "CourierAppConfig",
     "Feedback",
     "Survey",
     "SurveyQuestion",

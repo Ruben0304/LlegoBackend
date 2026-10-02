@@ -2,7 +2,11 @@
 
 from .ad_campaign_repository import AdCampaignRepository
 from .ad_pricing_repository import AdPricingRepository
-from .app_config_repository import AppConfigRepository, BusinessAppConfigRepository
+from .app_config_repository import (
+    AppConfigRepository,
+    BusinessAppConfigRepository,
+    CourierAppConfigRepository,
+)
 from .auth_repository import AuthRepository
 from .branch_invitation_repository import (
     BranchInvitationRepository,
@@ -69,6 +73,7 @@ payment_methods_repo = PaymentMethodRepository()
 wallet_transactions_repo = WalletTransactionRepository()
 app_config_repo = AppConfigRepository()
 business_app_config_repo = BusinessAppConfigRepository()
+courier_app_config_repo = CourierAppConfigRepository()
 feedbacks_repo = FeedbackRepository()
 surveys_repo = SurveyRepository()
 survey_responses_repo = SurveyResponseRepository()
@@ -128,6 +133,8 @@ __all__ = [
     "business_access_repo",
     "app_config_repo",
     "business_app_config_repo",
+    "CourierAppConfigRepository",
+    "courier_app_config_repo",
     "FeedbackRepository",
     "SurveyRepository",
     "SurveyResponseRepository",

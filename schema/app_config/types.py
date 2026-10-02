@@ -51,3 +51,41 @@ class BusinessAppConfigType:
     update_message: Optional[str] = strawberry.field(name="updateMessage", description="Message to show when update is available")
     changelog: Optional[str] = strawberry.field(description="Release notes")
     release_date: datetime = strawberry.field(name="releaseDate", description="Date of the latest release")
+
+
+@strawberry.type
+class CourierAppConfigType:
+    """Versiones y mantenimiento de la app de choferes (AppMensajeros)."""
+    id: str
+    android: AndroidConfigType
+    ios: IosConfigType
+    maintenance: MaintenanceConfigType
+    update_message: Optional[str] = strawberry.field(name="updateMessage", description="Message to show when update is available")
+    changelog: Optional[str] = strawberry.field(description="Release notes")
+    release_date: datetime = strawberry.field(name="releaseDate", description="Date of the latest release")
+
+
+def courier_app_config_to_type(config) -> CourierAppConfigType:
+    """Modelo de dominio → tipo GraphQL (mismo mapeo que las otras dos apps)."""
+    return CourierAppConfigType(
+        id=config.id,
+        android=AndroidConfigType(
+            min_version=config.android.minVersion,
+            current_version=config.android.currentVersion,
+            update_url=config.android.updateUrl,
+            store_url=config.android.storeUrl,
+            app_size=config.android.appSize
+        ),
+        ios=IosConfigType(
+            min_version=config.ios.minVersion,
+            current_version=config.ios.currentVersion,
+            store_url=config.ios.storeUrl
+        ),
+        maintenance=MaintenanceConfigType(
+            enabled=config.maintenance.enabled,
+            message=config.maintenance.message
+        ),
+        update_message=config.updateMessage,
+        changelog=config.changelog,
+        release_date=config.releaseDate
+    )

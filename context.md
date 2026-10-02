@@ -124,6 +124,7 @@ Colecciones principales y su repo:
 
 El resto (`combos`, `showcases`, `variant_lists`, `searches`, `feedbacks`, `surveys`,
 `ad_campaigns`, `promo_requests`, `platform_banners`, `tutorials`, `device_tokens`,
+`app_config`/`business_app_config`/`courier_app_config`,
 `error_logs`, `business_access`, `branch_invitations`, `delivery_zones`, `chat_messages`…) sigue el
 mismo patrón: un repo por colección en `repositories/`.
 
@@ -310,6 +311,26 @@ y LlegoApk (`ProductFeedRepository.fetchPlatformBanners`, JSON crudo) piden con
   misma app) y `deletePlatformBanner` (borra también la imagen, best-effort). La imagen se
   sube antes a `POST /upload/platform-banner/image` (admin, recorte 1920x1080 como las
   portadas). Panel Admin aún no tiene pantalla para esto.
+
+### Versiones mínimas y mantenimiento de las apps
+
+Tres queries públicas (sin JWT: las apps las consultan al arrancar, antes del login)
+con la misma forma — `android`/`ios` con `minVersion` y `currentVersion`, `maintenance`
+(`enabled`, `message`), `updateMessage`, `changelog`, `releaseDate` — y su mutation de
+admin con actualización parcial ([schema/app_config/](schema/app_config/)):
+
+| App | Query | Mutation | Colección (caché Redis) |
+|---|---|---|---|
+| Cliente | `appConfig` | `updateAppConfig` | `app_config` |
+| Negocios | `businessAppConfig` | `updateBusinessAppConfig` | `business_app_config` |
+| Choferes (AppMensajeros) | `courierAppConfig` | `updateCourierAppConfig` | `courier_app_config` |
+
+Cada colección tiene un único documento. Las de cliente y negocios se crearon a mano y su
+mutation falla si no existe; `courier_app_config` nace vacía, así que `courierAppConfig`
+devuelve null (la app no bloquea nada) hasta que la primera `updateCourierAppConfig` crea
+la config inicial (versiones `0.0.0`, sin mantenimiento) y aplica los cambios. AppMensajeros
+bloquea si la versión instalada < `minVersion`, muestra mantenimiento si `enabled` y avisa
+si < `currentVersion`; si la query falla, no bloquea.
 
 ---
 
