@@ -120,6 +120,30 @@ async def create_world(options: WorldOptions = WorldOptions()):
             ),
         }
 
+    # Las operaciones de chofer exigen mensajero aprobado (services/courier_access.py):
+    # los mensajeros del mundo nacen aprobados, como si se hubiera aprobado su
+    # solicitud del registro de socios. "stranger" no tiene registro, así que sirve
+    # para comprobar el COURIER_NOT_APPROVED.
+    for role in ("courier", "courier2"):
+        await db.delivery_persons.insert_one(
+            {
+                "_id": ObjectId(),
+                "userId": ObjectId(users[role]["id"]),
+                "name": f"E2E {role} {tag}",
+                "phone": None,
+                "rating": 5.0,
+                "totalDeliveries": 0,
+                "vehicleType": None,
+                "isActive": True,
+                "isOnline": False,
+                "linkedBranchIds": [],
+                "approved": True,
+                "createdAt": now,
+                "updatedAt": now,
+                "e2eTag": tag,
+            }
+        )
+
     currency = options.acceptedCurrency.upper()
     method_currency = "USD" if currency == "USD" else "CUP"
     payment_methods = {}

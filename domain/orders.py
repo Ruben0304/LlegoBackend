@@ -337,6 +337,12 @@ class DeliveryPerson(BaseModel):
     currentLocation: Optional[GeoPoint] = None
     currentOrderId: Optional[PyObjectId] = None
     linkedBranchIds: List[PyObjectId] = []
+    # Acceso a las operaciones de chofer (services/courier_access.py). True lo
+    # pone aprobar una solicitud COURIER del registro de socios; False, rechazarla
+    # (y los registros que se crean para admin/manager, que entran por su rol).
+    # None = registro anterior al registro de socios: cuenta como aprobado para
+    # que los mensajeros que ya trabajaban no pierdan el acceso.
+    approved: Optional[bool] = None
     createdAt: datetime
     updatedAt: datetime
 

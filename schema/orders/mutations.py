@@ -27,6 +27,7 @@ from repositories.orders_repository import (
 )
 from repositories.vehicle_repository import vehicles_repo
 from services.access_checker import access_checker
+from services.courier_access import require_courier
 from services.orders_service import OrderValidationError, order_service
 from utils.graphql_auth import apply_optional_jwt, require_auth, require_role
 from utils.rate_limit import redis_client
@@ -507,9 +508,7 @@ class OrderMutation:
     ) -> bool:
         user_id = require_auth(jwt, info)
 
-        delivery_person = await delivery_persons_repo.get_by_user_id(user_id)
-        if not delivery_person:
-            raise Exception("No eres un repartidor registrado")
+        delivery_person = await require_courier(info, user_id)
 
         await delivery_persons_repo.update_online_status(delivery_person.id, isOnline)
 
@@ -541,6 +540,7 @@ class OrderMutation:
         self, info: Info, orderId: str, jwt: str
     ) -> OrderType:
         user_id = require_auth(jwt, info)
+        await require_courier(info, user_id)
 
         try:
             order = await order_service.accept_order_for_payment(orderId, user_id)
@@ -556,6 +556,7 @@ class OrderMutation:
         self, info: Info, orderId: str, jwt: str
     ) -> OrderType:
         user_id = require_auth(jwt, info)
+        await require_courier(info, user_id)
 
         try:
             order = await order_service.reject_order_for_payment(orderId, user_id)
@@ -567,6 +568,7 @@ class OrderMutation:
     @strawberry.mutation(description="Aceptar pedido para entrega")
     async def accept_delivery(self, info: Info, orderId: str, jwt: str) -> OrderType:
         user_id = require_auth(jwt, info)
+        await require_courier(info, user_id)
 
         try:
             order = await order_service.accept_delivery(orderId, user_id)
@@ -578,6 +580,7 @@ class OrderMutation:
     @strawberry.mutation(description="Confirmar recogida del pedido")
     async def confirm_pickup(self, info: Info, orderId: str, jwt: str) -> OrderType:
         user_id = require_auth(jwt, info)
+        await require_courier(info, user_id)
 
         try:
             order = await order_service.confirm_pickup(orderId, user_id)
@@ -592,9 +595,7 @@ class OrderMutation:
     ) -> bool:
         user_id = require_auth(jwt, info)
 
-        delivery_person = await delivery_persons_repo.get_by_user_id(user_id)
-        if not delivery_person:
-            raise Exception("No eres un repartidor registrado")
+        delivery_person = await require_courier(info, user_id)
 
         # Update delivery person location
         await delivery_persons_repo.update_location(
@@ -654,6 +655,7 @@ class OrderMutation:
         self, info: Info, orderId: str, deliveryCode: str, jwt: str
     ) -> OrderType:
         user_id = require_auth(jwt, info)
+        await require_courier(info, user_id)
 
         try:
             order = await order_service.confirm_delivery(orderId, user_id, deliveryCode)
@@ -690,10 +692,8 @@ class OrderMutation:
     async def request_branch_link(
         self, info: Info, input: RequestBranchLinkInput, jwt: str
     ) -> BranchDeliveryRequestType:
-        from schema.orders.queries import _get_or_create_delivery_person
-
         user_id = require_auth(jwt, info)
-        delivery_person = await _get_or_create_delivery_person(user_id)
+        delivery_person = await require_courier(info, user_id)
 
         # Verify branch exists
         branch = await branches_repo.get_by_id(input.branchId)
@@ -779,10 +779,8 @@ class OrderMutation:
     async def cancel_branch_link_request(
         self, info: Info, requestId: str, jwt: str
     ) -> bool:
-        from schema.orders.queries import _get_or_create_delivery_person
-
         user_id = require_auth(jwt, info)
-        delivery_person = await _get_or_create_delivery_person(user_id)
+        delivery_person = await require_courier(info, user_id)
 
         req = await branch_delivery_requests_repo.get_by_id(requestId)
         if not req:
@@ -908,14 +906,11 @@ class OrderMutation:
     ) -> bool:
         """Set the courier's active vehicle. Replaces any previously linked vehicle."""
         user_id = require_auth(jwt, info)
+        delivery_person = await require_courier(info, user_id)
 
         vehicle = await vehicles_repo.get_by_id(vehicle_id)
         if vehicle is None or not vehicle.isActive:
             raise GraphQLError("Vehículo no encontrado o inactivo")
-
-        delivery_person = await delivery_persons_repo.get_by_user_id(user_id)
-        if delivery_person is None:
-            raise GraphQLError("Perfil de mensajero no encontrado")
 
         now = datetime.utcnow()
         await delivery_persons_repo._get_collection().update_one(

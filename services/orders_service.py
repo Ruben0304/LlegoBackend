@@ -51,6 +51,7 @@ from services.branch_hours import (
     parse_time_to_minutes,
     temporary_status_applies_on,
 )
+from services.courier_access import CourierNotApprovedError
 from services.orders_utils import (
     calculate_delivery_fee_h3,
     coords_to_h3,
@@ -129,27 +130,19 @@ class OrderService:
         self.locations_repo = OrderLocationRepository()
         self._payment_cash_cache: Dict[str, bool] = {}
 
-    async def _get_or_create_delivery_person(self, user_id: str) -> DeliveryPerson:
-        """Return the delivery_persons record for this user, creating it on first use."""
+    async def _require_delivery_person(self, user_id: str) -> DeliveryPerson:
+        """Registro de mensajero del usuario; ya no se crea al primer uso.
+
+        Antes cualquier usuario autenticado quedaba registrado como mensajero en
+        su primera operación de chofer. Ahora los registros nacen al aprobar una
+        solicitud COURIER del registro de socios (o, para admin/manager, en
+        `services.courier_access.require_courier`, que los resolvers llaman antes
+        de llegar aquí). Sin registro, COURIER_NOT_APPROVED.
+        """
         dp = await self.delivery_repo.get_by_user_id(user_id)
-        if dp:
-            return dp
-        user = await users_repo.get_by_id(user_id)
-        if not user:
-            raise ValueError("Usuario no encontrado")
-        now = datetime.utcnow()
-        new_dp = DeliveryPerson(
-            _id=str(ObjectId()),
-            userId=user_id,
-            name=user.name or "",
-            phone=user.phone,
-            # Antes VehicleType.A_PIE, que ya no existe (el enum quedo en
-            # bicicleta/triciclo) y reventaba el primer pedido de un mensajero nuevo.
-            vehicleType=None,
-            createdAt=now,
-            updatedAt=now,
-        )
-        return await self.delivery_repo.create(new_dp)
+        if dp is None:
+            raise CourierNotApprovedError()
+        return dp
 
     @staticmethod
     def _ids_equal(a, b) -> bool:
@@ -2250,7 +2243,7 @@ class OrderService:
         if order.status not in {OrderStatus.READY_FOR_PICKUP, OrderStatus.PREPARING}:
             raise ValueError("El pedido no esta listo para recogida")
 
-        delivery_person = await self._get_or_create_delivery_person(user_id)
+        delivery_person = await self._require_delivery_person(user_id)
 
         if order.deliveryPersonId and not self._ids_equal(
             order.deliveryPersonId, delivery_person.id
@@ -2286,7 +2279,7 @@ class OrderService:
         print(f"[COURIER] order status={order.status.value} deliveryPersonId={order.deliveryPersonId}")
 
         # Resolve delivery person first so we can do idempotency checks.
-        delivery_person = await self._get_or_create_delivery_person(user_id)
+        delivery_person = await self._require_delivery_person(user_id)
         print(f"[COURIER] delivery_person id={delivery_person.id}")
 
         # Idempotency: if this courier already accepted this order (i.e. a previous

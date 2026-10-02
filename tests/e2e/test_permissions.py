@@ -90,6 +90,25 @@ def test_other_courier_cannot_deliver(world: World, order_on_the_way):
     assert "No autorizado" in str(world.courier_deliver_error(oid, code, actor="courier2"))
 
 
+def test_unapproved_user_cannot_act_as_courier(world: World):
+    """Sin solicitud COURIER aprobada no hay operaciones de chofer: antes bastaba
+    con estar autenticado (services/courier_access.py)."""
+    order = world.create_order(payment="cash")
+    world.accept(order["id"])
+    taken = world.client.gql_error(
+        "mutation($id: String!, $jwt: String!) { acceptOrderForPayment(orderId: $id, jwt: $jwt) { id } }",
+        {"id": order["id"], "jwt": world.token("stranger")},
+    )
+    assert str(taken).startswith("COURIER_NOT_APPROVED"), taken
+    current = world.client.gql_error(
+        "query($jwt: String!) { myCurrentDelivery(jwt: $jwt) { id } }",
+        {"jwt": world.token("stranger")},
+    )
+    assert str(current).startswith("COURIER_NOT_APPROVED"), current
+    # El mensajero aprobado sí puede tomarlo.
+    assert world.courier_accept(order["id"])["status"] == "ACCEPTED"
+
+
 def test_only_the_customer_sees_the_delivery_code(world: World, order_on_the_way):
     oid = order_on_the_way["id"]
     assert world.get_order(oid, "customer")["deliveryVerificationCode"]

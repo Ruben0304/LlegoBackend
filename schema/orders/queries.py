@@ -4,7 +4,6 @@ from datetime import datetime
 from typing import List, Optional
 
 import strawberry
-from bson import ObjectId
 from graphql import GraphQLError
 from strawberry.types import Info
 
@@ -18,11 +17,11 @@ from domain.orders import (
 from repositories import branches_repo, users_repo
 from repositories.orders_repository import (
     branch_delivery_requests_repo,
-    delivery_persons_repo,
     orders_repo,
 )
 from repositories.vehicle_repository import vehicles_repo
 from services.access_checker import access_checker
+from services.courier_access import require_courier
 from services.delivered_orders_query_service import delivered_orders_query_service
 from services.orders_service import order_service
 from utils.graphql_auth import apply_optional_jwt, require_auth, require_role
@@ -78,27 +77,15 @@ async def _require_branch_access_or_admin(
         raise Exception(error_msg or "No autorizado")
 
 
-async def _get_or_create_delivery_person(user_id: str) -> DeliveryPerson:
-    """Get existing delivery person or create one from user profile."""
-    delivery_person = await delivery_persons_repo.get_by_user_id(user_id)
-    if delivery_person:
-        return delivery_person
+async def _require_courier(info: Info, user_id: str) -> DeliveryPerson:
+    """Registro de mensajero del usuario, solo si puede operar como chofer.
 
-    user = await users_repo.get_by_id(user_id)
-    if not user:
-        raise Exception("Usuario no encontrado")
-
-    now = datetime.utcnow()
-    new_dp = DeliveryPerson(
-        _id=str(ObjectId()),
-        userId=user_id,
-        name=user.name or "",
-        phone=user.phone,
-        vehicleType=None,
-        createdAt=now,
-        updatedAt=now,
-    )
-    return await delivery_persons_repo.create(new_dp)
+    Antes era `_get_or_create_delivery_person` y le creaba el registro a
+    cualquier usuario autenticado en su primera operación de chofer. Ahora hace
+    falta ser mensajero aprobado (o admin/manager); si no, error
+    COURIER_NOT_APPROVED. Ver services/courier_access.py.
+    """
+    return await require_courier(info, user_id)
 
 
 @strawberry.type
@@ -402,7 +389,7 @@ class OrderQuery:
     ) -> List[OrderType]:
         user_id = require_auth(jwt, info)
 
-        delivery_person = await _get_or_create_delivery_person(user_id)
+        delivery_person = await _require_courier(info, user_id)
 
         if delivery_person.linkedBranchIds:
             orders = list(
@@ -435,7 +422,7 @@ class OrderQuery:
     async def my_current_delivery(self, info: Info, jwt: str) -> Optional[OrderType]:
         user_id = require_auth(jwt, info)
 
-        delivery_person = await _get_or_create_delivery_person(user_id)
+        delivery_person = await _require_courier(info, user_id)
 
         order = await orders_repo.get_current_delivery(delivery_person.id)
         print(f"[COURIER] my_current_delivery user={user_id} dp={delivery_person.id} order={order.id if order else None} status={order.status.value if order else None}")
@@ -452,7 +439,7 @@ class OrderQuery:
     ) -> List[OrderType]:
         user_id = require_auth(jwt, info)
 
-        delivery_person = await _get_or_create_delivery_person(user_id)
+        delivery_person = await _require_courier(info, user_id)
 
         status_filter = status.value if status else None
         orders = await orders_repo.get_by_delivery_person(
@@ -484,7 +471,7 @@ class OrderQuery:
                 extensions={"code": "FORBIDDEN"},
             )
 
-        delivery_person = await _get_or_create_delivery_person(user_id)
+        delivery_person = await _require_courier(info, user_id)
 
         try:
             result = await delivered_orders_query_service.list_for_courier(
@@ -538,7 +525,7 @@ class OrderQuery:
     async def my_delivery_stats(self, info: Info, jwt: str) -> DeliveryPersonStatsType:
         user_id = require_auth(jwt, info)
 
-        delivery_person = await _get_or_create_delivery_person(user_id)
+        delivery_person = await _require_courier(info, user_id)
 
         stats = await orders_repo.get_delivery_person_stats(delivery_person.id)
         return DeliveryPersonStatsType(
@@ -557,7 +544,7 @@ class OrderQuery:
         status: Optional[DeliveryRequestStatusEnum] = None,
     ) -> List[BranchDeliveryRequestType]:
         user_id = require_auth(jwt, info)
-        delivery_person = await _get_or_create_delivery_person(user_id)
+        delivery_person = await _require_courier(info, user_id)
 
         status_filter = DeliveryRequestStatus(status.value) if status else None
         requests = await branch_delivery_requests_repo.get_by_delivery_person(
