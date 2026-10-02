@@ -529,7 +529,9 @@ iniciar sesión y lo da de baja con `unregisterDeviceToken` al cerrarla. Lógica
   pedido pasa a `awaiting_delivery_acceptance` sin chofer: a los choferes en línea (Redis)
   que lo verían en `availableOrdersForDelivery` (vinculados: solo sus sucursales; libres: a
   ≤ 30 km de la tienda; sin posición conocida, se les avisa igual), salvo al que lo acaba de
-  soltar. No sale para la tienda demo ni para pedidos de recogida.
+  soltar (`reject_order_for_payment` lo pasa a `update_status` como
+  `released_by_delivery_person_id`: el pedido ya llega sin chofer). No sale para la tienda
+  demo ni para pedidos de recogida.
 - Datos de la push: `type`, `orderId`, `orderNumber`, `status`. FCM usa el mismo proyecto
   de Firebase que las otras apps: la app Android `com.llego.appmensajeros` tiene que estar
   dada de alta en él (y su `google-services.json` en AppMensajeros) para que sus tokens
