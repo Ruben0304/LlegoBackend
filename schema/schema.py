@@ -39,6 +39,8 @@ from .orders.queries import OrderQuery
 from .orders.subscriptions import OrderSubscription
 from .payments.mutations import PaymentMutation
 from .payments.queries import PaymentMethodQuery
+from .platform_banners.mutations import PlatformBannerMutation
+from .platform_banners.queries import PlatformBannerQuery
 from .product_categories.queries import ProductCategoryQuery
 from .products.mutations import ProductMutation
 from .products.queries import ProductQuery
@@ -91,6 +93,7 @@ class Query(
     SyncQuery,
     AdCampaignQuery,
     PromoQuery,
+    PlatformBannerQuery,
 ):
     @strawberry.field(description="Saludo de ejemplo")
     def hello(self, info: Info, jwt: Optional[str] = None) -> str:
@@ -130,6 +133,7 @@ class Mutation(
     AdCampaignMutation,
     FeedMutation,
     PromoMutation,
+    PlatformBannerMutation,
 ):
     pass
 

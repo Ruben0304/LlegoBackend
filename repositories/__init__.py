@@ -37,6 +37,7 @@ from .payment_method_repository import PaymentMethodRepository
 from .payment_repository import PaymentRepository
 from .payments_attempt_repository import PaymentAttemptRepository, payment_attempts_repo
 from .payout_repository import PayoutRepository, payouts_repo
+from .platform_banner_repository import PlatformBannerRepository, platform_banners_repo
 from .platform_repository import PlatformRepository, platform_repo
 from .product_category_repository import ProductCategoryRepository
 from .product_repository import ProductRepository
@@ -185,4 +186,6 @@ __all__ = [
     "feed_section_config_repo",
     "PromoRequestRepository",
     "promo_requests_repo",
+    "PlatformBannerRepository",
+    "platform_banners_repo",
 ]

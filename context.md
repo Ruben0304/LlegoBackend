@@ -123,8 +123,8 @@ Colecciones principales y su repo:
 | `platform` | `Platform` (doc único, `_id: "platform"`) | `platform_repository.py` |
 
 El resto (`combos`, `showcases`, `variant_lists`, `searches`, `feedbacks`, `surveys`,
-`ad_campaigns`, `promo_requests`, `tutorials`, `device_tokens`, `error_logs`,
-`business_access`, `branch_invitations`, `delivery_zones`, `chat_messages`…) sigue el
+`ad_campaigns`, `promo_requests`, `platform_banners`, `tutorials`, `device_tokens`,
+`error_logs`, `business_access`, `branch_invitations`, `delivery_zones`, `chat_messages`…) sigue el
 mismo patrón: un repo por colección en `repositories/`.
 
 ### Índices
@@ -137,7 +137,7 @@ Tienen índices explícitos: `orders`, `users`, `products`, `branches`, `error_l
 `branch_invitations`, `business_access`, `favorites_cart`, `searches`, `branch_likes`,
 `chat_messages`, `delivery_zones`, `branch_delivery_requests`, `qvapay_invoices`,
 `trondealer_wallets`, `pending_payouts`, `payment_methods`, `tutorials`,
-`delivery_persons`, `order_location_updates`.
+`delivery_persons`, `order_location_updates`, `platform_banners`.
 
 **No tienen ninguno**: `bussisnes`, `payment_attempts`, `kyc_verifications`, `combos`,
 `showcases`, `variant_lists`, `wallet_transactions`, `promo_requests`, `ad_campaigns`.
@@ -163,7 +163,7 @@ añades búsqueda a una entidad nueva tienes que replicar el patrón a mano.
 
 Módulos en `schema/`: `ads, ai_assistant, app_config, auth, branch_likes, branches,
 business_types, businesses, categories, combos, error_logs, favorites_cart, feed,
-feedbacks, invitations, orders, payments, product_categories, products, promos,
+feedbacks, invitations, orders, payments, platform_banners, product_categories, products, promos,
 promotional_videos, searches, shortcut_transfers, showcases, surveys, sync, tutorials,
 users, variant_lists, wallet`. Los más grandes con diferencia son `orders`
 (24 queries / 26 mutations / 6 subscriptions) y `payments` (16 / 16).
@@ -189,8 +189,8 @@ la operación, no en la cabecera. Es deliberado (sirve igual para HTTP y para We
 `get_current_user_id_from_header` ([utils/auth.py:246](utils/auth.py:246)) es solo para REST.
 `require_admin_user_from_header` ([utils/auth.py:262](utils/auth.py:262)) es su variante para admins con
 sesión de usuario (JWT con `role == "admin"`; 401 sin token, 403 con otro rol): el
-equivalente REST de `require_role(..., ["admin"])`, usado por `/upload/tutorial/*` y
-`/upload/promotion/*`.
+equivalente REST de `require_role(..., ["admin"])`, usado por `/upload/tutorial/*`,
+`/upload/promotion/*` y `/upload/platform-banner/image`.
 `require_admin_api_key` ([utils/auth.py:293](utils/auth.py:293)) es una clave estática compartida, solo para
 endpoints REST de ops — **nunca para GraphQL**, porque una clave estática embebida en una
 app distribuida la puede extraer cualquiera.
@@ -291,6 +291,26 @@ errores, no solo en el `catch`.
 
 Si necesitas tiempo real fiable hoy, haz polling HTTP, no subscriptions.
 
+### Banners del feed (`platformBanners`)
+
+Carrusel 16:9 que crean los admins y que LlegoiOS (`graphql/feed/GetPlatformBanners.graphql`)
+y LlegoApk (`ProductFeedRepository.fetchPlatformBanners`, JSON crudo) piden con
+`platformBanners(appTarget: "customer")`. Colección `platform_banners`
+([domain/platform_banners.py](domain/platform_banners.py), [schema/platform_banners/](schema/platform_banners/)):
+
+- `platformBanners(appTarget: String! = "customer")` es **pública**: activos y dentro de
+  su ventana opcional `[startAt, endAt)`, ordenados por `order`. Un `appTarget`
+  desconocido devuelve `[]`. `imageUrl` es la URL firmada del `imagePath`; `actionUrl` es
+  `https://wa.me/<dígitos>` si hay `whatsapp` (un número cubano sale con `53`), si no el
+  `link`, si no null ([services/platform_banners.py](services/platform_banners.py)). Las apps priorizan
+  `branchId` (abrir la tienda) sobre `actionUrl`.
+- Gestión solo `admin`: `adminPlatformBanners`, `createPlatformBanner` (sin `order` va al
+  final), `updatePlatformBanner` (parcial; un null explícito borra un campo opcional),
+  `setPlatformBannerActive`, `reorderPlatformBanners(ids)` (order = posición; todos de la
+  misma app) y `deletePlatformBanner` (borra también la imagen, best-effort). La imagen se
+  sube antes a `POST /upload/platform-banner/image` (admin, recorte 1920x1080 como las
+  portadas). Panel Admin aún no tiene pantalla para esto.
+
 ---
 
 ## 6. REST
@@ -299,7 +319,7 @@ Si necesitas tiempo real fiable hoy, haz polling HTTP, no subscriptions.
 
 | Router | Prefijo | Auth |
 |---|---|---|
-| uploads | `/upload` | JWT por cabecera; `/upload/tutorial/*` y `/upload/promotion/*` además rol `admin` |
+| uploads | `/upload` | JWT por cabecera; `/upload/tutorial/*`, `/upload/promotion/*` y `/upload/platform-banner/*` además rol `admin` |
 | apple_auth | `/apple` | Público (flujo OAuth, por diseño); destinos del callback en lista blanca (abajo) |
 | error_logs | `/api/error-logs` | `ADMIN_API_KEY`, salvo `POST /mobile-report` (público a propósito: intake de crasheos) |
 | kyc | `/kyc` | JWT |
