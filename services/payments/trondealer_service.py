@@ -257,6 +257,7 @@ class TronDealerService:
                     f"{reason} Despues llego otro deposito de {payload.amount} "
                     f"(tx {payload.txhash}).",
                 )
+                await _publish_branch_order_changed(existing.orderId)
                 return False
             logger.info(
                 "TronDealer duplicate webhook ignored address=%s txhash=%s status=%s",
@@ -377,6 +378,7 @@ class TronDealerService:
             payload.txhash,
         )
         await flag_underpaid_order(str(wallet.orderId), reason)
+        await _publish_branch_order_changed(wallet.orderId)
         return True
 
     # ------------------------------------------------------------------

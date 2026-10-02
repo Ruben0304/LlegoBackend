@@ -333,9 +333,18 @@ def _info():
     return SimpleNamespace(context={})
 
 
+def _authenticated_as_user(monkeypatch):
+    """Autorización unificada de subscriptions (ver test_order_subscriptions_auth.py):
+    con jwt, el usuario sale de _authenticate_subscription; el acceso a la sucursal,
+    de access_checker.check_branch_access."""
+    monkeypatch.setattr(
+        subscriptions, "_authenticate_subscription", lambda info, jwt: (USER_ID, "user")
+    )
+
+
 def test_subscription_without_jwt_stays_open_but_never_emits(monkeypatch):
     access = AsyncMock()
-    monkeypatch.setattr(subscriptions.access_checker, "require_branch_access", access)
+    monkeypatch.setattr(subscriptions.access_checker, "check_branch_access", access)
 
     async def scenario():
         stream = subscriptions.OrderSubscription().branch_order_updated(
@@ -357,11 +366,12 @@ def test_subscription_without_jwt_stays_open_but_never_emits(monkeypatch):
 
 
 def test_subscription_rejects_user_without_branch_access(monkeypatch):
-    monkeypatch.setattr(subscriptions, "require_auth", lambda jwt, info: USER_ID)
+    _authenticated_as_user(monkeypatch)
+    monkeypatch.setattr(subscriptions, "SUBSCRIPTION_DENIED_DELAY_SECONDS", 0)
     monkeypatch.setattr(
         subscriptions.access_checker,
-        "require_branch_access",
-        AsyncMock(side_effect=Exception("No autorizado para acceder a esta sucursal")),
+        "check_branch_access",
+        AsyncMock(return_value=(False, "No autorizado para acceder a esta sucursal")),
     )
 
     async def scenario():
@@ -376,9 +386,9 @@ def test_subscription_rejects_user_without_branch_access(monkeypatch):
 
 def test_status_change_reaches_authorized_subscriber_end_to_end(monkeypatch, service):
     """Pubsub en memoria real: update_status → branchOrderUpdated."""
-    monkeypatch.setattr(subscriptions, "require_auth", lambda jwt, info: USER_ID)
-    access = AsyncMock(return_value=None)
-    monkeypatch.setattr(subscriptions.access_checker, "require_branch_access", access)
+    _authenticated_as_user(monkeypatch)
+    access = AsyncMock(return_value=(True, None))
+    monkeypatch.setattr(subscriptions.access_checker, "check_branch_access", access)
     service.orders_repo = InMemoryOrders(make_order(OrderStatus.AWAITING_DELIVERY_ACCEPTANCE))
     order_id = str(service.orders_repo.order.id)
 

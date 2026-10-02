@@ -391,6 +391,7 @@ class QvaPayService:
             payload.amount,
         )
         await flag_underpaid_order(str(invoice.orderId), reason)
+        await _publish_branch_order_changed(invoice.orderId)
         return True
 
     async def handle_success_callback(self, transaction_uuid: str) -> dict:
