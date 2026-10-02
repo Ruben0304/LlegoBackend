@@ -1,5 +1,6 @@
+import secrets
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import strawberry
 from bson import ObjectId
@@ -14,7 +15,9 @@ from schema.branches.transfer_accounts import (
     build_legacy_qr_payments,
     normalize_transfer_accounts,
 )
-from utils.graphql_auth import apply_optional_jwt
+from services import business_approval
+from services.partner_requests_service import is_merchant_approved
+from utils.graphql_auth import apply_optional_jwt, require_role
 from utils.s3 import delete_file
 
 from .inputs import (
@@ -24,6 +27,29 @@ from .inputs import (
     UpdateBusinessInput,
 )
 from .types import BusinessType
+
+
+async def _initial_approval(user_id: str) -> Dict[str, Any]:
+    """Estado de aprobación con el que nace un negocio registrado por `user_id`.
+
+    Si el usuario tiene aprobada su solicitud BUSINESS del registro de socios
+    (services/partner_requests_service.py), el negocio nace aprobado y activo.
+    Si no, queda pendiente hasta que un admin lo apruebe, como siempre.
+    """
+    if await is_merchant_approved(user_id):
+        return {"isActive": True, "approvalStatus": "approved", "approvedAt": datetime.now()}
+    return {"isActive": False, "approvalStatus": "pending"}
+
+
+def _require_admin(info: Info, jwt: Optional[str], admin_key: Optional[str]) -> None:
+    """approveBusiness/rejectBusiness: JWT de admin/manager (Panel Admin) o, por
+    compatibilidad con scripts de ops, la clave estática ADMIN_API_KEY."""
+    if jwt:
+        require_role(jwt, info, ["admin", "manager"])
+        return
+    key = settings.admin_api_key
+    if not key or not admin_key or not secrets.compare_digest(admin_key, key):
+        raise Exception("No autorizado")
 
 
 @strawberry.type
@@ -54,7 +80,7 @@ class BusinessMutation:
                 "Se requiere al menos una sucursal para registrar el negocio"
             )
 
-        # 2. Crear Negocio
+        # 2. Crear Negocio (aprobado de entrada si su solicitud de socio lo está)
         business_id = ObjectId()
 
         business = Business(
@@ -65,9 +91,8 @@ class BusinessMutation:
             avatar=business_input.avatar or "",
             description=business_input.description,
             tags=business_input.tags or [],
-            isActive=False,
-            approvalStatus="pending",
             createdAt=datetime.now(),
+            **(await _initial_approval(user_id)),
         )
 
         # Step 1: Create business in MongoDB first
@@ -256,6 +281,7 @@ class BusinessMutation:
         created_businesses = []
         created_business_ids = []
         created_branch_ids = []
+        initial_approval = await _initial_approval(user_id)
 
         try:
             # 2. Crear cada negocio con sus sucursales
@@ -274,9 +300,8 @@ class BusinessMutation:
                     avatar=business_input.avatar or "",
                     description=business_input.description,
                     tags=business_input.tags or [],
-                    isActive=False,
-                    approvalStatus="pending",
                     createdAt=datetime.now(),
+                    **initial_approval,
                 )
 
                 # Create business in MongoDB first
@@ -387,16 +412,20 @@ class BusinessMutation:
             # Re-lanzar la excepción original
             raise Exception(f"Error al registrar múltiples negocios: {str(e)}")
 
-    @strawberry.mutation(description="[Admin] Aprobar un negocio")
+    @strawberry.mutation(
+        description=(
+            "[Admin/Manager] Aprobar un negocio. Autentica con jwt (admin o "
+            "manager) o con adminKey (ADMIN_API_KEY, compatibilidad)."
+        )
+    )
     async def approve_business(
         self,
         info: Info,
         business_id: str,
-        admin_key: str,
+        admin_key: Optional[str] = None,
+        jwt: Optional[str] = None,
     ) -> BusinessType:
-        key = settings.admin_api_key
-        if not key or admin_key != key:
-            raise Exception("No autorizado")
+        _require_admin(info, jwt, admin_key)
 
         business = await businesses_repo.get_by_id(business_id)
         if not business:
@@ -405,22 +434,9 @@ class BusinessMutation:
         if business.approvalStatus == "approved":
             raise Exception("El negocio ya está aprobado")
 
-        updated = await businesses_repo.update(
-            business_id,
-            {
-                "approvalStatus": "approved",
-                "isActive": True,
-                "rejectionReason": None,
-                "approvedAt": datetime.now(),
-                "rejectedAt": None,
-            },
-        )
-
-        # Reactivar las sucursales del negocio (un rechazo previo las desactiva)
-        branches = await branches_repo.get_by_business(business_id)
-        for branch in branches:
-            if not branch.isActive:
-                await branches_repo.update(str(branch.id), {"isActive": True})
+        updated = await business_approval.approve_business(business_id)
+        if not updated:
+            raise Exception("Negocio no encontrado")
 
         return BusinessType(
             id=str(updated.id),
@@ -439,38 +455,29 @@ class BusinessMutation:
             predefinedDeliveryFee=updated.predefinedDeliveryFee,
         )
 
-    @strawberry.mutation(description="[Admin] Rechazar un negocio")
+    @strawberry.mutation(
+        description=(
+            "[Admin/Manager] Rechazar un negocio. Autentica con jwt (admin o "
+            "manager) o con adminKey (ADMIN_API_KEY, compatibilidad)."
+        )
+    )
     async def reject_business(
         self,
         info: Info,
         business_id: str,
-        admin_key: str,
+        admin_key: Optional[str] = None,
         reason: Optional[str] = None,
+        jwt: Optional[str] = None,
     ) -> BusinessType:
-        key = settings.admin_api_key
-        if not key or admin_key != key:
-            raise Exception("No autorizado")
+        _require_admin(info, jwt, admin_key)
 
         business = await businesses_repo.get_by_id(business_id)
         if not business:
             raise Exception("Negocio no encontrado")
 
-        updated = await businesses_repo.update(
-            business_id,
-            {
-                "approvalStatus": "rejected",
-                "isActive": False,
-                "rejectionReason": reason,
-                "rejectedAt": datetime.now(),
-                "approvedAt": None,
-            },
-        )
-
-        # Desactivar las sucursales para que dejen de exponerse (sync, búsqueda, etc.)
-        branches = await branches_repo.get_by_business(business_id)
-        for branch in branches:
-            if branch.isActive:
-                await branches_repo.update(str(branch.id), {"isActive": False})
+        updated = await business_approval.reject_business(business_id, reason)
+        if not updated:
+            raise Exception("Negocio no encontrado")
 
         return BusinessType(
             id=str(updated.id),
