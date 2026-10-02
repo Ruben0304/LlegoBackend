@@ -108,6 +108,12 @@ class InMemoryOrders:
         self.order = Order.model_validate(data)
         return self.order.model_copy(deep=True)
 
+    async def clear_delivery_person(self, order_id):
+        data = self.order.model_dump(by_alias=True)
+        data["deliveryPersonId"] = None
+        self.order = Order.model_validate(data)
+        return self.order.model_copy(deep=True)
+
     async def mark_paid(self, order_id, attempt_id, from_statuses, new_status, timeline_entry, deadline_at):
         data = self.order.model_dump(by_alias=True)
         data.update(
@@ -403,6 +409,36 @@ def test_order_back_to_awaiting_courier_broadcasts_without_the_releasing_courier
 
     run(scenario())
 
+    broadcast.assert_awaited_once()
+    assert broadcast.await_args.kwargs["exclude_delivery_person_ids"] == {COURIER_ID}
+
+
+def test_courier_release_does_not_offer_the_order_back_to_that_courier(service, monkeypatch):
+    """Flujo real de reject_order_for_payment: clear_delivery_person va antes de
+    update_status, así que el pedido llega ya sin chofer y el que lo soltó solo
+    se conoce porque se pasa aparte. Antes recibía "Nuevo pedido disponible"
+    del pedido que acababa de soltar."""
+    broadcast = AsyncMock(return_value=0)
+    monkeypatch.setattr(courier_push, "broadcast_new_order", broadcast)
+    monkeypatch.setattr(
+        orders_module.payment_attempts_repo, "get_active_by_order_id", AsyncMock(return_value=None)
+    )
+    service.orders_repo = InMemoryOrders(
+        make_order(OrderStatus.PENDING_PAYMENT, deliveryPersonId=COURIER_ID)
+    )
+    service.delivery_repo.get_by_user_id = AsyncMock(return_value=_courier())
+
+    async def scenario():
+        updated = await service.reject_order_for_payment(
+            str(service.orders_repo.order.id), COURIER_USER_ID
+        )
+        await asyncio.sleep(0)  # deja correr la tarea en segundo plano
+        return updated
+
+    updated = run(scenario())
+
+    assert updated.status == OrderStatus.AWAITING_DELIVERY_ACCEPTANCE
+    assert updated.deliveryPersonId is None
     broadcast.assert_awaited_once()
     assert broadcast.await_args.kwargs["exclude_delivery_person_ids"] == {COURIER_ID}
 

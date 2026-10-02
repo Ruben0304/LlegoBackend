@@ -1624,6 +1624,7 @@ class OrderService:
         extra_fields: Optional[Dict[str, Any]] = None,
         expected_status: Optional[OrderStatus] = None,
         require_expired_deadline: bool = False,
+        released_by_delivery_person_id: Optional[str] = None,
     ) -> Order:
         """Update order status with validation.
 
@@ -1631,6 +1632,11 @@ class OrderService:
         worker de timeouts). Si el pedido ya cambio, no se escribe: antes el
         worker releia el pedido y cancelaba el estado NUEVO (un pedido recien
         aceptado, o con el pago recien enviado).
+
+        `released_by_delivery_person_id`: el chofer que acaba de soltar el
+        pedido (reject_order_for_payment). Cuando llega aqui el pedido ya no
+        lo tiene asignado, asi que hay que decirlo para no ofrecerselo otra vez
+        en la push de "nuevo pedido disponible".
         """
         order = await self.orders_repo.get_by_id(order_id)
         if not order:
@@ -1748,19 +1754,33 @@ class OrderService:
         # Emit tracking event for real-time subscription (y pushes a cliente y negocio)
         await self._emit_tracking_event(updated_order)
         # Y a la app de choferes: al asignado, o "nuevo pedido" a los que estén en línea.
-        await self._notify_couriers(order, updated_order, actor)
+        await self._notify_couriers(
+            order,
+            updated_order,
+            actor,
+            released_by_delivery_person_id=released_by_delivery_person_id,
+        )
 
         return updated_order
 
     async def _notify_couriers(
-        self, before: Optional[Order], updated: Order, actor: Optional[OrderActor]
+        self,
+        before: Optional[Order],
+        updated: Order,
+        actor: Optional[OrderActor],
+        released_by_delivery_person_id: Optional[str] = None,
     ) -> None:
         """Pushes a AppMensajeros (services/courier_push.py). Nunca lanza ni
         frena la operación: el aviso masivo de "nuevo pedido" va en segundo plano."""
         try:
             from services.courier_push import notify_status_change
 
-            await notify_status_change(before, updated, actor)
+            await notify_status_change(
+                before,
+                updated,
+                actor,
+                released_by_delivery_person_id=released_by_delivery_person_id,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "No se pudo avisar a los choferes del pedido %s: %s",
@@ -2389,6 +2409,9 @@ class OrderService:
             OrderStatus.AWAITING_DELIVERY_ACCEPTANCE,
             OrderActor.DELIVERY,
             "Mensajero rechazó el pedido. Esperando otro mensajero",
+            # clear_delivery_person ya lo quitó del pedido: sin esto la push de
+            # "nuevo pedido disponible" le ofrecería el que acaba de soltar.
+            released_by_delivery_person_id=str(delivery_person.id),
         )
 
     async def confirm_pickup(self, order_id: str, user_id: str) -> Order:

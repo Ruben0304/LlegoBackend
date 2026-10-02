@@ -197,15 +197,29 @@ async def notify_courier_assigned_by_admin(order: Any) -> None:
     await notify_assigned_courier(order, "Nuevo pedido asignado", body)
 
 
-async def notify_status_change(before: Any, updated: Any, actor: Optional[OrderActor]) -> None:
-    """Punto de entrada desde OrderService al cambiar de estado. Nunca lanza."""
+async def notify_status_change(
+    before: Any,
+    updated: Any,
+    actor: Optional[OrderActor],
+    released_by_delivery_person_id: Optional[str] = None,
+) -> None:
+    """Punto de entrada desde OrderService al cambiar de estado. Nunca lanza.
+
+    `released_by_delivery_person_id`: chofer que acaba de soltar el pedido. En
+    reject_order_for_payment el pedido llega ya sin chofer (`before` se lee
+    después de clear_delivery_person), así que hay que pasarlo aparte.
+    """
     try:
         if (
             updated.status == OrderStatus.AWAITING_DELIVERY_ACCEPTANCE
             and not updated.deliveryPersonId
         ):
             # Si un chofer lo acaba de soltar, a él no se le ofrece otra vez.
-            exclude = {str(before.deliveryPersonId)} if before and before.deliveryPersonId else set()
+            exclude = set()
+            if before is not None and before.deliveryPersonId:
+                exclude.add(str(before.deliveryPersonId))
+            if released_by_delivery_person_id:
+                exclude.add(str(released_by_delivery_person_id))
             spawn(broadcast_new_order(updated, exclude_delivery_person_ids=exclude))
             return
 
