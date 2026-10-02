@@ -6,7 +6,7 @@ import strawberry
 from strawberry.types import Info
 
 from repositories import promotional_videos_repo
-from utils.graphql_auth import apply_optional_jwt
+from utils.graphql_auth import require_role
 from utils.serialization import to_strawberry_dict
 
 from .inputs import CreatePromotionalVideoInput, UpdatePromotionalVideoInput
@@ -21,14 +21,9 @@ class PromotionalVideoMutation:
     ) -> PromotionalVideoType:
         """
         Create a new promotional video. Upload video first via
-        POST /upload/promotion/video. Only admins should create promos.
+        POST /upload/promotion/video. Solo admins (context.md §12.10).
         """
-        apply_optional_jwt(jwt, info)
-        user_id = info.context.get("user_id")
-        if not user_id:
-            raise Exception("Usuario no autenticado")
-
-        # TODO: Add admin role check when implemented
+        require_role(jwt, info, ["admin"])
 
         video_data = {
             "title": input.title,
@@ -54,13 +49,8 @@ class PromotionalVideoMutation:
         input: UpdatePromotionalVideoInput,
         jwt: Optional[str] = None,
     ) -> PromotionalVideoType:
-        """Update an existing promotional video. Only admins should update promos."""
-        apply_optional_jwt(jwt, info)
-        user_id = info.context.get("user_id")
-        if not user_id:
-            raise Exception("Usuario no autenticado")
-
-        # TODO: Add admin role check when implemented
+        """Update an existing promotional video. Solo admins."""
+        require_role(jwt, info, ["admin"])
 
         existing = await promotional_videos_repo.get_by_id(id)
         if not existing:
@@ -98,13 +88,8 @@ class PromotionalVideoMutation:
     async def delete_promotional_video(
         self, info: Info, id: str, jwt: Optional[str] = None
     ) -> bool:
-        """Delete a promotional video. Only admins should delete promos."""
-        apply_optional_jwt(jwt, info)
-        user_id = info.context.get("user_id")
-        if not user_id:
-            raise Exception("Usuario no autenticado")
-
-        # TODO: Add admin role check when implemented
+        """Delete a promotional video. Solo admins."""
+        require_role(jwt, info, ["admin"])
 
         video = await promotional_videos_repo.get_by_id(id)
         if not video:
@@ -118,13 +103,8 @@ class PromotionalVideoMutation:
     async def toggle_promotional_video_active(
         self, info: Info, id: str, jwt: Optional[str] = None
     ) -> PromotionalVideoType:
-        """Toggle the isActive status of a promotional video."""
-        apply_optional_jwt(jwt, info)
-        user_id = info.context.get("user_id")
-        if not user_id:
-            raise Exception("Usuario no autenticado")
-
-        # TODO: Add admin role check when implemented
+        """Toggle the isActive status of a promotional video. Solo admins."""
+        require_role(jwt, info, ["admin"])
 
         updated = await promotional_videos_repo.toggle_active(id)
         if not updated:

@@ -189,7 +189,8 @@ la operación, no en la cabecera. Es deliberado (sirve igual para HTTP y para We
 `get_current_user_id_from_header` ([utils/auth.py:246](utils/auth.py:246)) es solo para REST.
 `require_admin_user_from_header` ([utils/auth.py:262](utils/auth.py:262)) es su variante para admins con
 sesión de usuario (JWT con `role == "admin"`; 401 sin token, 403 con otro rol): el
-equivalente REST de `require_role(..., ["admin"])`, usado por `/upload/tutorial/*`.
+equivalente REST de `require_role(..., ["admin"])`, usado por `/upload/tutorial/*` y
+`/upload/promotion/*`.
 `require_admin_api_key` ([utils/auth.py:293](utils/auth.py:293)) es una clave estática compartida, solo para
 endpoints REST de ops — **nunca para GraphQL**, porque una clave estática embebida en una
 app distribuida la puede extraer cualquiera.
@@ -298,7 +299,7 @@ Si necesitas tiempo real fiable hoy, haz polling HTTP, no subscriptions.
 
 | Router | Prefijo | Auth |
 |---|---|---|
-| uploads | `/upload` | JWT por cabecera; `/upload/tutorial/*` además rol `admin` |
+| uploads | `/upload` | JWT por cabecera; `/upload/tutorial/*` y `/upload/promotion/*` además rol `admin` |
 | apple_auth | `/apple` | Público (flujo OAuth, por diseño); destinos del callback en lista blanca (abajo) |
 | error_logs | `/api/error-logs` | `ADMIN_API_KEY`, salvo `POST /mobile-report` (público a propósito: intake de crasheos) |
 | kyc | `/kyc` | JWT |
@@ -709,10 +710,15 @@ arreglaron en la rama `fix/f1-backend-seguridad` (con tests); el resto siguen ab
    (`require_role` / `require_admin_user_from_header`). La web de tutoriales necesita una
    cuenta con `role: "admin"` en la BD.
 
-10. **Vídeos promocionales sin comprobación de rol.** Mismo patrón que tenían los
-    tutoriales: las mutations de [schema/promotional_videos/mutations.py](schema/promotional_videos/mutations.py) y
-    `POST /upload/promotion/video|thumbnail` ([api/endpoints/uploads.py](api/endpoints/uploads.py)) solo piden JWT, con
-    `TODO: Add admin role check`. Abierto.
+10. ✅ **Resuelto — vídeos promocionales sin comprobación de rol.** Mismo agujero que
+    tenían los tutoriales: `createPromotionalVideo`, `updatePromotionalVideo`,
+    `deletePromotionalVideo`, `togglePromotionalVideoActive`
+    ([schema/promotional_videos/mutations.py](schema/promotional_videos/mutations.py)) y
+    `POST /upload/promotion/video|thumbnail` ([api/endpoints/uploads.py](api/endpoints/uploads.py)) solo pedían JWT
+    (`TODO: Add admin role check`). Ahora exigen rol `admin` (`require_role` /
+    `require_admin_user_from_header`), con tests en
+    `tests/test_promotional_videos_admin_only.py` (rama `feat/f2a-backend-mensajeros`).
+    Ningún cliente las usaba aún.
 
 ---
 

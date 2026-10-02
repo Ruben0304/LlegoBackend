@@ -831,7 +831,7 @@ async def upload_tutorial_thumbnail(
 async def upload_promotion_video(
     request: Request,
     video: UploadFile = File(...),
-    user_id: str = Depends(get_current_user_id_from_header),
+    user_id: str = Depends(require_admin_user_from_header),
 ):
     """
     Upload video for a promotional video (stories-style player).
@@ -841,13 +841,9 @@ async def upload_promotion_video(
     Use the returned video_path in the createPromotionalVideo or
     updatePromotionalVideo mutation.
 
-    Note: Only admins should use this endpoint (validated in the GraphQL mutation).
+    Solo admins: la dependencia exige JWT con rol admin (401/403), igual que
+    las mutations de vídeos promocionales.
     """
-    if not user_id:
-        raise HTTPException(status_code=401, detail="No autorizado")
-
-    # TODO: Add admin role check when implemented
-
     file_content, extension = await validate_video_upload(
         video, MAX_FILE_SIZES["video"]
     )
@@ -997,7 +993,7 @@ async def upload_promo_video(
 async def upload_promotion_thumbnail(
     request: Request,
     image: UploadFile = File(...),
-    user_id: str = Depends(get_current_user_id_from_header),
+    user_id: str = Depends(require_admin_user_from_header),
 ):
     """
     Upload thumbnail image for a promotional video.
@@ -1007,13 +1003,9 @@ async def upload_promotion_thumbnail(
     Use the returned thumbnail_path in the createPromotionalVideo or
     updatePromotionalVideo mutation.
 
-    Note: Only admins should use this endpoint (validated in the GraphQL mutation).
+    Solo admins: la dependencia exige JWT con rol admin (401/403), igual que
+    las mutations de vídeos promocionales.
     """
-    if not user_id:
-        raise HTTPException(status_code=401, detail="No autorizado")
-
-    # TODO: Add admin role check when implemented
-
     file_content = await validate_upload(
         image, "thumbnail", MAX_FILE_SIZES["thumbnail"]
     )
