@@ -233,7 +233,8 @@ funciona multi-worker.
 - Los pings de ubicación del chofer **no** publican en `branch_updates`: `updateDeliveryLocation`
   (cada ~10 s por pedido activo, AppMensajeros `MapScreen.kt`) llama a
   `_emit_tracking_event(order, publish_to_branch=False)`, porque no cambian ni el estado ni
-  el pago. El mapa en vivo de la sucursal va por `deliveryLocationUpdated`
+  el pago. Tampoco mandan pushes (antes cada ping le repetía al cliente "Tu pedido está en
+  camino"). El mapa en vivo de la sucursal va por `deliveryLocationUpdated`
   (`delivery_location:{orderId}`). Si añades otro caller de `_emit_tracking_event` que no
   sea un cambio de estado o de pago, pasa también `publish_to_branch=False`.
 - Publicar nunca rompe ni frena la operación: solo encola, y un fallo se loguea.

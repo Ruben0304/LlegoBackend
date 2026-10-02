@@ -2770,8 +2770,9 @@ class OrderService:
         `publish_to_branch=False` para los pings de ubicacion del chofer
         (updateDeliveryLocation, cada ~10 s por pedido activo): no hay cambio
         de estado ni de pago, asi que no se reenvia el pedido entero por
-        `branch_updates:{branchId}`. El mapa en vivo de la app de negocios va
-        por `delivery_location:{orderId}` (deliveryLocationUpdated).
+        `branch_updates:{branchId}` ni se mandan pushes. El mapa en vivo de la
+        app de negocios va por `delivery_location:{orderId}`
+        (deliveryLocationUpdated).
         """
         if publish_to_branch:
             await self._publish_branch_order_event(order)
@@ -2847,9 +2848,12 @@ class OrderService:
                 f"[ORDER SERVICE] Emitted tracking event for order {order.id}, status: {order.status.value}"
             )
 
-            # Send push notifications
-            await self._send_order_status_notification(order)  # To customer
-            await self._send_order_status_update_to_business(order)  # To business
+            # Send push notifications. Los pings de ubicación (publish_to_branch=False)
+            # no son un cambio de estado: antes cada uno (cada ~10 s por pedido en
+            # camino) le repetía al cliente la push "Tu pedido está en camino".
+            if publish_to_branch:
+                await self._send_order_status_notification(order)  # To customer
+                await self._send_order_status_update_to_business(order)  # To business
 
         except Exception as e:
             # Don't fail the main operation if tracking event fails
