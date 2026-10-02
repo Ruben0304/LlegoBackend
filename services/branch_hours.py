@@ -16,8 +16,11 @@ Reglas del override (`BranchSchedule.temporaryStatus`, ver `domain/models.py`):
   1. `temporallyClosed` → cerrada todo el día.
   2. `openTime` y `closeTime` válidos → abierta solo en ese rango ese día
      (si `closeTime < openTime`, el rango cruza la medianoche).
-  3. `temporallyOpen` → abierta todo el día.
-  4. Nada de lo anterior → no decide; manda el horario semanal.
+  3. Nada de lo anterior → no decide; manda el horario semanal. Incluye
+     `temporallyOpen` sin horas: "Abierto hoy" significa el horario normal, no
+     abierto todo el día (decisión de producto; antes abría las 24 h y el
+     switch de la app de negocios, al deshacer un "Cerrado hoy", dejaba la
+     tienda abierta de madrugada).
 """
 
 import re
@@ -108,8 +111,9 @@ def override_day_ranges(temporary_status: Any) -> Optional[List[DayRange]]:
     """Rangos de apertura que impone el override para su día.
 
     - `[]` → cerrada todo el día.
-    - `[(inicio, fin)]` → horario especial (o `(0, 1440)` = todo el día).
-    - `None` → el override no decide; usar el horario semanal.
+    - `[(inicio, fin)]` → horario especial de ese día.
+    - `None` → el override no decide; usar el horario semanal (también
+      `temporallyOpen` sin horas, ver la regla 3 del módulo).
 
     No mira la fecha: el llamante decide antes si el override aplica.
     """
@@ -118,14 +122,31 @@ def override_day_ranges(temporary_status: Any) -> Optional[List[DayRange]]:
     if _field(temporary_status, "temporallyClosed", False):
         return []
 
+    hours = _override_hours(temporary_status)
+    if hours is not None:
+        return [hours]
+    return None
+
+
+def _override_hours(temporary_status: Any) -> Optional[DayRange]:
     start = parse_time_to_minutes(_field(temporary_status, "openTime"))
     end = parse_time_to_minutes(_field(temporary_status, "closeTime"))
-    if start is not None and end is not None:
-        return [(start, end)]
+    if start is None or end is None:
+        return None
+    return (start, end)
 
-    if _field(temporary_status, "temporallyOpen", False):
-        return [(0, MINUTES_PER_DAY)]
-    return None
+
+def exposed_temporally_open(temporary_status: Any) -> bool:
+    """`temporallyOpen` que se expone a las apps.
+
+    iOS y Android muestran "Abierto" con `temporallyOpen` sin mirar las horas.
+    Sin horario especial el flag ya no decide nada (manda el horario semanal),
+    así que se expone `false` para que las apps calculen el estado con el
+    horario semanal igual que el backend.
+    """
+    if not temporary_status or not _field(temporary_status, "temporallyOpen", False):
+        return False
+    return _override_hours(temporary_status) is not None
 
 
 def _format_minutes(minutes: int) -> str:

@@ -177,7 +177,7 @@ class TemporaryStatus(BaseModel):
     """
 
     temporallyClosed: bool = False  # Closed despite being within open hours
-    temporallyOpen: bool = False    # Open despite being outside open hours
+    temporallyOpen: bool = False    # Solo cuenta con openTime/closeTime; sin horas = horario semanal
     reason: Optional[str] = None
     date: Optional[str] = None       # YYYY-MM-DD; el override aplica solo ese día
     openTime: Optional[str] = None   # "HH:MM" 24h, horario especial de ese día

@@ -425,13 +425,19 @@ negocios, siempre con `date` = hoy. Reglas en [services/branch_hours.py](service
   Sin `date` (legacy: seeds como la tienda demo, `updateBranch`): aplica indefinidamente.
 - Cuando aplica: `temporallyClosed` cierra el día entero (también la cola de un turno
   nocturno de ayer); `openTime`/`closeTime` sustituyen al horario semanal ese día (pueden
-  cruzar la medianoche); `temporallyOpen` sin horas abre todo el día; sin flags ni horas
-  no decide.
-- Pendiente de producto: el switch "Abierto hoy" de la app de negocios (`BranchStatusChip.kt`)
-  manda `temporallyOpen=true` sin horas al deshacer un "Cerrado hoy", y con esta regla
-  la sucursal queda abierta las 24 h de ese día. Si encenderlo debe volver al horario
-  semanal, lo coherente es que la app llame a `clearBranchDailyOverride` cuando no hay
-  horario especial (iOS/Android muestran `temporallyOpen` como "abierto" sin mirar horas).
+  cruzar la medianoche); cualquier otra cosa no decide y manda el horario semanal.
+- **"Abierto hoy" sin horas = horario normal** (decisión de producto). `temporallyOpen`
+  sin `openTime`/`closeTime` ya no abre el día entero, con o sin `date`. Antes el switch
+  "Abierto hoy" de la app de negocios (`BranchStatusChip.kt`), que manda
+  `temporallyOpen=true` sin horas al deshacer un "Cerrado hoy", dejaba la sucursal
+  abierta las 24 h. La tienda demo (seed con `temporallyOpen` legacy) sigue abierta
+  porque su horario semanal ya es 00:00-23:59. La app de negocios dejará de escribir
+  ese caso en la fase 2b (llamará a `clearBranchDailyOverride`).
+- Como iOS/Android pintan "Abierto" con `temporallyOpen` sin mirar horas,
+  `schedule_to_type` lo expone como `false` cuando el override no tiene horario especial
+  (`exposed_temporally_open`), para que las apps calculen el estado con el horario
+  semanal igual que el backend. Con horas se sigue exponiendo tal cual (y las apps
+  siguen sin mirar esas horas: pintan "Abierto" todo el día).
 - Lo usan `_is_branch_open_now` (pedido inmediato) y `_is_branch_open_at` (programado;
   aquí solo cuentan los overrides con fecha, los legacy se ignoran como antes).
 - `schedule_to_type` ([schema/branches/utils.py:30](schema/branches/utils.py:30)) no expone un override con fecha

@@ -14,6 +14,7 @@ from schema.branches.types import (
 from schema.wallet.types import WalletBalanceType
 from services.branch_hours import (
     branch_local_now,
+    exposed_temporally_open,
     is_dated_override,
     temporary_status_applies_on,
 )
@@ -58,6 +59,8 @@ def schedule_to_type(schedule) -> BranchScheduleType:
     # futuro, no se expone: las apps cliente (iOS/Android) leen
     # temporallyClosed/temporallyOpen sin mirar la fecha y mostrarían la tienda
     # cerrada (o abierta) indefinidamente. Los legacy sin fecha se exponen igual.
+    # `temporallyOpen` sin horario especial se expone como false: ya no decide
+    # nada (services/branch_hours.py) y las apps lo pintarían como "Abierto".
     if (
         ts_raw
         and is_dated_override(ts_raw)
@@ -70,7 +73,7 @@ def schedule_to_type(schedule) -> BranchScheduleType:
         if hasattr(ts_raw, "temporallyClosed"):
             temporary_status = TemporaryStatusType(
                 temporallyClosed=ts_raw.temporallyClosed,
-                temporallyOpen=ts_raw.temporallyOpen,
+                temporallyOpen=exposed_temporally_open(ts_raw),
                 reason=ts_raw.reason,
                 date=getattr(ts_raw, "date", None),
                 openTime=getattr(ts_raw, "openTime", None),
@@ -79,7 +82,7 @@ def schedule_to_type(schedule) -> BranchScheduleType:
         else:
             temporary_status = TemporaryStatusType(
                 temporallyClosed=ts_raw.get("temporallyClosed", False),
-                temporallyOpen=ts_raw.get("temporallyOpen", False),
+                temporallyOpen=exposed_temporally_open(ts_raw),
                 reason=ts_raw.get("reason"),
                 date=ts_raw.get("date"),
                 openTime=ts_raw.get("openTime"),
