@@ -453,7 +453,9 @@ Regla: no pasar a `preparing` si es no-efectivo y `paymentStatus != completed`. 
 `myDeliveredOrders`, `myDeliveryStats`, `myBranchLinkRequests`, `orderTracking`. Mutations:
 `setDeliveryOnlineStatus`, `acceptOrderForPayment`, `rejectOrderForPayment`,
 `acceptDelivery` (legacy), `confirmPickup`, `updateDeliveryLocation`, `confirmDelivery`,
-`requestBranchLink`, `cancelBranchLinkRequest`, `linkVehicle`, `confirmCashReceived`.
+`requestBranchLink`, `cancelBranchLinkRequest`, `linkVehicle`, `confirmCashReceived`, y
+`updateOrderStatus` a `AWAITING_DELIVERY_ACCEPTANCE` cuando no lo pide staff de la
+sucursal (es el "Cancelar pedido" de la app: se enruta a `rejectOrderForPayment`).
 
 **Todas exigen mensajero aprobado** (o rol `admin`/`manager`): llaman a
 `require_courier` ([services/courier_access.py:79](services/courier_access.py:79)) justo después de `require_auth`.

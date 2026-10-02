@@ -461,7 +461,10 @@ class OrderMutation:
             # App de mensajeros: "Cancelar pedido" devuelve el pedido a espera.
             # Se enruta al flujo propio, que ademas limpia el mensajero asignado
             # (antes quedaba puesto y el pedido no lo podia tomar nadie mas).
+            # Es una operacion de chofer: exige mensajero aprobado, igual que
+            # rejectOrderForPayment (services/courier_access.py).
             if new_status == OrderStatus.AWAITING_DELIVERY_ACCEPTANCE:
+                await require_courier(info, user_id)
                 order = await order_service.reject_order_for_payment(
                     input.orderId, user_id
                 )

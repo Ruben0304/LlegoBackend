@@ -219,6 +219,43 @@ def test_unapproved_user_gets_courier_not_approved(repo, side_effects, name):
     side_effects.update_location.assert_not_awaited()
 
 
+def _update_status_to_awaiting(monkeypatch):
+    """updateOrderStatus(AWAITING_DELIVERY_ACCEPTANCE) de quien no es staff de la
+    sucursal: es el "Cancelar pedido" de la app de mensajeros."""
+    from schema.orders.inputs import UpdateOrderStatusInput
+    from schema.orders.types import OrderStatusEnum
+
+    order = SimpleNamespace(id=ORDER_ID, branchId="507f1f77bcf86cd799439012")
+    monkeypatch.setattr(mutations.orders_repo, "get_by_id", AsyncMock(return_value=order))
+    monkeypatch.setattr(
+        mutations.access_checker, "check_branch_access", AsyncMock(return_value=(False, None))
+    )
+    return mutations.OrderMutation().update_order_status(
+        info=_info(),
+        input=UpdateOrderStatusInput(
+            orderId=ORDER_ID, status=OrderStatusEnum.AWAITING_DELIVERY_ACCEPTANCE
+        ),
+        jwt=_jwt("customer"),
+    )
+
+
+def test_update_order_status_courier_path_requires_approved_courier(repo, side_effects, monkeypatch):
+    with pytest.raises(Exception) as exc:
+        run(_update_status_to_awaiting(monkeypatch))
+    assert str(exc.value).startswith(COURIER_NOT_APPROVED), str(exc.value)
+    side_effects.service.reject_order_for_payment.assert_not_awaited()
+    repo.create.assert_not_awaited()
+
+
+def test_update_order_status_courier_path_works_for_approved_courier(repo, side_effects, monkeypatch):
+    repo.record = _courier(approved=True)
+    released = SimpleNamespace(id=ORDER_ID)
+    side_effects.service.reject_order_for_payment.return_value = released
+    monkeypatch.setattr(mutations, "order_to_type", lambda order: order)
+    assert run(_update_status_to_awaiting(monkeypatch)) is released
+    side_effects.service.reject_order_for_payment.assert_awaited_once_with(ORDER_ID, USER_ID)
+
+
 def test_rejected_courier_cannot_take_orders(repo, side_effects):
     repo.record = _courier(approved=False)
     with pytest.raises(Exception, match=COURIER_NOT_APPROVED):
