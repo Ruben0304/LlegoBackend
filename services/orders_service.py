@@ -1745,12 +1745,28 @@ class OrderService:
             if order.deliveryPersonId:
                 await self.delivery_repo.complete_delivery(str(order.deliveryPersonId))
 
-        # TODO: Send push notification based on status
-
-        # Emit tracking event for real-time subscription
+        # Emit tracking event for real-time subscription (y pushes a cliente y negocio)
         await self._emit_tracking_event(updated_order)
+        # Y a la app de choferes: al asignado, o "nuevo pedido" a los que estén en línea.
+        await self._notify_couriers(order, updated_order, actor)
 
         return updated_order
+
+    async def _notify_couriers(
+        self, before: Optional[Order], updated: Order, actor: Optional[OrderActor]
+    ) -> None:
+        """Pushes a AppMensajeros (services/courier_push.py). Nunca lanza ni
+        frena la operación: el aviso masivo de "nuevo pedido" va en segundo plano."""
+        try:
+            from services.courier_push import notify_status_change
+
+            await notify_status_change(before, updated, actor)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "No se pudo avisar a los choferes del pedido %s: %s",
+                getattr(updated, "id", "?"),
+                exc,
+            )
 
     async def _settle_payments_on_cancel(self, order: Order) -> Order:
         """Al cancelar: anula los intentos de pago sin dinero y marca el pedido
@@ -1816,6 +1832,8 @@ class OrderService:
         )
         if paid_order:
             await self._emit_tracking_event(paid_order)
+            # El chofer asignado sabe que ya puede contar con el pedido.
+            await self._notify_couriers(current, paid_order, OrderActor.SYSTEM)
             return paid_order
 
         order = await self.orders_repo.get_by_id(order_id)

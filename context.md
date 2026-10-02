@@ -499,10 +499,41 @@ Regla: no pasar a `preparing` si es no-efectivo y `paymentStatus != completed`. 
 
 ### Presencia de mensajeros
 
-`updateDeliveryLocation` escribe en Redis (`presence:courier:{id}:loc`, TTL 45 s) y en
-`DeliveryPerson.currentLocation` en Mongo. **Redis es la fuente fiable** para un mapa en
-vivo; Mongo solo guarda la última posición. La lógica compartida está en
+`updateDeliveryLocation` escribe en Redis (`presence:courier:{id}:online` y `:loc`, TTL
+45 s) y en `DeliveryPerson.currentLocation` en Mongo. **Redis es la fuente fiable** para un
+mapa en vivo; Mongo solo guarda la última posición. La lógica compartida está en
 [services/courier_presence.py](services/courier_presence.py).
+
+"En línea" = la app abierta en el mapa: `availableOrdersForDelivery` (AppMensajeros la
+sondea cada ~5 s) también renueva la presencia con la posición del sondeo y el pedido en
+curso, si lo hay (para no pisar el `orderId` de `updateDeliveryLocation`). Por eso los
+choferes libres aparecen ahora en el mapa de Panel Admin, y son los que reciben "nuevo
+pedido disponible". Ojo: sin GPS la app sondea con una posición por defecto (Ciudad de
+México, `MapScreen.kt`), que también acaba en la presencia.
+
+### Pushes a choferes
+
+Audiencia `courier` en `device_tokens` ([repositories/device_token_repository.py](repositories/device_token_repository.py)):
+tokens con `bundleId` que empieza por `com.llego.appmensajeros` sin distinguir mayúsculas
+(iOS `com.llego.AppMensajeros`, que es también el topic de APNs; Android
+`com.llego.appmensajeros`). AppMensajeros registra el token con `registerDeviceToken` al
+iniciar sesión y lo da de baja con `unregisterDeviceToken` al cerrarla. Lógica en
+[services/courier_push.py](services/courier_push.py); nada de esto rompe la operación que lo dispara.
+
+- **Al chofer asignado** (`type: courier_order_update`), salvo lo que hace él mismo
+  (actor `delivery`): asignación por admin (`assignDeliveryPerson`), cancelación, pago
+  confirmado (`mark_order_paid`, o `update_status` de pendiente de pago a `accepted`),
+  `preparing` y `ready_for_pickup`. Sale de `OrderService.update_status` y `mark_order_paid`.
+  Los webhooks de QvaPay/TronDealer escriben el pedido directo y **no** avisan al chofer.
+- **"Nuevo pedido disponible"** (`type: courier_new_order`), en segundo plano, cuando un
+  pedido pasa a `awaiting_delivery_acceptance` sin chofer: a los choferes en línea (Redis)
+  que lo verían en `availableOrdersForDelivery` (vinculados: solo sus sucursales; libres: a
+  ≤ 30 km de la tienda; sin posición conocida, se les avisa igual), salvo al que lo acaba de
+  soltar. No sale para la tienda demo ni para pedidos de recogida.
+- Datos de la push: `type`, `orderId`, `orderNumber`, `status`. FCM usa el mismo proyecto
+  de Firebase que las otras apps: la app Android `com.llego.appmensajeros` tiene que estar
+  dada de alta en él (y su `google-services.json` en AppMensajeros) para que sus tokens
+  sirvan.
 
 ---
 

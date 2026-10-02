@@ -10,7 +10,7 @@ Panel Admin polls over plain HTTP every ~5s for its couriers map — see the
 
 import json
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from bson import ObjectId
 
@@ -92,6 +92,47 @@ def fetch_courier_presence_snapshot_sync() -> List[CourierPresenceType]:
             )
         )
     return results
+
+
+def fetch_online_couriers_sync() -> Dict[str, Optional[Tuple[float, float]]]:
+    """Mensajeros con presencia viva en Redis → última posición `(lng, lat)` o None.
+
+    Lee las claves `presence:courier:{id}:online` (TTL 45 s), que renuevan
+    `updateDeliveryLocation`, `setDeliveryOnlineStatus` y el sondeo de
+    `availableOrdersForDelivery` (la app lo hace cada ~5 s con el mapa
+    abierto). La posición sale de `:loc` si existe. La usa la push de "nuevo
+    pedido disponible" (services/courier_push.py). Sync: llamar con
+    `asyncio.to_thread`.
+    """
+    if redis_client is None:
+        return {}
+
+    ids = set()
+    for key in redis_client.scan_iter(match=f"{COURIER_ONLINE_KEY_PREFIX}*:online", count=200):
+        parts = str(key).split(":")  # presence:courier:{id}:online
+        if len(parts) >= 4 and parts[2]:
+            ids.add(parts[2])
+    if not ids:
+        return {}
+
+    ordered = sorted(ids)
+    pipe = redis_client.pipeline()
+    for courier_id in ordered:
+        pipe.get(f"{COURIER_ONLINE_KEY_PREFIX}{courier_id}:loc")
+    values = pipe.execute()
+
+    result: Dict[str, Optional[Tuple[float, float]]] = {}
+    for courier_id, raw in zip(ordered, values):
+        location = None
+        if raw:
+            try:
+                coords = json.loads(raw).get("coordinates") or []
+                if len(coords) >= 2:
+                    location = (float(coords[0]), float(coords[1]))
+            except Exception:
+                location = None
+        result[courier_id] = location
+    return result
 
 
 async def enrich_courier_snapshot(

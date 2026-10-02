@@ -1071,6 +1071,16 @@ class DeliveryPersonRepository:
         doc = await collection.find_one({"userId": self._to_object_id(user_id)})
         return self._doc_to_delivery_person(doc) if doc else None
 
+    async def get_by_ids(self, delivery_person_ids: List[str]) -> List[DeliveryPerson]:
+        """Varios mensajeros por ID en una sola consulta (los que no existen se omiten)."""
+        if not delivery_person_ids:
+            return []
+        collection = self._get_collection()
+        cursor = collection.find(
+            {"_id": {"$in": [self._to_object_id(dp_id) for dp_id in delivery_person_ids]}}
+        )
+        return [self._doc_to_delivery_person(doc) async for doc in cursor]
+
     async def get_available_nearby(
         self, longitude: float, latitude: float, radius_km: float = 5.0
     ) -> List[DeliveryPerson]:

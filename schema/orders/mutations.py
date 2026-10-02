@@ -681,6 +681,11 @@ class OrderMutation:
 
         await delivery_persons_repo.assign_order(input.deliveryPersonId, input.orderId)
 
+        # Push al chofer: nadie más le avisa de que tiene un pedido nuevo.
+        from services.courier_push import notify_courier_assigned_by_admin
+
+        await notify_courier_assigned_by_admin(order)
+
         return order_to_type(order)
 
     # Branch-delivery person link mutations

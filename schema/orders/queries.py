@@ -419,6 +419,7 @@ class OrderQuery:
 
         # Always prepend the courier's active delivery (if any) so the map pin
         # never disappears after acceptance — the frontend has ONE source of truth.
+        current = None
         try:
             current = await orders_repo.get_current_delivery(str(delivery_person.id))
             if current is not None:
@@ -428,6 +429,21 @@ class OrderQuery:
                     print(f"[COURIER] available_orders_for_delivery: prepended active delivery {current.id} status={current.status.value}")
         except Exception as e:
             print(f"[COURIER] available_orders_for_delivery: current delivery lookup failed: {e}")
+
+        # AppMensajeros sondea esta query cada ~5 s con el mapa abierto: eso es
+        # "estar en línea". Renueva la presencia en Redis (TTL 45 s) para que le
+        # llegue la push de "nuevo pedido disponible" (services/courier_push.py)
+        # y salga en el mapa de Panel Admin. Conserva el pedido en curso para no
+        # pisar el orderId que escribe updateDeliveryLocation.
+        from schema.orders.mutations import _redis_set_courier_presence
+
+        _redis_set_courier_presence(
+            str(delivery_person.id),
+            online=True,
+            longitude=longitude,
+            latitude=latitude,
+            order_id=str(current.id) if current is not None else None,
+        )
 
         return [order_to_type(o) for o in orders]
 
