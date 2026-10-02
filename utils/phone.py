@@ -62,3 +62,46 @@ def cuban_phone_regex(value: Optional[str]) -> Optional[str]:
         return None
     body = _SEPARATORS.join(national)
     return rf"^{_SEPARATORS}(\+|00)?{_SEPARATORS}(53)?{_SEPARATORS}0?{_SEPARATORS}{body}{_SEPARATORS}$"
+
+
+# E.164: el número internacional completo (código de país incluido) tiene como
+# mucho 15 dígitos. 8 es un mínimo prudente para no aceptar basura como "+1 23".
+_INTERNATIONAL_MIN_DIGITS = 8
+_INTERNATIONAL_MAX_DIGITS = 15
+# Lo único que se acepta al escribir un teléfono: "+" inicial, dígitos y separadores.
+_PHONE_CHARS = re.compile(r"^\+?[\d\s\-().]+$")
+
+
+def normalize_phone(value: Optional[str]) -> Optional[str]:
+    """Teléfono en formato internacional compacto ("+<código><número>"), o None si no vale.
+
+    - Un número cubano en cualquiera de los formatos de `cuban_national_number`
+      ("5XXXXXXX", "+53 5XXX XXXX", "00535XXXXXXX"...) queda "+53XXXXXXXX": sin código
+      de país se asume Cuba.
+    - Con otro código de país ("+1 305 555 1234", "0034 600 000 000") se respeta tal
+      cual, solo sin separadores.
+    - Sin "+"/"00" y sin ser un número cubano de 8 dígitos, o con "+53" y una longitud
+      que no es la de Cuba, devuelve None.
+    """
+    raw = (value or "").strip()
+    if not raw or not _PHONE_CHARS.match(raw):
+        return None
+
+    national = cuban_national_number(raw)
+    if national:
+        return f"+{CUBA_COUNTRY_CODE}{national}"
+
+    digits = re.sub(r"\D", "", raw)
+    if raw.startswith("+"):
+        international = digits
+    elif digits.startswith("00"):
+        international = digits[2:]
+    else:
+        return None
+
+    if international.startswith(CUBA_COUNTRY_CODE) or international.startswith("0"):
+        # "+53" con una longitud que no es la cubana, o un código de país imposible.
+        return None
+    if not _INTERNATIONAL_MIN_DIGITS <= len(international) <= _INTERNATIONAL_MAX_DIGITS:
+        return None
+    return f"+{international}"
