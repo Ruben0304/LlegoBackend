@@ -83,7 +83,7 @@ scripts/         ← seeds, migraciones, utilidades de un solo uso
 Reglas:
 - Entidades solo en `domain/`, nunca en la raíz.
 - Lógica de negocio en `services/`, persistencia en `repositories/`.
-- Importa repos desde las instancias ya exportadas en [repositories/__init__.py:59](repositories/__init__.py:59), no instancies clases nuevas.
+- Importa repos desde las instancias ya exportadas en [repositories/__init__.py:60](repositories/__init__.py:60), no instancies clases nuevas.
 - Scripts de un solo uso en `scripts/`.
 
 **Convención rota hoy:** hay scripts sueltos en la raíz que deberían estar en `scripts/`:
@@ -110,8 +110,8 @@ Colecciones principales y su repo:
 | `orders` | `Order` | `orders_repository.py` |
 | `delivery_persons` | `DeliveryPerson` (`approved`: acceso de chofer, §15) | `orders_repository.py:1028` |
 | `partner_requests` | `PartnerRequest` (registro de socios, §15) | `partner_request_repository.py` |
-| `order_location_updates` | `OrderLocationUpdate` | `orders_repository.py:1083` (TTL 24 h) |
-| `branch_delivery_requests` | `BranchDeliveryRequest` | `orders_repository.py:1136` |
+| `order_location_updates` | `OrderLocationUpdate` | `orders_repository.py:1284` (TTL 24 h) |
+| `branch_delivery_requests` | `BranchDeliveryRequest` | `orders_repository.py:1337` |
 | `payment_attempts` | `PaymentAttempt` | `payments_attempt_repository.py` |
 | `payment_methods` | `PaymentMethod` | `payment_method_repository.py` |
 | `wallet_transactions` | `WalletTransaction` | `wallet_repository.py` |
@@ -159,8 +159,8 @@ añades búsqueda a una entidad nueva tienes que replicar el patrón a mano.
 ## 5. GraphQL
 
 `Query` y `Mutation` se componen por herencia múltiple de ~24 clases por feature
-([schema/schema.py:67](schema/schema.py:67), [:106](schema/schema.py:106)); `Subscription` solo de `OrderSubscription` +
-`AiAssistantSubscription` ([:137](schema/schema.py:137)).
+([schema/schema.py:69](schema/schema.py:69), [:110](schema/schema.py:110)); `Subscription` solo de `OrderSubscription` +
+`AiAssistantSubscription` ([:142](schema/schema.py:142)).
 
 Módulos en `schema/`: `ads, ai_assistant, app_config, auth, branch_likes, branches,
 business_types, businesses, categories, combos, error_logs, favorites_cart, feed,
@@ -222,7 +222,7 @@ funciona multi-worker.
 
 **Eventos de sucursal** (`newBranchOrder` → canal `branch:{branchId}`, `branchOrderUpdated`
 → `branch_updates:{branchId}`), para la app de negocios. Los publica
-`OrderService._publish_branch_order_event` ([services/orders_service.py:2711](services/orders_service.py:2711)):
+`OrderService._publish_branch_order_event` ([services/orders_service.py:2704](services/orders_service.py:2704)):
 
 - `newBranchOrder`: al crear el pedido y cuando el cliente lo reenvía (vuelve a
   `pending_acceptance`: la tienda tiene que responder otra vez).
@@ -357,7 +357,7 @@ app/web.
 
 `PaymentStatus`: `pending`, `validated`, `completed`, `failed`, `cancelled` ([:33](domain/orders.py:33)).
 
-Las transiciones válidas están en `ALLOWED_TRANSITIONS` ([domain/orders.py:389](domain/orders.py:389)).
+Las transiciones válidas están en `ALLOWED_TRANSITIONS` ([domain/orders.py:403](domain/orders.py:403)).
 
 ### Flujo
 
@@ -374,12 +374,12 @@ Las transiciones válidas están en `ALLOWED_TRANSITIONS` ([domain/orders.py:389
 
 `services/order_timeout_worker.py`, cada 60 s ([clients/lifespan.py:66](clients/lifespan.py:66)), actúa sobre
 los pedidos con `deadlineAt` vencido. Plazos en `OrderService.STATUS_TIMEOUT_MINUTES`
-([services/orders_service.py:79](services/orders_service.py:79)): 15 min en `pending_acceptance`,
+([services/orders_service.py:80](services/orders_service.py:80)): 15 min en `pending_acceptance`,
 `modified_by_store`, `rejected_by_store`, `awaiting_delivery_acceptance` y `pending_payment`;
 30 min en `payment_in_progress`; 20 min en `accepted` (empezar la elaboración).
 Al vencer se cancela, salvo que haya dinero de por medio (pagado o declarado como
 enviado): entonces se escala a soporte (`requiresAttention`) y se borra el deadline
-(`expire_order`, [:2470](services/orders_service.py:2470)).
+(`expire_order`, [:2463](services/orders_service.py:2463)).
 
 ### Pedidos programados (`scheduledFor`)
 
@@ -531,7 +531,7 @@ Dos mecanismos distintos, y hay que conocer los dos:
   `paymentMethods(branchId)` ([schema/payments/queries.py:55](schema/payments/queries.py:55)) resuelve esa lista.
 - QvaPay y USDT: **booleanos dedicados en `Branch`** — `acceptsQvapay` ([:234](domain/models.py:234)) y
   `acceptsZelle` ([:235](domain/models.py:235), que además hace de interruptor de TronDealer). Se comprueban
-  en las propias mutations ([schema/payments/mutations.py:600](schema/payments/mutations.py:600), [:667](schema/payments/mutations.py:667)).
+  en las propias mutations ([schema/payments/mutations.py:607](schema/payments/mutations.py:607), [:677](schema/payments/mutations.py:677)).
 
 **`paymentMethods` no expone `acceptsQvapay` ni `acceptsZelle`** — los clientes tienen que
 leerlos del `Branch`. No existe un `acceptsUsdt`: USDT va colgado de `acceptsZelle`.
@@ -539,7 +539,7 @@ leerlos del `Branch`. No existe un `acceptsUsdt`: USDT va colgado de `acceptsZel
 ### Efectivo vs no efectivo
 
 Dos clasificadores independientes que pueden divergir:
-- `OrderService.CASH_PAYMENT_METHODS` / `NON_CASH_PAYMENT_METHODS` ([services/orders_service.py:107](services/orders_service.py:107)):
+- `OrderService.CASH_PAYMENT_METHODS` / `NON_CASH_PAYMENT_METHODS` ([services/orders_service.py:108](services/orders_service.py:108)):
   sets estáticos, normaliza el token, cae a buscar el doc en `payment_methods`, y ante la
   duda asume **no efectivo** (conservador).
 - `PaymentService` confía directamente en `PaymentMethod.method == "cash"` de la BD.
@@ -551,7 +551,7 @@ Dos clasificadores independientes que pueden divergir:
 Solo `valid` con confianza ≥ 0.85 aprueba automáticamente; 0.60–0.85 va a `needs_review`.
 Todo queda en `kyc_verifications`, con auditoría en `kyc_audit_events`.
 
-`overrideCashKycDecision` ([schema/payments/mutations.py:537](schema/payments/mutations.py:537)) permite a un humano
+`overrideCashKycDecision` ([schema/payments/mutations.py:541](schema/payments/mutations.py:541)) permite a un humano
 aprobar/rechazar/forzar reevaluación. Está protegida dos veces (en el resolver y dentro
 del servicio) con `["admin", "risk_admin"]`. **Ojo:** Panel Admin deja entrar a `manager`,
 que puede *ver* la cola pero recibirá error al intentar el override. Es intencional.
@@ -644,7 +644,7 @@ Y entonces o lo declaras en cada tipo GraphQL, o lo excluyes.
 ### Otras
 
 - **`_to_object_id` copiado en cada repo**, y ante un id inválido **devuelve el string
-  original en vez de lanzar** ([repositories/orders_repository.py:31](repositories/orders_repository.py:31) y gemelos). Un id
+  original en vez de lanzar** ([repositories/orders_repository.py:33](repositories/orders_repository.py:33) y gemelos). Un id
   malformado se convierte en una query que no encuentra nada, no en un error.
 - **Fechas naive vs aware**: 47 archivos usan `datetime.utcnow()` (naive), unos pocos usan
   `datetime.now(timezone.utc)` (aware). Restarlos entre sí lanza `TypeError`.
