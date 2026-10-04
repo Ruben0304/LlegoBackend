@@ -525,13 +525,22 @@ iniciar sesión y lo da de baja con `unregisterDeviceToken` al cerrarla. Lógica
   confirmado (`mark_order_paid`, o `update_status` de pendiente de pago a `accepted`),
   `preparing` y `ready_for_pickup`. Sale de `OrderService.update_status` y `mark_order_paid`.
   Los webhooks de QvaPay/TronDealer escriben el pedido directo y **no** avisan al chofer.
+- **Al chofer que se queda sin el pedido** (`courier_order_update`): `modify_order_items`
+  (el negocio cambia el pedido) y `resubmit_order` (el cliente lo reenvía) le quitan el
+  chofer en el repo (`update_items` / `resubmit_order` ponen `deliveryPersonId: null`) sin
+  pasar por `update_status`; `_notify_courier_unassigned` le avisa para que no vaya a
+  recogerlo. Si añades otro camino que quite el chofer fuera de `update_status`, llámalo
+  también.
 - **"Nuevo pedido disponible"** (`type: courier_new_order`), en segundo plano, cuando un
   pedido pasa a `awaiting_delivery_acceptance` sin chofer: a los choferes en línea (Redis)
   que lo verían en `availableOrdersForDelivery` (vinculados: solo sus sucursales; libres: a
   ≤ 30 km de la tienda; sin posición conocida, se les avisa igual), salvo al que lo acaba de
   soltar (`reject_order_for_payment` lo pasa a `update_status` como
-  `released_by_delivery_person_id`: el pedido ya llega sin chofer). No sale para la tienda
-  demo ni para pedidos de recogida.
+  `released_by_delivery_person_id`: el pedido ya llega sin chofer) y a los que ya tienen
+  una entrega en curso (`get_delivery_person_ids_with_active_order`, mismos estados que
+  `myCurrentDelivery`: la app trabaja con una entrega a la vez). No sale para la tienda
+  demo ni para pedidos de recogida. Al tocarla, AppMensajeros busca el pedido entre sus
+  disponibles (`order(id)` no se lo devuelve: aún no es suyo).
 - Datos de la push: `type`, `orderId`, `orderNumber`, `status`. FCM usa el mismo proyecto
   de Firebase que las otras apps: la app Android `com.llego.appmensajeros` tiene que estar
   dada de alta en él (y su `google-services.json` en AppMensajeros) para que sus tokens

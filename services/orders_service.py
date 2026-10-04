@@ -51,6 +51,7 @@ from services.branch_hours import (
     parse_time_to_minutes,
     temporary_status_applies_on,
 )
+from services.courier_push import UNASSIGNED_MODIFIED_BY_STORE, UNASSIGNED_RESUBMITTED
 from services.orders_utils import (
     calculate_delivery_fee_h3,
     coords_to_h3,
@@ -1788,6 +1789,25 @@ class OrderService:
                 exc,
             )
 
+    async def _notify_courier_unassigned(
+        self, before: Order, updated: Order, reason: str
+    ) -> None:
+        """Avisa al chofer al que se le quitó el pedido sin pasar por update_status
+        (update_items / resubmit_order ponen deliveryPersonId a None): sin esto
+        seguiría yendo a recoger un pedido que ya no es suyo. Nunca lanza."""
+        if not before.deliveryPersonId or updated.deliveryPersonId:
+            return
+        try:
+            from services.courier_push import notify_courier_unassigned
+
+            await notify_courier_unassigned(updated, str(before.deliveryPersonId), reason)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "No se pudo avisar al chofer del pedido %s: %s",
+                getattr(updated, "id", "?"),
+                exc,
+            )
+
     async def _settle_payments_on_cancel(self, order: Order) -> Order:
         """Al cancelar: anula los intentos de pago sin dinero y marca el pedido
         para reembolso/revision si el cliente ya pago o dice haber pagado."""
@@ -2094,6 +2114,10 @@ class OrderService:
 
         # Emit tracking event for real-time subscription
         await self._emit_tracking_event(updated_order)
+        # update_items le quita el chofer al pedido: que lo sepa.
+        await self._notify_courier_unassigned(
+            order, updated_order, UNASSIGNED_MODIFIED_BY_STORE
+        )
 
         return updated_order
 
@@ -2216,6 +2240,8 @@ class OrderService:
             raise ValueError("No se pudo reenviar el pedido")
 
         await self._emit_tracking_event(updated_order)
+        # resubmit_order le quita el chofer al pedido (p. ej. desde pendiente de pago).
+        await self._notify_courier_unassigned(order, updated_order, UNASSIGNED_RESUBMITTED)
         return updated_order
 
     async def cancel_order(

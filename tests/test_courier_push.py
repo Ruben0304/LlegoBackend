@@ -50,7 +50,7 @@ from repositories.device_token_repository import (
     device_token_repo,
     token_audience,
 )
-from repositories.orders_repository import delivery_persons_repo
+from repositories.orders_repository import delivery_persons_repo, orders_repo
 from services.orders_service import OrderService
 from services.push_notification_service import push_service
 
@@ -111,6 +111,18 @@ class InMemoryOrders:
     async def clear_delivery_person(self, order_id):
         data = self.order.model_dump(by_alias=True)
         data["deliveryPersonId"] = None
+        self.order = Order.model_validate(data)
+        return self.order.model_copy(deep=True)
+
+    async def update_items(self, order_id, items, subtotal, service_charge, total, timeline_entry):
+        data = self.order.model_dump(by_alias=True)
+        data.update(status=OrderStatus.MODIFIED_BY_STORE.value, deliveryPersonId=None, items=[])
+        self.order = Order.model_validate(data)
+        return self.order.model_copy(deep=True)
+
+    async def resubmit_order(self, order_id, timeline_entry, **_):
+        data = self.order.model_dump(by_alias=True)
+        data.update(status=OrderStatus.PENDING_ACCEPTANCE.value, deliveryPersonId=None)
         self.order = Order.model_validate(data)
         return self.order.model_copy(deep=True)
 
@@ -257,7 +269,9 @@ def broadcast_env(monkeypatch):
     monkeypatch.setattr(repositories.branches_repo, "get_by_id", AsyncMock(return_value=branch))
     send = AsyncMock(return_value=2)
     monkeypatch.setattr(courier_push, "send_to_courier_users", send)
-    return SimpleNamespace(branch=branch, send=send)
+    busy = AsyncMock(return_value=set())
+    monkeypatch.setattr(orders_repo, "get_delivery_person_ids_with_active_order", busy)
+    return SimpleNamespace(branch=branch, send=send, busy=busy)
 
 
 def _order_with_pickup(**extra):
@@ -299,6 +313,49 @@ def test_broadcast_reaches_online_couriers_that_could_take_it(broadcast_env, mon
     assert "Pizzería 23" in body and "03/10 14:00" in body
     assert data["type"] == "courier_new_order"
     assert data["orderId"] == str(order.id)
+
+
+def test_broadcast_skips_couriers_already_on_a_delivery(broadcast_env, monkeypatch):
+    """Quien ya tiene una entrega en curso no recibe "nuevo pedido disponible":
+    la app trabaja con una entrega a la vez y avisarle mientras reparte es ruido."""
+    free, busy = str(ObjectId()), str(ObjectId())
+    monkeypatch.setattr(
+        courier_presence,
+        "fetch_online_couriers_sync",
+        lambda: {free: (-82.37, 23.12), busy: (-82.37, 23.12)},
+    )
+    monkeypatch.setattr(
+        delivery_persons_repo,
+        "get_by_ids",
+        AsyncMock(return_value=[_courier(free, "u-free"), _courier(busy, "u-busy")]),
+    )
+    broadcast_env.busy.return_value = {busy}
+
+    assert run(courier_push.broadcast_new_order(_order_with_pickup())) == 1
+    assert sorted(broadcast_env.busy.await_args.args[0]) == sorted([free, busy])
+    assert broadcast_env.send.await_args.args[0] == ["u-free"]
+
+
+def test_busy_couriers_are_the_ones_with_an_active_order(monkeypatch):
+    """Mismo criterio que get_current_delivery (myCurrentDelivery), en una consulta."""
+    import repositories.orders_repository as orders_repository_module
+
+    free, busy = ObjectId(), ObjectId()
+    collection = MagicMock()
+    collection.distinct = AsyncMock(return_value=[busy, None])
+    monkeypatch.setattr(orders_repository_module, "get_database", lambda: {"orders": collection})
+
+    result = run(orders_repo.get_delivery_person_ids_with_active_order([str(free), str(busy)]))
+
+    assert result == {str(busy)}
+    field, query = collection.distinct.await_args.args
+    assert field == "deliveryPersonId"
+    assert query["deliveryPersonId"] == {"$in": [free, busy]}
+    assert set(query["status"]["$in"]) == {
+        "awaiting_delivery_acceptance", "pending_payment", "accepted",
+        "preparing", "ready_for_pickup", "on_the_way",
+    }
+    assert run(orders_repo.get_delivery_person_ids_with_active_order([])) == set()
 
 
 def test_broadcast_skips_demo_store_and_pickup(broadcast_env, monkeypatch):
@@ -443,6 +500,74 @@ def test_courier_release_does_not_offer_the_order_back_to_that_courier(service, 
     assert broadcast.await_args.kwargs["exclude_delivery_person_ids"] == {COURIER_ID}
 
 
+@pytest.fixture
+def unassign_env(service, monkeypatch):
+    """Lo que necesitan modify_order_items y resubmit_order sin red ni BD."""
+    notify = AsyncMock()
+    monkeypatch.setattr(courier_push, "notify_assigned_courier", notify)
+    monkeypatch.setattr(
+        orders_module.payment_attempts_repo, "get_active_by_order_id", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        orders_module.access_checker, "check_branch_access", AsyncMock(return_value=(True, None))
+    )
+    monkeypatch.setattr(
+        orders_module.branches_repo, "get_by_id", AsyncMock(return_value=SimpleNamespace(exchangeRate=None))
+    )
+    return notify
+
+
+def test_store_modification_tells_the_courier_the_order_is_no_longer_his(service, unassign_env):
+    """update_items quita el chofer sin pasar por update_status: antes el chofer
+    seguía yendo a recoger un pedido que ya no era suyo."""
+    service.orders_repo = InMemoryOrders(make_order(OrderStatus.ACCEPTED, deliveryPersonId=COURIER_ID))
+
+    updated = run(service.modify_order_items(
+        str(service.orders_repo.order.id), [], "Sin existencias", str(ObjectId())
+    ))
+
+    assert updated.status == OrderStatus.MODIFIED_BY_STORE
+    assert updated.deliveryPersonId is None
+    unassign_env.assert_awaited_once()
+    assert unassign_env.await_args.args[1] == "Pedido modificado por el negocio"
+    assert "Ya no está asignado a ti" in unassign_env.await_args.args[2]
+    assert unassign_env.await_args.kwargs["delivery_person_id"] == COURIER_ID
+
+
+def test_customer_resubmission_tells_the_courier_the_order_is_no_longer_his(service, unassign_env):
+    order = make_order(OrderStatus.PENDING_PAYMENT, deliveryPersonId=COURIER_ID)
+    service.orders_repo = InMemoryOrders(order)
+
+    updated = run(service.resubmit_order(str(order.id), order.customerId))
+
+    assert updated.status == OrderStatus.PENDING_ACCEPTANCE
+    unassign_env.assert_awaited_once()
+    assert unassign_env.await_args.args[1] == "Pedido devuelto a la tienda"
+    assert unassign_env.await_args.kwargs["delivery_person_id"] == COURIER_ID
+
+
+def test_modifying_an_order_without_courier_pushes_nothing(service, unassign_env):
+    service.orders_repo = InMemoryOrders(make_order(OrderStatus.PENDING_ACCEPTANCE))
+
+    run(service.modify_order_items(
+        str(service.orders_repo.order.id), [], "Sin existencias", str(ObjectId())
+    ))
+
+    unassign_env.assert_not_awaited()
+
+
+def test_unassigned_push_failure_does_not_break_the_modification(service, unassign_env, monkeypatch):
+    monkeypatch.setattr(
+        courier_push, "notify_courier_unassigned", AsyncMock(side_effect=RuntimeError("boom"))
+    )
+    service.orders_repo = InMemoryOrders(make_order(OrderStatus.ACCEPTED, deliveryPersonId=COURIER_ID))
+
+    updated = run(service.modify_order_items(
+        str(service.orders_repo.order.id), [], "Sin existencias", str(ObjectId())
+    ))
+    assert updated.status == OrderStatus.MODIFIED_BY_STORE
+
+
 def test_mark_order_paid_tells_courier_payment_arrived(service, monkeypatch):
     notify = AsyncMock()
     monkeypatch.setattr(courier_push, "notify_assigned_courier", notify)
@@ -512,3 +637,4 @@ def test_available_orders_poll_marks_courier_online(monkeypatch):
     presence.assert_called_once_with(
         COURIER_ID, online=True, longitude=-82.38, latitude=23.13, order_id=str(current.id)
     )
+

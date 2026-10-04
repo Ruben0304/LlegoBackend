@@ -6,9 +6,11 @@ repositories/device_token_repository.py):
 
 - Al chofer asignado, cuando cambia algo que le afecta y que no hizo él mismo:
   le asignan el pedido (admin), se cancela, el cliente paga, el negocio empieza
-  a prepararlo o lo marca listo.
+  a prepararlo o lo marca listo, o se lo quitan porque el negocio modificó el
+  pedido o el cliente lo reenvió a la tienda.
 - "Nuevo pedido disponible" a los choferes en línea (presencia en Redis) que
-  podrían tomarlo, cuando un pedido pasa a esperar mensajero.
+  podrían tomarlo, cuando un pedido pasa a esperar mensajero. No se avisa a
+  quien ya tiene una entrega en curso.
 
 Nada de esto rompe ni frena la operación que lo dispara: los errores solo se
 loguean y el aviso masivo corre en segundo plano.
@@ -89,6 +91,26 @@ def courier_status_message(
             f"El pedido #{order_number} está listo. Ya puedes pasar a recogerlo.",
         )
     return None
+
+
+# Motivos por los que se le quita el pedido al chofer sin pasar por update_status.
+UNASSIGNED_MODIFIED_BY_STORE = "modified_by_store"
+UNASSIGNED_RESUBMITTED = "resubmitted"
+
+
+def courier_unassigned_message(order_number: str, reason: str) -> Tuple[str, str]:
+    """(título, cuerpo) para el chofer al que le acaban de quitar el pedido."""
+    if reason == UNASSIGNED_MODIFIED_BY_STORE:
+        return (
+            "Pedido modificado por el negocio",
+            f"El negocio cambió el pedido #{order_number} y el cliente tiene que revisarlo. "
+            "Ya no está asignado a ti: no vayas a recogerlo.",
+        )
+    return (
+        "Pedido devuelto a la tienda",
+        f"El cliente reenvió el pedido #{order_number} a la tienda. "
+        "Ya no está asignado a ti: no vayas a recogerlo.",
+    )
 
 
 def courier_can_take_order(
@@ -197,6 +219,16 @@ async def notify_courier_assigned_by_admin(order: Any) -> None:
     await notify_assigned_courier(order, "Nuevo pedido asignado", body)
 
 
+async def notify_courier_unassigned(order: Any, delivery_person_id: str, reason: str) -> None:
+    """Al pedido le quitaron el chofer fuera de update_status (modify_order_items,
+    resubmit_order): el pedido ya llega sin chofer, así que se pasa aparte.
+    Nunca lanza."""
+    if not delivery_person_id:
+        return
+    title, body = courier_unassigned_message(order.orderNumber, reason)
+    await notify_assigned_courier(order, title, body, delivery_person_id=str(delivery_person_id))
+
+
 async def notify_status_change(
     before: Any,
     updated: Any,
@@ -240,10 +272,12 @@ async def notify_status_change(
 async def broadcast_new_order(order: Any, exclude_delivery_person_ids: Iterable[str] = ()) -> int:
     """"Nuevo pedido disponible" a los choferes en línea que podrían tomarlo.
 
+    Quien ya tiene una entrega en curso no cuenta: la app trabaja con una sola
+    entrega a la vez (myCurrentDelivery) y avisarle mientras reparte es ruido.
     Devuelve a cuántos choferes se avisó. Nunca lanza.
     """
     from repositories import branches_repo
-    from repositories.orders_repository import delivery_persons_repo
+    from repositories.orders_repository import delivery_persons_repo, orders_repo
     from services.courier_presence import fetch_online_couriers_sync
 
     try:
@@ -261,10 +295,13 @@ async def broadcast_new_order(order: Any, exclude_delivery_person_ids: Iterable[
             return 0
 
         couriers = await delivery_persons_repo.get_by_ids(candidate_ids)
+        busy = await orders_repo.get_delivery_person_ids_with_active_order(
+            [str(c.id) for c in couriers]
+        )
         pickup = _pickup_location(order)
         user_ids = []
         for courier in couriers:
-            if not getattr(courier, "isActive", True):
+            if not getattr(courier, "isActive", True) or str(courier.id) in busy:
                 continue
             location = online.get(str(courier.id))
             if location is None and courier.currentLocation:

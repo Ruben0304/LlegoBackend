@@ -1,7 +1,7 @@
 """Repository classes for Orders, Delivery Persons, and Location Updates."""
 
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from bson import ObjectId
 
@@ -18,6 +18,18 @@ from domain.orders import (
     OrderTimeline,
     PaymentStatus,
 )
+
+# Estados en los que un pedido con chofer cuenta como "su entrega en curso"
+# (myCurrentDelivery). Lo comparten get_current_delivery y la push de "nuevo
+# pedido disponible", que no se manda a quien ya está con una entrega.
+COURIER_ACTIVE_ORDER_STATUSES = [
+    OrderStatus.AWAITING_DELIVERY_ACCEPTANCE.value,
+    OrderStatus.PENDING_PAYMENT.value,
+    OrderStatus.ACCEPTED.value,
+    OrderStatus.PREPARING.value,
+    OrderStatus.READY_FOR_PICKUP.value,
+    OrderStatus.ON_THE_WAY.value,
+]
 
 
 class OrderRepository:
@@ -280,19 +292,29 @@ class OrderRepository:
         doc = await collection.find_one(
             {
                 "deliveryPersonId": self._to_object_id(delivery_person_id),
-                "status": {
-                    "$in": [
-                        OrderStatus.AWAITING_DELIVERY_ACCEPTANCE.value,
-                        OrderStatus.PENDING_PAYMENT.value,
-                        OrderStatus.ACCEPTED.value,
-                        OrderStatus.PREPARING.value,
-                        OrderStatus.READY_FOR_PICKUP.value,
-                        OrderStatus.ON_THE_WAY.value,
-                    ]
-                },
+                "status": {"$in": COURIER_ACTIVE_ORDER_STATUSES},
             }
         )
         return self._doc_to_order(doc) if doc else None
+
+    async def get_delivery_person_ids_with_active_order(
+        self, delivery_person_ids: List[str]
+    ) -> Set[str]:
+        """De esos mensajeros, los que tienen una entrega en curso (lo que
+        devolvería get_current_delivery), en una sola consulta."""
+        if not delivery_person_ids:
+            return set()
+        collection = self._get_collection()
+        busy = await collection.distinct(
+            "deliveryPersonId",
+            {
+                "deliveryPersonId": {
+                    "$in": [self._to_object_id(dp_id) for dp_id in delivery_person_ids]
+                },
+                "status": {"$in": COURIER_ACTIVE_ORDER_STATUSES},
+            },
+        )
+        return {str(dp_id) for dp_id in busy if dp_id is not None}
 
     async def update_status(
         self,
