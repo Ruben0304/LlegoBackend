@@ -2,6 +2,20 @@
 
 ---
 
+## 📅 4 de Octubre, 2026
+
+### Resumen de cambios (últimas 24h)
+
+Sin commits de código nuevos. No hay cambios en producción en LlegoBackend hoy.
+
+---
+
+### Puede dar bateo
+
+Sin cambios nuevos — sin riesgos nuevos. Se mantienen las consideraciones del 3 de octubre (auth de subscriptions, estado `UNDERPAID`, `WEB_AUTH_CALLBACK_URLS`, transacciones con `NameError`, `zoneinfo`/`pytz`, rate limit con `bearer` minúscula, `predefinedDeliveryFee`, `branchOrderUpdated` + `UNDERPAID` circular, timeout del proxy, `require_admin_user_from_header`).
+
+---
+
 ## 📅 3 de Octubre, 2026
 
 ### Resumen de cambios (últimas 24h)
@@ -274,18 +288,4 @@ Sin cambios nuevos — sin riesgos nuevos. Se mantienen las consideraciones del 
 
 ---
 
-## 📅 26 de Septiembre, 2026
-
-### Resumen de cambios (últimas 24h)
-
-Sin commits de código nuevos. El único commit del período es el "Analisis diario Claude" automático del 25-sep. No hay cambios en producción en LlegoBackend hoy.
-
----
-
-### Puede dar bateo
-
-Sin cambios nuevos — sin riesgos nuevos. Se mantienen las consideraciones del 25 de septiembre (enrutamiento de push notifications, tokens sin bundleId, desactivación de tokens APNs).
-
----
-
-> ⚠️ **Nota de mantenimiento**: Las entradas del **25 de Septiembre** y anteriores fueron eliminadas el 3 de Octubre al superar los 7 días de antigüedad (política de retención semanal).
+> ⚠️ **Nota de mantenimiento**: Las entradas del **26 de Septiembre** y anteriores fueron eliminadas el 4 de Octubre al superar los 7 días de antigüedad (política de retención semanal).
