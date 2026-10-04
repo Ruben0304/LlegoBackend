@@ -124,8 +124,9 @@ Colecciones principales y su repo:
 | `platform` | `Platform` (doc único, `_id: "platform"`) | `platform_repository.py` |
 
 El resto (`combos`, `showcases`, `variant_lists`, `searches`, `feedbacks`, `surveys`,
-`ad_campaigns`, `promo_requests`, `tutorials`, `device_tokens`, `error_logs`,
-`business_access`, `branch_invitations`, `delivery_zones`, `chat_messages`…) sigue el
+`ad_campaigns`, `promo_requests`, `platform_banners`, `tutorials`, `device_tokens`,
+`app_config`/`business_app_config`/`courier_app_config`,
+`error_logs`, `business_access`, `branch_invitations`, `delivery_zones`, `chat_messages`…) sigue el
 mismo patrón: un repo por colección en `repositories/`.
 
 ### Índices
@@ -138,7 +139,7 @@ Tienen índices explícitos: `orders`, `users`, `products`, `branches`, `error_l
 `branch_invitations`, `business_access`, `favorites_cart`, `searches`, `branch_likes`,
 `chat_messages`, `delivery_zones`, `branch_delivery_requests`, `qvapay_invoices`,
 `trondealer_wallets`, `pending_payouts`, `payment_methods`, `tutorials`,
-`delivery_persons`, `order_location_updates`, `partner_requests`.
+`delivery_persons`, `order_location_updates`, `partner_requests`, `platform_banners`.
 
 **No tienen ninguno**: `bussisnes`, `payment_attempts`, `kyc_verifications`, `combos`,
 `showcases`, `variant_lists`, `wallet_transactions`, `promo_requests`, `ad_campaigns`.
@@ -164,9 +165,9 @@ añades búsqueda a una entidad nueva tienes que replicar el patrón a mano.
 
 Módulos en `schema/`: `ads, ai_assistant, app_config, auth, branch_likes, branches,
 business_types, businesses, categories, combos, error_logs, favorites_cart, feed,
-feedbacks, invitations, orders, partner_requests, payments, product_categories, products,
-promos, promotional_videos, searches, shortcut_transfers, showcases, surveys, sync,
-tutorials, users, variant_lists, wallet`. Los más grandes con diferencia son `orders`
+feedbacks, invitations, orders, partner_requests, payments, platform_banners,
+product_categories, products, promos, promotional_videos, searches, shortcut_transfers,
+showcases, surveys, sync, tutorials, users, variant_lists, wallet`. Los más grandes con diferencia son `orders`
 (24 queries / 26 mutations / 6 subscriptions) y `payments` (16 / 16).
 
 ### Autenticación — esto es lo que más sorprende
@@ -190,7 +191,8 @@ la operación, no en la cabecera. Es deliberado (sirve igual para HTTP y para We
 `get_current_user_id_from_header` ([utils/auth.py:246](utils/auth.py:246)) es solo para REST.
 `require_admin_user_from_header` ([utils/auth.py:262](utils/auth.py:262)) es su variante para admins con
 sesión de usuario (JWT con `role == "admin"`; 401 sin token, 403 con otro rol): el
-equivalente REST de `require_role(..., ["admin"])`, usado por `/upload/tutorial/*`.
+equivalente REST de `require_role(..., ["admin"])`, usado por `/upload/tutorial/*`,
+`/upload/promotion/*` y `/upload/platform-banner/image`.
 `require_admin_api_key` ([utils/auth.py:293](utils/auth.py:293)) es una clave estática compartida, solo para
 endpoints REST de ops — **nunca para GraphQL**, porque una clave estática embebida en una
 app distribuida la puede extraer cualquiera.
@@ -235,7 +237,8 @@ funciona multi-worker.
 - Los pings de ubicación del chofer **no** publican en `branch_updates`: `updateDeliveryLocation`
   (cada ~10 s por pedido activo, AppMensajeros `MapScreen.kt`) llama a
   `_emit_tracking_event(order, publish_to_branch=False)`, porque no cambian ni el estado ni
-  el pago. El mapa en vivo de la sucursal va por `deliveryLocationUpdated`
+  el pago. Tampoco mandan pushes (antes cada ping le repetía al cliente "Tu pedido está en
+  camino"). El mapa en vivo de la sucursal va por `deliveryLocationUpdated`
   (`delivery_location:{orderId}`). Si añades otro caller de `_emit_tracking_event` que no
   sea un cambio de estado o de pago, pasa también `publish_to_branch=False`.
 - Publicar nunca rompe ni frena la operación: solo encola, y un fallo se loguea.
@@ -294,6 +297,46 @@ errores, no solo en el `catch`.
 
 Si necesitas tiempo real fiable hoy, haz polling HTTP, no subscriptions.
 
+### Banners del feed (`platformBanners`)
+
+Carrusel 16:9 que crean los admins y que LlegoiOS (`graphql/feed/GetPlatformBanners.graphql`)
+y LlegoApk (`ProductFeedRepository.fetchPlatformBanners`, JSON crudo) piden con
+`platformBanners(appTarget: "customer")`. Colección `platform_banners`
+([domain/platform_banners.py](domain/platform_banners.py), [schema/platform_banners/](schema/platform_banners/)):
+
+- `platformBanners(appTarget: String! = "customer")` es **pública**: activos y dentro de
+  su ventana opcional `[startAt, endAt)`, ordenados por `order`. Un `appTarget`
+  desconocido devuelve `[]`. `imageUrl` es la URL firmada del `imagePath`; `actionUrl` es
+  `https://wa.me/<dígitos>` si hay `whatsapp` (un número cubano sale con `53`), si no el
+  `link`, si no null ([services/platform_banners.py](services/platform_banners.py)). Las apps priorizan
+  `branchId` (abrir la tienda) sobre `actionUrl`.
+- Gestión solo `admin`: `adminPlatformBanners`, `createPlatformBanner` (sin `order` va al
+  final), `updatePlatformBanner` (parcial; un null explícito borra un campo opcional),
+  `setPlatformBannerActive`, `reorderPlatformBanners(ids)` (order = posición; todos de la
+  misma app) y `deletePlatformBanner` (borra también la imagen, best-effort). La imagen se
+  sube antes a `POST /upload/platform-banner/image` (admin, recorte 1920x1080 como las
+  portadas). Panel Admin aún no tiene pantalla para esto.
+
+### Versiones mínimas y mantenimiento de las apps
+
+Tres queries públicas (sin JWT: las apps las consultan al arrancar, antes del login)
+con la misma forma — `android`/`ios` con `minVersion` y `currentVersion`, `maintenance`
+(`enabled`, `message`), `updateMessage`, `changelog`, `releaseDate` — y su mutation de
+admin con actualización parcial ([schema/app_config/](schema/app_config/)):
+
+| App | Query | Mutation | Colección (caché Redis) |
+|---|---|---|---|
+| Cliente | `appConfig` | `updateAppConfig` | `app_config` |
+| Negocios | `businessAppConfig` | `updateBusinessAppConfig` | `business_app_config` |
+| Choferes (AppMensajeros) | `courierAppConfig` | `updateCourierAppConfig` | `courier_app_config` |
+
+Cada colección tiene un único documento. Las de cliente y negocios se crearon a mano y su
+mutation falla si no existe; `courier_app_config` nace vacía, así que `courierAppConfig`
+devuelve null (la app no bloquea nada) hasta que la primera `updateCourierAppConfig` crea
+la config inicial (versiones `0.0.0`, sin mantenimiento) y aplica los cambios. AppMensajeros
+bloquea si la versión instalada < `minVersion`, muestra mantenimiento si `enabled` y avisa
+si < `currentVersion`; si la query falla, no bloquea.
+
 ---
 
 ## 6. REST
@@ -302,7 +345,7 @@ Si necesitas tiempo real fiable hoy, haz polling HTTP, no subscriptions.
 
 | Router | Prefijo | Auth |
 |---|---|---|
-| uploads | `/upload` | JWT por cabecera; `/upload/tutorial/*` además rol `admin` |
+| uploads | `/upload` | JWT por cabecera; `/upload/tutorial/*`, `/upload/promotion/*` y `/upload/platform-banner/*` además rol `admin` |
 | apple_auth | `/apple` | Público (flujo OAuth, por diseño); destinos del callback en lista blanca (abajo) |
 | error_logs | `/api/error-logs` | `ADMIN_API_KEY`, salvo `POST /mobile-report` (público a propósito: intake de crasheos) |
 | kyc | `/kyc` | JWT |
@@ -410,13 +453,19 @@ negocios, siempre con `date` = hoy. Reglas en [services/branch_hours.py](service
   Sin `date` (legacy: seeds como la tienda demo, `updateBranch`): aplica indefinidamente.
 - Cuando aplica: `temporallyClosed` cierra el día entero (también la cola de un turno
   nocturno de ayer); `openTime`/`closeTime` sustituyen al horario semanal ese día (pueden
-  cruzar la medianoche); `temporallyOpen` sin horas abre todo el día; sin flags ni horas
-  no decide.
-- Pendiente de producto: el switch "Abierto hoy" de la app de negocios (`BranchStatusChip.kt`)
-  manda `temporallyOpen=true` sin horas al deshacer un "Cerrado hoy", y con esta regla
-  la sucursal queda abierta las 24 h de ese día. Si encenderlo debe volver al horario
-  semanal, lo coherente es que la app llame a `clearBranchDailyOverride` cuando no hay
-  horario especial (iOS/Android muestran `temporallyOpen` como "abierto" sin mirar horas).
+  cruzar la medianoche); cualquier otra cosa no decide y manda el horario semanal.
+- **"Abierto hoy" sin horas = horario normal** (decisión de producto). `temporallyOpen`
+  sin `openTime`/`closeTime` ya no abre el día entero, con o sin `date`. Antes el switch
+  "Abierto hoy" de la app de negocios (`BranchStatusChip.kt`), que manda
+  `temporallyOpen=true` sin horas al deshacer un "Cerrado hoy", dejaba la sucursal
+  abierta las 24 h. La tienda demo (seed con `temporallyOpen` legacy) sigue abierta
+  porque su horario semanal ya es 00:00-23:59. La app de negocios dejará de escribir
+  ese caso en la fase 2b (llamará a `clearBranchDailyOverride`).
+- Como iOS/Android pintan "Abierto" con `temporallyOpen` sin mirar horas,
+  `schedule_to_type` lo expone como `false` cuando el override no tiene horario especial
+  (`exposed_temporally_open`), para que las apps calculen el estado con el horario
+  semanal igual que el backend. Con horas se sigue exponiendo tal cual (y las apps
+  siguen sin mirar esas horas: pintan "Abierto" todo el día).
 - Lo usan `_is_branch_open_now` (pedido inmediato) y `_is_branch_open_at` (programado;
   aquí solo cuentan los overrides con fecha, los legacy se ignoran como antes).
 - `schedule_to_type` ([schema/branches/utils.py:30](schema/branches/utils.py:30)) no expone un override con fecha
@@ -467,10 +516,58 @@ mensajero asignado puede verlos). Detalle de la regla en §15.
 
 ### Presencia de mensajeros
 
-`updateDeliveryLocation` escribe en Redis (`presence:courier:{id}:loc`, TTL 45 s) y en
-`DeliveryPerson.currentLocation` en Mongo. **Redis es la fuente fiable** para un mapa en
-vivo; Mongo solo guarda la última posición. La lógica compartida está en
+`updateDeliveryLocation` escribe en Redis (`presence:courier:{id}:online` y `:loc`, TTL
+45 s) y en `DeliveryPerson.currentLocation` en Mongo. **Redis es la fuente fiable** para un
+mapa en vivo; Mongo solo guarda la última posición. La lógica compartida está en
 [services/courier_presence.py](services/courier_presence.py).
+
+"En línea" = la app abierta en el mapa: `availableOrdersForDelivery` (AppMensajeros la
+sondea cada ~5 s) también renueva la presencia con la posición del sondeo y el pedido en
+curso, si lo hay (para no pisar el `orderId` de `updateDeliveryLocation`). Por eso los
+choferes libres aparecen ahora en el mapa de Panel Admin, y son los que reciben "nuevo
+pedido disponible".
+
+`latitude`/`longitude` de `availableOrdersForDelivery` son opcionales: sin GPS la app no
+las manda. Sin posición real el chofer cuenta como en línea pero no se escribe `:loc` (no
+sale en el mapa de Panel Admin) y, si es libre, no ve pedidos cercanos (los vinculados ven
+los de sus sucursales igual). Las versiones ya publicadas de AppMensajeros sondean sin GPS
+con Ciudad de México (19.4326, -99.1332): esa posición se trata como "sin posición"
+(`_courier_poll_position` en [schema/orders/queries.py](schema/orders/queries.py)).
+
+### Pushes a choferes
+
+Audiencia `courier` en `device_tokens` ([repositories/device_token_repository.py](repositories/device_token_repository.py)):
+tokens con `bundleId` que empieza por `com.llego.appmensajeros` sin distinguir mayúsculas
+(iOS `com.llego.AppMensajeros`, que es también el topic de APNs; Android
+`com.llego.appmensajeros`). AppMensajeros registra el token con `registerDeviceToken` al
+iniciar sesión y lo da de baja con `unregisterDeviceToken` al cerrarla. Lógica en
+[services/courier_push.py](services/courier_push.py); nada de esto rompe la operación que lo dispara.
+
+- **Al chofer asignado** (`type: courier_order_update`), salvo lo que hace él mismo
+  (actor `delivery`): asignación por admin (`assignDeliveryPerson`), cancelación, pago
+  confirmado (`mark_order_paid`, o `update_status` de pendiente de pago a `accepted`),
+  `preparing` y `ready_for_pickup`. Sale de `OrderService.update_status` y `mark_order_paid`.
+  Los webhooks de QvaPay/TronDealer escriben el pedido directo y **no** avisan al chofer.
+- **Al chofer que se queda sin el pedido** (`courier_order_update`): `modify_order_items`
+  (el negocio cambia el pedido) y `resubmit_order` (el cliente lo reenvía) le quitan el
+  chofer en el repo (`update_items` / `resubmit_order` ponen `deliveryPersonId: null`) sin
+  pasar por `update_status`; `_notify_courier_unassigned` le avisa para que no vaya a
+  recogerlo. Si añades otro camino que quite el chofer fuera de `update_status`, llámalo
+  también.
+- **"Nuevo pedido disponible"** (`type: courier_new_order`), en segundo plano, cuando un
+  pedido pasa a `awaiting_delivery_acceptance` sin chofer: a los choferes en línea (Redis)
+  que lo verían en `availableOrdersForDelivery` (vinculados: solo sus sucursales; libres: a
+  ≤ 30 km de la tienda; sin posición conocida, se les avisa igual), salvo al que lo acaba de
+  soltar (`reject_order_for_payment` lo pasa a `update_status` como
+  `released_by_delivery_person_id`: el pedido ya llega sin chofer) y a los que ya tienen
+  una entrega en curso (`get_delivery_person_ids_with_active_order`, mismos estados que
+  `myCurrentDelivery`: la app trabaja con una entrega a la vez). No sale para la tienda
+  demo ni para pedidos de recogida. Al tocarla, AppMensajeros busca el pedido entre sus
+  disponibles (`order(id)` no se lo devuelve: aún no es suyo).
+- Datos de la push: `type`, `orderId`, `orderNumber`, `status`. FCM usa el mismo proyecto
+  de Firebase que las otras apps: la app Android `com.llego.appmensajeros` tiene que estar
+  dada de alta en él (y su `google-services.json` en AppMensajeros) para que sus tokens
+  sirvan.
 
 ---
 
@@ -726,10 +823,15 @@ arreglaron en la rama `fix/f1-backend-seguridad` (con tests); el resto siguen ab
    (`require_role` / `require_admin_user_from_header`). La web de tutoriales necesita una
    cuenta con `role: "admin"` en la BD.
 
-10. **Vídeos promocionales sin comprobación de rol.** Mismo patrón que tenían los
-    tutoriales: las mutations de [schema/promotional_videos/mutations.py](schema/promotional_videos/mutations.py) y
-    `POST /upload/promotion/video|thumbnail` ([api/endpoints/uploads.py](api/endpoints/uploads.py)) solo piden JWT, con
-    `TODO: Add admin role check`. Abierto.
+10. ✅ **Resuelto — vídeos promocionales sin comprobación de rol.** Mismo agujero que
+    tenían los tutoriales: `createPromotionalVideo`, `updatePromotionalVideo`,
+    `deletePromotionalVideo`, `togglePromotionalVideoActive`
+    ([schema/promotional_videos/mutations.py](schema/promotional_videos/mutations.py)) y
+    `POST /upload/promotion/video|thumbnail` ([api/endpoints/uploads.py](api/endpoints/uploads.py)) solo pedían JWT
+    (`TODO: Add admin role check`). Ahora exigen rol `admin` (`require_role` /
+    `require_admin_user_from_header`), con tests en
+    `tests/test_promotional_videos_admin_only.py` (rama `feat/f2a-backend-mensajeros`).
+    Ningún cliente las usaba aún.
 
 11. ✅ **Resuelto — cualquier usuario autenticado podía operar como mensajero.** Las
     operaciones de chofer solo llamaban a `require_auth` y la primera le creaba un registro

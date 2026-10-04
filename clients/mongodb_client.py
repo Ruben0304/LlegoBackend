@@ -46,6 +46,7 @@ async def connect_to_mongo():
         await _create_order_indexes()
         await _create_branch_indexes()
         await _create_partner_request_indexes()
+        await _create_platform_banner_indexes()
     except Exception as e:
         print(f"✗ Error connecting to MongoDB: {e}")
         raise
@@ -620,6 +621,19 @@ async def _create_partner_request_indexes():
         print("✓ Partner request indexes created/verified")
     except Exception as e:
         print(f"⚠ Warning: Could not create partner request indexes: {e}")
+
+
+async def _create_platform_banner_indexes():
+    """Índice de la query pública `platformBanners` (en cada carga del feed)."""
+    try:
+        await database["platform_banners"].create_index(
+            [("appTarget", 1), ("isActive", 1), ("order", 1)],
+            name="idx_platform_banners_target_active_order",
+            background=True,
+        )
+        print("✓ Platform banner indexes created/verified")
+    except Exception as e:
+        print(f"⚠ Warning: Could not create platform banner indexes: {e}")
 
 
 async def close_mongo_connection():

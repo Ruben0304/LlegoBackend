@@ -6,6 +6,9 @@ temporallyClosed/temporallyOpen sin mirar la fecha ni las horas: un "cerrado
 hoy" cerraba la tienda para siempre y un "abierto hoy" la abría 24 h todos los
 días. Estos tests fijan la regla nueva (services/branch_hours.py):
 solo aplica el día de su fecha en hora de Cuba y respeta openTime/closeTime.
+
+Decisión de producto posterior: "Abierto hoy" sin horas (temporallyOpen sin
+openTime/closeTime) significa el horario normal, no abierto todo el día.
 """
 
 import asyncio
@@ -90,7 +93,8 @@ def test_unreadable_date_never_applies():
 def test_override_day_ranges():
     assert override_day_ranges(_override(temporallyClosed=True, openTime="10:00", closeTime="12:00")) == []
     assert override_day_ranges(_override(temporallyOpen=True, openTime="10:00", closeTime="12:00")) == [(600, 720)]
-    assert override_day_ranges(_override(temporallyOpen=True)) == [(0, 1440)]
+    # "Abierto hoy" sin horas no decide: manda el horario semanal.
+    assert override_day_ranges(_override(temporallyOpen=True)) is None
     assert override_day_ranges(_override(openTime="20:00", closeTime="02:00")) == [(1200, 120)]
     assert override_day_ranges(_override(reason="sin flags")) is None
 
@@ -146,10 +150,14 @@ def test_closed_today_also_cuts_last_nights_overnight_tail():
     assert _open_now(_schedule(open_="22:00", close="02:00"), _at(TODAY, "01:00"))
 
 
-def test_open_today_without_hours_opens_all_day_only_today():
+def test_open_today_without_hours_follows_weekly_schedule():
+    """El switch "Abierto hoy" de la app de negocios (BranchStatusChip) manda
+    temporallyOpen=true sin horas al deshacer un "Cerrado hoy": la tienda
+    vuelve a su horario normal, no queda abierta las 24 h."""
     schedule = _schedule(temporary_status=_override(temporallyOpen=True, date=TODAY.isoformat()))
-    assert _open_now(schedule, _at(TODAY, "23:00"))
-    assert not _open_now(schedule, _at(TOMORROW, "23:00"))
+    assert _open_now(schedule, _at(TODAY, "12:00"))
+    assert not _open_now(schedule, _at(TODAY, "23:00"))
+    assert not _open_now(schedule, _at(TODAY, "03:00"))
 
 
 def test_open_yesterday_does_not_open_today_outside_hours():
@@ -183,9 +191,17 @@ def test_special_overnight_hours_yesterday_cover_early_morning():
 
 def test_legacy_undated_override_still_applies():
     closed = _schedule(temporary_status=_override(temporallyClosed=True))
-    opened = _schedule(temporary_status=_override(temporallyOpen=True, reason="Demo store"))
     assert not _open_now(closed, _at(TODAY, "12:00"))
-    assert _open_now(opened, _at(TODAY, "03:00"))
+    special = _schedule(temporary_status=_override(openTime="00:00", closeTime="24:00"))
+    assert _open_now(special, _at(TODAY, "03:00"))
+
+
+def test_legacy_undated_open_without_hours_follows_weekly_schedule():
+    # Misma regla con o sin fecha (seed de la tienda demo: su horario semanal
+    # ya es 00:00-23:59, así que sigue abierta).
+    opened = _schedule(temporary_status=_override(temporallyOpen=True, reason="Demo store"))
+    assert not _open_now(opened, _at(TODAY, "03:00"))
+    assert _open_now(opened, _at(TODAY, "12:00"))
 
 
 def test_raw_mongo_dict_schedule_is_supported():
@@ -216,6 +232,14 @@ def test_scheduled_order_respects_special_hours():
     )
     assert not OrderService._is_branch_open_at(schedule, _at(TODAY, "10:00"))
     assert OrderService._is_branch_open_at(schedule, _at(TODAY, "22:00"))
+
+
+def test_scheduled_order_with_open_today_without_hours_uses_weekly_schedule():
+    schedule = _schedule(temporary_status=_override(temporallyOpen=True, date=TODAY.isoformat()))
+    assert OrderService._is_branch_open_at(schedule, _at(TODAY, "15:00"))
+    assert not OrderService._is_branch_open_at(schedule, _at(TODAY, "22:00"))
+    msg = OrderService._format_schedule_for_day(schedule, TODAY.weekday(), local_date=TODAY)
+    assert msg == "09:00-18:00"
 
 
 def test_scheduled_order_ignores_legacy_undated_override_as_before():
@@ -259,10 +283,32 @@ def test_hides_stale_or_future_dated_override(havana_today):
 
 
 def test_still_exposes_legacy_undated_override(havana_today):
-    ts = _override(temporallyOpen=True, reason="Demo store - always open")
+    ts = _override(temporallyClosed=True, reason="Inventario")
     result = branch_utils.schedule_to_type(_schedule(temporary_status=ts).model_dump())
     assert result.temporaryStatus is not None
+    assert result.temporaryStatus.temporallyClosed is True
+
+
+@pytest.mark.parametrize("as_dict", [False, True])
+def test_open_without_hours_is_exposed_as_not_open(havana_today, as_dict):
+    """iOS/Android pintan "Abierto" con temporallyOpen sin mirar horas; como sin
+    horas ya no decide nada, se expone false y las apps usan el horario semanal."""
+    for ts in (
+        _override(temporallyOpen=True, date=TODAY.isoformat(), reason="Abierto hoy"),
+        _override(temporallyOpen=True, reason="Demo store - always open"),
+    ):
+        schedule = _schedule(temporary_status=ts)
+        result = branch_utils.schedule_to_type(schedule.model_dump() if as_dict else schedule)
+        assert result.temporaryStatus is not None
+        assert result.temporaryStatus.temporallyOpen is False
+        assert result.temporaryStatus.reason == ts.reason
+
+
+def test_open_with_special_hours_is_still_exposed_as_open(havana_today):
+    ts = _override(temporallyOpen=True, date=TODAY.isoformat(), openTime="13:00", closeTime="23:00")
+    result = branch_utils.schedule_to_type(_schedule(temporary_status=ts))
     assert result.temporaryStatus.temporallyOpen is True
+    assert result.temporaryStatus.openTime == "13:00"
 
 
 # ---------------------------------------------------------------------------

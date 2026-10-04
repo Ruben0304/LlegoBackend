@@ -52,6 +52,7 @@ from services.branch_hours import (
     temporary_status_applies_on,
 )
 from services.courier_access import CourierNotApprovedError
+from services.courier_push import UNASSIGNED_MODIFIED_BY_STORE, UNASSIGNED_RESUBMITTED
 from services.orders_utils import (
     calculate_delivery_fee_h3,
     coords_to_h3,
@@ -1617,6 +1618,7 @@ class OrderService:
         extra_fields: Optional[Dict[str, Any]] = None,
         expected_status: Optional[OrderStatus] = None,
         require_expired_deadline: bool = False,
+        released_by_delivery_person_id: Optional[str] = None,
     ) -> Order:
         """Update order status with validation.
 
@@ -1624,6 +1626,11 @@ class OrderService:
         worker de timeouts). Si el pedido ya cambio, no se escribe: antes el
         worker releia el pedido y cancelaba el estado NUEVO (un pedido recien
         aceptado, o con el pago recien enviado).
+
+        `released_by_delivery_person_id`: el chofer que acaba de soltar el
+        pedido (reject_order_for_payment). Cuando llega aqui el pedido ya no
+        lo tiene asignado, asi que hay que decirlo para no ofrecerselo otra vez
+        en la push de "nuevo pedido disponible".
         """
         order = await self.orders_repo.get_by_id(order_id)
         if not order:
@@ -1738,12 +1745,61 @@ class OrderService:
             if order.deliveryPersonId:
                 await self.delivery_repo.complete_delivery(str(order.deliveryPersonId))
 
-        # TODO: Send push notification based on status
-
-        # Emit tracking event for real-time subscription
+        # Emit tracking event for real-time subscription (y pushes a cliente y negocio)
         await self._emit_tracking_event(updated_order)
+        # Y a la app de choferes: al asignado, o "nuevo pedido" a los que estén en línea.
+        await self._notify_couriers(
+            order,
+            updated_order,
+            actor,
+            released_by_delivery_person_id=released_by_delivery_person_id,
+        )
 
         return updated_order
+
+    async def _notify_couriers(
+        self,
+        before: Optional[Order],
+        updated: Order,
+        actor: Optional[OrderActor],
+        released_by_delivery_person_id: Optional[str] = None,
+    ) -> None:
+        """Pushes a AppMensajeros (services/courier_push.py). Nunca lanza ni
+        frena la operación: el aviso masivo de "nuevo pedido" va en segundo plano."""
+        try:
+            from services.courier_push import notify_status_change
+
+            await notify_status_change(
+                before,
+                updated,
+                actor,
+                released_by_delivery_person_id=released_by_delivery_person_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "No se pudo avisar a los choferes del pedido %s: %s",
+                getattr(updated, "id", "?"),
+                exc,
+            )
+
+    async def _notify_courier_unassigned(
+        self, before: Order, updated: Order, reason: str
+    ) -> None:
+        """Avisa al chofer al que se le quitó el pedido sin pasar por update_status
+        (update_items / resubmit_order ponen deliveryPersonId a None): sin esto
+        seguiría yendo a recoger un pedido que ya no es suyo. Nunca lanza."""
+        if not before.deliveryPersonId or updated.deliveryPersonId:
+            return
+        try:
+            from services.courier_push import notify_courier_unassigned
+
+            await notify_courier_unassigned(updated, str(before.deliveryPersonId), reason)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "No se pudo avisar al chofer del pedido %s: %s",
+                getattr(updated, "id", "?"),
+                exc,
+            )
 
     async def _settle_payments_on_cancel(self, order: Order) -> Order:
         """Al cancelar: anula los intentos de pago sin dinero y marca el pedido
@@ -1809,6 +1865,8 @@ class OrderService:
         )
         if paid_order:
             await self._emit_tracking_event(paid_order)
+            # El chofer asignado sabe que ya puede contar con el pedido.
+            await self._notify_couriers(current, paid_order, OrderActor.SYSTEM)
             return paid_order
 
         order = await self.orders_repo.get_by_id(order_id)
@@ -2049,6 +2107,10 @@ class OrderService:
 
         # Emit tracking event for real-time subscription
         await self._emit_tracking_event(updated_order)
+        # update_items le quita el chofer al pedido: que lo sepa.
+        await self._notify_courier_unassigned(
+            order, updated_order, UNASSIGNED_MODIFIED_BY_STORE
+        )
 
         return updated_order
 
@@ -2171,6 +2233,8 @@ class OrderService:
             raise ValueError("No se pudo reenviar el pedido")
 
         await self._emit_tracking_event(updated_order)
+        # resubmit_order le quita el chofer al pedido (p. ej. desde pendiente de pago).
+        await self._notify_courier_unassigned(order, updated_order, UNASSIGNED_RESUBMITTED)
         return updated_order
 
     async def cancel_order(
@@ -2364,6 +2428,9 @@ class OrderService:
             OrderStatus.AWAITING_DELIVERY_ACCEPTANCE,
             OrderActor.DELIVERY,
             "Mensajero rechazó el pedido. Esperando otro mensajero",
+            # clear_delivery_person ya lo quitó del pedido: sin esto la push de
+            # "nuevo pedido disponible" le ofrecería el que acaba de soltar.
+            released_by_delivery_person_id=str(delivery_person.id),
         )
 
     async def confirm_pickup(self, order_id: str, user_id: str) -> Order:
@@ -2763,8 +2830,9 @@ class OrderService:
         `publish_to_branch=False` para los pings de ubicacion del chofer
         (updateDeliveryLocation, cada ~10 s por pedido activo): no hay cambio
         de estado ni de pago, asi que no se reenvia el pedido entero por
-        `branch_updates:{branchId}`. El mapa en vivo de la app de negocios va
-        por `delivery_location:{orderId}` (deliveryLocationUpdated).
+        `branch_updates:{branchId}` ni se mandan pushes. El mapa en vivo de la
+        app de negocios va por `delivery_location:{orderId}`
+        (deliveryLocationUpdated).
         """
         if publish_to_branch:
             await self._publish_branch_order_event(order)
@@ -2840,9 +2908,12 @@ class OrderService:
                 f"[ORDER SERVICE] Emitted tracking event for order {order.id}, status: {order.status.value}"
             )
 
-            # Send push notifications
-            await self._send_order_status_notification(order)  # To customer
-            await self._send_order_status_update_to_business(order)  # To business
+            # Send push notifications. Los pings de ubicación (publish_to_branch=False)
+            # no son un cambio de estado: antes cada uno (cada ~10 s por pedido en
+            # camino) le repetía al cliente la push "Tu pedido está en camino".
+            if publish_to_branch:
+                await self._send_order_status_notification(order)  # To customer
+                await self._send_order_status_update_to_business(order)  # To business
 
         except Exception as e:
             # Don't fail the main operation if tracking event fails

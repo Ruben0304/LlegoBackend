@@ -243,6 +243,21 @@ def test_tracking_event_without_branch_publish_still_feeds_customer(
     assert tracking.await_args.args[0] == str(order.id)
 
 
+def test_location_ping_does_not_repeat_status_pushes(service, publishers, monkeypatch):
+    """Cada ping de ubicación (~10 s por pedido en camino) le repetía al cliente
+    la push "Tu pedido está en camino". Solo los cambios reales mandan pushes."""
+    monkeypatch.setattr(subscriptions, "publish_order_tracking", AsyncMock())
+    order = make_order(OrderStatus.ON_THE_WAY)
+
+    run(service._emit_tracking_event(order, publish_to_branch=False))
+    service._send_order_status_notification.assert_not_awaited()
+    service._send_order_status_update_to_business.assert_not_awaited()
+
+    run(service._emit_tracking_event(order))
+    service._send_order_status_notification.assert_awaited_once()
+    service._send_order_status_update_to_business.assert_awaited_once()
+
+
 def test_delivery_location_ping_does_not_publish_branch_order_updated(
     service, publishers, monkeypatch
 ):

@@ -9,14 +9,22 @@ from domain.business_types import DeviceToken, DevicePlatform
 # (LlegoiOS / LlegoApk registran sin bundleId).
 AUDIENCE_CUSTOMER = "customer"
 AUDIENCE_BUSINESS = "business"
+AUDIENCE_COURIER = "courier"
 BUSINESS_BUNDLE_PREFIX = "com.llego.business"
 BUSINESS_IOS_BUNDLE_ID = "com.llego.business.LlegoBusiness"
+# AppMensajeros: el bundle iOS (iosApp.xcodeproj) y el applicationId de Android
+# (composeApp/build.gradle.kts) solo difieren en mayúsculas, así que se compara
+# sin distinguirlas. APNs exige el bundle exacto como topic.
+COURIER_IOS_BUNDLE_ID = "com.llego.AppMensajeros"
+COURIER_ANDROID_APPLICATION_ID = "com.llego.appmensajeros"
 
 
 def token_audience(token: DeviceToken) -> str:
     bundle_id = token.bundleId or ""
     if bundle_id.startswith(BUSINESS_BUNDLE_PREFIX):
         return AUDIENCE_BUSINESS
+    if bundle_id.lower().startswith(COURIER_ANDROID_APPLICATION_ID):
+        return AUDIENCE_COURIER
     return AUDIENCE_CUSTOMER
 
 

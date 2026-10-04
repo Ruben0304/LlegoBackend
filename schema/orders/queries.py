@@ -1,7 +1,7 @@
 """GraphQL query resolvers for Orders."""
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import strawberry
 from graphql import GraphQLError
@@ -61,6 +61,24 @@ class DeliveryPersonStatsType:
     avgDurationMin: float
     avgRating: float
 
+
+# Posición por defecto (Ciudad de México, `MapScreen.kt`) con la que AppMensajeros
+# sondeaba availableOrdersForDelivery sin GPS. No es una posición real y las versiones
+# ya publicadas la siguen mandando: se trata como "sin posición" para no buscar
+# pedidos allí ni pintar al chofer en México en el mapa de Panel Admin.
+_LEGACY_NO_GPS_LAT_LNG = (19.4326, -99.1332)
+
+
+def _courier_poll_position(
+    latitude: Optional[float], longitude: Optional[float]
+) -> Optional[Tuple[float, float]]:
+    """`(lat, lng)` real del sondeo del chofer, o None si no la conoce."""
+    if latitude is None or longitude is None:
+        return None
+    legacy_lat, legacy_lng = _LEGACY_NO_GPS_LAT_LNG
+    if abs(latitude - legacy_lat) < 1e-6 and abs(longitude - legacy_lng) < 1e-6:
+        return None
+    return (latitude, longitude)
 
 
 async def _require_branch_access_or_admin(
@@ -378,18 +396,25 @@ class OrderQuery:
             hasMore=(offset + len(orders)) < total,
         )
 
-    @strawberry.field(description="Pedidos disponibles para repartidores cerca")
+    @strawberry.field(
+        description=(
+            "Pedidos disponibles para repartidores cerca. Sin latitude/longitude (el "
+            "chofer aún no tiene GPS) un chofer libre no ve pedidos cercanos; uno "
+            "vinculado ve los de sus sucursales igual."
+        )
+    )
     async def available_orders_for_delivery(
         self,
         info: Info,
-        latitude: float,
-        longitude: float,
         jwt: str,
+        latitude: Optional[float] = None,
+        longitude: Optional[float] = None,
         radiusKm: float = 5.0,
     ) -> List[OrderType]:
         user_id = require_auth(jwt, info)
 
         delivery_person = await _require_courier(info, user_id)
+        position = _courier_poll_position(latitude, longitude)
 
         if delivery_person.linkedBranchIds:
             orders = list(
@@ -397,15 +422,19 @@ class OrderQuery:
                     delivery_person.linkedBranchIds
                 )
             )
-        else:
+        elif position is not None:
+            lat, lng = position
             orders = list(
                 await orders_repo.get_awaiting_delivery_acceptance_nearby(
-                    longitude, latitude, radiusKm
+                    lng, lat, radiusKm
                 )
             )
+        else:
+            orders = []
 
         # Always prepend the courier's active delivery (if any) so the map pin
         # never disappears after acceptance — the frontend has ONE source of truth.
+        current = None
         try:
             current = await orders_repo.get_current_delivery(str(delivery_person.id))
             if current is not None:
@@ -415,6 +444,22 @@ class OrderQuery:
                     print(f"[COURIER] available_orders_for_delivery: prepended active delivery {current.id} status={current.status.value}")
         except Exception as e:
             print(f"[COURIER] available_orders_for_delivery: current delivery lookup failed: {e}")
+
+        # AppMensajeros sondea esta query cada ~5 s con el mapa abierto: eso es
+        # "estar en línea". Renueva la presencia en Redis (TTL 45 s) para que le
+        # llegue la push de "nuevo pedido disponible" (services/courier_push.py)
+        # y salga en el mapa de Panel Admin. Conserva el pedido en curso para no
+        # pisar el orderId que escribe updateDeliveryLocation. Sin posición real
+        # solo cuenta como en línea: no se escribe ninguna ubicación.
+        from schema.orders.mutations import _redis_set_courier_presence
+
+        _redis_set_courier_presence(
+            str(delivery_person.id),
+            online=True,
+            longitude=position[1] if position else None,
+            latitude=position[0] if position else None,
+            order_id=str(current.id) if current is not None else None,
+        )
 
         return [order_to_type(o) for o in orders]
 

@@ -831,7 +831,7 @@ async def upload_tutorial_thumbnail(
 async def upload_promotion_video(
     request: Request,
     video: UploadFile = File(...),
-    user_id: str = Depends(get_current_user_id_from_header),
+    user_id: str = Depends(require_admin_user_from_header),
 ):
     """
     Upload video for a promotional video (stories-style player).
@@ -841,13 +841,9 @@ async def upload_promotion_video(
     Use the returned video_path in the createPromotionalVideo or
     updatePromotionalVideo mutation.
 
-    Note: Only admins should use this endpoint (validated in the GraphQL mutation).
+    Solo admins: la dependencia exige JWT con rol admin (401/403), igual que
+    las mutations de vídeos promocionales.
     """
-    if not user_id:
-        raise HTTPException(status_code=401, detail="No autorizado")
-
-    # TODO: Add admin role check when implemented
-
     file_content, extension = await validate_video_upload(
         video, MAX_FILE_SIZES["video"]
     )
@@ -997,7 +993,7 @@ async def upload_promo_video(
 async def upload_promotion_thumbnail(
     request: Request,
     image: UploadFile = File(...),
-    user_id: str = Depends(get_current_user_id_from_header),
+    user_id: str = Depends(require_admin_user_from_header),
 ):
     """
     Upload thumbnail image for a promotional video.
@@ -1007,13 +1003,9 @@ async def upload_promotion_thumbnail(
     Use the returned thumbnail_path in the createPromotionalVideo or
     updatePromotionalVideo mutation.
 
-    Note: Only admins should use this endpoint (validated in the GraphQL mutation).
+    Solo admins: la dependencia exige JWT con rol admin (401/403), igual que
+    las mutations de vídeos promocionales.
     """
-    if not user_id:
-        raise HTTPException(status_code=401, detail="No autorizado")
-
-    # TODO: Add admin role check when implemented
-
     file_content = await validate_upload(
         image, "thumbnail", MAX_FILE_SIZES["thumbnail"]
     )
@@ -1038,3 +1030,39 @@ async def upload_promotion_thumbnail(
         "thumbnail_path": image_path,
         "thumbnail_url": generate_presigned_url(image_path),
     }
+
+
+@router.post("/platform-banner/image", status_code=status.HTTP_200_OK)
+@limiter.limit(RATE_LIMIT_UPLOADS)
+async def upload_platform_banner_image(
+    request: Request,
+    image: UploadFile = File(...),
+    user_id: str = Depends(require_admin_user_from_header),
+):
+    """
+    Sube la imagen de un banner del carrusel del feed (`platformBanners`).
+    Máx. 10MB | Se recorta/redimensiona a 1920x1080 (16:9), como las portadas.
+
+    Devuelve el path de S3: pásalo como imagePath a createPlatformBanner o
+    updatePlatformBanner. Solo admins (401 sin token, 403 con otro rol), igual
+    que las mutations de banners.
+    """
+    file_content = await validate_upload(image, "cover", MAX_FILE_SIZES["cover"])
+
+    try:
+        processed_content, extension = await process_image_for_store_async(
+            file_content, "branch_cover", convert_to_jpg=True
+        )
+    except Exception:
+        raise HTTPException(status_code=400, detail="Error procesando imagen")
+
+    entity_id = str(ObjectId())
+
+    try:
+        image_path = await upload_file(
+            processed_content, "platform_banners", entity_id, extension
+        )
+    except Exception:
+        raise HTTPException(status_code=500, detail="Error subiendo imagen")
+
+    return {"image_path": image_path, "image_url": generate_presigned_url(image_path)}

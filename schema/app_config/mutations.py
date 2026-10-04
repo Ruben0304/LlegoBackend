@@ -3,9 +3,17 @@ import strawberry
 from typing import Optional
 from strawberry.types import Info
 
-from .types import AppConfigType, BusinessAppConfigType, AndroidConfigType, IosConfigType, MaintenanceConfigType
+from .types import (
+    AppConfigType,
+    BusinessAppConfigType,
+    AndroidConfigType,
+    CourierAppConfigType,
+    IosConfigType,
+    MaintenanceConfigType,
+    courier_app_config_to_type,
+)
 from .inputs import UpdateAppConfigInput
-from repositories import app_config_repo, business_app_config_repo
+from repositories import app_config_repo, business_app_config_repo, courier_app_config_repo
 from utils.graphql_auth import require_role
 
 
@@ -233,3 +241,78 @@ class AppConfigMutations:
             changelog=updated_config.changelog,
             release_date=updated_config.releaseDate
         )
+
+    @strawberry.mutation(description="Actualizar configuración de la aplicación de choferes (requiere rol admin)")
+    async def update_courier_app_config(
+        self,
+        info: Info,
+        input: UpdateAppConfigInput,
+        jwt: str
+    ) -> Optional[CourierAppConfigType]:
+        """
+        Actualización parcial de la config de AppMensajeros (solo admin).
+        A diferencia de las otras dos apps, si la colección está vacía crea la
+        config inicial (sin versión mínima ni mantenimiento) antes de aplicar
+        los cambios: no hay seed para courier_app_config.
+        """
+        require_role(jwt, info, ["admin"])
+
+        current_config = await courier_app_config_repo.get_or_create()
+        updates = build_app_config_updates(current_config, input)
+        if not updates:
+            raise Exception("No hay campos para actualizar")
+
+        updated_config = await courier_app_config_repo.update(current_config.id, updates)
+        if not updated_config:
+            raise Exception("Error al actualizar la configuración")
+        return courier_app_config_to_type(updated_config)
+
+
+def build_app_config_updates(current_config, input: UpdateAppConfigInput) -> dict:
+    """`$set` parcial a partir del input: mezcla cada bloque (android, ios,
+    maintenance) con lo guardado y solo incluye lo que llega."""
+    updates = {}
+
+    if input.android:
+        android_updates = {}
+        if input.android.min_version is not None:
+            android_updates["minVersion"] = input.android.min_version
+        if input.android.current_version is not None:
+            android_updates["currentVersion"] = input.android.current_version
+        if input.android.update_url is not None:
+            android_updates["updateUrl"] = input.android.update_url
+        if input.android.store_url is not None:
+            android_updates["storeUrl"] = input.android.store_url
+        if input.android.app_size is not None:
+            android_updates["appSize"] = input.android.app_size
+        if android_updates:
+            updates["android"] = {**current_config.android.model_dump(), **android_updates}
+
+    if input.ios:
+        ios_updates = {}
+        if input.ios.min_version is not None:
+            ios_updates["minVersion"] = input.ios.min_version
+        if input.ios.current_version is not None:
+            ios_updates["currentVersion"] = input.ios.current_version
+        if input.ios.store_url is not None:
+            ios_updates["storeUrl"] = input.ios.store_url
+        if ios_updates:
+            updates["ios"] = {**current_config.ios.model_dump(), **ios_updates}
+
+    if input.maintenance:
+        maintenance_updates = {}
+        if input.maintenance.enabled is not None:
+            maintenance_updates["enabled"] = input.maintenance.enabled
+        if input.maintenance.message is not None:
+            maintenance_updates["message"] = input.maintenance.message
+        if maintenance_updates:
+            updates["maintenance"] = {**current_config.maintenance.model_dump(), **maintenance_updates}
+
+    if input.update_message is not None:
+        updates["updateMessage"] = input.update_message
+    if input.changelog is not None:
+        updates["changelog"] = input.changelog
+    if input.release_date is not None:
+        updates["releaseDate"] = input.release_date
+
+    return updates

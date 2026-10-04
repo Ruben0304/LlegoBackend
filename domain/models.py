@@ -177,7 +177,7 @@ class TemporaryStatus(BaseModel):
     """
 
     temporallyClosed: bool = False  # Closed despite being within open hours
-    temporallyOpen: bool = False    # Open despite being outside open hours
+    temporallyOpen: bool = False    # Solo cuenta con openTime/closeTime; sin horas = horario semanal
     reason: Optional[str] = None
     date: Optional[str] = None       # YYYY-MM-DD; el override aplica solo ese día
     openTime: Optional[str] = None   # "HH:MM" 24h, horario especial de ese día
@@ -578,6 +578,14 @@ class BusinessAppConfig(BaseModel):
     class Config:
         populate_by_name = True
         json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
+
+
+class CourierAppConfig(BusinessAppConfig):
+    """
+    Versiones y mantenimiento de la app de choferes (AppMensajeros), colección
+    `courier_app_config`. Misma forma que la de negocios; la consulta
+    `courierAppConfig` al arrancar para bloquear versiones viejas.
+    """
 
 
 class FeedbackType(str):
@@ -1001,6 +1009,7 @@ __all__ = [
     "MaintenanceConfig",
     "AppConfig",
     "BusinessAppConfig",
+    "CourierAppConfig",
     "Feedback",
     "Survey",
     "SurveyQuestion",

@@ -2,8 +2,16 @@
 import strawberry
 from typing import Optional
 
-from .types import AppConfigType, BusinessAppConfigType, AndroidConfigType, IosConfigType, MaintenanceConfigType
-from repositories import app_config_repo, business_app_config_repo
+from .types import (
+    AppConfigType,
+    BusinessAppConfigType,
+    AndroidConfigType,
+    CourierAppConfigType,
+    IosConfigType,
+    MaintenanceConfigType,
+    courier_app_config_to_type,
+)
+from repositories import app_config_repo, business_app_config_repo, courier_app_config_repo
 
 
 @strawberry.type
@@ -67,3 +75,13 @@ class AppConfigQueries:
             changelog=config.changelog,
             release_date=config.releaseDate
         )
+
+    @strawberry.field(description="Obtener configuración de la aplicación de choferes (AppMensajeros)")
+    async def courier_app_config(self) -> Optional[CourierAppConfigType]:
+        """Versiones mínima/actual por plataforma y mantenimiento de la app de
+        choferes. Pública, como las otras dos: la app la consulta al arrancar,
+        antes de iniciar sesión. Null si aún no se ha configurado."""
+        config = await courier_app_config_repo.get()
+        if not config:
+            return None
+        return courier_app_config_to_type(config)
