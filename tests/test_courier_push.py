@@ -620,7 +620,7 @@ def test_available_orders_poll_marks_courier_online(monkeypatch):
     courier = SimpleNamespace(id=COURIER_ID, linkedBranchIds=[])
     current = make_order(OrderStatus.ACCEPTED, deliveryPersonId=COURIER_ID)
     monkeypatch.setattr(order_queries, "require_auth", lambda jwt, info: COURIER_USER_ID)
-    monkeypatch.setattr(order_queries, "_get_or_create_delivery_person", AsyncMock(return_value=courier))
+    monkeypatch.setattr(order_queries, "_require_courier", AsyncMock(return_value=courier))
     monkeypatch.setattr(
         order_queries.orders_repo, "get_awaiting_delivery_acceptance_nearby", AsyncMock(return_value=[])
     )
@@ -643,7 +643,7 @@ def test_available_orders_poll_marks_courier_online(monkeypatch):
 def poll_env(monkeypatch):
     courier = SimpleNamespace(id=COURIER_ID, linkedBranchIds=[])
     monkeypatch.setattr(order_queries, "require_auth", lambda jwt, info: COURIER_USER_ID)
-    monkeypatch.setattr(order_queries, "_get_or_create_delivery_person", AsyncMock(return_value=courier))
+    monkeypatch.setattr(order_queries, "_require_courier", AsyncMock(return_value=courier))
     nearby = AsyncMock(return_value=[])
     monkeypatch.setattr(order_queries.orders_repo, "get_awaiting_delivery_acceptance_nearby", nearby)
     monkeypatch.setattr(order_queries.orders_repo, "get_current_delivery", AsyncMock(return_value=None))
