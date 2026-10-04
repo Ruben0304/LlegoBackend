@@ -638,3 +638,55 @@ def test_available_orders_poll_marks_courier_online(monkeypatch):
         COURIER_ID, online=True, longitude=-82.38, latitude=23.13, order_id=str(current.id)
     )
 
+
+@pytest.fixture
+def poll_env(monkeypatch):
+    courier = SimpleNamespace(id=COURIER_ID, linkedBranchIds=[])
+    monkeypatch.setattr(order_queries, "require_auth", lambda jwt, info: COURIER_USER_ID)
+    monkeypatch.setattr(order_queries, "_get_or_create_delivery_person", AsyncMock(return_value=courier))
+    nearby = AsyncMock(return_value=[])
+    monkeypatch.setattr(order_queries.orders_repo, "get_awaiting_delivery_acceptance_nearby", nearby)
+    monkeypatch.setattr(order_queries.orders_repo, "get_current_delivery", AsyncMock(return_value=None))
+    monkeypatch.setattr(order_queries, "order_to_type", lambda o: o)
+    presence = MagicMock()
+    monkeypatch.setattr(order_mutations, "_redis_set_courier_presence", presence)
+    return SimpleNamespace(nearby=nearby, presence=presence)
+
+
+@pytest.mark.parametrize(
+    "position",
+    [
+        {},  # versión nueva de AppMensajeros sin GPS: no manda posición
+        {"latitude": 19.4326, "longitude": -99.1332},  # versiones publicadas: Ciudad de México
+    ],
+)
+def test_poll_without_a_real_position_marks_online_without_location(poll_env, position):
+    """Antes el sondeo sin GPS dejaba al chofer en Ciudad de México en el mapa de
+    Panel Admin (la posición por defecto de la app acababa en la presencia)."""
+    result = run(order_queries.OrderQuery().available_orders_for_delivery(
+        info=None, jwt="token", radiusKm=30, **position
+    ))
+
+    assert result == []
+    poll_env.nearby.assert_not_awaited()
+    poll_env.presence.assert_called_once_with(
+        COURIER_ID, online=True, longitude=None, latitude=None, order_id=None
+    )
+
+
+def test_poll_with_gps_searches_nearby_and_records_the_position(poll_env):
+    run(order_queries.OrderQuery().available_orders_for_delivery(
+        info=None, jwt="token", latitude=23.13, longitude=-82.38, radiusKm=30
+    ))
+
+    poll_env.nearby.assert_awaited_once_with(-82.38, 23.13, 30)
+    assert poll_env.presence.call_args.kwargs["latitude"] == 23.13
+    assert poll_env.presence.call_args.kwargs["longitude"] == -82.38
+
+
+def test_available_orders_position_is_optional_in_the_schema():
+    from main import schema
+
+    sdl = schema.as_str()
+    line = next(l for l in sdl.splitlines() if "availableOrdersForDelivery(" in l)
+    assert "latitude: Float = null" in line and "longitude: Float = null" in line

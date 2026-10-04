@@ -508,8 +508,14 @@ mapa en vivo; Mongo solo guarda la última posición. La lógica compartida est�
 sondea cada ~5 s) también renueva la presencia con la posición del sondeo y el pedido en
 curso, si lo hay (para no pisar el `orderId` de `updateDeliveryLocation`). Por eso los
 choferes libres aparecen ahora en el mapa de Panel Admin, y son los que reciben "nuevo
-pedido disponible". Ojo: sin GPS la app sondea con una posición por defecto (Ciudad de
-México, `MapScreen.kt`), que también acaba en la presencia.
+pedido disponible".
+
+`latitude`/`longitude` de `availableOrdersForDelivery` son opcionales: sin GPS la app no
+las manda. Sin posición real el chofer cuenta como en línea pero no se escribe `:loc` (no
+sale en el mapa de Panel Admin) y, si es libre, no ve pedidos cercanos (los vinculados ven
+los de sus sucursales igual). Las versiones ya publicadas de AppMensajeros sondean sin GPS
+con Ciudad de México (19.4326, -99.1332): esa posición se trata como "sin posición"
+(`_courier_poll_position` en [schema/orders/queries.py](schema/orders/queries.py)).
 
 ### Pushes a choferes
 
