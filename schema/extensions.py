@@ -6,8 +6,15 @@ from datetime import datetime
 from strawberry.extensions import SchemaExtension
 
 from core.sandbox import is_sandbox
+from services.courier_access import COURIER_NOT_APPROVED
 from services.error_analysis_service import error_analysis_service, sanitize_sensitive_data
 from domain.error_logs import ErrorSource
+
+# Errores esperados del flujo normal, no fallos del backend: no se registran en
+# error_logs ni se mandan a analizar (cada análisis acaba en un push a los
+# admins). COURIER_NOT_APPROVED lo recibe en cada sondeo la app de mensajeros de
+# un usuario sin aprobar (services/courier_access.py).
+EXPECTED_ERROR_PREFIXES = (COURIER_NOT_APPROVED,)
 
 
 class UserIdExtension(SchemaExtension):
@@ -44,6 +51,9 @@ class ErrorLoggingExtension(SchemaExtension):
         for error in result.errors:
             # Skip client errors (validation, etc)
             if not error.original_error:
+                continue
+
+            if str(error.original_error).startswith(EXPECTED_ERROR_PREFIXES):
                 continue
 
             # Log in background

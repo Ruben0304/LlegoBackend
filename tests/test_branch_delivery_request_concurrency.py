@@ -25,7 +25,6 @@ os.environ.setdefault("AWS_SECRET_ACCESS_KEY", "test")
 os.environ.setdefault("S3_BUCKET_NAME", "test")
 
 import schema.orders.mutations as mutations
-import schema.orders.queries as queries
 from domain.orders import DeliveryRequestStatus
 from schema.orders.inputs import RequestBranchLinkInput, RespondBranchLinkInput
 
@@ -56,8 +55,8 @@ def _mock_pending_request():
 def patch_auth(monkeypatch):
     monkeypatch.setattr(mutations, "require_auth", lambda jwt, info: USER_ID)
     monkeypatch.setattr(
-        queries,
-        "_get_or_create_delivery_person",
+        mutations,
+        "require_courier",
         AsyncMock(return_value=SimpleNamespace(id=DELIVERY_PERSON_ID)),
     )
 

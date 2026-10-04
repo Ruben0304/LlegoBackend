@@ -45,6 +45,7 @@ async def connect_to_mongo():
         await _create_search_perf_indexes()
         await _create_order_indexes()
         await _create_branch_indexes()
+        await _create_partner_request_indexes()
     except Exception as e:
         print(f"✗ Error connecting to MongoDB: {e}")
         raise
@@ -582,6 +583,43 @@ async def _create_branch_indexes():
         print("✓ Branch indexes created/verified")
     except Exception as e:
         print(f"⚠ Warning: Could not create branch indexes: {e}")
+
+
+async def _create_partner_request_indexes():
+    """Create indexes for partner_requests (registro de socios)."""
+    try:
+        collection = database["partner_requests"]
+
+        # Una sola solicitud activa (pending/contacted) por usuario y tipo. Es la
+        # garantía real contra el doble envío: el servicio comprueba antes, pero
+        # dos envíos simultáneos solo los frena este índice (DuplicateKeyError).
+        # Filtra por el booleano `active` y no por status $in: los
+        # partialFilterExpression con $in no existen antes de MongoDB 6.
+        await collection.create_index(
+            [("userId", 1), ("type", 1)],
+            unique=True,
+            name="idx_partner_requests_user_type_active_unique",
+            partialFilterExpression={"active": True},
+            background=True,
+        )
+
+        # Última solicitud de cada tipo del usuario (myPartnerAccess).
+        await collection.create_index(
+            [("userId", 1), ("type", 1), ("createdAt", -1)],
+            name="idx_partner_requests_user_type_created",
+            background=True,
+        )
+
+        # Listado del Panel Admin, filtrado por estado y de más nueva a más antigua.
+        await collection.create_index(
+            [("status", 1), ("createdAt", -1)],
+            name="idx_partner_requests_status_created",
+            background=True,
+        )
+
+        print("✓ Partner request indexes created/verified")
+    except Exception as e:
+        print(f"⚠ Warning: Could not create partner request indexes: {e}")
 
 
 async def close_mongo_connection():

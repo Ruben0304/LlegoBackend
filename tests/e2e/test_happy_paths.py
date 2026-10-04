@@ -45,7 +45,7 @@ def test_cash_delivery_order_is_delivered_and_rated(world: World):
     order = world.accept(order_id, minutes=25)
     assert order["status"] == "AWAITING_DELIVERY_ACCEPTANCE"
 
-    # Mensajero que nunca habia aceptado un pedido (se le crea el perfil al vuelo).
+    # Mensajero aprobado (su registro lo crea /e2e/world) que nunca habia aceptado un pedido.
     order = world.courier_accept(order_id)
     assert order["status"] == "ACCEPTED"
     assert order["paymentStatus"] == "PENDING"  # efectivo: se cobra al entregar

@@ -22,7 +22,7 @@ Sirve a seis clientes, todos en repos separados:
 | Llegó (cliente) | `LlegoiOS` | iOS / SwiftUI (Apollo iOS) | Pedir |
 | LlegoBusiness | `LlegoBussisnes` (sic) | Kotlin Multiplatform, Android + iOS (Compose Multiplatform, Apollo Kotlin 4) | Negocio: aceptar, preparar |
 | AppMensajeros | `AppMensajeros` | Kotlin Multiplatform, Android + iOS | Chofer: recoger, entregar |
-| Web | `LlegoWeb` | Astro 5 + Svelte 5, SSR con `@astrojs/node` | Web pública (marketing, legales) y portal de negocios (alta de negocio/sucursal, tutoriales); proxy GraphQL en `/api/graphql` |
+| Web | `LlegoWeb` | Astro 5 + Svelte 5, SSR con `@astrojs/node` | Web pública (marketing, legales), registro de socios en `/negocios` (§15) y paneles de tutoriales/tipos de negocio; proxy GraphQL en `/api/graphql` |
 | Panel Admin | `llegoadmin` (proyecto Xcode `Panel Admin`) | SwiftUI (macOS + iOS) | Operación interna de los fundadores |
 
 No hay codegen automático de GraphQL desde este repo: no existe `codegen.yml` ni
@@ -83,7 +83,7 @@ scripts/         ← seeds, migraciones, utilidades de un solo uso
 Reglas:
 - Entidades solo en `domain/`, nunca en la raíz.
 - Lógica de negocio en `services/`, persistencia en `repositories/`.
-- Importa repos desde las instancias ya exportadas en [repositories/__init__.py:59](repositories/__init__.py:59), no instancies clases nuevas.
+- Importa repos desde las instancias ya exportadas en [repositories/__init__.py:60](repositories/__init__.py:60), no instancies clases nuevas.
 - Scripts de un solo uso en `scripts/`.
 
 **Convención rota hoy:** hay scripts sueltos en la raíz que deberían estar en `scripts/`:
@@ -108,9 +108,10 @@ Colecciones principales y su repo:
 | `branches` | `Branch` | `branch_repository.py` |
 | `products` | `Product` | `product_repository.py` |
 | `orders` | `Order` | `orders_repository.py` |
-| `delivery_persons` | `DeliveryPerson` | `orders_repository.py:884` |
-| `order_location_updates` | `OrderLocationUpdate` | `orders_repository.py:1083` (TTL 24 h) |
-| `branch_delivery_requests` | `BranchDeliveryRequest` | `orders_repository.py:1136` |
+| `delivery_persons` | `DeliveryPerson` (`approved`: acceso de chofer, §15) | `orders_repository.py:1028` |
+| `partner_requests` | `PartnerRequest` (registro de socios, §15) | `partner_request_repository.py` |
+| `order_location_updates` | `OrderLocationUpdate` | `orders_repository.py:1284` (TTL 24 h) |
+| `branch_delivery_requests` | `BranchDeliveryRequest` | `orders_repository.py:1337` |
 | `payment_attempts` | `PaymentAttempt` | `payments_attempt_repository.py` |
 | `payment_methods` | `PaymentMethod` | `payment_method_repository.py` |
 | `wallet_transactions` | `WalletTransaction` | `wallet_repository.py` |
@@ -137,7 +138,7 @@ Tienen índices explícitos: `orders`, `users`, `products`, `branches`, `error_l
 `branch_invitations`, `business_access`, `favorites_cart`, `searches`, `branch_likes`,
 `chat_messages`, `delivery_zones`, `branch_delivery_requests`, `qvapay_invoices`,
 `trondealer_wallets`, `pending_payouts`, `payment_methods`, `tutorials`,
-`delivery_persons`, `order_location_updates`.
+`delivery_persons`, `order_location_updates`, `partner_requests`.
 
 **No tienen ninguno**: `bussisnes`, `payment_attempts`, `kyc_verifications`, `combos`,
 `showcases`, `variant_lists`, `wallet_transactions`, `promo_requests`, `ad_campaigns`.
@@ -158,14 +159,14 @@ añades búsqueda a una entidad nueva tienes que replicar el patrón a mano.
 ## 5. GraphQL
 
 `Query` y `Mutation` se componen por herencia múltiple de ~24 clases por feature
-([schema/schema.py:67](schema/schema.py:67), [:106](schema/schema.py:106)); `Subscription` solo de `OrderSubscription` +
-`AiAssistantSubscription` ([:137](schema/schema.py:137)).
+([schema/schema.py:69](schema/schema.py:69), [:110](schema/schema.py:110)); `Subscription` solo de `OrderSubscription` +
+`AiAssistantSubscription` ([:142](schema/schema.py:142)).
 
 Módulos en `schema/`: `ads, ai_assistant, app_config, auth, branch_likes, branches,
 business_types, businesses, categories, combos, error_logs, favorites_cart, feed,
-feedbacks, invitations, orders, payments, product_categories, products, promos,
-promotional_videos, searches, shortcut_transfers, showcases, surveys, sync, tutorials,
-users, variant_lists, wallet`. Los más grandes con diferencia son `orders`
+feedbacks, invitations, orders, partner_requests, payments, product_categories, products,
+promos, promotional_videos, searches, shortcut_transfers, showcases, surveys, sync,
+tutorials, users, variant_lists, wallet`. Los más grandes con diferencia son `orders`
 (24 queries / 26 mutations / 6 subscriptions) y `payments` (16 / 16).
 
 ### Autenticación — esto es lo que más sorprende
@@ -201,9 +202,12 @@ app distribuida la puede extraer cualquiera.
   - Relay (`edges` + `pageInfo`, cursores) en [schema/pagination.py](schema/pagination.py) → búsqueda y browse público.
   - Offset (`rows` + `totalCount` + `hasMore`) → listados de admin.
 - Errores: `raise Exception("mensaje en español")`. No hay jerarquía de errores tipados.
-- `ErrorLoggingExtension` ([schema/extensions.py:27](schema/extensions.py:27)) captura toda excepción no
-  controlada, la guarda en `error_logs` y lanza un análisis con Gemini en background.
-- `LastSeenExtension` ([schema/extensions.py:96](schema/extensions.py:96)) escribe `users.lastSeenAt`, throttled a
+- `ErrorLoggingExtension` ([schema/extensions.py:35](schema/extensions.py:35)) captura toda excepción no
+  controlada, la guarda en `error_logs` y lanza un análisis con Gemini en background (que
+  acaba en un push a los admins). Se salta los errores esperados de
+  `EXPECTED_ERROR_PREFIXES` ([:17](schema/extensions.py:17)): hoy solo `COURIER_NOT_APPROVED`, que la
+  app de mensajeros de un usuario sin aprobar recibe en cada sondeo.
+- `LastSeenExtension` ([schema/extensions.py:121](schema/extensions.py:121)) escribe `users.lastSeenAt`, throttled a
   una vez por hora por usuario. Es la **única** señal de actividad que tiene el backend:
   el login no escribe nada y el JWT es stateless. El tráfico REST no pasa por aquí.
 
@@ -218,7 +222,7 @@ funciona multi-worker.
 
 **Eventos de sucursal** (`newBranchOrder` → canal `branch:{branchId}`, `branchOrderUpdated`
 → `branch_updates:{branchId}`), para la app de negocios. Los publica
-`OrderService._publish_branch_order_event` ([services/orders_service.py:2711](services/orders_service.py:2711)):
+`OrderService._publish_branch_order_event` ([services/orders_service.py:2704](services/orders_service.py:2704)):
 
 - `newBranchOrder`: al crear el pedido y cuando el cliente lo reenvía (vuelve a
   `pending_acceptance`: la tienda tiene que responder otra vez).
@@ -333,9 +337,11 @@ registran el token por GraphQL y el panel solo usa GraphQL y `/upload/promo/*`.
   barra final. Es la vía de la web: `/apple/start?redirect_scheme=<URL url-encoded>`.
 
 Cualquier otro valor → 400 y no se crea `state`. Antes aceptaba cualquier esquema y
-`redirect_scheme=https://atacante/x?` se llevaba el token. Ojo: hoy LlegoWeb llama a
-`/apple/start` sin parámetro (vuelve a `llego://`) y LlegoBusiness Android tampoco pasa
-`redirect_scheme=llegobusiness`; ambos tienen que pasarlo para volver a su app/web.
+`redirect_scheme=https://atacante/x?` se llevaba el token. El registro de socios de la web
+(`/negocios`) ya pasa `redirect_scheme=<origen>/auth/callback`; el panel de tutoriales de
+LlegoWeb aún llama a `/apple/start` sin parámetro (vuelve a `llego://`) y LlegoBusiness
+Android tampoco pasa `redirect_scheme=llegobusiness`; tienen que pasarlo para volver a su
+app/web.
 
 ---
 
@@ -351,7 +357,7 @@ Cualquier otro valor → 400 y no se crea `state`. Antes aceptaba cualquier esqu
 
 `PaymentStatus`: `pending`, `validated`, `completed`, `failed`, `cancelled` ([:33](domain/orders.py:33)).
 
-Las transiciones válidas están en `ALLOWED_TRANSITIONS` ([domain/orders.py:389](domain/orders.py:389)).
+Las transiciones válidas están en `ALLOWED_TRANSITIONS` ([domain/orders.py:403](domain/orders.py:403)).
 
 ### Flujo
 
@@ -368,12 +374,12 @@ Las transiciones válidas están en `ALLOWED_TRANSITIONS` ([domain/orders.py:389
 
 `services/order_timeout_worker.py`, cada 60 s ([clients/lifespan.py:66](clients/lifespan.py:66)), actúa sobre
 los pedidos con `deadlineAt` vencido. Plazos en `OrderService.STATUS_TIMEOUT_MINUTES`
-([services/orders_service.py:79](services/orders_service.py:79)): 15 min en `pending_acceptance`,
+([services/orders_service.py:80](services/orders_service.py:80)): 15 min en `pending_acceptance`,
 `modified_by_store`, `rejected_by_store`, `awaiting_delivery_acceptance` y `pending_payment`;
 30 min en `payment_in_progress`; 20 min en `accepted` (empezar la elaboración).
 Al vencer se cancela, salvo que haya dinero de por medio (pagado o declarado como
 enviado): entonces se escala a soporte (`requiresAttention`) y se borra el deadline
-(`expire_order`, [:2470](services/orders_service.py:2470)).
+(`expire_order`, [:2463](services/orders_service.py:2463)).
 
 ### Pedidos programados (`scheduledFor`)
 
@@ -444,9 +450,20 @@ Regla: no pasar a `preparing` si es no-efectivo y `paymentStatus != completed`. 
 `preparing` el pedido ya no es cancelable.
 
 **Chofer** — `availableOrdersForDelivery`, `myCurrentDelivery`, `myDeliveries`,
-`myDeliveryStats`, `orderTracking`. Mutations: `acceptOrderForPayment`,
-`rejectOrderForPayment`, `acceptDelivery` (legacy), `confirmPickup`,
-`updateDeliveryLocation`, `confirmDelivery`.
+`myDeliveredOrders`, `myDeliveryStats`, `myBranchLinkRequests`, `orderTracking`. Mutations:
+`setDeliveryOnlineStatus`, `acceptOrderForPayment`, `rejectOrderForPayment`,
+`acceptDelivery` (legacy), `confirmPickup`, `updateDeliveryLocation`, `confirmDelivery`,
+`requestBranchLink`, `cancelBranchLinkRequest`, `linkVehicle`, `confirmCashReceived`, y
+`updateOrderStatus` a `AWAITING_DELIVERY_ACCEPTANCE` cuando no lo pide staff de la
+sucursal (es el "Cancelar pedido" de la app: se enruta a `rejectOrderForPayment`).
+
+**Todas exigen mensajero aprobado** (o rol `admin`/`manager`): llaman a
+`require_courier` ([services/courier_access.py:79](services/courier_access.py:79)) justo después de `require_auth`.
+Si no, error cuyo mensaje empieza por `COURIER_NOT_APPROVED:` (con
+`extensions.code = "COURIER_NOT_APPROVED"`). Ya **no** se crea un registro en
+`delivery_persons` al primer uso: nace al aprobar la solicitud de mensajero (§15).
+`orderTracking`/`order` no pasan por aquí: los protege `user_can_access_order` (el
+mensajero asignado puede verlos). Detalle de la regla en §15.
 
 ### Presencia de mensajeros
 
@@ -514,7 +531,7 @@ Dos mecanismos distintos, y hay que conocer los dos:
   `paymentMethods(branchId)` ([schema/payments/queries.py:55](schema/payments/queries.py:55)) resuelve esa lista.
 - QvaPay y USDT: **booleanos dedicados en `Branch`** — `acceptsQvapay` ([:234](domain/models.py:234)) y
   `acceptsZelle` ([:235](domain/models.py:235), que además hace de interruptor de TronDealer). Se comprueban
-  en las propias mutations ([schema/payments/mutations.py:600](schema/payments/mutations.py:600), [:667](schema/payments/mutations.py:667)).
+  en las propias mutations ([schema/payments/mutations.py:607](schema/payments/mutations.py:607), [:677](schema/payments/mutations.py:677)).
 
 **`paymentMethods` no expone `acceptsQvapay` ni `acceptsZelle`** — los clientes tienen que
 leerlos del `Branch`. No existe un `acceptsUsdt`: USDT va colgado de `acceptsZelle`.
@@ -522,7 +539,7 @@ leerlos del `Branch`. No existe un `acceptsUsdt`: USDT va colgado de `acceptsZel
 ### Efectivo vs no efectivo
 
 Dos clasificadores independientes que pueden divergir:
-- `OrderService.CASH_PAYMENT_METHODS` / `NON_CASH_PAYMENT_METHODS` ([services/orders_service.py:107](services/orders_service.py:107)):
+- `OrderService.CASH_PAYMENT_METHODS` / `NON_CASH_PAYMENT_METHODS` ([services/orders_service.py:108](services/orders_service.py:108)):
   sets estáticos, normaliza el token, cae a buscar el doc en `payment_methods`, y ante la
   duda asume **no efectivo** (conservador).
 - `PaymentService` confía directamente en `PaymentMethod.method == "cash"` de la BD.
@@ -534,7 +551,7 @@ Dos clasificadores independientes que pueden divergir:
 Solo `valid` con confianza ≥ 0.85 aprueba automáticamente; 0.60–0.85 va a `needs_review`.
 Todo queda en `kyc_verifications`, con auditoría en `kyc_audit_events`.
 
-`overrideCashKycDecision` ([schema/payments/mutations.py:537](schema/payments/mutations.py:537)) permite a un humano
+`overrideCashKycDecision` ([schema/payments/mutations.py:541](schema/payments/mutations.py:541)) permite a un humano
 aprobar/rechazar/forzar reevaluación. Está protegida dos veces (en el resolver y dentro
 del servicio) con `["admin", "risk_admin"]`. **Ojo:** Panel Admin deja entrar a `manager`,
 que puede *ver* la cola pero recibirá error al intentar el override. Es intencional.
@@ -627,7 +644,7 @@ Y entonces o lo declaras en cada tipo GraphQL, o lo excluyes.
 ### Otras
 
 - **`_to_object_id` copiado en cada repo**, y ante un id inválido **devuelve el string
-  original en vez de lanzar** ([repositories/orders_repository.py:31](repositories/orders_repository.py:31) y gemelos). Un id
+  original en vez de lanzar** ([repositories/orders_repository.py:33](repositories/orders_repository.py:33) y gemelos). Un id
   malformado se convierte en una query que no encuentra nada, no en un error.
 - **Fechas naive vs aware**: 47 archivos usan `datetime.utcnow()` (naive), unos pocos usan
   `datetime.now(timezone.utc)` (aware). Restarlos entre sí lanza `TypeError`.
@@ -714,6 +731,29 @@ arreglaron en la rama `fix/f1-backend-seguridad` (con tests); el resto siguen ab
     `POST /upload/promotion/video|thumbnail` ([api/endpoints/uploads.py](api/endpoints/uploads.py)) solo piden JWT, con
     `TODO: Add admin role check`. Abierto.
 
+11. ✅ **Resuelto — cualquier usuario autenticado podía operar como mensajero.** Las
+    operaciones de chofer solo llamaban a `require_auth` y la primera le creaba un registro
+    en `delivery_persons`. Ahora exigen mensajero aprobado (§7 "Chofer", §15).
+
+12. **`confirmCashReceived` no puede confirmar nunca.** El resolver pasa el `user_id` como
+    `delivery_person_id` y `confirm_cash_received` lo compara con `order.deliveryPersonId`,
+    que es el `_id` del registro de `delivery_persons`
+    ([services/payments_service.py:1421](services/payments_service.py:1421)): nunca coinciden y responde "No autorizado".
+    Ninguna app lo usa (el efectivo se cierra con `confirmDelivery`). Abierto.
+
+13. **`deliveryPerson` falla si el mensajero no tiene vehículo.** `DeliveryPersonType.vehicleType`
+    es `VehicleTypeEnum!` y los resolvers de `OrderType.deliveryPerson` y
+    `BranchDeliveryRequestType.deliveryPerson` hacen `dp.vehicleType.value`
+    ([schema/orders/types.py:631](schema/orders/types.py:631), [:1030](schema/orders/types.py:1030)), pero en `DeliveryPerson` es opcional y nace a
+    `None` en los registros que crea aprobar una solicitud de mensajero (`approve_user`, §15)
+    y en los de admin/manager (antes, igual en los que creaba el primer uso). Solo lo rellena
+    `linkVehicle`, que AppMensajeros ofrece en Ajustes sin exigirlo: hasta entonces
+    `deliveryPerson` de sus pedidos responde `null` con error, y LlegoiOS, LlegoApk y
+    LlegoBussisnes lo consultan con `vehicleType`. Hacerlo nullable en el schema no basta (las
+    apps lo tienen generado como no nulo y fallaría el parseo de toda la respuesta): falta
+    decidir si se exige vehículo al aprobar o antes de aceptar pedidos, o un valor por
+    defecto. Abierto.
+
 ---
 
 ## 13. Tests
@@ -737,6 +777,10 @@ QvaPay). Compara contra esa línea base, no contra cero.
 Ojo: `scripts/test_*.py` y `tests/create_qvapay_test_invoice.py` **no son tests de pytest**,
 son scripts manuales.
 
+Excepción al estilo de mocks: los tests "Mongo real" de `tests/test_partner_requests.py`
+(índice único parcial, upsert del registro de mensajero) crean una base temporal
+`llego_test_partner_*` en `MONGODB_URL`, la borran al terminar y se saltan si no hay Mongo.
+
 ---
 
 ## 14. Al escribir código aquí
@@ -745,9 +789,102 @@ son scripts manuales.
 - Repos: importa las instancias de `repositories/__init__.py`.
 - Campo nuevo en `Business`/`Branch`/`Product`/`User` → lee la sección 11 primero.
 - Resolver de admin nuevo → **no olvides `require_role(jwt, info, [...])` en la primera línea**.
+- Operación de chofer nueva → `require_auth` y justo después `await require_courier(info, user_id)`
+  (§15), fuera del `try` para que el error llegue con su `extensions.code`.
 - Colección nueva que se vaya a consultar en caliente → añádele índices en
   `clients/mongodb_client.py`.
 - Entidad nueva con búsqueda semántica → replica el patrón dual Mongo+Qdrant a mano.
 - Tiempo real fiable → polling, no subscriptions (sección 5). Si cambias un pedido fuera de
   `OrderService.update_status`, publica el evento de sucursal (`publish_branch_order_changed`).
 - Exportar el schema: `python scripts/export_schema.py`, o `GET /graphql/schema.graphql` en vivo.
+
+---
+
+## 15. Registro de socios y acceso de mensajeros
+
+Quien quiere vender en Llegó o ser mensajero lo pide en la web (`/negocios` de LlegoWeb):
+inicia sesión con Google o Apple y envía una **solicitud** (`partner_requests`). El equipo
+la gestiona desde el Panel Admin (sección "Solicitudes"): llama al solicitante, la marca
+como contactada y la aprueba o la rechaza. **Aprobar da acceso.**
+
+Código: [domain/partner_requests.py](domain/partner_requests.py), [repositories/partner_request_repository.py](repositories/partner_request_repository.py),
+[services/partner_requests_service.py](services/partner_requests_service.py), [schema/partner_requests/](schema/partner_requests/),
+[services/courier_access.py](services/courier_access.py), [services/business_approval.py](services/business_approval.py).
+
+### Solicitudes
+
+- Tipos `business` (vender) y `courier` (repartir). Estados `pending` → `contacted` →
+  `approved` | `rejected`.
+- **Una sola solicitud activa** (`pending`/`contacted`) por usuario y tipo. El servicio lo
+  comprueba y el índice único parcial `idx_partner_requests_user_type_active_unique` lo
+  garantiza ante envíos simultáneos. Filtra por el booleano `active` (copia de "estado
+  activo") porque un `partialFilterExpression` con `$in` no existe antes de MongoDB 6.
+- Tampoco se puede pedir un acceso que ya se tiene (mensajero aprobado o legado, o una
+  solicitud `business` aprobada). Tras un rechazo sí se puede volver a pedir.
+- El teléfono se valida y normaliza con `normalize_phone` ([utils/phone.py:75](utils/phone.py:75)): un
+  número cubano de 8 dígitos en cualquier formato habitual queda `+53XXXXXXXX`; con otro
+  código de país (`+`/`00`) se respeta, sin separadores; cualquier otra cosa es un error
+  claro. Se guarda el email de la cuenta (no lo escribe el solicitante).
+- Fechas *aware* en UTC: el repositorio marca como UTC las que Mongo devuelve sin zona,
+  para que GraphQL las emita con `+00:00` (la web hace `new Date()` con ellas).
+
+GraphQL (contrato compartido de la fase 2a):
+
+| Operación | Auth | Qué hace |
+|---|---|---|
+| `submitPartnerRequest(input, jwt)` | JWT | Crea la solicitud `pending` |
+| `myPartnerAccess(jwt)` | JWT | `courierApproved`, `merchantApproved` y la última solicitud de cada tipo |
+| `adminPartnerRequests(status, type, limit, offset, jwt)` | admin/manager | Página `{items, total}`, de la más nueva a la más antigua (`limit` ≤ 100) |
+| `adminUpdatePartnerRequest(id, status, adminNotes, jwt)` | admin/manager | Cambia el estado y aplica el acceso; guarda `reviewedAt`/`reviewedBy` |
+
+- Lo que ve el solicitante (`submitPartnerRequest`, `myPartnerAccess`) no incluye
+  `adminNotes` ni `reviewedBy` (llegan a `null`): son internos del equipo.
+- `adminNotes: null` deja las notas como estaban; `""` las borra.
+- Una solicitud aprobada o rechazada **no vuelve** a `pending`/`contacted`: se aprueba o se
+  rechaza (pasar de rechazada a aprobada y al revés sí vale). Repetir la aprobación vuelve
+  a aplicar el acceso (idempotente).
+- El acceso se aplica **antes** de guardar el estado (si falla, la solicitud no cambia y
+  basta con repetir), y el cambio de estado es condicional al estado leído: si otro admin
+  la cambió entretanto, error "La solicitud cambió mientras la revisabas".
+
+### Qué da aprobar
+
+- **COURIER aprobada** → mensajero aprobado: `delivery_persons.approved = True`
+  (`DeliveryPersonRepository.approve_user`, upsert por `userId`). Si no tenía registro, nace
+  con el nombre y el teléfono de la solicitud; si lo tenía, solo cambia `approved`.
+  El registro nuevo no tiene vehículo hasta que el mensajero use `linkVehicle` (bug 13, §12).
+- **BUSINESS aprobada** → se aprueban los negocios `pending` que el usuario posee
+  (`approvalStatus "approved"`, `approvedAt`, activos, sucursales reactivadas; los
+  `rejected` no se tocan), y `registerBusiness`/`registerMultipleBusinesses` de ese usuario
+  crean el negocio **ya aprobado** (`is_merchant_approved`: tiene una solicitud `business`
+  aprobada). El resto de usuarios sigue como antes: negocio `pending` hasta aprobarlo.
+- **REJECTED** no da acceso. Si la solicitud de mensajero estaba aprobada, se lo quita
+  (`approved = False`). Rechazar una `business` aprobada no rechaza sus negocios (se hace
+  uno a uno con `rejectBusiness`), pero los nuevos vuelven a nacer pendientes.
+- `merchantApproved`/`courierApproved` de `myPartnerAccess` reflejan exactamente esto.
+  `courierApproved` es el mismo criterio que las operaciones de chofer (rol incluido).
+
+`approveBusiness`/`rejectBusiness` aceptan JWT de admin/manager (Panel Admin) además de
+`adminKey` (`ADMIN_API_KEY`, se mantiene por compatibilidad y se compara en tiempo
+constante). Si llega un JWT, manda el JWT.
+
+### Acceso de mensajeros
+
+Regla de `require_courier` ([services/courier_access.py:79](services/courier_access.py:79)), que llaman todas las
+operaciones de chofer (§7):
+
+- Registro con `approved = True` → acceso.
+- Registro **sin el campo** `approved` (anterior al registro de socios) → acceso: los
+  mensajeros que ya trabajaban no lo pierden.
+- Registro con `approved = False` (rechazado) o sin registro → `COURIER_NOT_APPROVED: …`.
+  Ya **no** se crean registros al primer uso.
+- `admin`/`manager` entran por su rol. Si no tienen registro se les crea con
+  `approved = False`: el acceso les dura lo que dure el rol.
+
+`COURIER_NOT_APPROVED` no se registra en `error_logs` (§5). `adminPushCourierLocation` sigue
+creando registros sintéticos (con un `userId` inventado) para simular el mapa en vivo.
+El mundo E2E (`POST /e2e/world`) crea a `courier` y `courier2` ya aprobados.
+
+Clientes: la web `/negocios` envía la solicitud y muestra su estado con
+`myPartnerAccess`; el Panel Admin las gestiona; AppMensajeros debe tratar
+`COURIER_NOT_APPROVED` como "cuenta pendiente de aprobación" y no como un fallo.

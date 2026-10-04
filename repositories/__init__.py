@@ -33,6 +33,7 @@ from .orders_repository import (
     order_locations_repo,
     orders_repo,
 )
+from .partner_request_repository import PartnerRequestRepository
 from .payment_method_repository import PaymentMethodRepository
 from .payment_repository import PaymentRepository
 from .payments_attempt_repository import PaymentAttemptRepository, payment_attempts_repo
@@ -83,6 +84,7 @@ ad_campaigns_repo = AdCampaignRepository()
 ad_pricing_repo = AdPricingRepository()
 feed_section_config_repo = FeedSectionConfigRepository()
 promo_requests_repo = PromoRequestRepository()
+partner_requests_repo = PartnerRequestRepository()
 
 # Imported after singletons to avoid circular import with domain/models.py
 from .shortcut_transfer_repository import (
@@ -185,4 +187,6 @@ __all__ = [
     "feed_section_config_repo",
     "PromoRequestRepository",
     "promo_requests_repo",
+    "PartnerRequestRepository",
+    "partner_requests_repo",
 ]

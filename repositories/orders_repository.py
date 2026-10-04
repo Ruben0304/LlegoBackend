@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from bson import ObjectId
+from pymongo.errors import DuplicateKeyError
 
 from clients.mongodb_client import get_database
 from domain.orders import (
@@ -1069,6 +1070,63 @@ class DeliveryPersonRepository:
         """Get delivery person by user ID."""
         collection = self._get_collection()
         doc = await collection.find_one({"userId": self._to_object_id(user_id)})
+        return self._doc_to_delivery_person(doc) if doc else None
+
+    async def approve_user(
+        self, user_id: str, name: str, phone: Optional[str]
+    ) -> DeliveryPerson:
+        """Marca al usuario como mensajero aprobado, creando su registro si no existe.
+
+        Upsert por userId (índice único idx_dp_user_id_unique): si ya tenía
+        registro solo cambia `approved`, sin pisar nombre, teléfono ni vehículo;
+        si no, nace con el nombre y el teléfono de la solicitud.
+        """
+        collection = self._get_collection()
+        now = datetime.utcnow()
+        template = DeliveryPerson(
+            _id=str(ObjectId()),
+            userId=user_id,
+            name=name or "",
+            phone=phone,
+            vehicleType=None,
+            approved=True,
+            createdAt=now,
+            updatedAt=now,
+        )
+        on_insert = template.model_dump(by_alias=True)
+        on_insert["_id"] = self._to_object_id(on_insert["_id"])
+        on_insert["userId"] = self._to_object_id(on_insert["userId"])
+        for key in ("approved", "updatedAt"):
+            on_insert.pop(key)
+
+        update = {
+            "$set": {"approved": True, "updatedAt": now},
+            "$setOnInsert": on_insert,
+        }
+        try:
+            doc = await collection.find_one_and_update(
+                {"userId": self._to_object_id(user_id)},
+                update,
+                upsert=True,
+                return_document=True,
+            )
+        except DuplicateKeyError:
+            # Dos upserts a la vez: el otro insertó primero; ahora es un update.
+            doc = await collection.find_one_and_update(
+                {"userId": self._to_object_id(user_id)},
+                {"$set": {"approved": True, "updatedAt": now}},
+                return_document=True,
+            )
+        return self._doc_to_delivery_person(doc)
+
+    async def revoke_user(self, user_id: str) -> Optional[DeliveryPerson]:
+        """Quita el acceso de mensajero (approved=False). No crea registro."""
+        collection = self._get_collection()
+        doc = await collection.find_one_and_update(
+            {"userId": self._to_object_id(user_id)},
+            {"$set": {"approved": False, "updatedAt": datetime.utcnow()}},
+            return_document=True,
+        )
         return self._doc_to_delivery_person(doc) if doc else None
 
     async def get_available_nearby(

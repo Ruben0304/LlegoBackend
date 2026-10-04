@@ -12,6 +12,7 @@ from strawberry.file_uploads import Upload
 from strawberry.types import Info
 
 from repositories import payment_methods_repo, payments_repo
+from services.courier_access import require_courier
 from services.payments.enabled_methods import ENABLED_PAYMENT_METHOD_TYPES
 from services.payments_service import payment_service
 from utils.graphql_auth import apply_optional_jwt, require_role
@@ -280,6 +281,8 @@ Si algún campo no está disponible en la imagen, usa valores por defecto razona
         user_id = info.context.get("user_id")
         if not user_id:
             raise Exception("Usuario no autenticado")
+        # Operación de chofer: solo mensajeros aprobados (o admin/manager).
+        await require_courier(info, user_id)
 
         try:
             # For cash payments, the delivery person's user ID is used
