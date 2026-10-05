@@ -2359,6 +2359,13 @@ class OrderService:
         if order.deliveryPersonId:
             raise ValueError("El pedido ya fue tomado por otro mensajero")
 
+        # Una entrega a la vez: AppMensajeros trabaja con un solo pedido en curso
+        # (myCurrentDelivery) y accept_delivery ya lo exigía. Se mira el estado real
+        # de los pedidos, no delivery_person.currentOrderId, que puede quedarse viejo.
+        current = await self.orders_repo.get_current_delivery(delivery_person.id)
+        if current and not self._ids_equal(current.id, order_id):
+            raise ValueError("Ya tienes un pedido en curso")
+
         reserved_order = await self.orders_repo.set_delivery_person(
             order_id, delivery_person.id
         )

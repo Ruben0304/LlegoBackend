@@ -514,6 +514,12 @@ Si no, error cuyo mensaje empieza por `COURIER_NOT_APPROVED:` (con
 `orderTracking`/`order` no pasan por aquí: los protege `user_can_access_order` (el
 mensajero asignado puede verlos). Detalle de la regla en §15.
 
+**Una entrega a la vez.** `acceptOrderForPayment` y `acceptDelivery` rechazan con "Ya
+tienes un pedido en curso" si el mensajero tiene otro pedido en
+`COURIER_ACTIVE_ORDER_STATUSES` (`orders_repo.get_current_delivery`); reintentar sobre su
+propio pedido sigue siendo idempotente. Las push de "nuevo pedido disponible" tampoco
+se envían a quien está repartiendo.
+
 ### Presencia de mensajeros
 
 `updateDeliveryLocation` escribe en Redis (`presence:courier:{id}:online` y `:loc`, TTL
