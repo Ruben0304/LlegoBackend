@@ -2,6 +2,36 @@
 
 ---
 
+## 📅 5 de Octubre, 2026
+
+### Resumen de cambios (últimas 24h)
+
+**1 commit** de código — Fabian1820 (co-authored Claude Opus 5.5). Fix en el flujo de aceptación de pedidos por AppMensajeros, más un merge de integración de la fase 2a.
+
+---
+
+### Área 1: fix(mensajeros) — Un mensajero solo puede tener una entrega en curso (12:59)
+
+`fix(mensajeros): un mensajero solo puede tener una entrega en curso`
+
+`acceptOrderForPayment` (el flujo principal de AppMensajeros) no comprobaba si el mensajero ya tenía un pedido en curso: con uno en camino podía aceptar otro, aunque la app trabaja con una sola entrega (`myCurrentDelivery`) y el flujo antiguo `acceptDelivery` ya lo impedía.
+
+Ahora rechaza con "Ya tienes un pedido en curso" si `get_current_delivery` devuelve otro pedido activo. Se usa el estado real de los pedidos y no `delivery_person.currentOrderId`, que puede quedarse desactualizado. Reintentar sobre su propio pedido sigue siendo idempotente (`_ids_equal`).
+
+Archivos: `services/orders_service.py` (+7), `tests/test_courier_single_delivery.py` (nuevo, 95 tests), `context.md`.
+
+---
+
+### Puede dar bateo
+
+1. **`get_current_delivery` — confirmar qué estados considera "en curso"**: Si incluye pedidos ya completados o cancelados que no se limpiaron, el mensajero queda bloqueado sin poder tomar nuevos pedidos. Verificar que el query solo devuelve estados activos (`ACCEPTED`, `IN_TRANSIT` o equivalentes).
+
+2. **`_ids_equal(current.id, order_id)` — confirmar compatibilidad de tipos**: Si `current.id` es `ObjectId` y `order_id` llega como `str` (o viceversa) y la función no normaliza ambos, un mensajero que reintenta sobre su propio pedido activo recibirá "Ya tienes un pedido en curso" erróneamente, rompiendo la idempotencia.
+
+3. **`delivery_person.currentOrderId` descartado como fuente de verdad — confirmar que nada más lo usa de forma exclusiva**: Si algún otro flujo escribe o lee `currentOrderId` esperando que sea autoritativo, habrá inconsistencia entre ese campo y el estado real de los pedidos.
+
+---
+
 ## 📅 4 de Octubre, 2026
 
 ### Resumen de cambios (últimas 24h)
@@ -274,18 +304,4 @@ Sin cambios nuevos — sin riesgos nuevos. Se mantienen las consideraciones del 
 
 ---
 
-## 📅 27 de Septiembre, 2026
-
-### Resumen de cambios (últimas 24h)
-
-Sin commits de código nuevos. El único commit del período es el "Analisis diario Claude" automático generado en el análisis del 26-sep. No hay cambios en producción en LlegoBackend hoy.
-
----
-
-### Puede dar bateo
-
-Sin cambios nuevos — sin riesgos nuevos. Se mantienen las consideraciones del 25 de septiembre (enrutamiento de push notifications, tokens sin bundleId, desactivación de tokens APNs).
-
----
-
-> ⚠️ **Nota de mantenimiento**: Las entradas del **26 de Septiembre** y anteriores fueron eliminadas el 4 de Octubre al superar los 7 días de antigüedad (política de retención semanal).
+> ⚠️ **Nota de mantenimiento**: Las entradas del **27 de Septiembre** y anteriores fueron eliminadas el 5 de Octubre al superar los 7 días de antigüedad (política de retención semanal).
