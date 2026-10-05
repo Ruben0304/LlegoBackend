@@ -53,6 +53,12 @@ from services.branch_hours import (
 )
 from services.courier_access import CourierNotApprovedError
 from services.courier_push import UNASSIGNED_MODIFIED_BY_STORE, UNASSIGNED_RESUBMITTED
+
+# Sin vehículo vinculado no se aceptan pedidos: el negocio y el cliente ven el
+# vehículo del mensajero, y AppMensajeros lo vincula en Ajustes > Vehículo.
+VEHICLE_REQUIRED_MESSAGE = (
+    "Vincula tu vehículo en Ajustes > Vehículo antes de aceptar pedidos."
+)
 from services.orders_utils import (
     calculate_delivery_fee_h3,
     coords_to_h3,
@@ -2314,6 +2320,9 @@ class OrderService:
         ):
             raise ValueError("El pedido ya tiene un repartidor asignado")
 
+        if not delivery_person.vehicleType:
+            raise ValueError(VEHICLE_REQUIRED_MESSAGE)
+
         if delivery_person.currentOrderId and not self._ids_equal(
             delivery_person.currentOrderId, order_id
         ):
@@ -2352,6 +2361,9 @@ class OrderService:
         if order.deliveryPersonId and self._ids_equal(order.deliveryPersonId, delivery_person.id):
             print(f"[COURIER] accept_order_for_payment idempotent — already accepted, status={order.status.value}")
             return order
+
+        if not delivery_person.vehicleType:
+            raise ValueError(VEHICLE_REQUIRED_MESSAGE)
 
         if order.status != OrderStatus.AWAITING_DELIVERY_ACCEPTANCE:
             raise ValueError("El pedido no está esperando confirmación del mensajero")

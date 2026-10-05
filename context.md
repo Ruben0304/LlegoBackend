@@ -520,6 +520,10 @@ tienes un pedido en curso" si el mensajero tiene otro pedido en
 propio pedido sigue siendo idempotente. Las push de "nuevo pedido disponible" tampoco
 se envían a quien está repartiendo.
 
+**Vehículo obligatorio para aceptar.** Sin `vehicleType` (se vincula con `linkVehicle`,
+en Ajustes > Vehículo de AppMensajeros) los dos accept rechazan con
+`VEHICLE_REQUIRED_MESSAGE` y no se recibe "nuevo pedido disponible" (bug 13, §12).
+
 ### Presencia de mensajeros
 
 `updateDeliveryLocation` escribe en Redis (`presence:courier:{id}:online` y `:loc`, TTL
@@ -849,18 +853,21 @@ arreglaron en la rama `fix/f1-backend-seguridad` (con tests); el resto siguen ab
     ([services/payments_service.py:1421](services/payments_service.py:1421)): nunca coinciden y responde "No autorizado".
     Ninguna app lo usa (el efectivo se cierra con `confirmDelivery`). Abierto.
 
-13. **`deliveryPerson` falla si el mensajero no tiene vehículo.** `DeliveryPersonType.vehicleType`
-    es `VehicleTypeEnum!` y los resolvers de `OrderType.deliveryPerson` y
-    `BranchDeliveryRequestType.deliveryPerson` hacen `dp.vehicleType.value`
-    ([schema/orders/types.py:631](schema/orders/types.py:631), [:1030](schema/orders/types.py:1030)), pero en `DeliveryPerson` es opcional y nace a
-    `None` en los registros que crea aprobar una solicitud de mensajero (`approve_user`, §15)
-    y en los de admin/manager (antes, igual en los que creaba el primer uso). Solo lo rellena
-    `linkVehicle`, que AppMensajeros ofrece en Ajustes sin exigirlo: hasta entonces
-    `deliveryPerson` de sus pedidos responde `null` con error, y LlegoiOS, LlegoApk y
-    LlegoBussisnes lo consultan con `vehicleType`. Hacerlo nullable en el schema no basta (las
-    apps lo tienen generado como no nulo y fallaría el parseo de toda la respuesta): falta
-    decidir si se exige vehículo al aprobar o antes de aceptar pedidos, o un valor por
-    defecto. Abierto.
+13. ✅ **Resuelto — `deliveryPerson` fallaba si el mensajero no tenía vehículo.**
+    `DeliveryPersonType.vehicleType` es `VehicleTypeEnum!` y los resolvers de
+    `OrderType.deliveryPerson` y `BranchDeliveryRequestType.deliveryPerson` hacían
+    `dp.vehicleType.value`; con `None` (registros de `approve_user`, de staff y los que creaba
+    el primer uso) la query devolvía `deliveryPerson: null` y error. Hacerlo nullable rompería
+    a las apps ya publicadas, que lo tienen generado como no nulo. Ahora:
+    - `VehicleTypeEnum` tiene un valor más, `SIN_VEHICULO`, solo de salida, que devuelve
+      `vehicle_type_for_graphql` cuando no hay vehículo o el valor ya no existe en el enum.
+      Apollo (iOS y Kotlin) lo trata como valor desconocido sin fallar: LlegoiOS no lo
+      muestra; LlegoApk y LlegoBussisnes enseñan su texto crudo hasta que se actualicen.
+    - Sin vehículo no se aceptan pedidos: `acceptOrderForPayment` y `acceptDelivery`
+      rechazan con `VEHICLE_REQUIRED_MESSAGE` ("Vincula tu vehículo en Ajustes > Vehículo…").
+      Reintentar sobre un pedido ya asignado sigue siendo idempotente.
+    - "Nuevo pedido disponible" no se envía a mensajeros sin vehículo.
+    Así `SIN_VEHICULO` solo aparece en pedidos asignados antes de la regla.
 
 ---
 
@@ -960,7 +967,8 @@ GraphQL (contrato compartido de la fase 2a):
 - **COURIER aprobada** → mensajero aprobado: `delivery_persons.approved = True`
   (`DeliveryPersonRepository.approve_user`, upsert por `userId`). Si no tenía registro, nace
   con el nombre y el teléfono de la solicitud; si lo tenía, solo cambia `approved`.
-  El registro nuevo no tiene vehículo hasta que el mensajero use `linkVehicle` (bug 13, §12).
+  El registro nuevo no tiene vehículo hasta que el mensajero use `linkVehicle`, y sin
+  vehículo no puede aceptar pedidos (bug 13, §12).
 - **BUSINESS aprobada** → se aprueban los negocios `pending` que el usuario posee
   (`approvalStatus "approved"`, `approvedAt`, activos, sucursales reactivadas; los
   `rejected` no se tocan), y `registerBusiness`/`registerMultipleBusinesses` de ese usuario

@@ -46,7 +46,7 @@ def _order(order_id=ORDER_ID, status=OrderStatus.AWAITING_DELIVERY_ACCEPTANCE, d
 @pytest.fixture
 def service():
     svc = OrderService()
-    courier = SimpleNamespace(id=COURIER_ID)
+    courier = SimpleNamespace(id=COURIER_ID, vehicleType="bicicleta")
     svc._require_delivery_person = AsyncMock(return_value=courier)
     svc.orders_repo = SimpleNamespace(
         get_by_id=AsyncMock(return_value=_order()),

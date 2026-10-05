@@ -66,6 +66,26 @@ class OrderActorEnum(Enum):
 class VehicleTypeEnum(Enum):
     BICICLETA = "bicicleta"
     TRICICLO = "triciclo"
+    # Solo de salida: el mensajero aún no vinculó vehículo (linkVehicle). El campo
+    # DeliveryPersonType.vehicleType es obligatorio y las apps ya publicadas lo leen
+    # así; volverlo opcional las rompería. Apollo (iOS y Kotlin) trata un valor de
+    # enum desconocido como "unknown" sin fallar.
+    SIN_VEHICULO = "sin_vehiculo"
+
+
+def vehicle_type_for_graphql(value: Optional[str]) -> "VehicleTypeEnum":
+    """Valor de DeliveryPersonType.vehicleType a partir del de delivery_persons.
+
+    Sin vehículo (None) o con un valor que ya no existe en el enum devuelve
+    SIN_VEHICULO en vez de lanzar: antes `dp.vehicleType.value` reventaba con un
+    mensajero sin vehículo y la query entera devolvía deliveryPerson null y error.
+    """
+    if not value:
+        return VehicleTypeEnum.SIN_VEHICULO
+    try:
+        return VehicleTypeEnum(value)
+    except ValueError:
+        return VehicleTypeEnum.SIN_VEHICULO
 
 
 @strawberry.enum
@@ -319,7 +339,7 @@ class DeliveryPersonType:
         phone: str,
         rating: float,
         totalDeliveries: int,
-        vehicleType: str,
+        vehicleType: Optional[str],
         vehiclePlate: Optional[str],
         profileImageUrl: Optional[str],
         isOnline: bool,
@@ -330,7 +350,7 @@ class DeliveryPersonType:
         self.phone = phone
         self.rating = rating
         self.totalDeliveries = totalDeliveries
-        self.vehicleType = VehicleTypeEnum(vehicleType)
+        self.vehicleType = vehicle_type_for_graphql(vehicleType)
         self.vehiclePlate = vehiclePlate
         self.profileImageUrl = profileImageUrl
         self.isOnline = isOnline
@@ -628,7 +648,7 @@ class OrderType:
                 phone=dp.phone or "",
                 rating=dp.rating,
                 totalDeliveries=dp.totalDeliveries,
-                vehicleType=dp.vehicleType.value,
+                vehicleType=dp.vehicleType.value if dp.vehicleType else None,
                 vehiclePlate=dp.vehiclePlate,
                 profileImageUrl=dp.profileImageUrl,
                 isOnline=dp.isOnline,
@@ -1027,7 +1047,7 @@ class BranchDeliveryRequestType:
                 phone=dp.phone or "",
                 rating=dp.rating,
                 totalDeliveries=dp.totalDeliveries,
-                vehicleType=dp.vehicleType.value,
+                vehicleType=dp.vehicleType.value if dp.vehicleType else None,
                 vehiclePlate=dp.vehiclePlate,
                 profileImageUrl=dp.profileImageUrl,
                 isOnline=dp.isOnline,
