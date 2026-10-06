@@ -2,6 +2,45 @@
 
 ---
 
+## 📅 5 de Octubre, 2026
+
+### Resumen de cambios (últimas 24h)
+
+**2 commits** — Fabian1820 (co-authored Claude Opus 5.5). Fix de concurrencia en mensajeros y commit de merge de la Fase 2a.
+
+---
+
+### Área 1: fix(mensajeros) — Un mensajero solo puede tener una entrega en curso (16:59)
+
+`fix(mensajeros): un mensajero solo puede tener una entrega en curso`
+
+`acceptOrderForPayment` (flujo principal de AppMensajeros) no verificaba si el mensajero ya tenía un pedido activo: podía aceptar un segundo aunque la app trabaja con una sola entrega (`myCurrentDelivery`). El flujo antiguo `acceptDelivery` sí lo impedía, pero `acceptOrderForPayment` no heredó esa guarda.
+
+Cambios aplicados:
+- Llama a `get_current_delivery` antes de aceptar; rechaza con "Ya tienes un pedido en curso" si devuelve otro pedido activo.
+- Usa el estado real de pedidos en la BD, no `delivery_person.currentOrderId`, que puede quedarse desactualizado.
+- Reintentar sobre el propio pedido sigue siendo idempotente.
+
+---
+
+### Área 2: merge(fase-2a) — Integración de la rama de Fase 2a en main (17:05)
+
+`merge: origin/main en la integración de la fase 2a`
+
+Commit de merge. No hay descripción de los cambios incluidos en la rama; requiere revisar el diff completo para identificar qué entró con la Fase 2a.
+
+---
+
+### Puede dar bateo
+
+1. **`get_current_delivery` y estados intermedios — posibles falsos positivos**: Si existen pedidos en estados "limbo" (aceptados pero no reflejados aún en BD por latencia de escritura), el guard puede bloquear al mensajero legítimamente. Confirmar qué estados considera "en curso" la función y que cubre ACCEPTED, IN_PROGRESS pero no COMPLETED/CANCELLED.
+
+2. **Ventana de aceptación concurrente**: Si dos requests de `acceptOrderForPayment` llegan en el mismo instante antes de que el primero se confirme en BD, ambos pueden pasar el guard. Confirmar si hay compare-and-set o transacción atómica protegiendo el accept.
+
+3. **Merge de Fase 2a sin descripción**: El commit de merge no detalla qué entra. Si la Fase 2a incluye cambios de esquema de datos, nuevos campos en modelos Pydantic o nuevos endpoints, puede haber impacto no documentado. Revisar el diff antes del próximo despliegue.
+
+---
+
 ## 📅 4 de Octubre, 2026
 
 ### Resumen de cambios (últimas 24h)
@@ -110,15 +149,7 @@ Los webhooks nunca comparaban monto recibido con esperado: 1 centavo confirmaba 
 
 ---
 
-### Área 10: fix(kyc) — Emitir log de finalización de /kyc/global/evaluate (18:13, oct 1)
-
-`fix(kyc): emitir el log de finalización de /kyc/global/evaluate`
-
-El endpoint devolvía la respuesta con `return` directo antes del `logger.info("kyc_evaluation_completed...")`; las evaluaciones KYC completadas no dejaban rastro en logs. Fix mínimo: asignar a `response`, loguear, devolver.
-
----
-
-### Área 11: fix(wallet) — Definir db en branchTransferMoney y branchWithdrawMoney (18:14, oct 1)
+### Área 10: fix(wallet) — Definir db en branchTransferMoney y branchWithdrawMoney (18:14, oct 1)
 
 `fix(wallet): definir db en branchTransferMoney y branchWithdrawMoney`
 
@@ -126,7 +157,7 @@ Las dos mutations usaban `db.wallet_transactions` sin definir `db`: el dinero se
 
 ---
 
-### Área 12: fix(orders) — Plazos de elaboración respetan la hora de pedidos programados (18:04, oct 1)
+### Área 11: fix(orders) — Plazos de elaboración respetan la hora de pedidos programados (18:04, oct 1)
 
 `fix(orders): los plazos de elaboración respetan la hora de los pedidos programados`
 
@@ -134,23 +165,7 @@ Un pedido para mañana se cancelaba a los 20 min de `ACCEPTED`. Nueva regla en `
 
 ---
 
-### Área 13: fix(orders) — No cerrar al instante las subscriptions denegadas (18:54, oct 1)
-
-`fix(orders): no cerrar al instante las subscriptions denegadas`
-
-Con Apollo Kotlin 4, `error + complete` en graphql-ws no lanza excepción: `collectWithReconnect` se volvía a suscribir inmediatamente, creando un bucle de reconexión a velocidad de RTT por sucursal y dispositivo. Ahora: sin credenciales, el stream queda abierto sin emitir hasta que el cliente lo cierre (warning único al abrirlo); con jwt inválido o sin acceso, el error llega tras `SUBSCRIPTION_DENIED_DELAY_SECONDS` (30 s).
-
----
-
-### Área 14: fix(orders) — Pings de ubicación del chofer no publican branchOrderUpdated (18:40, oct 1)
-
-`fix(orders): los pings de ubicación del chofer no publican branchOrderUpdated`
-
-`updateDeliveryLocation` (llamado cada 10 s por AppMensajeros) publicaba el pedido entero en `branch_updates:{branchId}` en cada ping. `_emit_tracking_event` acepta ahora `publish_to_branch` (True por defecto); `updateDeliveryLocation` lo pasa como `False`. Los canales `deliveryLocationUpdated` y `orderTracking` del cliente siguen recibiendo cada ping.
-
----
-
-### Área 15: fix(orders) — Integrar auth de subscriptions y avisar pagos incompletos (13:36, oct 2)
+### Área 12: fix(orders) — Integrar auth de subscriptions y avisar pagos incompletos (13:36, oct 2)
 
 `fix(orders): integrar la auth de subscriptions y avisar a la sucursal de pagos incompletos`
 
@@ -223,8 +238,6 @@ Cambios aplicados:
 
 4. **Período de transición de `phone_national` — confirmar que el endpoint de registro ya lo guarda**: Si el endpoint que registra transferencias aún no guarda `phone_national` en producción, las transferencias "nuevas" tampoco lo tendrán y la búsqueda caerá en las variantes de formato.
 
-5. **Tests que mockean el flujo anterior — posible falso positivo**: Si otros tests del sistema mockean `confirmTransferByShortcut` con el comportamiento viejo, seguirán en verde aunque el contrato haya cambiado. Revisar mocks existentes.
-
 ---
 
 ## 📅 30 de Septiembre, 2026
@@ -241,51 +254,4 @@ Sin cambios nuevos — sin riesgos nuevos. Se mantienen las consideraciones del 
 
 ---
 
-## 📅 28 de Septiembre, 2026
-
-### Resumen de cambios (últimas 24h)
-
-**1 commit** — brianmojena (co-authored Claude Opus 5.5). Día dedicado a ampliar la cobertura de tests de push notifications: contrato de payload FCM, pushes de pagos, mutations de business_types y JWT de APNs.
-
----
-
-### Área 1: test(push) — Cobertura completa del contrato de payload y JWT de APNs (17:02)
-
-- **`test(push): contrato de payload, pagos, business_types y JWT de APNs`** (17:02, brianmojena) — Nuevo archivo `tests/test_push_notification_contract.py` (311 líneas). Completa la cobertura de notificaciones push:
-  - **Contrato FCM por tipo**: `data` solo strings (no objetos), claves que consumen las apps (`type`, `orderId`, `status`) y `channel_id llego_orders`. Garantiza que un campo de tipo dict/list en el payload no rompa silenciosamente el envío en FCM.
-  - **Pushes de pagos**: "comprobante enviado" (`payment_proof_submitted`) y "pago confirmado por el negocio". Verifica que llegan al bundle y audiencia correctos según el fix de enrutamiento del 25-sep.
-  - **Mutations de business_types**: audiencia, bundle y payload. Confirma que `updateBusinessType` y similares envían el push al segmento correcto.
-  - **JWT de APNs real**: firmado con clave EC P-256 efímera (ES256, `kid`, `iss`, `iat`); testea el caché del JWT y su renovación antes de expirar.
-  - **Resiliencia a timeouts**: FCM/APNs con timeout no rompen el flujo del pedido ni desactivan el token.
-
----
-
-### Puede dar bateo
-
-1. **Clave EC P-256 efímera — `kid` debe coincidir con el registrado en Apple Developer**: Si el código genera un `kid` distinto en cada arranque o no coincide con el configurado en el Apple Developer Portal, APNs rechazará todos los JWT con 403 `InvalidProviderToken`. Confirmar que el `kid` es estático o se carga desde config y coincide con el registrado.
-
-2. **Caché del JWT de APNs en memoria — se pierde en cada reinicio**: Si el caché se almacena en memoria de proceso (no Redis ni DB), cada deploy o reinicio arranca sin caché. No es un bug crítico (APNs admite nuevos JWT), pero si la renovación ocurre muy cerca de la expiración (~5 min de margen de APNs) puede haber una ventana de rechazo. Confirmar el almacenamiento del caché.
-
-3. **Contrato FCM `data` solo strings — un campo `int`/`bool`/`dict` añadido después rompe silenciosamente todo el envío**: El test lo verifica en el estado actual, pero no hay validación en runtime que lo garantice para campos futuros. Considerar una función helper `to_fcm_data_dict()` que convierta todos los valores a string antes de enviar.
-
-4. **Tests con mocks de FCM/APNs — comportamiento real puede diferir**: Si FCM cambia el formato del error de timeout o APNs cambia el código de un JWT inválido, los tests seguirán en verde pero producción fallará. Complementar con un test de integración contra sandbox de APNs o proyecto FCM de prueba si es posible.
-
-5. **`channel_id llego_orders` fijo en Android — usuarios que desactivaron el canal no reciben nada**: Si un usuario de Android desactivó el canal `llego_orders` en los ajustes del sistema, ningún push de pedidos llegará. No hay fallback a otro canal. Confirmar si es un caso conocido y si se quiere manejar.
-
----
-
-## 📅 27 de Septiembre, 2026
-
-### Resumen de cambios (últimas 24h)
-
-Sin commits de código nuevos. El único commit del período es el "Analisis diario Claude" automático generado en el análisis del 26-sep. No hay cambios en producción en LlegoBackend hoy.
-
----
-
-### Puede dar bateo
-
-Sin cambios nuevos — sin riesgos nuevos. Se mantienen las consideraciones del 25 de septiembre (enrutamiento de push notifications, tokens sin bundleId, desactivación de tokens APNs).
-
----
-
-> ⚠️ **Nota de mantenimiento**: Las entradas del **26 de Septiembre** y anteriores fueron eliminadas el 4 de Octubre al superar los 7 días de antigüedad (política de retención semanal).
+> ⚠️ **Nota de mantenimiento**: Las entradas del **28 de Septiembre** y anteriores fueron eliminadas el 6 de Octubre al superar los 7 días de antigüedad (política de retención semanal).
