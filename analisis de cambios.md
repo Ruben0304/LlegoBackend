@@ -2,6 +2,20 @@
 
 ---
 
+## 📅 7 de Octubre, 2026
+
+### Resumen de cambios (últimas 24h)
+
+Sin commits de código nuevos. No hay cambios en producción en LlegoBackend hoy. El único commit fue el "Analisis diario Claude" del bot.
+
+---
+
+### Puede dar bateo
+
+Sin cambios nuevos — sin riesgos nuevos. Se mantienen las consideraciones del 5 de octubre (guard de mensajero activo, ventana de concurrencia en `acceptOrderForPayment`, merge de Fase 2a sin descripción).
+
+---
+
 ## 📅 5 de Octubre, 2026
 
 ### Resumen de cambios (últimas 24h)
@@ -237,20 +251,6 @@ Cambios aplicados:
 3. **Bloqueo por número compartido — impacto en usuarios con chip compartido**: En Cuba es habitual que varios perfiles tengan el mismo teléfono. Estos usuarios no podrán confirmar por teléfono sin el ID de transferencia. Verificar que el mensaje de error es suficientemente claro.
 
 4. **Período de transición de `phone_national` — confirmar que el endpoint de registro ya lo guarda**: Si el endpoint que registra transferencias aún no guarda `phone_national` en producción, las transferencias "nuevas" tampoco lo tendrán y la búsqueda caerá en las variantes de formato.
-
----
-
-## 📅 30 de Septiembre, 2026
-
-### Resumen de cambios (últimas 24h)
-
-Sin commits de código nuevos. No hay cambios en producción en LlegoBackend hoy.
-
----
-
-### Puede dar bateo
-
-Sin cambios nuevos — sin riesgos nuevos. Se mantienen las consideraciones del 28 de septiembre (cobertura de tests de push notifications, contrato FCM, JWT de APNs).
 
 ---
 
