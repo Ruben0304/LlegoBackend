@@ -274,6 +274,7 @@ async def broadcast_new_order(order: Any, exclude_delivery_person_ids: Iterable[
 
     Quien ya tiene una entrega en curso no cuenta: la app trabaja con una sola
     entrega a la vez (myCurrentDelivery) y avisarle mientras reparte es ruido.
+    Tampoco quien no tiene vehículo vinculado, porque no podría aceptarlo.
     Devuelve a cuántos choferes se avisó. Nunca lanza.
     """
     from repositories import branches_repo
@@ -302,6 +303,9 @@ async def broadcast_new_order(order: Any, exclude_delivery_person_ids: Iterable[
         user_ids = []
         for courier in couriers:
             if not getattr(courier, "isActive", True) or str(courier.id) in busy:
+                continue
+            # Sin vehículo no puede aceptarlo (VEHICLE_REQUIRED_MESSAGE): avisarle es ruido.
+            if not getattr(courier, "vehicleType", None):
                 continue
             location = online.get(str(courier.id))
             if location is None and courier.currentLocation:

@@ -149,13 +149,17 @@ def _device(token, bundle_id=None, platform="IOS"):
     )
 
 
-def _courier(courier_id=COURIER_ID, user_id=COURIER_USER_ID, linked=(), location=None, active=True):
+def _courier(
+    courier_id=COURIER_ID, user_id=COURIER_USER_ID, linked=(), location=None, active=True,
+    vehicle="bicicleta",
+):
     return SimpleNamespace(
         id=courier_id,
         userId=user_id,
         linkedBranchIds=list(linked),
         currentLocation=GeoPoint(coordinates=list(location)) if location else None,
         isActive=active,
+        vehicleType=vehicle,
     )
 
 
@@ -334,6 +338,27 @@ def test_broadcast_skips_couriers_already_on_a_delivery(broadcast_env, monkeypat
     assert run(courier_push.broadcast_new_order(_order_with_pickup())) == 1
     assert sorted(broadcast_env.busy.await_args.args[0]) == sorted([free, busy])
     assert broadcast_env.send.await_args.args[0] == ["u-free"]
+
+
+def test_broadcast_skips_couriers_without_vehicle(broadcast_env, monkeypatch):
+    """Sin vehículo vinculado no puede aceptar el pedido (acceptOrderForPayment lo
+    rechaza), así que tampoco se le avisa."""
+    with_vehicle, without = str(ObjectId()), str(ObjectId())
+    monkeypatch.setattr(
+        courier_presence,
+        "fetch_online_couriers_sync",
+        lambda: {with_vehicle: (-82.37, 23.12), without: (-82.37, 23.12)},
+    )
+    monkeypatch.setattr(
+        delivery_persons_repo,
+        "get_by_ids",
+        AsyncMock(return_value=[
+            _courier(with_vehicle, "u-con"), _courier(without, "u-sin", vehicle=None),
+        ]),
+    )
+
+    assert run(courier_push.broadcast_new_order(_order_with_pickup())) == 1
+    assert broadcast_env.send.await_args.args[0] == ["u-con"]
 
 
 def test_busy_couriers_are_the_ones_with_an_active_order(monkeypatch):
