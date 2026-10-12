@@ -85,10 +85,16 @@ La mayoría de resolvers reciben el token como argumento `jwt`, no por cabecera 
 
 ```bash
 pytest tests/ -v
+python scripts/ci/run_tests.py   # como el CI: solo falla ante fallos nuevos
 ```
 
-⚠️ Hay entre 46 y 48 fallos preexistentes no relacionados (Qdrant, `JWT_SECRET` real,
-QvaPay). Compara contra esa línea base, no contra cero.
+⚠️ Hay fallos preexistentes no relacionados (Qdrant, API de Anthropic, tests desactualizados,
+`JWT_SECRET`). Están listados en [`tests/known_failures.txt`](tests/known_failures.txt): compara
+contra esa lista, no contra cero.
+
+El CI (`.github/workflows/ci.yml`) ejecuta esa comparación y, además, compara el schema
+GraphQL del código con el de producción para impedir cambios incompatibles con las apps ya
+publicadas (`python scripts/ci/check_schema_breaking.py`). Detalles en [CLAUDE.md](CLAUDE.md#ci-github-actions).
 
 ## 🔧 Utilidades
 
