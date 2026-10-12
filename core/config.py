@@ -117,6 +117,13 @@ class Settings(BaseSettings):
             if origin.strip()
         ]
 
+    # Secreto compartido con LlegoWeb (misma variable WEB_PROXY_SECRET en los dos
+    # servicios). La web llama al backend desde su servidor y reenvía la IP del
+    # navegador en X-Llego-Client-IP; esa IP solo se usa para el rate limit si la
+    # petición trae este secreto en X-Llego-Proxy-Secret (utils/client_ip.py).
+    # Vacío = nunca se acepta una IP reenviada.
+    web_proxy_secret: str = ""
+
     # Environment
     environment: str = "development"  # "development" or "production"
 

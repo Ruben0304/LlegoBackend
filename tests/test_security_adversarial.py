@@ -361,9 +361,12 @@ class TestTimingAttackSurface(unittest.TestCase):
 
 class TestRateLimitXFFBypass(unittest.TestCase):
     """
-    The GraphQL rate limiter trusts X-Forwarded-For without validation.
-    Any client can forge this header to appear to come from any IP address,
-    effectively bypassing IP-based rate limits.
+    Attack: forge X-Forwarded-For to appear to come from any IP address and
+    bypass IP-based rate limits.
+
+    The GraphQL rate limiter used to key on the first X-Forwarded-For value
+    (client-controlled). It now ignores X-Forwarded-For unless the request
+    carries the shared web proxy secret (utils/client_ip.py).
     """
 
     @classmethod
@@ -396,19 +399,10 @@ class TestRateLimitXFFBypass(unittest.TestCase):
 
         return FakeContext({"user_id": None, "request": req})
 
-    def test_xff_header_overrides_real_client_ip_in_graphql_rate_limiter(self):
+    def test_xff_header_does_not_override_real_client_ip_in_graphql_rate_limiter(self):
         """
-        VULNERABILITY CONFIRMED: the GraphQL rate limiter reads the first IP
-        from X-Forwarded-For and ignores the real TCP connection IP.
-
-        Attack scenario:
-          1. Attacker's real IP: 192.168.1.100 (or a single IP)
-          2. Attacker sends X-Forwarded-For: 10.0.0.1, 10.0.0.2, ... rotating
-          3. Rate limiter keys on 10.0.0.1, 10.0.0.2 ... — never blocks the attacker
-
-        This test PASSES while the vulnerability exists (it confirms the behavior).
-        Fix: only trust X-Forwarded-For if the request comes from a known proxy/
-        load balancer, or use request.client.host exclusively.
+        DEFENSE: the GraphQL rate limiter ignores a client-supplied
+        X-Forwarded-For and keys on the real connection IP.
         """
         from utils.rate_limit import get_identifier_from_context
 
@@ -419,18 +413,13 @@ class TestRateLimitXFFBypass(unittest.TestCase):
 
         identifier = get_identifier_from_context(info_with_xff)
 
-        # The rate limiter keys on the SPOOFED IP — real IP is ignored
-        self.assertIn("10.0.0.1", identifier,
-                      "XFF bypass does not work — rate limiter ignores XFF")
-        self.assertNotIn("192.168.1.100", identifier)
+        self.assertEqual(identifier, "ip:192.168.1.100")
+        self.assertNotIn("10.0.0.1", identifier)
 
-    def test_attacker_can_rotate_ips_to_multiply_rate_limit_allowance(self):
+    def test_attacker_cannot_rotate_ips_to_multiply_rate_limit_allowance(self):
         """
-        VULNERABILITY: by rotating X-Forwarded-For each request, an attacker
-        gets N * rate_limit requests instead of just rate_limit.
-
-        Simulated: 5 requests, each with a different spoofed IP → 5 different
-        rate-limit buckets, none of which is ever exhausted.
+        DEFENSE: rotating X-Forwarded-For on each request keeps the attacker in
+        a single rate-limit bucket (their real IP).
         """
         from utils.rate_limit import get_identifier_from_context
 
@@ -442,31 +431,23 @@ class TestRateLimitXFFBypass(unittest.TestCase):
             )
             identifiers.add(get_identifier_from_context(info))
 
-        # Each request gets a unique rate-limit bucket — all from one real IP
-        self.assertEqual(len(identifiers), 5,
-                         "All 5 requests should appear to come from different IPs")
+        self.assertEqual(identifiers, {"ip:192.168.1.100"})
 
-    def test_first_ip_in_xff_chain_is_used_not_closest_proxy(self):
+    def test_xff_chain_is_ignored_without_proxy_secret(self):
         """
-        ATTACK DETAIL: when multiple IPs appear in X-Forwarded-For (a chain of
-        proxies), the rate limiter uses the FIRST one (client-supplied) not
-        the last one (nearest proxy, harder to spoof).
-
-        X-Forwarded-For: ATTACKER_CONTROLLED, REAL_PROXY_IP
-        The attacker controls the first value.
+        DEFENSE: an X-Forwarded-For chain (ATTACKER_CONTROLLED, PROXY) is not
+        trusted at all without the shared web proxy secret.
         """
         from utils.rate_limit import get_identifier_from_context
 
         info = MagicMock()
-        # xff chain: first IP is attacker-controlled, second is a real proxy
         info.context = self._make_graphql_info(
             xff_ip="1.2.3.4, 10.10.10.10", real_ip="192.168.1.100"
         )
         identifier = get_identifier_from_context(info)
 
-        self.assertIn("1.2.3.4", identifier,
-                      "First (attacker-controlled) IP should be used")
-        self.assertNotIn("10.10.10.10", identifier)
+        self.assertEqual(identifier, "ip:192.168.1.100")
+        self.assertNotIn("1.2.3.4", identifier)
 
 
 # ===========================================================================

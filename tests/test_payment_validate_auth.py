@@ -117,13 +117,12 @@ def _request(headers):
 @pytest.mark.parametrize("scheme", ["bearer", "Bearer", "BEARER"])
 def test_rate_limit_key_uses_user_for_any_bearer_casing(scheme):
     token = create_access_token({"user_id": "u-1", "role": "customer"})
-    with patch("utils.rate_limit.get_remote_address", return_value="10.0.0.1"):
-        key = get_user_or_ip(_request({"Authorization": f"{scheme} {token}"}))
+    key = get_user_or_ip(_request({"Authorization": f"{scheme} {token}"}))
 
     assert key == "user:u-1"
 
 
 @pytest.mark.parametrize("headers", [{}, {"Authorization": "bearer garbage"}, {"Authorization": "Basic abc"}])
 def test_rate_limit_key_falls_back_to_ip(headers):
-    with patch("utils.rate_limit.get_remote_address", return_value="10.0.0.1"):
-        assert get_user_or_ip(_request(headers)) == "ip:10.0.0.1"
+    # Sin X-Real-IP ni secreto de la web, la IP es la de la conexión.
+    assert get_user_or_ip(_request(headers)) == "ip:10.0.0.1"

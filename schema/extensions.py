@@ -9,6 +9,7 @@ from core.sandbox import is_sandbox
 from services.courier_access import COURIER_NOT_APPROVED
 from services.error_analysis_service import error_analysis_service, sanitize_sensitive_data
 from domain.error_logs import ErrorSource
+from utils.client_ip import get_client_ip
 
 # Errores esperados del flujo normal, no fallos del backend: no se registran en
 # error_logs ni se mandan a analizar (cada análisis acaba en un push a los
@@ -75,12 +76,8 @@ class ErrorLoggingExtension(SchemaExtension):
             endpoint = "/graphql"
 
             if request:
-                # Get client IP
-                forwarded = request.headers.get("x-forwarded-for")
-                if forwarded:
-                    client_ip = forwarded.split(",")[0].strip()
-                elif request.client:
-                    client_ip = request.client.host
+                # Misma regla que el rate limit: no el X-Forwarded-For del cliente.
+                client_ip = get_client_ip(request)
 
                 user_agent = request.headers.get("user-agent")
 

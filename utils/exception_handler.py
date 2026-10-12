@@ -7,25 +7,12 @@ from fastapi.responses import JSONResponse
 
 from services.error_analysis_service import sanitize_sensitive_data
 from domain.error_logs import ErrorSource
+from utils.client_ip import get_client_ip as client_ip_from_request
 
 
 def get_client_ip(request: Request) -> str:
-    """Extract client IP from request, handling proxies."""
-    # Check X-Forwarded-For header (common with proxies/load balancers)
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    
-    # Check X-Real-IP header
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip:
-        return real_ip
-    
-    # Fall back to direct client
-    if request.client:
-        return request.client.host
-    
-    return "unknown"
+    """IP del cliente para el log de errores (misma regla que el rate limit)."""
+    return client_ip_from_request(request)
 
 
 def get_user_id_from_request(request: Request) -> Optional[str]:
