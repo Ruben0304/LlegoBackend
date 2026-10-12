@@ -15,8 +15,11 @@ límite por IP no frenaba a nadie. Ahora el orden es:
    (`*.railway.internal`) las dos llegan intactas.
 2. **`X-Real-IP`**: la pone el edge de Railway con la IP remota del cliente en
    cada petición HTTP (documentado en Railway, "Specs & Limits" de Public
-   Networking) y la sobrescribe si el cliente la manda. Por la red privada no
-   pasa por el edge, pero ahí solo llegan servicios del propio proyecto.
+   Networking). Que la sobrescriba si el cliente la manda NO está en la
+   documentación: lo afirman moderadores de Railway en su foro (Central
+   Station), y hay un usuario que reporta lo contrario. Hay que comprobarlo en
+   producción (context.md §6). Por la red privada no pasa por el edge, pero ahí
+   solo llegan servicios del propio proyecto.
 3. **`request.client.host`**: conexión TCP directa (local, tests).
 
 Sin `WEB_PROXY_SECRET` configurado (por defecto) el paso 1 no existe: nunca se

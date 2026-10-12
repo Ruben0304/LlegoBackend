@@ -404,9 +404,14 @@ cubo nuevo (§12.14). Orden:
    el dominio público. **Sin `WEB_PROXY_SECRET` (default) nunca se acepta una IP
    reenviada.** El valor tiene que ser el mismo en las variables de los dos servicios.
 2. **`X-Real-IP`**: Railway la pone en el edge con la IP remota del cliente en cada petición
-   HTTP y sobrescribe la que mande el cliente (docs de Railway, Public Networking → Specs &
-   Limits). Por la red privada (`*.railway.internal`) no hay edge, pero ahí solo llegan
-   servicios del proyecto.
+   HTTP (docs de Railway, Public Networking → Specs & Limits). Que el edge **sobrescriba** la
+   que mande el cliente no está en la documentación: lo afirman moderadores de Railway en
+   Central Station y un usuario reporta lo contrario. **Pendiente de comprobar en
+   producción** tras desplegar: 45 peticiones anónimas seguidas de `{ tutorials { id } }`
+   (límite `graphql`, 40/min) cambiando `X-Real-IP` en cada una tienen que acabar en error de
+   rate limit hacia la 41; si pasan todas, el edge no la sobrescribe y esta regla no sirve.
+   Por la red privada (`*.railway.internal`) no hay edge, pero ahí solo llegan servicios del
+   proyecto.
 3. **`request.client.host`** (conexión directa: local, tests). Detrás del edge suele ser la
    IP del proxy, compartida por todos; por eso no se usa `get_remote_address` de slowapi.
 
