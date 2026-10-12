@@ -74,8 +74,7 @@ docs/_build/
 profile_default/
 ipython_config.py
 
-# pyenv
-.python-version
+# pyenv: .python-version SÍ se versiona (fija Python 3.12 para local, CI y Railway)
 
 # pipenv
 Pipfile.lock

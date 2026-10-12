@@ -696,7 +696,7 @@ confirmado.
   `general_response`), luego generación de respuesta. Expuesto por `aiChat` y por una
   subscription de streaming.
 - **RAG**: `services/ai_rag_service.py`. Se usan Gemini y Anthropic (`anthropic_model`
-  en config); `openai` también está en `requirements.txt`.
+  en config); `openai` también está en `requirements.in` (y en el lock `requirements.txt`).
 - **Cuotas**: `services/ai_quota_service.py`, límites `ai_free_lifetime_limit` /
   `ai_pro_monthly_limit`, con tracking anónimo por cabecera `x-device-id`.
 - **Feed y ranking**: `feed_service.py`, `scoring_service.py`, `reranking_service.py`,

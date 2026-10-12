@@ -38,7 +38,13 @@ python scripts/ci/check_schema_breaking.py   # schema del código vs producción
 python scripts/export_schema.py
 ```
 
-Entorno: `python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`
+Entorno (Python 3.12, fijado en `.python-version`): `python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`
+
+Dependencias: `requirements.in` tiene los rangos (es lo que se edita) y `requirements.txt` es el
+lock con versiones exactas que instalan local, CI y Railway. Para añadir o actualizar una:
+edita `requirements.in` y regenera con
+`pip install pip-tools && pip-compile --strip-extras --no-emit-index-url --output-file requirements.txt requirements.in`
+(`--upgrade-package <paquete>` para subir solo uno). No edites `requirements.txt` a mano.
 
 ## CI (GitHub Actions)
 
