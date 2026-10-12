@@ -1,0 +1,54 @@
+# Fallos conocidos de la suite de pytest (línea base de la Fase 2b).
+#
+# scripts/ci/run_tests.py falla solo ante fallos que NO estén aquí. La lista debe ir
+# encogiendo: cuando arregles un test, quítalo; el runner avisa de los que ya pasan.
+#
+# Formato: un nodeid de pytest por línea. Una línea con `*` es un patrón (`tests/x.py::*`
+# permite todo el archivo). Se admite el prefijo `FAILED ` de la salida de pytest y los
+# comentarios `#` (los de final de línea van tras dos espacios).
+#
+# Punto de partida: la ejecución de referencia de la Fase 2b (35 fallos, 796 pasan, 81 omitidos).
+# De ella se quitaron los 10 tests de JWT (test_security*.py): fallaban solo porque el entorno
+# no definía JWT_SECRET, y el workflow ya define uno de prueba, con el que pasan.
+
+# ── A. Dependen de servicios externos, de la red o de la máquina (inestables) ───────────
+# Se permite el archivo entero porque su resultado cambia con el entorno, no con el código.
+
+# Llaman a la API real de Anthropic: sin ANTHROPIC_API_KEY ni red fallan siempre en CI.
+tests/test_anthropic_migration.py::*
+
+# Rendimiento / e2e del feed: dependen de la máquina y de datos reales.
+tests/test_feed_e2e_performance.py::*
+
+# Exigen un Qdrant con datos en localhost:6333 y miden tiempos de búsqueda.
+tests/test_qdrant.py::*
+
+# ── B. Fallos deterministas preexistentes (pendientes de arreglar) ──────────────────────
+
+# Tests desactualizados: el pedido ya no está en un estado que permita el pago
+# ("El pedido no está en un estado que permita pago: accepted").
+tests/test_cash_kyc_integration.py::test_cash_with_kyc_off_allows_cash_uncovered
+tests/test_cash_kyc_integration.py::test_cash_with_kyc_on_and_reusable_approved
+tests/test_cash_kyc_integration.py::test_non_cash_flow_regression_transfer_still_awaits_proof
+
+# Tests desactualizados: ComboSlotType ya no acepta el argumento `isRequired`.
+tests/test_combo_pricing.py::test_starting_base_price_multiple_selections
+tests/test_combo_pricing.py::test_starting_base_price_optional_slot
+tests/test_combo_pricing.py::test_starting_base_price_simple_combo
+tests/test_combo_pricing.py::test_starting_base_price_with_price_adjustment
+tests/test_combo_pricing.py::test_starting_final_price_with_fixed_discount
+tests/test_combo_pricing.py::test_starting_final_price_with_percentage_discount
+tests/test_combo_pricing.py::test_starting_savings
+
+# "RuntimeError: Event loop is closed": usan el cliente global de Mongo (motor), que queda
+# ligado al bucle de eventos de otro test ya cerrado.
+tests/test_feed_para_ti_scoring.py::test_basado_busquedas_prioritizes_search_affinity_over_global_popularity
+tests/test_feed_para_ti_scoring.py::test_para_ti_prioritizes_affinity_and_filters_by_radius
+tests/test_feed_para_ti_scoring.py::test_te_podria_gustar_prioritizes_adjacent_affinity_without_repeating
+
+# Son scripts manuales (`python tests/test_qvapay_webhook.py`) que apuntan a un backend en
+# localhost:8000; como tests son `async def` sin marcador de pytest-asyncio. Candidatos a
+# moverse a scripts/ o a convertirse en tests reales.
+tests/test_qvapay_webhook.py::test_cancel_callback
+tests/test_qvapay_webhook.py::test_success_callback
+tests/test_qvapay_webhook.py::test_webhook
