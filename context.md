@@ -205,12 +205,20 @@ app distribuida la puede extraer cualquiera.
   - Relay (`edges` + `pageInfo`, cursores) en [schema/pagination.py](schema/pagination.py) → búsqueda y browse público.
   - Offset (`rows` + `totalCount` + `hasMore`) → listados de admin.
 - Errores: `raise Exception("mensaje en español")`. No hay jerarquía de errores tipados.
-- `ErrorLoggingExtension` ([schema/extensions.py:35](schema/extensions.py:35)) captura toda excepción no
+- `ErrorLoggingExtension` ([schema/extensions.py:133](schema/extensions.py:133)) captura toda excepción no
   controlada, la guarda en `error_logs` y lanza un análisis con Gemini en background (que
   acaba en un push a los admins). Se salta los errores esperados de
-  `EXPECTED_ERROR_PREFIXES` ([:17](schema/extensions.py:17)): hoy solo `COURIER_NOT_APPROVED`, que la
+  `EXPECTED_ERROR_PREFIXES` ([:19](schema/extensions.py:19)): hoy solo `COURIER_NOT_APPROVED`, que la
   app de mensajeros de un usuario sin aprobar recibe en cada sondeo.
-- `LastSeenExtension` ([schema/extensions.py:121](schema/extensions.py:121)) escribe `users.lastSeenAt`, throttled a
+- `MaskUnexpectedErrors` ([schema/extensions.py:96](schema/extensions.py:96)) sustituye por "Error interno. Inténtalo de nuevo en unos
+  minutos." los errores de **fallo interno** (`should_mask_error`, [:83](schema/extensions.py:83)): `AttributeError`,
+  `KeyError`, `TypeError`, Mongo/BSON, `ValidationError` de pydantic, red/`OSError`… y los
+  `Exception("…{e}")` que repiten el texto de uno de ellos. Los mensajes de negocio
+  (`Exception`/`ValueError`/`RuntimeError` con texto propio, `CourierNotApprovedError`…) y los
+  errores de validación de la query llegan igual. Conserva `original_error`, así que
+  `ErrorLoggingExtension` sigue registrando el fallo real. Si añades un error de negocio con
+  un tipo de la lista (p. ej. `KeyError`), lánzalo como `ValueError` o no llegará al cliente.
+- `LastSeenExtension` ([schema/extensions.py:215](schema/extensions.py:215)) escribe `users.lastSeenAt`, throttled a
   una vez por hora por usuario. Es la **única** señal de actividad que tiene el backend:
   el login no escribe nada y el JWT es stateless. El tráfico REST no pasa por aquí.
 
