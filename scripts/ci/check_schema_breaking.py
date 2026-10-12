@@ -52,13 +52,20 @@ from graphql import (
 )
 
 DEFAULT_URL = "https://llegobackend-production.up.railway.app/graphql"
+
+# Consultas de introspección, de la más completa a la básica. La primera incluye los
+# argumentos y campos de input deprecados; la segunda es el respaldo por si el servidor
+# (graphql-core < 3.2) no entiende esa variante.
+INTROSPECTION_QUERIES = (
+    get_introspection_query(descriptions=False, input_value_deprecation=True),
+    get_introspection_query(descriptions=False),
+)
 ROOT = Path(__file__).resolve().parents[2]
 TRUTHY = {"1", "true", "yes", "si", "sí"}
 
 
 def fetch_production_schema(url: str, timeout: float, retries: int) -> GraphQLSchema:
     """Descarga el schema de producción por introspección, con reintentos."""
-    body = json.dumps({"query": get_introspection_query(descriptions=False)}).encode()
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
@@ -67,9 +74,16 @@ def fetch_production_schema(url: str, timeout: float, retries: int) -> GraphQLSc
     last_error = "sin detalle"
     for attempt in range(1, retries + 1):
         try:
-            request = urllib.request.Request(url, data=body, headers=headers, method="POST")
-            with urllib.request.urlopen(request, timeout=timeout) as response:
-                payload = json.load(response)
+            # Se piden también los argumentos y campos de input deprecados: sin eso la
+            # introspección los omite y un argumento deprecado (pero aún válido) daría un
+            # falso "Unknown argument". Si el servidor rechaza esa variante, se usa la básica.
+            for query in INTROSPECTION_QUERIES:
+                body = json.dumps({"query": query}).encode()
+                request = urllib.request.Request(url, data=body, headers=headers, method="POST")
+                with urllib.request.urlopen(request, timeout=timeout) as response:
+                    payload = json.load(response)
+                if not payload.get("errors"):
+                    break
             if payload.get("errors") or not payload.get("data"):
                 raise RuntimeError(
                     "respuesta sin schema (¿introspección desactivada?): "
