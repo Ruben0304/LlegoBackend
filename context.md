@@ -346,6 +346,12 @@ la config inicial (versiones `0.0.0`, sin mantenimiento) y aplica los cambios. A
 bloquea si la versión instalada < `minVersion`, muestra mantenimiento si `enabled` y avisa
 si < `currentVersion`; si la query falla, no bloquea.
 
+`platformFeatures` (pública, sin documento propio) dice si QvaPay, USDT y el KYC de efectivo
+están activos en la plataforma: los dos primeros si su `method` está en
+`ENABLED_PAYMENT_METHOD_TYPES` **y** en `ENABLED_DIGITAL_PROVIDER_CODES` (lo mismo que exige
+`initiatePayment`), el KYC si `CASH_KYC_FEATURE_ENABLED`. LlegoBusiness oculta esos ajustes de
+la sucursal mientras estén apagados; al activarlos aparecen sin publicar una versión nueva.
+
 ---
 
 ## 6. REST

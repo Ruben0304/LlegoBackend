@@ -89,3 +89,22 @@ def courier_app_config_to_type(config) -> CourierAppConfigType:
         changelog=config.changelog,
         release_date=config.releaseDate
     )
+
+
+@strawberry.type
+class PlatformFeaturesType:
+    """Funciones que dependen de la configuración del backend, no de cada sucursal.
+
+    La app de negocios las usa para mostrar u ocultar ajustes que hoy no tendrían
+    efecto (p. ej. activar QvaPay en una sucursal mientras QvaPay está apagado).
+    """
+
+    qvapay_enabled: bool = strawberry.field(
+        name="qvapayEnabled", description="QvaPay se ofrece a los clientes"
+    )
+    usdt_enabled: bool = strawberry.field(
+        name="usdtEnabled", description="USDT (TronDealer) se ofrece a los clientes"
+    )
+    cash_kyc_enabled: bool = strawberry.field(
+        name="cashKycEnabled", description="La verificación de identidad para pagos en efectivo está activa"
+    )
