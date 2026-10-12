@@ -2,6 +2,20 @@
 
 ---
 
+## 📅 12 de Octubre, 2026
+
+### Resumen de cambios (últimas 24h)
+
+Sin commits de código nuevos. No hay cambios en producción en LlegoBackend hoy.
+
+---
+
+### Puede dar bateo
+
+Sin cambios nuevos — sin riesgos nuevos. Se mantienen las consideraciones del 10 de octubre (guard de vehículo en `acceptOrderForPayment` sin mensaje claro, race condition vehículo vs. aceptación, mensajeros existentes sin vehículo que no pueden aceptar pedidos, código downstream que asume `vehicle` siempre presente, pedidos en curso si se retira el vehículo durante la entrega).
+
+---
+
 ## 📅 11 de Octubre, 2026
 
 ### Resumen de cambios (últimas 24h)
@@ -117,18 +131,4 @@ Commit de merge. No hay descripción de los cambios incluidos en la rama; requie
 
 ---
 
-## 📅 4 de Octubre, 2026
-
-### Resumen de cambios (últimas 24h)
-
-Sin commits de código nuevos. No hay cambios en producción en LlegoBackend hoy.
-
----
-
-### Puede dar bateo
-
-Sin cambios nuevos — sin riesgos nuevos. Se mantienen las consideraciones del 3 de octubre (auth de subscriptions, estado `UNDERPAID`, `WEB_AUTH_CALLBACK_URLS`, transacciones con `NameError`, `zoneinfo`/`pytz`, rate limit con `bearer` minúscula, `predefinedDeliveryFee`, `branchOrderUpdated` + `UNDERPAID` circular, timeout del proxy, `require_admin_user_from_header`).
-
----
-
-> ⚠️ **Nota de mantenimiento**: Las entradas del **3 de Octubre** y anteriores fueron eliminadas el 11 de Octubre al superar los 7 días de antigüedad (política de retención semanal).
+> ⚠️ **Nota de mantenimiento**: Las entradas del **4 de Octubre** y anteriores fueron eliminadas el 12 de Octubre al superar los 7 días de antigüedad (política de retención semanal).
