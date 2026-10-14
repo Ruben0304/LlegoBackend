@@ -3,18 +3,116 @@ import asyncio
 import time
 import traceback
 from datetime import datetime
-from strawberry.extensions import SchemaExtension
+from graphql import GraphQLError
+from strawberry.extensions import MaskErrors, SchemaExtension
 
 from core.sandbox import is_sandbox
 from services.courier_access import COURIER_NOT_APPROVED
 from services.error_analysis_service import error_analysis_service, sanitize_sensitive_data
 from domain.error_logs import ErrorSource
+from utils.client_ip import get_client_ip
 
 # Errores esperados del flujo normal, no fallos del backend: no se registran en
 # error_logs ni se mandan a analizar (cada análisis acaba en un push a los
 # admins). COURIER_NOT_APPROVED lo recibe en cada sondeo la app de mensajeros de
 # un usuario sin aprobar (services/courier_access.py).
 EXPECTED_ERROR_PREFIXES = (COURIER_NOT_APPROVED,)
+
+
+# ---------------------------------------------------------------------------
+# Enmascarar errores inesperados
+#
+# Los resolvers devuelven al cliente el texto de la excepción. Para los mensajes de
+# negocio ("No autorizado", "Ya tienes un pedido en curso"...) es lo que se quiere,
+# pero un fallo interno (AttributeError, KeyError, un error de Mongo o de red...)
+# puede llevar nombres de campos, rutas o datos internos. Esos se sustituyen por un
+# mensaje genérico; el resto llega igual que antes.
+#
+# A diferencia de strawberry.extensions.MaskErrors, se conserva `original_error` en
+# el error enmascarado: ErrorLoggingExtension lo usa (en on_request_end, que corre
+# después) para registrar el fallo real en error_logs.
+# ---------------------------------------------------------------------------
+
+UNEXPECTED_ERROR_MESSAGE = "Error interno. Inténtalo de nuevo en unos minutos."
+
+
+def _unexpected_error_types() -> tuple:
+    types = [
+        AttributeError, KeyError, IndexError, TypeError, NameError,
+        ZeroDivisionError, AssertionError, RecursionError, UnicodeError, OSError,
+    ]
+    try:  # errores de MongoDB/BSON
+        from pymongo.errors import PyMongoError
+        from bson.errors import BSONError
+        types += [PyMongoError, BSONError]
+    except ImportError:  # pragma: no cover
+        pass
+    try:  # validación de modelos (es subclase de ValueError: hay que nombrarla)
+        from pydantic import ValidationError
+        types.append(ValidationError)
+    except ImportError:  # pragma: no cover
+        pass
+    try:  # llamadas HTTP salientes
+        import httpx
+        types.append(httpx.HTTPError)
+    except ImportError:  # pragma: no cover
+        pass
+    import json
+    types.append(json.JSONDecodeError)
+    return tuple(types)
+
+
+UNEXPECTED_ERROR_TYPES = _unexpected_error_types()
+
+
+def _leaks_unexpected_error(error: BaseException) -> bool:
+    """Un `Exception("Error al crear: {e}")` que envuelve un fallo interno y repite su texto."""
+    message = str(error)
+    seen = set()
+    inner = error.__cause__ or error.__context__
+    while inner is not None and id(inner) not in seen:
+        seen.add(id(inner))
+        if isinstance(inner, UNEXPECTED_ERROR_TYPES):
+            inner_text = str(inner)
+            if inner_text and inner_text in message:
+                return True
+        inner = inner.__cause__ or inner.__context__
+    return False
+
+
+def should_mask_error(error: GraphQLError) -> bool:
+    """True si el error es un fallo interno y su texto no debe llegar al cliente.
+
+    Los errores sin original_error (validación de la query, sintaxis) no se tocan.
+    """
+    original = error.original_error
+    if original is None:
+        return False
+    if isinstance(original, UNEXPECTED_ERROR_TYPES):
+        return True
+    return _leaks_unexpected_error(original)
+
+
+class MaskUnexpectedErrors(MaskErrors):
+    """MaskErrors que conserva el error original para el log (ver arriba)."""
+
+    def __init__(self, *, execution_context=None) -> None:
+        # Strawberry instancia las extensiones registradas como clase en cada petición
+        # (una por operación, sin estado compartido entre peticiones concurrentes).
+        super().__init__(should_mask_error=should_mask_error, error_message=UNEXPECTED_ERROR_MESSAGE)
+        if execution_context is not None:
+            self.execution_context = execution_context
+
+    def anonymise_error(self, error: GraphQLError) -> GraphQLError:
+        return GraphQLError(
+            message=self.error_message,
+            nodes=error.nodes,
+            source=error.source,
+            positions=error.positions,
+            path=error.path,
+            original_error=error.original_error,
+            extensions={},
+        )
 
 
 class UserIdExtension(SchemaExtension):
@@ -75,12 +173,8 @@ class ErrorLoggingExtension(SchemaExtension):
             endpoint = "/graphql"
 
             if request:
-                # Get client IP
-                forwarded = request.headers.get("x-forwarded-for")
-                if forwarded:
-                    client_ip = forwarded.split(",")[0].strip()
-                elif request.client:
-                    client_ip = request.client.host
+                # Misma regla que el rate limit: no el X-Forwarded-For del cliente.
+                client_ip = get_client_ip(request)
 
                 user_agent = request.headers.get("user-agent")
 

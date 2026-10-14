@@ -6,7 +6,6 @@ from typing import Optional
 from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
 from slowapi import Limiter
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 # In-memory fallback counters used when Redis is unavailable.
@@ -16,6 +15,7 @@ _memory_lock = threading.Lock()
 
 from core.config import settings
 from utils.auth import decode_access_token
+from utils.client_ip import get_client_ip
 
 
 # =============================================================================
@@ -157,18 +157,11 @@ def get_identifier_from_context(info) -> str:
     if user_id:
         return f"user:{user_id}"
     
-    # Fallback to IP
-    request = context.get("request")
-    if request:
-        # Get real IP (considering proxies)
-        forwarded = request.headers.get("x-forwarded-for")
-        if forwarded:
-            ip = forwarded.split(",")[0].strip()
-        else:
-            ip = request.client.host if request.client else "unknown"
-        return f"ip:{ip}"
-    
-    return "ip:unknown"
+    # Sin usuario: por IP. Nunca el X-Forwarded-For del cliente (falsificable:
+    # rotándolo se saltaba el límite); ver utils/client_ip.py. Las subscriptions
+    # traen el WebSocket en lugar del request.
+    request = context.get("request") or context.get("websocket")
+    return f"ip:{get_client_ip(request)}"
 
 
 def rate_limit_graphql(info, limit_type: str = "graphql"):
@@ -203,7 +196,10 @@ def get_user_or_ip(request: Request) -> str:
         if payload and "user_id" in payload:
             return f"user:{payload['user_id']}"
     
-    return f"ip:{get_remote_address(request)}"
+    # Misma IP que el rate limit de GraphQL. get_remote_address de slowapi
+    # (request.client.host) detrás del edge de Railway suele ser la IP del
+    # proxy, compartida por todos los clientes.
+    return f"ip:{get_client_ip(request)}"
 
 
 # Create limiter for REST endpoints

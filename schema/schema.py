@@ -26,7 +26,7 @@ from .combos.mutations import ComboMutation
 from .combos.queries import ComboQuery
 from .error_logs.mutations import ErrorLogMutation
 from .error_logs.queries import ErrorLogQuery
-from .extensions import ErrorLoggingExtension, LastSeenExtension, UserIdExtension
+from .extensions import ErrorLoggingExtension, LastSeenExtension, MaskUnexpectedErrors, UserIdExtension
 from .favorites_cart.mutations import FavoritesCartMutation
 from .feed.mutations import FeedMutation
 from .feed.queries import FeedQuery
@@ -152,5 +152,5 @@ schema = strawberry.Schema(
     query=Query,
     mutation=Mutation,
     subscription=Subscription,
-    extensions=[UserIdExtension, ErrorLoggingExtension, LastSeenExtension],
+    extensions=[UserIdExtension, ErrorLoggingExtension, LastSeenExtension, MaskUnexpectedErrors],
 )

@@ -55,15 +55,16 @@ busques aquí.
 
 ### Variables de entorno
 
-Obligatorias (sin default — la app no arranca sin ellas), [core/config.py:12](core/config.py:12), [:27](core/config.py:27), [:188](core/config.py:188):
+Obligatorias (sin default — la app no arranca sin ellas), [core/config.py:12](core/config.py:12), [:27](core/config.py:27), [:195](core/config.py:195):
 `MONGODB_URL`, `GEMINI_API_KEY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
 `AWS_DEFAULT_REGION`, `AWS_ENDPOINT_URL`, `S3_BUCKET_NAME`.
 
 El resto tiene default y está agrupado en [core/config.py](core/config.py): Qdrant (`:15`), IA y
 cuotas (`:26`), cash-KYC (`:33`), feature flags de rollout (`:41`), auth (`:64`),
 push APNs/FCM (`:72`), Apple web + `WEB_AUTH_CALLBACK_URLS` (`:85`, ver §6), CORS (`:107`),
-Redis y caché (`:123`), Stripe (`:149`), QvaPay (`:154`), TronDealer (`:170`),
-comisiones (`:178`), `ADMIN_API_KEY` (`:185`).
+`WEB_PROXY_SECRET` (`:120`, secreto compartido con LlegoWeb, ver §6 "IP del cliente"),
+Redis y caché (`:130`), Stripe (`:156`), QvaPay (`:161`), TronDealer (`:177`),
+comisiones (`:185`), `ADMIN_API_KEY` (`:192`).
 
 ---
 
@@ -204,12 +205,20 @@ app distribuida la puede extraer cualquiera.
   - Relay (`edges` + `pageInfo`, cursores) en [schema/pagination.py](schema/pagination.py) → búsqueda y browse público.
   - Offset (`rows` + `totalCount` + `hasMore`) → listados de admin.
 - Errores: `raise Exception("mensaje en español")`. No hay jerarquía de errores tipados.
-- `ErrorLoggingExtension` ([schema/extensions.py:35](schema/extensions.py:35)) captura toda excepción no
+- `ErrorLoggingExtension` ([schema/extensions.py:133](schema/extensions.py:133)) captura toda excepción no
   controlada, la guarda en `error_logs` y lanza un análisis con Gemini en background (que
   acaba en un push a los admins). Se salta los errores esperados de
-  `EXPECTED_ERROR_PREFIXES` ([:17](schema/extensions.py:17)): hoy solo `COURIER_NOT_APPROVED`, que la
+  `EXPECTED_ERROR_PREFIXES` ([:19](schema/extensions.py:19)): hoy solo `COURIER_NOT_APPROVED`, que la
   app de mensajeros de un usuario sin aprobar recibe en cada sondeo.
-- `LastSeenExtension` ([schema/extensions.py:121](schema/extensions.py:121)) escribe `users.lastSeenAt`, throttled a
+- `MaskUnexpectedErrors` ([schema/extensions.py:96](schema/extensions.py:96)) sustituye por "Error interno. Inténtalo de nuevo en unos
+  minutos." los errores de **fallo interno** (`should_mask_error`, [:83](schema/extensions.py:83)): `AttributeError`,
+  `KeyError`, `TypeError`, Mongo/BSON, `ValidationError` de pydantic, red/`OSError`… y los
+  `Exception("…{e}")` que repiten el texto de uno de ellos. Los mensajes de negocio
+  (`Exception`/`ValueError`/`RuntimeError` con texto propio, `CourierNotApprovedError`…) y los
+  errores de validación de la query llegan igual. Conserva `original_error`, así que
+  `ErrorLoggingExtension` sigue registrando el fallo real. Si añades un error de negocio con
+  un tipo de la lista (p. ej. `KeyError`), lánzalo como `ValueError` o no llegará al cliente.
+- `LastSeenExtension` ([schema/extensions.py:215](schema/extensions.py:215)) escribe `users.lastSeenAt`, throttled a
   una vez por hora por usuario. Es la **única** señal de actividad que tiene el backend:
   el login no escribe nada y el JWT es stateless. El tráfico REST no pasa por aquí.
 
@@ -337,6 +346,12 @@ la config inicial (versiones `0.0.0`, sin mantenimiento) y aplica los cambios. A
 bloquea si la versión instalada < `minVersion`, muestra mantenimiento si `enabled` y avisa
 si < `currentVersion`; si la query falla, no bloquea.
 
+`platformFeatures` (pública, sin documento propio) dice si QvaPay, USDT y el KYC de efectivo
+están activos en la plataforma: los dos primeros si su `method` está en
+`ENABLED_PAYMENT_METHOD_TYPES` **y** en `ENABLED_DIGITAL_PROVIDER_CODES` (lo mismo que exige
+`initiatePayment`), el KYC si `CASH_KYC_FEATURE_ENABLED`. LlegoBusiness oculta esos ajustes de
+la sucursal mientras estén apagados; al activarlos aparecen sin publicar una versión nueva.
+
 ---
 
 ## 6. REST
@@ -385,6 +400,39 @@ Cualquier otro valor → 400 y no se crea `state`. Antes aceptaba cualquier esqu
 LlegoWeb aún llama a `/apple/start` sin parámetro (vuelve a `llego://`) y LlegoBusiness
 Android tampoco pasa `redirect_scheme=llegobusiness`; tienen que pasarlo para volver a su
 app/web.
+
+### IP del cliente y rate limit
+
+El rate limit por IP (GraphQL `rate_limit_graphql` y el `key_func` REST `get_user_or_ip`,
+[utils/rate_limit.py](utils/rate_limit.py)) y la IP de los logs de errores salen de
+`get_client_ip` ([utils/client_ip.py](utils/client_ip.py)). **Nunca** del `X-Forwarded-For`
+que manda el cliente: antes se usaba su primer valor y, rotándolo, cada petición caía en un
+cubo nuevo (§12.14). Orden:
+
+1. **LlegoWeb con secreto.** La web llama al backend desde su servidor (proxy
+   `/api/graphql`, login social), así que el backend vería la IP del servidor de la web y
+   todos sus visitantes compartirían cubo. La web reenvía la IP del navegador en
+   `X-Llego-Client-IP` (y en `X-Forwarded-For`) con `X-Llego-Proxy-Secret`; solo se usa si
+   ese secreto coincide con `WEB_PROXY_SECRET` (`hmac.compare_digest`). Se prefiere la
+   cabecera propia porque el edge de Railway reescribe `X-Forwarded-For` si la web entra por
+   el dominio público. **Sin `WEB_PROXY_SECRET` (default) nunca se acepta una IP
+   reenviada.** El valor tiene que ser el mismo en las variables de los dos servicios.
+2. **`X-Real-IP`**: Railway la pone en el edge con la IP remota del cliente en cada petición
+   HTTP (docs de Railway, Public Networking → Specs & Limits). Que el edge **sobrescriba** la
+   que mande el cliente no está en la documentación: lo afirman moderadores de Railway en
+   Central Station y un usuario reporta lo contrario. **Pendiente de comprobar en
+   producción** tras desplegar: 45 peticiones anónimas seguidas de `{ tutorials { id } }`
+   (límite `graphql`, 40/min) cambiando `X-Real-IP` en cada una tienen que acabar en error de
+   rate limit hacia la 41; si pasan todas, el edge no la sobrescribe y esta regla no sirve.
+   Por la red privada (`*.railway.internal`) no hay edge, pero ahí solo llegan servicios del
+   proyecto.
+3. **`request.client.host`** (conexión directa: local, tests). Detrás del edge suele ser la
+   IP del proxy, compartida por todos; por eso no se usa `get_remote_address` de slowapi.
+
+Las subscriptions toman la IP del WebSocket. Sigue leyendo el primer `X-Forwarded-For` la
+lista blanca opcional de IPs del webhook de TronDealer
+([api/endpoints/trondealer_webhooks.py:50](api/endpoints/trondealer_webhooks.py:50)); no se tocó
+porque es de la wallet (fuera del MVP) y el webhook exige además la firma HMAC.
 
 ---
 
@@ -868,6 +916,14 @@ arreglaron en la rama `fix/f1-backend-seguridad` (con tests); el resto siguen ab
       Reintentar sobre un pedido ya asignado sigue siendo idempotente.
     - "Nuevo pedido disponible" no se envía a mensajeros sin vehículo.
     Así `SIN_VEHICULO` solo aparece en pedidos asignados antes de la regla.
+
+14. ✅ **Resuelto — el rate limit por IP se saltaba falsificando `X-Forwarded-For`.**
+    `get_identifier_from_context` usaba el primer valor de esa cabecera, que escribe el
+    cliente: rotándolo, cada petición anónima tenía su propio cubo. Y el `key_func` REST
+    usaba `request.client.host`, que detrás de Railway es la IP del proxy (un cubo para
+    todos). Ahora los dos usan `get_client_ip` (§6 "IP del cliente y rate limit"), con
+    tests en `tests/test_client_ip.py`; los de `TestRateLimitXFFBypass`
+    (`tests/test_security_adversarial.py`) pasan a comprobar la defensa.
 
 ---
 
