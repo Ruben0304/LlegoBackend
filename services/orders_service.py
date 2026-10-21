@@ -72,6 +72,9 @@ from utils.currency import branch_accepts_currency, normalize_currency
 
 logger = logging.getLogger(__name__)
 
+# Intentos fallidos del código de entrega por pedido antes de bloquearlo
+MAX_DELIVERY_CODE_ATTEMPTS = 5
+
 
 class OrderValidationError(ValueError):
     """Business validation error with stable GraphQL error code."""
@@ -2517,7 +2520,20 @@ class OrderService:
         provided_code = (delivery_code or "").strip()
         if not expected_code:
             raise ValueError("No hay codigo de entrega generado para este pedido")
+        # Máximo de intentos por pedido: antes se podía probar el código a fuerza bruta
+        # (300 intentos en 4 s). Colección aparte para no tocar el modelo Order.
+        from clients.mongodb_client import get_database
+
+        intentos = get_database()["delivery_code_attempts"]
+        registro = await intentos.find_one({"_id": str(order_id)}) or {}
+        if registro.get("failed", 0) >= MAX_DELIVERY_CODE_ATTEMPTS:
+            raise ValueError(
+                "Demasiados intentos con el código de entrega. Pide ayuda a soporte."
+            )
         if provided_code != expected_code:
+            await intentos.update_one(
+                {"_id": str(order_id)}, {"$inc": {"failed": 1}}, upsert=True
+            )
             raise ValueError("Codigo de entrega incorrecto")
 
         # Complete delivery

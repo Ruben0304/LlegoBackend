@@ -53,6 +53,13 @@ class AuthRepository:
         """Get a user by email."""
         db = get_database()
         user_data = await db[self.collection_name].find_one({"email": email})
+        if not user_data and email:
+            # Sin distinguir mayúsculas: «Ana@x.com» y «ana@x.com» son la misma cuenta
+            import re
+
+            user_data = await db[self.collection_name].find_one(
+                {"email": {"$regex": f"^{re.escape(email.strip())}$", "$options": "i"}}
+            )
         if user_data:
             user_data["_id"] = str(user_data["_id"])
             user_data = self._sanitize_user_data_apple_private_email(user_data)

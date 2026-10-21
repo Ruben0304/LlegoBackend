@@ -23,12 +23,20 @@ from .types import (
 )
 
 
+def enmascarar_correo(correo: Optional[str]) -> str:
+    """«ruben@gmail.com» -> «r***@gmail.com»: basta para reconocer al destinatario."""
+    if not correo or "@" not in correo:
+        return ""
+    local, dominio = correo.split("@", 1)
+    return f"{local[:1]}***@{dominio}"
+
+
 @strawberry.type
 class UserQuery:
-    @strawberry.field(description="Lista de usuarios (requiere rol admin o manager)")
+    @strawberry.field(description="Lista de usuarios (solo admin)")
     async def users(self, info: Info, jwt: str) -> List[UserType]:
-        """List all users. Requires admin or manager role."""
-        require_role(jwt, info, ["admin", "manager"])
+        """List all users. Solo admin: devuelve correo y teléfono de todos."""
+        require_role(jwt, info, ["admin"])
         users = await users_repo.get_all()
         return [
             UserType(
@@ -160,11 +168,11 @@ class UserQuery:
         )
 
     @strawberry.field(
-        description="Obtener usuario por ID (requiere rol admin o manager)"
+        description="Obtener usuario por ID (solo admin)"
     )
     async def user(self, info: Info, id: str, jwt: str) -> Optional[UserType]:
-        """Get user by ID. Requires admin or manager role."""
-        require_role(jwt, info, ["admin", "manager"])
+        """Get user by ID. Solo admin: devuelve correo y teléfono."""
+        require_role(jwt, info, ["admin"])
         user = await users_repo.get_by_id(id)
         if not user:
             return None
@@ -190,31 +198,45 @@ class UserQuery:
 
     @strawberry.field(description="Buscar usuarios (requiere autenticación)")
     async def search_users(self, info: Info, query: str, jwt: str) -> List[UserType]:
-        """Search users. Requires authentication."""
-        require_auth(jwt, info)
-        users = await users_repo.search(query)
-        return [
-            UserType(
-                **{
-                    **to_strawberry_dict(
-                        u,
-                        exclude={
-                            "password",
-                            "location",
-                            "wallet",
-                            "walletStatus",
-                            "isPro",
-                            "aiConsultasLimit",
-                        },
-                    ),
-                    "wallet": WalletBalanceType(
-                        local=u.wallet.get("local", 0.0), usd=u.wallet.get("usd", 0.0)
-                    ),
-                    "walletStatus": u.walletStatus,
-                }
+        """Buscar destinatarios por nombre, usuario o correo.
+
+        Para quien no es admin: al menos 3 letras, como mucho 20 resultados, correo
+        enmascarado y sin teléfono ni saldo. Antes cualquier cliente sacaba el correo,
+        el teléfono y el saldo de todos los usuarios.
+        """
+        user_id = require_auth(jwt, info)
+        ctx = info.context
+        rol = ctx.get("user_role") if isinstance(ctx, dict) else getattr(ctx, "user_role", None)
+        es_admin = rol == "admin"
+        texto = (query or "").strip()
+        if not es_admin and len(texto) < 3:
+            return []
+        users = await users_repo.search(texto, limit=50 if es_admin else 20)
+        resultado = []
+        for u in users:
+            datos = to_strawberry_dict(
+                u,
+                exclude={
+                    "password",
+                    "location",
+                    "wallet",
+                    "walletStatus",
+                    "isPro",
+                    "aiConsultasLimit",
+                },
             )
-            for u in users
-        ]
+            if es_admin:
+                datos["wallet"] = WalletBalanceType(
+                    local=u.wallet.get("local", 0.0), usd=u.wallet.get("usd", 0.0)
+                )
+                datos["walletStatus"] = u.walletStatus
+            else:
+                datos["email"] = enmascarar_correo(datos.get("email"))
+                datos["phone"] = None
+                datos["wallet"] = WalletBalanceType(local=0.0, usd=0.0)
+                datos["walletStatus"] = "active"
+            resultado.append(UserType(**datos))
+        return resultado
 
     @strawberry.field(description="Usuario actual desde JWT")
     async def me(self, info: Info, jwt: str) -> Optional[UserType]:

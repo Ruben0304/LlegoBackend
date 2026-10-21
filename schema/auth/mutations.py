@@ -12,7 +12,19 @@ from utils.auth import (
     verify_apple,
     verify_google,
 )
+from utils.client_ip import get_client_ip
 from utils.graphql_auth import apply_optional_jwt
+from utils.rate_limit import check_rate_limit
+
+
+def _frenar_intentos(info: Info, email: str) -> None:
+    """Límite de intentos de login/registro por IP y por correo (antes no había ninguno)."""
+    ctx = info.context
+    request = ctx.get("request") if isinstance(ctx, dict) else getattr(ctx, "request", None)
+    ip_ok, _ = check_rate_limit(get_client_ip(request), "login_ip")
+    correo_ok, _ = check_rate_limit((email or "").strip().lower(), "login_email")
+    if not (ip_ok and correo_ok):
+        raise Exception("Demasiados intentos. Espera un minuto y vuelve a probar.")
 
 from .types import (
     AppleLoginInput,
@@ -32,15 +44,18 @@ class AuthMutation:
     ) -> AuthResponse:
         """Register a new user with email and password. Role is always 'customer'."""
         apply_optional_jwt(jwt, info)
-        # Check if user already exists
-        existing_user = await auth_repo.get_user_by_email(input.email)
+        _frenar_intentos(info, input.email)
+        # El correo se guarda en minúsculas y se busca sin distinguirlas: antes
+        # «Ana@x.com» creaba una cuenta distinta de «ana@x.com»
+        email = input.email.strip().lower()
+        existing_user = await auth_repo.get_user_by_email(email)
         if existing_user:
             raise Exception("Email already registered")
 
         # Create new user - role is ALWAYS "customer", never from input
         user = await auth_repo.create_user(
             name=input.name,
-            email=input.email,
+            email=email,
             password=input.password,
             phone=input.phone,
             role="customer",  # Hardcoded - only changeable via DB
@@ -70,8 +85,8 @@ class AuthMutation:
     ) -> AuthResponse:
         """Login with email and password."""
         apply_optional_jwt(jwt, info)
-        # Authenticate user
-        user = await auth_repo.authenticate_user(input.email, input.password)
+        _frenar_intentos(info, input.email)
+        user = await auth_repo.authenticate_user(input.email.strip(), input.password)
         if not user:
             raise Exception("Invalid email or password")
 

@@ -635,7 +635,12 @@ class OrderQuery:
         if not user_id:
             raise Exception("Usuario no autenticado")
 
-        # TODO: Verify user has admin access
+        # Sin sucursal son las cifras de toda la plataforma: solo admin. Con sucursal,
+        # solo quien la gestiona (antes cualquier sesión veía las ventas de cualquiera).
+        if info.context.get("user_role") != "admin":
+            if not branchId:
+                raise Exception("Acceso denegado: indica la sucursal")
+            await access_checker.require_branch_access(user_id, branchId)
 
         stats = await orders_repo.get_stats(branchId, fromDate, toDate)
 
@@ -714,6 +719,12 @@ class OrderQuery:
         user_id = info.context.get("user_id")
         if not user_id:
             raise Exception("Usuario no autenticado")
+
+        # Solo admin o quien gestiona ese negocio (y esa sucursal, si se pide una)
+        if info.context.get("user_role") != "admin":
+            await access_checker.require_business_access(user_id, businessId)
+            if branchId:
+                await access_checker.require_branch_access(user_id, branchId)
 
         stats = await orders_repo.get_dashboard_stats(businessId, fromDate, toDate, branchId)
 
