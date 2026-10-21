@@ -207,3 +207,26 @@ def test_codigo_de_entrega_se_bloquea_tras_5_fallos(monkeypatch):
                 asyncio.run(servicio.confirm_delivery("pedido1", USER_ID, "0000"))
         with pytest.raises(ValueError, match="Demasiados intentos"):
             asyncio.run(servicio.confirm_delivery("pedido1", USER_ID, "4821"))
+
+
+# ---------------------------------------------------------------- consultas que fallaban
+
+
+def test_direcciones_guardadas_se_convierten_a_su_tipo():
+    from schema.users.types import SavedAddressType
+
+    datos = user_queries._con_direcciones(
+        {"savedAddresses": [{"id": "a1", "label": "Casa", "street": "23 y L", "latitude": 23.1, "longitude": -82.4}]}
+    )
+    d = datos["savedAddresses"][0]
+    assert isinstance(d, SavedAddressType)
+    assert (d.label, d.city, d.latitude) == ("Casa", None, 23.1)
+
+
+def test_nearby_branch_ignora_campos_que_el_tipo_no_declara():
+    import dataclasses
+
+    from schema.branches.types import NearbyBranchType
+
+    campos = {f.name for f in dataclasses.fields(NearbyBranchType)}
+    assert "catalogOnly" not in campos or "isDemoStore" not in campos

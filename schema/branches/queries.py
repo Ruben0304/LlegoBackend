@@ -1,5 +1,7 @@
 """GraphQL query resolvers for Branch entity."""
 
+import dataclasses
+
 from datetime import datetime
 from typing import List, Optional
 
@@ -451,9 +453,12 @@ class BranchQuery:
                 branch_data["coordinates"] = CoordinatesType(
                     type="Point", coordinates=coords
                 )
+                # Solo los campos que declara el tipo: branch_to_dict trae catalogOnly,
+                # code o isDemoStore y la query fallaba siempre (también en producción)
+                campos = {f.name for f in dataclasses.fields(NearbyBranchType)}
                 all_branches.append(
                     NearbyBranchType(
-                        **branch_data,
+                        **{k: v for k, v in branch_data.items() if k in campos and k != "distance_m"},
                         distance_m=store.get("distance_m", 0.0),
                     )
                 )

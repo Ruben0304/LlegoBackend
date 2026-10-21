@@ -23,6 +23,31 @@ from .types import (
 )
 
 
+def _con_direcciones(datos: dict) -> dict:
+    """savedAddresses llega como lista de dicts y UserType espera SavedAddressType:
+    sin convertirlas, me/users/user/searchUsers fallaban en cuanto alguien guardaba una
+    dirección (y Android carga las direcciones con `me`)."""
+    import dataclasses
+
+    from .types import SavedAddressType
+
+    campos = {f.name for f in dataclasses.fields(SavedAddressType)}
+    direcciones = []
+    for d in datos.get("savedAddresses") or []:
+        if isinstance(d, dict):
+            valores = {k: d.get(k) for k in campos}
+            valores["id"] = str(d.get("id") or d.get("_id") or "")
+            for k in ("label", "street", "addressType"):
+                valores[k] = valores[k] or ""
+            for k in ("latitude", "longitude"):
+                valores[k] = float(valores[k] or 0.0)
+            d = SavedAddressType(**valores)
+        direcciones.append(d)
+    if "savedAddresses" in datos:
+        datos["savedAddresses"] = direcciones
+    return datos
+
+
 def enmascarar_correo(correo: Optional[str]) -> str:
     """«ruben@gmail.com» -> «r***@gmail.com»: basta para reconocer al destinatario."""
     if not correo or "@" not in correo:
@@ -40,7 +65,7 @@ class UserQuery:
         users = await users_repo.get_all()
         return [
             UserType(
-                **{
+                **_con_direcciones({
                     **to_strawberry_dict(
                         u,
                         exclude={
@@ -56,7 +81,7 @@ class UserQuery:
                         local=u.wallet.get("local", 0.0), usd=u.wallet.get("usd", 0.0)
                     ),
                     "walletStatus": u.walletStatus,
-                }
+                })
             )
             for u in users
         ]
@@ -177,7 +202,7 @@ class UserQuery:
         if not user:
             return None
         return UserType(
-            **{
+            **_con_direcciones({
                 **to_strawberry_dict(
                     user,
                     exclude={
@@ -193,7 +218,7 @@ class UserQuery:
                     local=user.wallet.get("local", 0.0), usd=user.wallet.get("usd", 0.0)
                 ),
                 "walletStatus": user.walletStatus,
-            }
+            })
         )
 
     @strawberry.field(description="Buscar usuarios (requiere autenticación)")
@@ -235,7 +260,7 @@ class UserQuery:
                 datos["phone"] = None
                 datos["wallet"] = WalletBalanceType(local=0.0, usd=0.0)
                 datos["walletStatus"] = "active"
-            resultado.append(UserType(**datos))
+            resultado.append(UserType(**_con_direcciones(datos)))
         return resultado
 
     @strawberry.field(description="Usuario actual desde JWT")
@@ -246,7 +271,7 @@ class UserQuery:
         if not user:
             return None
         return UserType(
-            **{
+            **_con_direcciones({
                 **to_strawberry_dict(
                     user,
                     exclude={
@@ -262,5 +287,5 @@ class UserQuery:
                     local=user.wallet.get("local", 0.0), usd=user.wallet.get("usd", 0.0)
                 ),
                 "walletStatus": user.walletStatus,
-            }
+            })
         )
