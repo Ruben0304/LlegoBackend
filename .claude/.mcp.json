@@ -4,7 +4,7 @@
       "command": "npx",
       "args": ["-y", "mongodb-mcp-server@latest", "--readOnly"],
       "env": {
-        "MDB_MCP_CONNECTION_STRING": "mongodb://mongo:TghyWYcXkIRgeYQWTeZcTeFGJNaMbDLi@shinkansen.proxy.rlwy.net:27627/llego"
+        "MDB_MCP_CONNECTION_STRING": "${MONGODB_URL}"
       }
     }
   }

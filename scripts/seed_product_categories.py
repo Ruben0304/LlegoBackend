@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -60,7 +61,7 @@ async def seed_product_categories():
     Connects to MongoDB directly.
     """
     # Connect directly to MongoDB
-    mongodb_url = "mongodb://mongo:TghyWYcXkIRgeYQWTeZcTeFGJNaMbDLi@shinkansen.proxy.rlwy.net:27627"
+    mongodb_url = os.environ["MONGODB_URL"]  # nunca escribir la URL aquí
     client = AsyncIOMotorClient(mongodb_url)
     db = client["llego"]
 

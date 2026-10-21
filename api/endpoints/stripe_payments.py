@@ -483,10 +483,15 @@ async def update_payment_link_usage(session_id: str, amount: float):
 @router.get("/config")
 async def get_stripe_config():
     """
-    Get Stripe publishable key for client-side initialization.
-    
-    This is safe to expose publicly as it's the publishable key.
+    Clave publicable de Stripe para inicializar el cliente.
+
+    Solo se sirve una clave `pk_`: si la variable trae otra cosa (por ejemplo la
+    secreta `sk_`, que ya pasó), responde 503 sin mostrarla.
     """
+    key = (settings.stripe_publishable_key or "").strip()
+    if not key.startswith("pk_"):
+        logger.error("STRIPE_PUBLISHABLE_KEY no es una clave publicable (pk_); no se sirve")
+        raise HTTPException(status_code=503, detail="Pagos con tarjeta no disponibles")
     return {
-        "publishable_key": settings.stripe_publishable_key
+        "publishable_key": key
     }

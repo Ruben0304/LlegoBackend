@@ -114,7 +114,8 @@ def test_callback_redirects_token_to_the_whitelisted_web_url(client):
         )
 
     assert res.status_code == 303
-    assert res.headers["location"] == f"{WEB_CALLBACK}?token=jwt-123"
+    # El state vuelve para que el cliente compruebe que el login lo empezó él
+    assert res.headers["location"] == f"{WEB_CALLBACK}?token=jwt-123&state={state}"
     assert state not in apple_auth._pending_states
 
 

@@ -70,10 +70,10 @@ def get_redis_status() -> dict:
         return {
             "connected": True,
             "version": info.get("redis_version"),
-            "url": settings.redis_url[:30] + "..." if len(settings.redis_url) > 30 else settings.redis_url
         }
     except Exception as e:
-        return {"connected": False, "error": str(e)}
+        # El texto del error puede llevar la URL con la contraseña: solo el tipo
+        return {"connected": False, "error": type(e).__name__}
 
 
 # =============================================================================

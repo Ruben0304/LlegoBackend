@@ -8,7 +8,7 @@ from .types import WalletTransactionType
 from .inputs import TransferInput, DepositInput, WithdrawInput
 from .utils import to_object_id
 from services.wallet_service import wallet_service
-from utils.graphql_auth import require_auth
+from utils.graphql_auth import require_auth, require_role
 from repositories import branches_repo, businesses_repo
 
 
@@ -93,8 +93,12 @@ class WalletMutation:
         input: DepositInput,
         jwt: str
     ) -> WalletTransactionType:
-        """Deposit money into current user's wallet."""
-        user_id = require_auth(jwt, info)
+        """Deposit money into current user's wallet.
+
+        Solo admin: el saldo de un usuario solo lo acreditan los webhooks verificados de la
+        pasarela. Abierto a cualquier sesión, cualquiera se creaba saldo.
+        """
+        user_id = require_role(jwt, info, ["admin"])
         
         if input.amount <= 0:
             raise Exception("El monto debe ser mayor a 0")

@@ -1,6 +1,7 @@
 """Script para agregar 40 productos de muestra a una sucursal específica."""
 
 import asyncio
+import os
 from datetime import datetime
 from uuid import uuid4
 
@@ -8,7 +9,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 
 
 # Configuración directa
-MONGODB_URL = "mongodb://mongo:TghyWYcXkIRgeYQWTeZcTeFGJNaMbDLi@shinkansen.proxy.rlwy.net:27627/"
+MONGODB_URL = os.environ["MONGODB_URL"]  # nunca escribir la URL aquí
 MONGODB_DATABASE = "llego"
 BRANCH_ID = "698a1a31b9ce544fdb4e7505"
 
@@ -309,7 +310,7 @@ SAMPLE_PRODUCTS = [
 async def main():
     """Agregar productos de muestra a la sucursal."""
     
-    print(f"🔗 Conectando a MongoDB: {MONGODB_URL}")
+    print("🔗 Conectando a MongoDB (MONGODB_URL)")
     print(f"📚 Base de datos: {MONGODB_DATABASE}")
     
     # Conectar a MongoDB

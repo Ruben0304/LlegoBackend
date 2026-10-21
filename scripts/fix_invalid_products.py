@@ -1,9 +1,10 @@
 """Script para eliminar o corregir productos con categoryId inválido."""
 
 import asyncio
+import os
 from motor.motor_asyncio import AsyncIOMotorClient
 
-MONGODB_URL = "mongodb://mongo:TghyWYcXkIRgeYQWTeZcTeFGJNaMbDLi@shinkansen.proxy.rlwy.net:27627/"
+MONGODB_URL = os.environ["MONGODB_URL"]  # nunca escribir la URL aquí
 MONGODB_DATABASE = "llego"
 
 async def main():

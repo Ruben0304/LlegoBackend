@@ -115,12 +115,8 @@ async def apple_callback(request: Request):
     user_json = form_data.get("user")  # Only first time
     error = form_data.get("error")
 
-    logger.info(f"code: {code[:20] if code else None}...")
-    logger.info(f"id_token: {id_token_str[:50] if id_token_str else None}...")
-    logger.info(f"state: {state}")
-    logger.info(f"user_json: {user_json}")
-    logger.info(f"error: {error}")
-    logger.info(f"Pending states: {list(_pending_states.keys())}")
+    # Sin datos personales ni tokens en los logs (Apple manda nombre y correo en user_json)
+    logger.info(f"code: {'sí' if code else 'no'}, id_token: {'sí' if id_token_str else 'no'}, user: {'sí' if user_json else 'no'}, error: {error}")
 
     # Get the redirect URI for this state (or use default)
     stored_state = _pending_states.get(state, {})
@@ -150,7 +146,7 @@ async def apple_callback(request: Request):
         logger.info("Verifying id_token...")
         token_info = verify_id_token(id_token_str)
         logger.info(
-            f"Token verified. sub: {token_info.get('sub')}, email: {token_info.get('email')}"
+            "Token verified"
         )
 
         # Parse user info if provided (first authorization only)
@@ -162,7 +158,6 @@ async def apple_callback(request: Request):
                 first_name = name_data.get("firstName", "")
                 last_name = name_data.get("lastName", "")
                 user_name = f"{first_name} {last_name}".strip() or None
-                logger.info(f"Parsed user name: {user_name}")
             except json.JSONDecodeError as e:
                 logger.warning(f"Failed to parse user_json: {e}")
 
@@ -177,7 +172,7 @@ async def apple_callback(request: Request):
                 token_info.get("email"), token_info.get("is_private_email")
             ),
         )
-        logger.info(f"User upserted: id={user.id}, email={user.email}")
+        logger.info(f"User upserted: id={user.id}")
 
         # Generate our JWT token
         access_token = create_access_token(
@@ -186,8 +181,10 @@ async def apple_callback(request: Request):
         logger.info(f"JWT created, length: {len(access_token)}")
 
         # Redirect to Android app with token
-        final_redirect = f"{redirect_uri}?token={access_token}"
-        logger.info(f"Redirecting to: {final_redirect[:100]}...")
+        # El state vuelve al cliente para que compruebe que el login lo empezó él
+        # (sin esto, un enlace con el token de otra cuenta metería a la víctima en ella)
+        final_redirect = f"{redirect_uri}?token={access_token}&state={state}"
+        logger.info(f"Redirecting to: {redirect_uri}")
         logger.info("=== APPLE CALLBACK SUCCESS ===")
 
         return RedirectResponse(url=final_redirect, status_code=303)

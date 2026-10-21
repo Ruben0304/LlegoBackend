@@ -44,7 +44,7 @@ python main.py           # o: uvicorn main:app --reload --host 0.0.0.0 --port 80
 - GraphQL: `/graphql` (GraphiQL solo si `environment == "development"`, [main.py:170](main.py:170))
 - SDL en vivo: `GET /graphql/schema` y `GET /graphql/schema.graphql` ([main.py:194](main.py:194))
 - Docs REST: `/docs` — **solo en development** ([main.py:34](main.py:34))
-- Health: `GET /` y `GET /health/redis` ([main.py:182](main.py:182))
+- Health: `GET /` y `GET /health/redis` ([main.py:182](main.py:182)) — `/health/redis` solo dice `connected` y `version`; nunca la URL (llevaba la contraseña)
 
 Python 3.11+ (el `.venv` local es 3.12). `strawberry-graphql==0.232.0` y
 `pydantic <2.11` están pineados; no los subas sin revisar.
@@ -58,6 +58,12 @@ busques aquí.
 Obligatorias (sin default — la app no arranca sin ellas), [core/config.py:12](core/config.py:12), [:27](core/config.py:27), [:195](core/config.py:195):
 `MONGODB_URL`, `GEMINI_API_KEY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
 `AWS_DEFAULT_REGION`, `AWS_ENDPOINT_URL`, `S3_BUCKET_NAME`.
+
+**Secretos:** ni la URL de MongoDB ni claves en el código (los scripts y seeds leen `MONGODB_URL`
+del entorno; `tests/test_secretos_y_saldo.py` falla si un archivo versionado lleva una URL de
+Mongo con contraseña). `STRIPE_PUBLISHABLE_KEY` debe ser la `pk_`: `GET /stripe/config` solo
+sirve claves `pk_` y responde 503 con cualquier otra (en producción tenía puesta la secreta).
+`depositMoney` es solo para admin: el saldo lo acreditan los webhooks de la pasarela.
 
 El resto tiene default y está agrupado en [core/config.py](core/config.py): Qdrant (`:15`), IA y
 cuotas (`:26`), cash-KYC (`:33`), feature flags de rollout (`:41`), auth (`:64`),

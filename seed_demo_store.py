@@ -12,6 +12,7 @@ Demo credentials to give Apple:
 """
 
 import asyncio
+import os
 from datetime import datetime
 
 import bcrypt
@@ -19,7 +20,7 @@ from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorClient
 
 # ── Connection ────────────────────────────────────────────────────────────────
-MONGO_URI = "mongodb://mongo:TghyWYcXkIRgeYQWTeZcTeFGJNaMbDLi@shinkansen.proxy.rlwy.net:27627"
+MONGO_URI = os.environ["MONGODB_URL"]  # nunca escribir la URL aquí
 DB_NAME = "llego"  # adjust if your DB name differs
 
 # ── Demo constants ────────────────────────────────────────────────────────────
