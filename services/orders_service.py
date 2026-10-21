@@ -639,8 +639,13 @@ class OrderService:
                 payment_method_doc,
             )
 
-        # Legacy fallback: accept plain code even if not found in DB.
-        return payment_method_raw, None, None
+        # Legacy fallback: un código conocido aunque no esté en la base (apps antiguas).
+        # Cualquier otro se rechaza: antes un pedido con paymentMethod "bitcoin" se creaba.
+        if payment_method_raw.lower() in (
+            self.CASH_PAYMENT_METHODS | self.NON_CASH_PAYMENT_METHODS
+        ):
+            return payment_method_raw, None, None
+        raise ValueError("Método de pago no válido")
 
     def _resolve_order_currency(
         self, branch: Any, payment_method_currency: Optional[str]
@@ -1958,6 +1963,13 @@ class OrderService:
                 raise ValueError("Un pedido de recogida en tienda no lleva envio")
             if delivery_fee_override < 0:
                 raise ValueError("El precio de envio no puede ser negativo")
+            # Tope: el triple del envío calculado o el subtotal, lo que sea mayor (antes
+            # el negocio podía poner 99 999 sin que el cliente lo confirmara)
+            tope = max((order.deliveryFee or 0) * 3, order.subtotal or 0)
+            if tope > 0 and delivery_fee_override > tope:
+                raise ValueError(
+                    f"El envío no puede pasar de {tope:.2f}: revísalo o habla con el cliente"
+                )
             total_discounts = sum(d.amount for d in order.discounts)
             new_total = round(
                 order.subtotal + delivery_fee_override + order.serviceCharge - total_discounts, 2

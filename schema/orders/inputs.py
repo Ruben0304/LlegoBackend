@@ -104,6 +104,9 @@ class CreateOrderInput:
     comments: Optional[str] = None
     promoCode: Optional[str] = None
     scheduledFor: Optional[datetime] = None  # Hora programada (hoy o mañana, UTC)
+    # Clave que la app genera una vez por pedido y repite en cada reintento: si el pedido
+    # ya se creó (respuesta perdida por un corte), se devuelve el mismo en vez de otro
+    idempotencyKey: Optional[str] = None
 
 
 @strawberry.input

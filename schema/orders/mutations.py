@@ -123,6 +123,40 @@ def _redis_set_courier_presence(
         return
 
 
+def _claves_pedido():
+    from clients.mongodb_client import get_database
+
+    return get_database()["order_idempotency"]
+
+
+async def _reclamar_clave_pedido(user_id: str, idempotency_key: str):
+    """Reserva la clave antes de crear el pedido. Devuelve (clave, pedido ya creado o None).
+
+    Si la clave ya existe con su pedido, se devuelve ese pedido; si otro intento la
+    reservó y aún no terminó, se pide esperar en vez de crear un segundo pedido.
+    """
+    from datetime import datetime
+
+    from pymongo.errors import DuplicateKeyError
+
+    clave = f"{user_id}:{idempotency_key.strip()[:100]}"
+    try:
+        await _claves_pedido().insert_one({"_id": clave, "orderId": None, "createdAt": datetime.utcnow()})
+        return clave, None
+    except DuplicateKeyError:
+        previa = await _claves_pedido().find_one({"_id": clave}) or {}
+        if previa.get("orderId"):
+            pedido = await orders_repo.get_by_id(previa["orderId"])
+            if pedido is not None:
+                return None, pedido
+        raise Exception("Tu pedido se está procesando. Espera unos segundos y revisa Mis pedidos.")
+
+
+async def _soltar_clave_pedido(clave):
+    if clave:
+        await _claves_pedido().delete_one({"_id": clave, "orderId": None})
+
+
 @strawberry.type
 class OrderMutation:
     # Customer mutations
@@ -134,6 +168,12 @@ class OrderMutation:
         user_id = info.context.get("user_id")
         if not user_id:
             raise Exception("Usuario no autenticado")
+
+        clave = None
+        if input.idempotencyKey:
+            clave, existente = await _reclamar_clave_pedido(user_id, input.idempotencyKey)
+            if existente is not None:
+                return order_to_type(existente)
 
         try:
             fulfillment_type = "DELIVERY"
@@ -201,11 +241,18 @@ class OrderMutation:
                 pickup_window_id=pickup_window_id,
                 scheduled_for=input.scheduledFor,
             )
+            if clave:
+                await _claves_pedido().update_one({"_id": clave}, {"$set": {"orderId": str(order.id)}})
             return order_to_type(order)
         except OrderValidationError as e:
+            await _soltar_clave_pedido(clave)
             raise GraphQLError(str(e), extensions={"code": e.code})
         except ValueError as e:
+            await _soltar_clave_pedido(clave)
             raise Exception(str(e))
+        except Exception:
+            await _soltar_clave_pedido(clave)
+            raise
 
     @strawberry.mutation(description="Aceptar modificaciones de la tienda")
     async def accept_order_modifications(

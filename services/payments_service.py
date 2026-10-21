@@ -200,11 +200,18 @@ class PaymentService:
             # Apply delivery fee percentage to delivery fee
             delivery_fee = delivery_fee * (1 + delivery_fee_percent / 100)
 
-        # Calculate base for commission (subtotal + delivery if applicable)
-        base_amount = subtotal + delivery_fee
+        # El cargo de servicio y los descuentos del pedido también se cobran: antes el pago
+        # salía sin el 10 % de servicio (101 149 cobrado frente a 101 264 del pedido).
+        service_charge = float(order.get("serviceCharge", 0) or 0)
+        discounts = sum(
+            float((d or {}).get("amount", 0) or 0) for d in (order.get("discounts") or [])
+        )
+
+        # Calculate base for commission
+        base_amount = max(subtotal + delivery_fee + service_charge - discounts, 0.0)
         commission = round(base_amount * (commission_percent / 100), 2)
 
-        total = round(subtotal + delivery_fee + commission, 2)
+        total = round(base_amount + commission, 2)
 
         return subtotal, delivery_fee, commission, total, currency
 

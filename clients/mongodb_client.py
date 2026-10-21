@@ -560,6 +560,14 @@ async def _create_order_indexes():
             background=True,
         )
 
+        # Claves de idempotencia de createOrder: basta con recordarlas 7 días
+        await database["order_idempotency"].create_index(
+            "createdAt",
+            name="idx_order_idem_ttl",
+            expireAfterSeconds=7 * 86400,
+            background=True,
+        )
+
         print("✓ Order indexes created/verified")
     except Exception as e:
         print(f"⚠ Warning: Could not create order indexes: {e}")

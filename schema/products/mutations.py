@@ -157,6 +157,10 @@ class ProductMutation:
                 f"Moneda(s) aceptada(s): {branch.acceptedCurrency or 'USD'}"
             )
 
+        # Un precio negativo daba subtotales y totales negativos en los pedidos
+        if input.price is None or input.price < 0:
+            raise Exception("El precio no puede ser negativo")
+
         # Create product
         product_id = ObjectId()
         product = Product(
@@ -257,6 +261,8 @@ class ProductMutation:
         if input.description is not None:
             updates["description"] = input.description
         if input.price is not None:
+            if input.price < 0:
+                raise Exception("El precio no puede ser negativo")
             updates["price"] = input.price
         if input.currency is not None:
             updates["currency"] = input.currency

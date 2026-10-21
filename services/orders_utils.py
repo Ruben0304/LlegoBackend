@@ -139,7 +139,10 @@ async def calculate_delivery_fee_h3(
     zone = await db.delivery_zones.find_one({"h3Index": dest_h3, "isActive": True})
 
     if not zone:
-        # No zone configured for this hex — use default distance-based fee
+        # Sin zona configurada: tarifa por distancia, pero no a cualquier distancia
+        # (un pedido a Ciudad de México salía con 178 301 CUP de envío)
+        if haversine_distance(branch_coords, delivery_coords) > MAX_FALLBACK_DISTANCE_KM:
+            raise ValueError("La dirección está fuera de la zona de reparto de esta tienda")
         fee = calculate_delivery_fee(branch_coords, delivery_coords)
         return fee, None
 
@@ -198,6 +201,9 @@ def estimate_delivery_time(distance_km: float, avg_speed_kmh: float = 25.0) -> i
 # Confidence thresholds for compute_fee_recommendation. Below LOW_CONFIDENCE_MIN
 # there's only 1-2 data points — a median is still returned, but flagged low
 # confidence rather than presented as a solid suggestion.
+# Distancia máxima de reparto cuando el destino no cae en ninguna zona configurada
+MAX_FALLBACK_DISTANCE_KM = 60.0
+
 LOW_CONFIDENCE_MIN = 3
 HIGH_CONFIDENCE_MIN = 8
 
