@@ -55,7 +55,10 @@ def test_store_cannot_skip_payment_or_the_delivery_code(world: World, order_on_t
     assert "no puede pasar" in str(world.set_status_error(oid, "DELIVERED", "owner"))
     assert world.get_order(oid)["status"] == "ON_THE_WAY"
 
-    unpaid = world.delivery_order_ready_to_pay()
+    # Otro mensajero: "courier" ya lleva order_on_the_way y solo se admite un pedido a la vez
+    unpaid = world.create_order(payment="transfer")
+    world.accept(unpaid["id"])
+    world.courier_accept(unpaid["id"], actor="courier2")
     assert "no puede pasar" in str(world.set_status_error(unpaid["id"], "ACCEPTED", "owner"))
 
 

@@ -256,8 +256,11 @@ def test_amount_charged_reflects_the_store_delivery_fee(world: World):
     world.accept(order["id"], fee=700.0)
     world.courier_accept(order["id"])
     attempt = world.initiate_payment(order["id"])
-    # comision 0 en el mundo de prueba: subtotal + envio fijado por la tienda
-    assert attempt["totalAmount"] == round(order["subtotal"] + 700.0, 2)
+    # comision 0 en el mundo de prueba: subtotal + envio fijado por la tienda + cargo de
+    # servicio (el pago lo incluye desde el arreglo A8, igual que el total del pedido)
+    order = world.get_order(order["id"])
+    assert attempt["totalAmount"] == round(order["subtotal"] + 700.0 + order["serviceCharge"], 2)
+    assert attempt["totalAmount"] == order["total"]
 
 
 def test_paid_order_withstands_every_attempt_to_change_it(world: World):

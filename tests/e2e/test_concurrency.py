@@ -1,5 +1,6 @@
 """Carreras reales: dos personas tocando el mismo pedido al mismo tiempo."""
 
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -59,7 +60,9 @@ def test_store_timeout_racing_with_acceptance_leaves_a_consistent_order(world: W
     def expire():
         client = world.client.clone()
         try:
-            return client.rest("POST", f"/e2e/orders/{order['id']}/expire")["result"]
+            # Solo el vencimiento de "pendiente de aceptar": si la tienda gana, no se toca
+            url = f"/e2e/orders/{order['id']}/expire?expected_status=pending_acceptance"
+            return client.rest("POST", url)["result"]
         finally:
             client.close()
 
@@ -76,13 +79,9 @@ def test_store_timeout_racing_with_acceptance_leaves_a_consistent_order(world: W
         assert expire_result in {"skipped", "no_deadline"}, expire_result
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="MUY_IMPORTANTE_RESOLVER C3: doble toque en 'Pedir' crea dos pedidos "
-    "(no hay idempotency key)",
-)
 def test_double_tap_on_order_button_creates_a_single_order(world: World):
-    order_input = world.order_input()
+    # C3: las apps mandan la misma idempotencyKey en el doble toque y en los reintentos
+    order_input = {**world.order_input(), "idempotencyKey": f"e2e-{uuid.uuid4()}"}
 
     def create():
         client = world.client.clone()
@@ -97,10 +96,6 @@ def test_double_tap_on_order_button_creates_a_single_order(world: World):
     assert len(world.my_orders()) == 1
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="MUY_IMPORTANTE_RESOLVER E3: el codigo de entrega no tiene limite de intentos",
-)
 def test_delivery_code_is_locked_after_many_wrong_attempts(world: World):
     order = world.create_order()
     world.accept(order["id"])

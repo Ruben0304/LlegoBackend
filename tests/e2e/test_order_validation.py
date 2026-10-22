@@ -76,12 +76,8 @@ def test_branch_pausing_mid_flow_does_not_break_existing_orders(world: World):
     assert world.deliver(order["id"])["status"] == "DELIVERED"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="MUY_IMPORTANTE_RESOLVER B6: acceptOrderForPayment no revisa si el mensajero "
-    "ya lleva otro pedido y le pisa currentOrderId; el chequeo de confirmPickup queda anulado",
-)
-def test_courier_cannot_hold_two_orders_at_once_when_picking_up(world: World):
+def test_courier_cannot_hold_two_orders_at_once(world: World):
+    """B6: con un pedido en camino, el mensajero no puede aceptar otro."""
     first = world.create_order()
     world.accept(first["id"])
     world.courier_accept(first["id"])
@@ -91,11 +87,9 @@ def test_courier_cannot_hold_two_orders_at_once_when_picking_up(world: World):
 
     second = world.create_order()
     world.accept(second["id"])
-    world.courier_accept(second["id"])
-    world.start_preparing(second["id"])
-    world.mark_ready(second["id"])
     err = world.client.gql_error(
-        """mutation($id: String!, $jwt: String!) { confirmPickup(orderId: $id, jwt: $jwt) { id } }""",
+        """mutation($id: String!, $jwt: String!) {
+          acceptOrderForPayment(orderId: $id, jwt: $jwt) { id } }""",
         {"id": second["id"], "jwt": world.token("courier")},
     )
-    assert "otro pedido en curso" in str(err)
+    assert "pedido en curso" in str(err)

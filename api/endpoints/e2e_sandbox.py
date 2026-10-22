@@ -282,9 +282,13 @@ async def create_world(options: WorldOptions = WorldOptions()):
 
 
 @router.post("/orders/{order_id}/expire", dependencies=[Depends(require_sandbox)])
-async def expire_order(order_id: str):
+async def expire_order(order_id: str, expected_status: Optional[str] = None):
     """Pone el deadline del pedido en el pasado y ejecuta la logica del worker
-    de timeouts SOLO para ese pedido."""
+    de timeouts SOLO para ese pedido.
+
+    Con `expected_status` solo vence si el pedido sigue en ese estado: en una carrera
+    con la tienda, si aceptó antes, el pedido ya está en el estado siguiente (que también
+    tiene plazo) y forzarlo cancelaría algo que la prueba no pretende tocar."""
     from services.orders_service import order_service
 
     db = get_database()
@@ -297,7 +301,9 @@ async def expire_order(order_id: str):
     if not candidate:
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
 
-    if (
+    if expected_status and candidate.status.value != expected_status:
+        result = "skipped"
+    elif (
         candidate.status not in order_service.PRE_PREPARATION_TIMEOUT_STATUSES
         or not candidate.deadlineAt
     ):

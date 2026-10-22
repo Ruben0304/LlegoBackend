@@ -1,8 +1,10 @@
-# CI del backend. Dos comprobaciones independientes:
+# CI del backend. Tres comprobaciones independientes:
 #   1. pytest: falla solo ante fallos NUEVOS respecto a tests/known_failures.txt.
 #   2. schema: compara el schema GraphQL del código con el de producción y falla ante
 #      cambios incompatibles con los clientes publicados (campos quitados, tipos
 #      endurecidos, ...), salvo que se permitan de forma consciente.
+#   3. e2e: levanta el backend con el sandbox E2E y corre tests/e2e contra su API
+#      (pedidos, pagos, permisos y carreras de punta a punta).
 # Detalles y ejecución en local: sección "CI" de CLAUDE.md.
 name: CI
 
@@ -62,6 +64,56 @@ jobs:
 
       - name: Ejecutar pytest contra la lista de fallos conocidos
         run: python scripts/ci/run_tests.py
+
+  e2e:
+    name: E2E contra el backend levantado (sandbox)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping: 1})'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      # Clave de prueba del sandbox (no es ningún secreto): solo existe en este job.
+      E2E_SANDBOX_KEY: ci-e2e-sandbox-key
+      E2E_KEY: ci-e2e-sandbox-key
+      E2E_BASE_URL: http://127.0.0.1:8000
+      MONGODB_DATABASE: llego_ci
+      ENVIRONMENT: development
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Instalar dependencias
+        run: python -m pip install -r requirements.txt pytest==9.1.1 pytest-asyncio==1.4.0
+
+      - name: Levantar el backend
+        run: |
+          nohup uvicorn main:app --host 127.0.0.1 --port 8000 > backend.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -s -o /dev/null http://127.0.0.1:8000/graphql && exit 0
+            sleep 1
+          done
+          cat backend.log
+          exit 1
+
+      - name: Ejecutar la suite E2E
+        run: python -m pytest -q tests/e2e -p no:warnings
+
+      - name: Log del backend si falla
+        if: failure()
+        run: tail -n 200 backend.log
 
   schema:
     name: Compatibilidad del schema con producción

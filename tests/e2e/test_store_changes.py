@@ -75,11 +75,6 @@ def test_store_cannot_accept_the_same_order_twice(world: World):
 
 
 @pytest.mark.pagos
-@pytest.mark.xfail(
-    strict=True,
-    reason="MUY_IMPORTANTE_RESOLVER A8: el monto del intento de pago no incluye el "
-    "cargo de servicio que se muestra en order.total",
-)
 def test_amount_to_pay_matches_order_total(world: World):
     order = world.delivery_order_ready_to_pay()
     attempt = world.initiate_payment(order["id"])

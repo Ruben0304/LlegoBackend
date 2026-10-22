@@ -155,14 +155,17 @@ def test_pickup_cash_order_goes_straight_to_accepted(world: World):
     assert len(world.get_order(order["id"])["deliveryVerificationCode"]) == 6
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="MUY_IMPORTANTE_RESOLVER B2: un pedido de recogida no se puede cerrar nunca",
-)
 def test_pickup_order_can_be_completed_by_the_store(world: World):
+    # B2: la tienda cierra la recogida con el código que le enseña el cliente
     order = world.create_order(payment="cash", pickup=True)
     world.accept(order["id"])
     world.start_preparing(order["id"])
     world.mark_ready(order["id"])
-    world.set_status(order["id"], "DELIVERED", "owner")
+    code = world.get_order(order["id"])["deliveryVerificationCode"]
+    delivered = world.client.gql(
+        """mutation($id: String!, $code: String!, $jwt: String!) {
+          deliverPickupOrder(orderId: $id, deliveryCode: $code, jwt: $jwt) { status } }""",
+        {"id": order["id"], "code": code, "jwt": world.token("owner")},
+    )["deliverPickupOrder"]
+    assert delivered["status"] == "DELIVERED"
     assert world.get_order(order["id"])["status"] == "DELIVERED"
