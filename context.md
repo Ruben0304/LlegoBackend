@@ -681,6 +681,11 @@ El teléfono del perfil es texto libre y **no se verifica**, así que
 monto de la transferencia ≥ total, transferencia registrada después de crear el pedido,
 que ninguna otra cuenta tenga ese teléfono (solo en el camino por teléfono) y activación
 compare-and-set (`activated: False`) para que una transferencia no pague dos pedidos.
+El registro es idempotente por `transfer_id` (índice único): si el Atajo se dispara dos
+veces con el mismo SMS no nacen dos transferencias. Con `payment_method_id` en el registro
+la transferencia queda atada a esa cuenta receptora y solo confirma pagos de ese método;
+los Atajos antiguos que no lo mandan siguen valiendo para cualquiera (conviene
+actualizarlos para que lo manden).
 Los teléfonos se comparan normalizados a 8 dígitos nacionales con
 [utils/phone.py](utils/phone.py): el perfil puede tener `+53 5XXX XXXX` y el SMS `5XXXXXXX`.
 
@@ -835,15 +840,12 @@ arreglaron en la rama `fix/f1-backend-seguridad` (con tests); el resto siguen ab
    mutations que `is_manager = user_id in branch.managerIds` compara un `str` con
    `ObjectId`s, así que solo el dueño del negocio pasa la comprobación.
 
-2. **Las recargas de wallet por Stripe no acreditan nada.**
-   `WalletRepository.add_balance` ([repositories/wallet_repository.py:67](repositories/wallet_repository.py:67)) llama a
-   `self._to_object_id`, que solo existe en la clase hermana `WalletTransactionRepository`
-   ([:12](repositories/wallet_repository.py:12)) → `AttributeError` siempre. Y aunque se arreglara, hace
-   `$inc: {"wallet.balance": ...}` cuando el esquema real de `User.wallet` es
-   `{"local", "usd"}` ([domain/models.py:70](domain/models.py:70)) — crearía un campo fantasma. Los dos call
-   sites están envueltos en `try/except` que solo loguea
-   ([api/endpoints/stripe_payments.py:338](api/endpoints/stripe_payments.py:338), [:396](api/endpoints/stripe_payments.py:396)): **Stripe cobra y el usuario no
-   ve el saldo.**
+2. ✅ **Resuelto — las recargas de wallet por Stripe no acreditaban nada.**
+   `WalletRepository.add_balance` fallaba siempre y sumaba en un `wallet.balance` que nadie
+   lee. Ahora acredita en `users.wallet.usd` (o `local`) con un apunte `deposit` en
+   `wallet_transactions`, y una sola vez por cobro: `externalReference` = PaymentIntent o
+   sesión, con índice único (`_create_wallet_indexes`), porque Stripe reintenta los webhooks
+   ([repositories/wallet_repository.py](repositories/wallet_repository.py), `tests/test_recarga_stripe.py`).
 
 3. ✅ **Resuelto — endpoints de push y device tokens sin autenticación.** `GET
    /api/device-tokens/`, `DELETE /api/device-tokens/cleanup-invalid` (borraba **todos** los

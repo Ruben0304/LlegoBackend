@@ -62,61 +62,61 @@ class WalletTransactionRepository:
 
 
 class WalletRepository:
-    """Repository for wallet balance operations."""
-    
+    """Saldo de la billetera de usuario acreditado desde cobros externos (Stripe)."""
+
     async def add_balance(
         self,
         user_id: str,
         amount: float,
         transaction_type: str = "stripe_recharge",
-        reference_id: str = None
+        reference_id: str = None,
+        currency: str = "usd",
     ) -> bool:
         """
-        Add balance to user wallet.
-        
-        Args:
-            user_id: User ID
-            amount: Amount to add (in dollars)
-            transaction_type: Type of transaction (e.g., 'stripe_recharge')
-            reference_id: External reference (e.g., Stripe payment intent ID)
-        
-        Returns:
-            True if successful
+        Acredita `amount` en users.wallet.<currency>, el mismo campo que leen WalletService
+        y las apps (antes sumaba en un wallet.balance que nadie lee y además fallaba siempre).
+
+        Stripe reintenta los webhooks: con `reference_id` el cobro se acredita una sola vez
+        (índice único sobre externalReference). Devuelve False si no acreditó nada.
         """
-        db = get_database()
-        
-        # Update user wallet balance
-        result = await db["users"].update_one(
-            {"_id": self._to_object_id(user_id)},
-            {
-                "$inc": {"wallet.balance": amount},
-                "$set": {"wallet.updatedAt": datetime.utcnow()}
-            }
-        )
-        
-        if result.modified_count == 0:
+        if amount is None or amount <= 0 or currency not in ("usd", "local"):
             return False
-        
-        # Create transaction record
+
+        db = get_database()
+        user_oid = WalletTransactionRepository._to_object_id(user_id)
+        if not await db["users"].find_one({"_id": user_oid}, {"_id": 1}):
+            return False
+
+        now = datetime.utcnow()
         transaction_data = {
-            "_id": ObjectId(),
-            "fromOwnerId": "system",
-            "fromOwnerType": "system",
-            "toOwnerId": self._to_object_id(user_id),
+            "fromOwnerId": None,
+            "fromOwnerType": None,
+            "toOwnerId": user_oid,
             "toOwnerType": "user",
-            "amount": amount,
-            "currency": "usd",
-            "type": transaction_type,
+            "amount": float(amount),
+            "currency": currency,
+            "type": "deposit",
             "status": "completed",
-            "description": f"Stripe recharge: ${amount}",
-            "metadata": {
-                "payment_intent_id": reference_id,
-                "source": "stripe"
-            },
-            "createdAt": datetime.utcnow(),
-            "updatedAt": datetime.utcnow()
+            "description": f"Recarga con Stripe: ${float(amount):.2f}",
+            "metadata": {"source": "stripe", "kind": transaction_type, "payment_intent_id": reference_id},
+            "createdAt": now,
+            "completedAt": now,
         }
-        
-        await db["wallet_transactions"].insert_one(transaction_data)
-        
+
+        if reference_id:
+            # Primero el apunte (upsert por referencia) y solo si es nuevo se suma el saldo
+            result = await db["wallet_transactions"].update_one(
+                {"externalReference": reference_id},
+                {"$setOnInsert": {**transaction_data, "externalReference": reference_id}},
+                upsert=True,
+            )
+            if result.upserted_id is None:
+                return False
+        else:
+            await db["wallet_transactions"].insert_one(transaction_data)
+
+        await db["users"].update_one(
+            {"_id": user_oid},
+            {"$inc": {f"wallet.{currency}": float(amount)}},
+        )
         return True

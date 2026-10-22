@@ -335,8 +335,11 @@ async def handle_payment_success(payment_intent: dict):
         else:
             # This is a wallet recharge
             wallet_repo = WalletRepository()
-            await wallet_repo.add_balance(user_id, amount, "stripe_recharge", payment_intent_id)
-            logger.info(f"Wallet updated for user {user_id}: +${amount}")
+            acreditado = await wallet_repo.add_balance(user_id, amount, "stripe_recharge", payment_intent_id)
+            if acreditado:
+                logger.info(f"Wallet updated for user {user_id}: +${amount}")
+            else:
+                logger.warning(f"Recarga no acreditada (repetida o usuario inexistente): {payment_intent_id}")
 
     except Exception as e:
         logger.error(f"Error handling payment success: {e}")
@@ -393,15 +396,20 @@ async def handle_checkout_session_completed(session: dict):
         
         # Update user wallet balance
         wallet_repo = WalletRepository()
-        await wallet_repo.add_balance(
+        acreditado = await wallet_repo.add_balance(
             user_id=user_id,
             amount=amount,
             transaction_type="stripe_payment_link",
-            reference_id=payment_intent_id or session_id
+            reference_id=payment_intent_id or session_id,
+            currency=currency.lower(),
         )
-        
+        if not acreditado:
+            # Repetido (Stripe reintenta), usuario inexistente o moneda que la billetera no tiene
+            logger.warning(f"Pago por enlace no acreditado: {session_id}")
+            return
+
         logger.info(f"Wallet updated for user {user_id}: +${amount} {currency.upper()}")
-        
+
         # Update payment link usage stats
         await update_payment_link_usage(session_id, amount)
         

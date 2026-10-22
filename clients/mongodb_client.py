@@ -47,6 +47,8 @@ async def connect_to_mongo():
         await _create_branch_indexes()
         await _create_partner_request_indexes()
         await _create_platform_banner_indexes()
+        await _create_wallet_indexes()
+        await _create_shortcut_transfer_indexes()
     except Exception as e:
         print(f"✗ Error connecting to MongoDB: {e}")
         raise
@@ -673,3 +675,26 @@ def get_database() -> AsyncIOMotorDatabase:
     if is_sandbox():
         return mongo_client[sandbox_database_name()]
     return database
+
+
+async def _create_shortcut_transfer_indexes():
+    """Un SMS de transferencia se registra una sola vez (si hay duplicados viejos, solo avisa)."""
+    try:
+        await database["shortcut_transfers"].create_index(
+            "transfer_id", name="idx_shortcut_transfer_id", unique=True
+        )
+    except Exception as e:
+        print(f"⚠ Could not create unique shortcut transfer index: {e}")
+
+
+async def _create_wallet_indexes():
+    """Un cobro externo (p. ej. un PaymentIntent de Stripe) se acredita una sola vez."""
+    try:
+        await database["wallet_transactions"].create_index(
+            "externalReference",
+            name="idx_wallet_tx_external_ref",
+            unique=True,
+            partialFilterExpression={"externalReference": {"$type": "string"}},
+        )
+    except Exception as e:
+        print(f"⚠ Could not create wallet indexes: {e}")
