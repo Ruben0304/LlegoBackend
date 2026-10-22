@@ -473,6 +473,15 @@ class TronDealerPaymentResult:
     orderId: str = strawberry.field(description="ID de la orden asociada")
 
 
+def _url_comprobante(proof: Optional[str]) -> Optional[str]:
+    """Firma las rutas del bucket; las URLs y los data:image/ en línea pasan tal cual."""
+    if not proof:
+        return None
+    if proof.startswith(("http", "data:")):
+        return proof
+    return generate_presigned_url(proof)
+
+
 def payment_attempt_to_type(attempt) -> PaymentAttemptType:
     """Convert PaymentAttempt model to GraphQL type."""
     return PaymentAttemptType(
@@ -495,7 +504,7 @@ def payment_attempt_to_type(attempt) -> PaymentAttemptType:
         sendsSmsNotification=attempt.sendsSmsNotification,
         # Se guarda la ruta del comprobante y se firma al leerla (una URL firmada guardada
         # caducaba en una hora); las URLs completas de clientes antiguos pasan tal cual.
-        proofUrl=generate_presigned_url(attempt.proofUrl) if attempt.proofUrl else None,
+        proofUrl=_url_comprobante(attempt.proofUrl),
         customerConfirmedAt=attempt.customerConfirmedAt,
         businessConfirmedAt=attempt.businessConfirmedAt,
         disputeReason=attempt.disputeReason,

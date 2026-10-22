@@ -1248,9 +1248,10 @@ class PaymentService:
         normalized_proof = (proof_url or "").strip() or None
         # Una ruta tiene que ser de un comprobante subido por /upload/payment/proof: si no,
         # se podía apuntar a cualquier archivo del bucket y verlo firmado desde el pedido
+        # (iOS manda la foto en línea como data:image/...; también vale)
         if (
             normalized_proof
-            and not normalized_proof.startswith("http")
+            and not normalized_proof.startswith(("http", "data:image/"))
             and not clave_en_carpeta(normalized_proof, "payments/proofs")
         ):
             raise ValueError("El comprobante no es válido: súbelo de nuevo")

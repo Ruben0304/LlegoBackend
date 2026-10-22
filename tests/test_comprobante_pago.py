@@ -1,5 +1,6 @@
 """Comprobantes de pago: se guarda la ruta (no una URL firmada que caduca) y solo de su carpeta."""
 import asyncio
+import contextlib
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -47,3 +48,15 @@ def test_el_tipo_firma_la_ruta_al_leerla_y_deja_las_urls_antiguas(monkeypatch):
     assert payment_types.payment_attempt_to_type(intento).proofUrl == "https://firmada/payments/proofs/abc_1.jpg"
     intento.proofUrl = "https://antigua/x.jpg"
     assert payment_types.payment_attempt_to_type(intento).proofUrl == "https://antigua/x.jpg"
+
+
+def test_la_foto_en_linea_de_ios_se_acepta_y_no_se_firma(monkeypatch):
+    servicio, intento = _servicio(monkeypatch)
+    foto = "data:image/jpeg;base64,/9j/4AAQ"
+    # Lo que sigue a guardar el comprobante (pasar el pedido de estado, avisos) usa la base
+    with contextlib.suppress(RuntimeError):
+        asyncio.run(servicio.confirm_payment_sent(str(intento.id), CLIENTE, foto))
+    servicio.payment_attempts_repo.set_proof.assert_awaited_once_with(str(intento.id), foto)
+    monkeypatch.setattr(payment_types, "generate_presigned_url", lambda clave: pytest.fail("no se firma"))
+    intento.proofUrl = foto
+    assert payment_types.payment_attempt_to_type(intento).proofUrl == foto
