@@ -676,24 +676,34 @@ class OrderQuery:
         branchId: str,
         jwt: str,
         subtotal: float = 0.0,
+        latitude: Optional[float] = None,
+        longitude: Optional[float] = None,
     ) -> DeliveryFeeEstimateType:
+        """Con latitude y longitude se estima para esa dirección de entrega (la elegida en el
+        carrito); sin ellas, para la ubicación guardada del usuario, como antes."""
         apply_optional_jwt(jwt, info)
         user_id = info.context.get("user_id")
         if not user_id:
             raise Exception("Usuario no autenticado")
 
-        user = await users_repo.get_by_id(user_id)
-        if not user:
-            raise Exception("Usuario no encontrado")
+        if (latitude is None) != (longitude is None):
+            raise Exception("Indica latitud y longitud juntas")
 
-        if not user.location or not user.location.get("coordinates"):
-            raise Exception(
-                "No tienes una ubicación guardada. Actualiza tu ubicación para estimar el envío."
-            )
+        if latitude is None:
+            user = await users_repo.get_by_id(user_id)
+            if not user:
+                raise Exception("Usuario no encontrado")
 
-        coords = user.location["coordinates"]  # [lon, lat]
-        longitude = coords[0]
-        latitude = coords[1]
+            if not user.location or not user.location.get("coordinates"):
+                raise Exception(
+                    "No tienes una ubicación guardada. Actualiza tu ubicación para estimar el envío."
+                )
+
+            coords = user.location["coordinates"]  # [lon, lat]
+            longitude = coords[0]
+            latitude = coords[1]
+        elif not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+            raise Exception("Coordenadas no válidas")
 
         try:
             return await estimate_delivery_fee(
