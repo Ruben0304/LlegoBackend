@@ -275,3 +275,51 @@ def test_phone_path_requires_profile_phone(setup):
         confirm(env)
 
     env.find.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# M14: transferencia atada a la cuenta receptora y registro sin duplicados
+# ---------------------------------------------------------------------------
+
+
+def test_transfer_to_another_payment_method_does_not_confirm(setup):
+    transfer = make_transfer(1500.0)
+    transfer.payment_method_id = str(ObjectId())
+    env = setup(transfers=[transfer])
+
+    with pytest.raises(ValueError, match="phone_not_found"):
+        confirm(env)
+    env.activate.assert_not_awaited()
+
+
+def test_transfer_bound_to_same_payment_method_confirms(setup):
+    attempt = make_attempt()
+    transfer = make_transfer(1500.0)
+    transfer.payment_method_id = str(attempt.paymentMethodId)
+    env = setup(attempt=attempt, transfers=[transfer])
+
+    confirm(env)
+
+    env.activate.assert_awaited_once_with(transfer.id)
+
+
+def test_registering_the_same_sms_twice_returns_the_first_record(monkeypatch):
+    from repositories import shortcut_transfer_repository as repo_module
+
+    guardados = {}
+
+    class Coleccion:
+        async def find_one_and_update(self, filtro, cambios, upsert, return_document):
+            clave = filtro["transfer_id"]
+            if clave not in guardados:
+                guardados[clave] = dict(cambios["$setOnInsert"])
+            return dict(guardados[clave])
+
+    monkeypatch.setattr(repo_module, "get_database", lambda: {"shortcut_transfers": Coleccion()})
+    repo = repo_module.ShortcutTransferRepository()
+
+    primera = asyncio.run(repo.create(make_transfer(1500.0, transfer_id="TM1")))
+    segunda = asyncio.run(repo.create(make_transfer(1500.0, transfer_id="TM1")))
+
+    assert segunda.id == primera.id
+    assert len(guardados) == 1

@@ -26,6 +26,9 @@ class ShortcutTransfer(BaseModel):
     # depender del formato; None si no es un número cubano o en registros antiguos.
     phone_national: Optional[str] = None
     date: Optional[datetime] = None  # Transfer date from SMS
+    # Método de pago (cuenta receptora) al que llegó la transferencia. Si viene, solo puede
+    # confirmar pagos hechos con ese método; sin él (Atajos antiguos) vale para cualquiera.
+    payment_method_id: Optional[str] = None
     activated: bool = False  # Whether this transfer has been used to confirm a payment
     activated_at: Optional[datetime] = None
     created_at: datetime

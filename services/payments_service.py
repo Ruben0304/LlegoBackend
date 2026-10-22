@@ -30,6 +30,7 @@ from services.payments.providers.registry import (
 from services.shortcut_transfer_service import (
     shortcut_transfer_service,
     transfers_covering_amount,
+    transfers_for_payment_method,
 )
 from utils.currency import branch_accepts_currency, normalize_currency
 
@@ -1765,6 +1766,7 @@ class PaymentService:
                 phone=user_phone, created_after=created_after
             )
 
+        transfers = transfers_for_payment_method(transfers, attempt.paymentMethodId)
         if not transfers:
             if transfer_id:
                 raise ValueError(

@@ -25,12 +25,21 @@ class ShortcutTransferRepository:
         return ShortcutTransfer(**doc)
 
     async def create(self, transfer: ShortcutTransfer) -> ShortcutTransfer:
-        """Create a new shortcut transfer record."""
+        """Registra la transferencia una sola vez por `transfer_id`.
+
+        Si el Atajo se dispara dos veces con el mismo SMS, la segunda devuelve el registro
+        que ya había: dos copias podrían pagar dos pedidos distintos con un solo cobro.
+        """
         collection = self._get_collection()
         doc = transfer.model_dump(by_alias=True)
         doc["_id"] = ObjectId(doc["_id"])
-        await collection.insert_one(doc)
-        return transfer
+        stored = await collection.find_one_and_update(
+            {"transfer_id": transfer.transfer_id},
+            {"$setOnInsert": doc},
+            upsert=True,
+            return_document=True,
+        )
+        return self._doc_to_model(stored)
 
     async def find_pending(
         self,

@@ -26,6 +26,16 @@ def transfers_covering_amount(
     return sorted(covering, key=lambda t: (t.amount, -t.created_at.timestamp()))
 
 
+def transfers_for_payment_method(
+    transfers: List[ShortcutTransfer], payment_method_id: Optional[str]
+) -> List[ShortcutTransfer]:
+    """Quita las transferencias que llegaron a otra cuenta receptora (otro método de pago)."""
+    return [
+        t for t in transfers
+        if not t.payment_method_id or str(t.payment_method_id) == str(payment_method_id)
+    ]
+
+
 class ShortcutTransferService:
     """Business logic for shortcut transfers."""
 
@@ -38,8 +48,9 @@ class ShortcutTransferService:
         amount: float,
         phone: Optional[str] = None,
         date: Optional[datetime] = None,
+        payment_method_id: Optional[str] = None,
     ) -> ShortcutTransfer:
-        """Register a new bank transfer from iOS Shortcuts."""
+        """Register a new bank transfer from iOS Shortcuts (idempotente por transfer_id)."""
         transfer = ShortcutTransfer(
             _id=str(ObjectId()),
             transfer_id=transfer_id,
@@ -47,6 +58,7 @@ class ShortcutTransferService:
             phone=phone,
             phone_national=cuban_national_number(phone),
             date=date,
+            payment_method_id=payment_method_id,
             activated=False,
             created_at=datetime.utcnow(),
         )

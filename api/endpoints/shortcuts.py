@@ -35,6 +35,10 @@ class RegisterTransferRequest(BaseModel):
     date: Optional[datetime] = Field(
         default=None, description="Fecha de la transferencia"
     )
+    payment_method_id: Optional[str] = Field(
+        default=None,
+        description="Método de pago (cuenta) que recibió la transferencia; la ata a esa cuenta",
+    )
 
 
 class RegisterTransferResponse(BaseModel):
@@ -68,6 +72,7 @@ async def register_transfer(
             amount=data.amount,
             phone=data.phone,
             date=data.date,
+            payment_method_id=data.payment_method_id,
         )
 
         logger.info(
