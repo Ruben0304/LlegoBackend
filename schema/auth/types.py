@@ -30,6 +30,9 @@ class AppleLoginInput:
     identity_token: str
     authorization_code: Optional[str] = None
     nonce: Optional[str] = None
+    # Apple solo da el nombre la primera vez que alguien entra, y no va en el token: la app
+    # lo manda aquí para la cuenta nueva (si no, el nombre sale del correo, a menudo privado).
+    full_name: Optional[str] = None
 
 
 @strawberry.type

@@ -157,6 +157,7 @@ class AuthMutation:
             email=token_info["email"],
             provider="apple",
             provider_user_id=token_info["sub"],
+            name=(input.full_name or "").strip()[:100] or None,
             apple_private_email=get_apple_private_email(
                 token_info.get("email"), token_info.get("is_private_email")
             ),
