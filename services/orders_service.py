@@ -75,6 +75,9 @@ logger = logging.getLogger(__name__)
 # Intentos fallidos del código de entrega por pedido antes de bloquearlo
 MAX_DELIVERY_CODE_ATTEMPTS = 5
 
+# Comentarios del pedido: antes se aceptaban 200 KB por comentario
+MAX_ORDER_COMMENT_CHARS = 1000
+
 
 class OrderValidationError(ValueError):
     """Business validation error with stable GraphQL error code."""
@@ -1092,6 +1095,8 @@ class OrderService:
         scheduled_for: Optional[datetime] = None,
     ) -> Order:
         """Create a new order with all validations."""
+        if initial_comment and len(initial_comment) > MAX_ORDER_COMMENT_CHARS:
+            raise ValueError(f"El comentario no puede pasar de {MAX_ORDER_COMMENT_CHARS} caracteres")
         requested_fulfillment = (fulfillment_type or "DELIVERY").strip().upper()
         if requested_fulfillment not in {"DELIVERY", "PICKUP"}:
             raise OrderValidationError(
@@ -2681,6 +2686,11 @@ class OrderService:
 
     async def add_comment(self, order_id: str, user_id: str, message: str) -> Order:
         """Add a comment to an order."""
+        message = (message or "").strip()
+        if not message:
+            raise ValueError("El comentario está vacío")
+        if len(message) > MAX_ORDER_COMMENT_CHARS:
+            raise ValueError(f"El comentario no puede pasar de {MAX_ORDER_COMMENT_CHARS} caracteres")
         order = await self.orders_repo.get_by_id(order_id)
         if not order:
             raise ValueError("Pedido no encontrado")

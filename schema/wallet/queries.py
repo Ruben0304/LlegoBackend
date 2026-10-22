@@ -44,6 +44,8 @@ class WalletQuery:
         currency: Optional[str] = None
     ) -> List[WalletTransactionType]:
         """Get current user's wallet transaction history."""
+        if limit is not None:
+            limit = min(max(limit, 0), 200)  # tope: limit=100000 se aceptaba
         user_id = require_auth(jwt, info)
         
         transactions = await wallet_service.get_transaction_history(
@@ -120,6 +122,8 @@ class WalletQuery:
         currency: Optional[str] = None
     ) -> List[WalletTransactionType]:
         """Get branch wallet transaction history. Only branch managers or business owner can access."""
+        if limit is not None:
+            limit = min(max(limit, 0), 200)  # tope: limit=100000 se aceptaba
         user_id = require_auth(jwt, info)
 
         # Verify user is manager of branch or owner of business

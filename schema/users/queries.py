@@ -138,6 +138,8 @@ class UserQuery:
         limit: int = 50,
         offset: int = 0,
     ) -> AdminUsersConnectionType:
+        if limit is not None:
+            limit = min(max(limit, 0), 200)  # tope: limit=100000 se aceptaba
         require_role(jwt, info, ["admin", "manager"])
 
         window_days = max(1, activeDays)

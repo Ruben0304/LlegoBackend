@@ -316,6 +316,31 @@ class ProductRepository:
             logger.warning(f"Error searching products in Qdrant: {e}")
             return []
 
+    async def search_text(self, query: str, limit: int = 200) -> List[Product]:
+        """Búsqueda por texto en MongoDB (índice idx_products_text_search, en español).
+
+        Respaldo cuando Gemini o Qdrant fallan: en Cuba la red y los servicios externos se
+        caen a menudo y la búsqueda devolvía error o lista vacía.
+        """
+        texto = (query or "").strip()
+        if not texto:
+            return []
+        try:
+            db = get_database()
+            cursor = (
+                db[self.mongo_collection_name]
+                .find({"$text": {"$search": texto}}, {"score": {"$meta": "textScore"}})
+                .sort([("score", {"$meta": "textScore"})])
+                .limit(limit)
+            )
+            documents = await cursor.to_list(length=limit)
+            for doc in documents:
+                doc.pop("score", None)
+            return [Product(**doc) for doc in documents]
+        except Exception as e:
+            logger.warning(f"Error en la búsqueda por texto de productos: {e}")
+            return []
+
     # --- Create Method (MongoDB + Qdrant) ---
 
     async def create(self, product: Product) -> Product:

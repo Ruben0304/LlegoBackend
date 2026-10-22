@@ -2,6 +2,8 @@
 
 from typing import List, Optional
 
+import logging
+
 import strawberry
 from strawberry.types import Info
 
@@ -25,6 +27,8 @@ from .types import (
     ScoredProductType,
 )
 
+
+logger = logging.getLogger(__name__)
 
 @strawberry.type
 class ProductQuery:
@@ -57,6 +61,8 @@ class ProductQuery:
             branchTipo: Filter by branch type (ignored if branchId is provided)
             radiusKm: Filter by radius in km from user location
         """
+        if first is not None:
+            first = min(max(first, 0), 200)  # tope: limit=100000 se aceptaba
         apply_optional_jwt(jwt, info)
         rate_limit_graphql(info, "graphql")
         user_id = info.context.get("user_id")
@@ -224,6 +230,8 @@ class ProductQuery:
             branchTipo: Filter by branch type
             radiusKm: Filter by radius in km from user location
         """
+        if first is not None:
+            first = min(max(first, 0), 200)  # tope: limit=100000 se aceptaba
         apply_optional_jwt(jwt, info)
         rate_limit_graphql(info, "search")
         user_id = info.context.get("user_id")
@@ -274,12 +282,13 @@ class ProductQuery:
                 product_results = await vector_service.search_products(
                     query, limit=search_limit
                 )
-            except RuntimeError:
-                raise Exception(
-                    "El buscador inteligente no está disponible en este momento. "
-                    "Disculpa las molestias, inténtalo de nuevo más tarde."
-                )
+            except Exception as e:
+                # Gemini o Qdrant caídos: búsqueda por texto en vez de un error (y sin
+                # mandar al cliente el mensaje del proveedor)
+                logger.warning(f"searchProducts: búsqueda vectorial no disponible ({type(e).__name__}); se usa texto")
+                product_results = None
 
+        if use_vector_search and product_results is not None:
             vector_scores = {r.mongo_id: r.score for r in product_results}
             all_products = []
 
@@ -323,7 +332,7 @@ class ProductQuery:
                 for rp in ranked_products
             ]
         else:
-            all_products = await products_repo.search(query)
+            all_products = await products_repo.search_text(query)
             if allowed_branch_ids is not None:
                 all_products = [
                     p for p in all_products if p.branchId in allowed_branch_ids
@@ -391,6 +400,8 @@ class ProductQuery:
         Returns:
             ProductRecommendationsResponseType with recommendations, or None if unavailable
         """
+        if limit is not None:
+            limit = min(max(limit, 0), 200)  # tope: limit=100000 se aceptaba
         from schema.products.types import ProductRecommendationType
         from services.product_recommendation_service import (
             product_recommendation_service,
@@ -443,6 +454,8 @@ class ProductQuery:
         Returns:
             List of products from the same branch, excluding the reference product
         """
+        if limit is not None:
+            limit = min(max(limit, 0), 200)  # tope: limit=100000 se aceptaba
         apply_optional_jwt(jwt, info)
         rate_limit_graphql(info, "graphql")
 
@@ -479,6 +492,8 @@ class ProductQuery:
         Uses the product's stored embedding as positive example — no Gemini call needed.
         Returns empty list silently if Qdrant is unavailable.
         """
+        if limit is not None:
+            limit = min(max(limit, 0), 200)  # tope: limit=100000 se aceptaba
         import uuid as _uuid
         from clients import get_qdrant_client
         from qdrant_client.models import (

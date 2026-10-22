@@ -48,6 +48,8 @@ class ComboQuery:
             product_category_id: Filtrar por categoría de producto
             first: Límite de resultados (máx 100, default 50)
         """
+        if first is not None:
+            first = min(max(first, 0), 200)  # tope: limit=100000 se aceptaba
         first = min(first, 100)
 
         if branch_tipo or product_category_id:

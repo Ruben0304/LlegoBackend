@@ -3,6 +3,7 @@
 from typing import Optional
 
 import strawberry
+from strawberry.extensions import MaxAliasesLimiter
 from strawberry.types import Info
 
 from utils.graphql_auth import apply_optional_jwt
@@ -152,5 +153,12 @@ schema = strawberry.Schema(
     query=Query,
     mutation=Mutation,
     subscription=Subscription,
-    extensions=[UserIdExtension, ErrorLoggingExtension, LastSeenExtension, MaskUnexpectedErrors],
+    extensions=[
+        UserIdExtension,
+        ErrorLoggingExtension,
+        LastSeenExtension,
+        MaskUnexpectedErrors,
+        # Sin tope, una sola petición podía repetir una consulta cara cientos de veces con alias
+        MaxAliasesLimiter(max_alias_count=30),
+    ],
 )

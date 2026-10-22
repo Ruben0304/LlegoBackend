@@ -245,6 +245,8 @@ class PaymentMethodQuery:
         limit: int = 50,
         offset: int = 0,
     ) -> PaymentAttemptAdminConnectionType:
+        if limit is not None:
+            limit = min(max(limit, 0), 200)  # tope: limit=100000 se aceptaba
         require_role(jwt, info, ["admin", "manager"])
 
         db = get_database()
@@ -346,6 +348,8 @@ class PaymentMethodQuery:
         limit: int = 50,
         offset: int = 0,
     ) -> OcrPaymentsConnectionType:
+        if limit is not None:
+            limit = min(max(limit, 0), 200)  # tope: limit=100000 se aceptaba
         require_role(jwt, info, ["admin", "manager"])
 
         payments, total = await payments_repo.list_filtered(
@@ -378,6 +382,8 @@ class PaymentMethodQuery:
         limit: int = 50,
         offset: int = 0,
     ) -> KycVerificationAdminConnectionType:
+        if limit is not None:
+            limit = min(max(limit, 0), 200)  # tope: limit=100000 se aceptaba
         require_role(jwt, info, ["admin", "manager"])
 
         rows, total = await kyc_verifications_repo.list_filtered(

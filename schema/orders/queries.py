@@ -117,6 +117,8 @@ class OrderQuery:
         limit: int = 20,
         offset: int = 0,
     ) -> OrdersConnectionType:
+        if limit is not None:
+            limit = min(max(limit, 0), 200)  # tope: limit=100000 se aceptaba
         apply_optional_jwt(jwt, info)
         user_id = info.context.get("user_id")
         if not user_id:
@@ -222,6 +224,8 @@ class OrderQuery:
         limit: int = 50,
         offset: int = 0,
     ) -> OrdersConnectionType:
+        if limit is not None:
+            limit = min(max(limit, 0), 200)  # tope: limit=100000 se aceptaba
         apply_optional_jwt(jwt, info)
         user_id = info.context.get("user_id")
         if not user_id:
@@ -254,6 +258,8 @@ class OrderQuery:
         limit: int = 50,
         offset: int = 0,
     ) -> OrdersConnectionType:
+        if limit is not None:
+            limit = min(max(limit, 0), 200)  # tope: limit=100000 se aceptaba
         apply_optional_jwt(jwt, info)
         user_id = info.context.get("user_id")
         if not user_id:
@@ -293,6 +299,8 @@ class OrderQuery:
         limit: int = 50,
         offset: int = 0,
     ) -> OrdersConnectionType:
+        if limit is not None:
+            limit = min(max(limit, 0), 200)  # tope: limit=100000 se aceptaba
         require_role(jwt, info, ["admin", "manager"])
 
         orders, total = await orders_repo.list_filtered(
@@ -385,6 +393,8 @@ class OrderQuery:
     async def orders_requiring_attention(
         self, info: Info, jwt: str, limit: int = 50, offset: int = 0
     ) -> OrdersConnectionType:
+        if limit is not None:
+            limit = min(max(limit, 0), 200)  # tope: limit=100000 se aceptaba
         require_role(jwt, info, ["admin"])
 
         orders, total = await orders_repo.get_requiring_attention(
@@ -505,6 +515,8 @@ class OrderQuery:
         after: Optional[str] = None,
         filter: Optional[DeliveredOrdersFilterInput] = None,
     ) -> DeliveredOrdersConnectionType:
+        if first is not None:
+            first = min(max(first, 0), 200)  # tope: limit=100000 se aceptaba
         try:
             user_id = require_auth(jwt, info)
         except Exception as e:
@@ -754,6 +766,8 @@ class OrderQuery:
         limit: int = 50,
         offset: int = 0,
     ) -> OrdersConnectionType:
+        if limit is not None:
+            limit = min(max(limit, 0), 200)  # tope: limit=100000 se aceptaba
         require_role(jwt, info, ["admin", "manager"])
         status_filter = OrderStatus(status.value) if status else None
         orders, total = await orders_repo.get_by_customer(

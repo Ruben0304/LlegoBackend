@@ -113,6 +113,8 @@ class BusinessQuery:
         use_vector_search: bool = True,
         jwt: Optional[str] = None,
     ) -> List[BusinessType]:
+        if limit is not None:
+            limit = min(max(limit, 0), 200)  # tope: limit=100000 se aceptaba
         apply_optional_jwt(jwt, info)
         user_id = info.context.get("user_id")
 

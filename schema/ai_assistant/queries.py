@@ -56,6 +56,8 @@ class AiAssistantQuery:
         jwt: Optional[str] = None,
     ) -> SemanticSearchResultType:
         """Perform semantic vector search and return full entity data."""
+        if limit is not None:
+            limit = min(max(limit, 0), 200)  # tope: limit=100000 se aceptaba
         require_auth(jwt, info)
         rate_limit_graphql(info, "search")
 

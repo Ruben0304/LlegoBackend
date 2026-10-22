@@ -189,6 +189,27 @@ class BranchRepository:
 
     # --- Search Method (Qdrant Vector Similarity) ---
 
+    async def search_text(self, query: str, limit: int = 200) -> List[Branch]:
+        """Búsqueda por texto (idx_branches_text_search): respaldo si Gemini o Qdrant fallan."""
+        texto = (query or "").strip()
+        if not texto:
+            return []
+        try:
+            db = get_database()
+            cursor = (
+                db[self.mongo_collection_name]
+                .find({"$text": {"$search": texto}, "isActive": True}, {"score": {"$meta": "textScore"}})
+                .sort([("score", {"$meta": "textScore"})])
+                .limit(limit)
+            )
+            documents = await cursor.to_list(length=limit)
+            for doc in documents:
+                doc.pop("score", None)
+            return [self._dict_to_branch(doc) for doc in documents]
+        except Exception as e:
+            logger.warning(f"Error en la búsqueda por texto de sucursales: {e}")
+            return []
+
     async def search(self, query: str, limit: int = 20) -> List[Branch]:
         """Search branches using Qdrant vector similarity."""
         try:

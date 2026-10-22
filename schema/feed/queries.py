@@ -104,6 +104,8 @@ class FeedQuery:
         Returns:
             FeedResponse with multiple sections of scored products
         """
+        if first is not None:
+            first = min(max(first, 0), 200)  # tope: limit=100000 se aceptaba
         apply_optional_jwt(jwt, info)
         rate_limit_graphql(info, "feed")
 

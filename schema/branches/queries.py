@@ -109,6 +109,8 @@ class BranchQuery:
             radiusKm: Filter by radius in km from user location
             productCategoryId: Filter by product category ID (only branches with products in this category)
         """
+        if first is not None:
+            first = min(max(first, 0), 200)  # tope: limit=100000 se aceptaba
         apply_optional_jwt(jwt, info)
         rate_limit_graphql(info, "graphql")
         user_id = info.context.get("user_id")
@@ -259,6 +261,8 @@ class BranchQuery:
             productCategoryId: Filter by product category (only branches with products in this category)
             radiusKm: Filter by radius in km from user location
         """
+        if first is not None:
+            first = min(max(first, 0), 200)  # tope: limit=100000 se aceptaba
         apply_optional_jwt(jwt, info)
         rate_limit_graphql(info, "search")
         user_id = info.context.get("user_id")
@@ -270,9 +274,14 @@ class BranchQuery:
         if use_vector_search:
             from services.vector_search_service import VectorSearchService
 
-            vector_service = VectorSearchService()
-            branch_results = await vector_service.search_branches(query, limit=200)
+            try:
+                vector_service = VectorSearchService()
+                branch_results = await vector_service.search_branches(query, limit=200)
+            except Exception:
+                # Gemini o Qdrant caídos: búsqueda por texto en vez de un error
+                branch_results = None
 
+        if use_vector_search and branch_results is not None:
             # Batch-fetch all branches in a single query instead of N round-trips
             mongo_ids = [r.mongo_id for r in branch_results]
             fetched_branches = await branches_repo.get_by_ids(mongo_ids)
@@ -283,7 +292,7 @@ class BranchQuery:
                 if r.mongo_id in branches_by_id
             ]
         else:
-            all_branches = await branches_repo.search(query)
+            all_branches = await branches_repo.search_text(query)
 
         # Filter by product category if specified
         if productCategoryId:
@@ -414,6 +423,8 @@ class BranchQuery:
         Returns:
             Connection with branches and pagination info, ordered by proximity
         """
+        if first is not None:
+            first = min(max(first, 0), 200)  # tope: limit=100000 se aceptaba
         apply_optional_jwt(jwt, info)
 
         use_pagination = first is not None
@@ -609,6 +620,8 @@ class BranchQuery:
         reference branch (e.g. a restaurante must not surface a perfumeria).
         Returns empty list silently if Qdrant is unavailable.
         """
+        if limit is not None:
+            limit = min(max(limit, 0), 200)  # tope: limit=100000 se aceptaba
         import uuid as _uuid
         from clients import get_qdrant_client
         from qdrant_client.models import (
@@ -690,6 +703,8 @@ class BranchQuery:
           4. Exclude the product's own branch
           5. Return top K branches by accumulated score
         """
+        if limit is not None:
+            limit = min(max(limit, 0), 200)  # tope: limit=100000 se aceptaba
         import uuid as _uuid
         from collections import defaultdict
         from clients import get_qdrant_client

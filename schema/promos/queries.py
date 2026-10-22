@@ -28,6 +28,8 @@ class PromoQuery:
         offset: int = 0,
         jwt: Optional[str] = None,
     ) -> PromoRequestPage:
+        if limit is not None:
+            limit = min(max(limit, 0), 200)  # tope: limit=100000 se aceptaba
         require_role(jwt, info, ["admin", "manager"])
 
         if status is not None and status not in ("pending", "approved", "rejected"):
