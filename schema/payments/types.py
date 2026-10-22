@@ -6,6 +6,8 @@ from typing import List, Optional
 
 import strawberry
 
+from utils.s3 import generate_presigned_url
+
 
 @strawberry.enum
 class PaymentAttemptStatusEnum(Enum):
@@ -491,7 +493,9 @@ def payment_attempt_to_type(attempt) -> PaymentAttemptType:
         stripePaymentIntentId=attempt.stripePaymentIntentId,
         stripeClientSecret=attempt.stripeClientSecret,
         sendsSmsNotification=attempt.sendsSmsNotification,
-        proofUrl=attempt.proofUrl,
+        # Se guarda la ruta del comprobante y se firma al leerla (una URL firmada guardada
+        # caducaba en una hora); las URLs completas de clientes antiguos pasan tal cual.
+        proofUrl=generate_presigned_url(attempt.proofUrl) if attempt.proofUrl else None,
         customerConfirmedAt=attempt.customerConfirmedAt,
         businessConfirmedAt=attempt.businessConfirmedAt,
         disputeReason=attempt.disputeReason,

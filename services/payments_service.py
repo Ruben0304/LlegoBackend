@@ -23,6 +23,7 @@ from repositories.payments_attempt_repository import PaymentAttemptRepository
 from services.access_checker import access_checker
 from services.payments import support as payments_support
 from services.payments.enabled_methods import ENABLED_PAYMENT_METHOD_TYPES
+from utils.s3 import clave_en_carpeta
 from services.payments.providers.registry import (
     ALL_DIGITAL_PROVIDERS,
     DIGITAL_PAYMENT_PROVIDERS,
@@ -1245,6 +1246,14 @@ class PaymentService:
 
         # Update attempt
         normalized_proof = (proof_url or "").strip() or None
+        # Una ruta tiene que ser de un comprobante subido por /upload/payment/proof: si no,
+        # se podía apuntar a cualquier archivo del bucket y verlo firmado desde el pedido
+        if (
+            normalized_proof
+            and not normalized_proof.startswith("http")
+            and not clave_en_carpeta(normalized_proof, "payments/proofs")
+        ):
+            raise ValueError("El comprobante no es válido: súbelo de nuevo")
         updated = await self.payment_attempts_repo.set_proof(
             payment_attempt_id, normalized_proof
         )
