@@ -264,8 +264,8 @@ def test_cash_with_kyc_on_rejected(monkeypatch):
         payment_service.start_cash_kyc_evaluation(
             payment_attempt_id="attempt1",
             user_id="user1",
-            identity_document_front_ref="s3://doc.jpg",
-            selfie_live_ref="s3://selfie.jpg",
+            identity_document_front_ref="s3://bucket/kyc/evidence/user1_1.jpg",
+            selfie_live_ref="s3://bucket/kyc/evidence/user1_2.jpg",
             device_context={
                 "device_id_hash": "d1",
                 "ip_hash": "i1",
@@ -333,8 +333,8 @@ def test_cash_with_kyc_on_provider_error_fail_closed(monkeypatch):
         payment_service.start_cash_kyc_evaluation(
             payment_attempt_id="attempt1",
             user_id="user1",
-            identity_document_front_ref="s3://doc.jpg",
-            selfie_live_ref="s3://selfie.jpg",
+            identity_document_front_ref="s3://bucket/kyc/evidence/user1_1.jpg",
+            selfie_live_ref="s3://bucket/kyc/evidence/user1_2.jpg",
             device_context={
                 "device_id_hash": "d1",
                 "ip_hash": "i1",
@@ -457,8 +457,8 @@ def test_start_account_kyc_evaluation_success(monkeypatch):
             merchant_id="merchant1",
             user_id="user1",
             branch_id=BRANCH_ID,
-            identity_document_front_ref="s3://doc.jpg",
-            selfie_live_ref="s3://selfie.jpg",
+            identity_document_front_ref="s3://bucket/kyc/evidence/user1_1.jpg",
+            selfie_live_ref="s3://bucket/kyc/evidence/user1_2.jpg",
             device_context={"device_id_hash": "d1", "ip_hash": "i1"},
         )
     )

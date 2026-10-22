@@ -500,6 +500,21 @@ class PaymentService:
         guessed, _ = mimetypes.guess_type(ref)
         return guessed or "image/jpeg"
 
+    @classmethod
+    def _exigir_evidencia_propia(cls, ref: str, user_id: str) -> None:
+        """La evidencia KYC tiene que ser una foto subida por el propio usuario.
+
+        El backend lee la clave que manda el cliente: con la de otra persona se podía pasar
+        su verificación. Vale kyc/evidence/ (/upload/kyc/evidence) y, por las apps ya
+        publicadas, users/avatars/ (iOS subía la evidencia por el endpoint de avatares).
+        """
+        key = cls._normalize_s3_key(ref or "")
+        if not (
+            clave_en_carpeta(key, "kyc/evidence", str(user_id))
+            or clave_en_carpeta(key, "users/avatars", str(user_id))
+        ):
+            raise ValueError("EVIDENCE_NOT_FOUND")
+
     def _load_s3_bytes_from_ref(self, ref: str) -> bytes:
         key = self._normalize_s3_key(ref)
         s3 = get_s3_client()
@@ -741,6 +756,8 @@ class PaymentService:
             {"type": "selfie_live", "ref": selfie_live_ref},
         ]
 
+        self._exigir_evidencia_propia(identity_document_front_ref, user_id)
+        self._exigir_evidencia_propia(selfie_live_ref, user_id)
         identity_document_front_bytes = self._load_s3_bytes_from_ref(
             identity_document_front_ref
         )
@@ -844,6 +861,8 @@ class PaymentService:
             {"type": "selfie_live", "ref": selfie_live_ref},
         ]
 
+        self._exigir_evidencia_propia(identity_document_front_ref, user_id)
+        self._exigir_evidencia_propia(selfie_live_ref, user_id)
         identity_document_front_bytes = self._load_s3_bytes_from_ref(
             identity_document_front_ref
         )

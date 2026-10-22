@@ -61,6 +61,7 @@ MAX_FILE_SIZES = {
     "cover": 10 * 1024 * 1024,  # 10MB - will be resized to 1920x1080 (16:9)
     "product": 10 * 1024 * 1024,  # 10MB - will be resized to max 1440x1800
     "payment_proof": 10 * 1024 * 1024,  # 10MB - transfer receipt/proof images
+    "kyc_evidence": 10 * 1024 * 1024,  # 10MB - documento y selfie de la verificación
     "model3d": 50 * 1024 * 1024,  # 50MB - 3D models can be large
     "video": 100 * 1024 * 1024,  # 100MB - videos can be large
     "thumbnail": 5 * 1024 * 1024,  # 5MB - thumbnails are smaller
@@ -711,6 +712,49 @@ async def upload_payment_proof(
         raise HTTPException(status_code=500, detail="Error subiendo imagen")
 
     return {"proof_path": image_path, "proof_url": generate_presigned_url(image_path)}
+
+
+@router.post("/kyc/evidence", status_code=status.HTTP_200_OK)
+@limiter.limit(RATE_LIMIT_UPLOADS)
+async def upload_kyc_evidence(
+    request: Request,
+    image: UploadFile = File(...),
+    user_id: str = Depends(get_current_user_id_from_header),
+):
+    """
+    Foto del documento o selfie para la verificación KYC del pago en efectivo.
+
+    Antes las apps usaban /upload/user/avatar, que deja la imagen en 400x400 (el documento
+    no se leía). Aquí se procesa como una foto de producto (hasta 1440x1800) y se guarda en
+    kyc/evidence/<usuario>_..., la única carpeta que el KYC acepta además de la antigua.
+    """
+    if not user_id:
+        raise HTTPException(status_code=401, detail="No autorizado")
+
+    file_content = await validate_upload(
+        image, "kyc_evidence", MAX_FILE_SIZES["kyc_evidence"]
+    )
+
+    filename = image.filename or "evidence.jpg"
+    original_ext = "." + filename.split(".")[-1].lower() if "." in filename else ".jpg"
+    if original_ext not in (".jpg", ".jpeg", ".png", ".webp"):
+        original_ext = ".jpg"
+
+    try:
+        processed_content, extension = await process_product_image_async(
+            file_content, original_ext
+        )
+    except Exception:
+        raise HTTPException(status_code=400, detail="Error procesando imagen")
+
+    try:
+        image_path = await upload_file(
+            processed_content, "kyc/evidence", user_id, extension
+        )
+    except Exception:
+        raise HTTPException(status_code=500, detail="Error subiendo imagen")
+
+    return {"image_path": image_path}
 
 
 @router.post("/business-type/model3d", status_code=status.HTTP_200_OK)
