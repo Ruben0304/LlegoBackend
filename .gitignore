@@ -147,6 +147,7 @@ CLAUDE.md
 # `scripts/ci/` sí se versiona: lo ejecuta el CI (ver .github/workflows/ci.yml).
 scripts/*
 !scripts/ci/
+!scripts/migrar_correos_minusculas.py
 
 # Jupyter notebooks (development only)
 notebooks/
