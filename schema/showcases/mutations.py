@@ -8,10 +8,36 @@ from strawberry.types import Info
 from repositories import showcases_repo
 from services.access_checker import access_checker
 from utils.graphql_auth import apply_optional_jwt
-from utils.s3 import delete_file
+from utils.s3 import clave_en_carpeta, delete_file
 
 from .inputs import CreateShowcaseInput, UpdateShowcaseInput
 from .types import ShowcaseType, showcase_to_type
+
+
+def _items(items):
+    """Ítems de la vitrina; un precio negativo daba totales negativos en el pedido."""
+    if items is None:
+        return None
+    for item in items:
+        if item.price is not None and item.price < 0:
+            raise Exception("El precio no puede ser negativo")
+    return [
+        {
+            "id": item.id,
+            "name": item.name,
+            "description": item.description,
+            "price": item.price,
+            "availability": item.availability,
+        }
+        for item in items
+    ]
+
+
+def _imagen(image):
+    # Solo imágenes subidas a su carpeta: la ruta la manda el cliente
+    if image and not clave_en_carpeta(image, "showcases"):
+        raise Exception("La imagen de la vitrina no es válida: súbela de nuevo")
+    return image
 
 
 @strawberry.type
@@ -30,20 +56,9 @@ class ShowcaseMutation:
         showcase_data = {
             "branchId": input.branchId,
             "title": input.title,
-            "image": input.image,
+            "image": _imagen(input.image),
             "description": input.description,
-            "items": [
-                {
-                    "id": item.id,
-                    "name": item.name,
-                    "description": item.description,
-                    "price": item.price,
-                    "availability": item.availability,
-                }
-                for item in input.items
-            ]
-            if input.items is not None
-            else None,
+            "items": _items(input.items),
             "isActive": True,
         }
 
@@ -77,20 +92,10 @@ class ShowcaseMutation:
         if input.isActive is not None:
             updates["isActive"] = input.isActive
         if input.items is not None:
-            updates["items"] = [
-                {
-                    "id": item.id,
-                    "name": item.name,
-                    "description": item.description,
-                    "price": item.price,
-                    "availability": item.availability,
-                }
-                for item in input.items
-            ]
+            updates["items"] = _items(input.items)
+        # La anterior no se borra: podía ser la imagen de otra vitrina o de un producto
         if input.image is not None:
-            if showcase.image:
-                await delete_file(showcase.image)
-            updates["image"] = input.image
+            updates["image"] = _imagen(input.image)
 
         if not updates:
             raise Exception("No hay campos para actualizar")
@@ -116,7 +121,8 @@ class ShowcaseMutation:
 
         await access_checker.require_branch_access(user_id, showcase.branchId)
 
-        if showcase.image:
+        # Vitrinas antiguas pueden apuntar a imágenes ajenas: solo se borra la de su carpeta
+        if showcase.image and clave_en_carpeta(showcase.image, "showcases"):
             await delete_file(showcase.image)
 
         return await showcases_repo.delete(showcase_id)
