@@ -870,6 +870,8 @@ class OrderStatsType:
     totalRevenue: float
     averageOrderValue: float
     averageDeliveryTime: int
+    # totalRevenue suma monedas distintas: usar este desglose para mostrar ingresos
+    revenueByCurrency: List["CurrencyRevenueType"] = strawberry.field(default_factory=list)
 
 
 @strawberry.type
@@ -935,6 +937,15 @@ class DashboardStatsType:
     completedOrders: int
     cancelledOrders: int
     topProducts: List[TopProductType]
+    # totalRevenue suma monedas distintas: usar este desglose para mostrar ingresos
+    revenueByCurrency: List["CurrencyRevenueType"] = strawberry.field(default_factory=list)
+
+
+@strawberry.type(description="Ingresos de pedidos entregados en una moneda")
+class CurrencyRevenueType:
+    currency: str
+    amount: float
+    orders: int
 
 
 @strawberry.type

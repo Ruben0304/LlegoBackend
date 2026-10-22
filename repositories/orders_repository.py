@@ -751,6 +751,20 @@ class OrderRepository:
         )
         return self._doc_to_order(result) if result else None
 
+    async def _revenue_by_currency(self, match_stage: Dict[str, Any], field: str) -> List[Dict[str, Any]]:
+        """Ingresos de pedidos entregados separados por moneda: sumar CUP y USD juntos
+        daba una cifra sin sentido (y las apps la mostraban con «$»)."""
+        pipeline = [
+            {"$match": {**match_stage, "status": "delivered"}},
+            {"$group": {"_id": {"$ifNull": ["$currency", "USD"]}, "amount": {"$sum": f"${field}"}, "orders": {"$sum": 1}}},
+            {"$sort": {"_id": 1}},
+        ]
+        rows = await self._get_collection().aggregate(pipeline).to_list(None)
+        return [
+            {"currency": row["_id"], "amount": round(float(row["amount"] or 0), 2), "orders": row["orders"]}
+            for row in rows
+        ]
+
     async def get_stats(
         self, branch_id: Optional[str], from_date: datetime, to_date: datetime
     ) -> Dict[str, Any]:
@@ -794,6 +808,7 @@ class OrderRepository:
             else:
                 stats["averageOrderValue"] = 0
             stats["averageDeliveryTime"] = 30  # TODO: Calculate from timeline
+            stats["revenueByCurrency"] = await self._revenue_by_currency(match_stage, "total")
             return stats
 
         return {
@@ -803,6 +818,7 @@ class OrderRepository:
             "totalRevenue": 0,
             "averageOrderValue": 0,
             "averageDeliveryTime": 0,
+            "revenueByCurrency": [],
         }
 
     async def get_dashboard_stats(
@@ -882,6 +898,7 @@ class OrderRepository:
 
         return {
             "totalRevenue": round(stats.get("totalRevenue", 0), 2),
+            "revenueByCurrency": await self._revenue_by_currency(match_stage, "subtotal"),
             "completedOrders": stats.get("completedOrders", 0),
             "cancelledOrders": stats.get("cancelledOrders", 0),
             "topProducts": [

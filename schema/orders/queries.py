@@ -28,6 +28,7 @@ from utils.graphql_auth import apply_optional_jwt, require_auth, require_role
 
 from .inputs import DeliveredOrdersFilterInput
 from .types import (
+    CurrencyRevenueType,
     BranchDeliveryRequestType,
     CoordinatesType,
     CourierPresenceType,
@@ -663,6 +664,7 @@ class OrderQuery:
             totalRevenue=stats["totalRevenue"],
             averageOrderValue=stats["averageOrderValue"],
             averageDeliveryTime=stats["averageDeliveryTime"],
+            revenueByCurrency=[CurrencyRevenueType(**r) for r in stats.get("revenueByCurrency", [])],
         )
 
     @strawberry.field(
@@ -744,6 +746,7 @@ class OrderQuery:
             totalRevenue=stats["totalRevenue"],
             completedOrders=stats["completedOrders"],
             cancelledOrders=stats["cancelledOrders"],
+            revenueByCurrency=[CurrencyRevenueType(**r) for r in stats.get("revenueByCurrency", [])],
             topProducts=[
                 TopProductType(
                     productId=str(p["productId"]),
