@@ -123,6 +123,10 @@ def _redis_set_courier_presence(
         return
 
 
+# Cuánto espera un segundo intento con la misma clave a que el primero cree el pedido
+ESPERA_CLAVE_S = 8.0
+
+
 def _claves_pedido():
     from clients.mongodb_client import get_database
 
@@ -132,9 +136,11 @@ def _claves_pedido():
 async def _reclamar_clave_pedido(user_id: str, idempotency_key: str):
     """Reserva la clave antes de crear el pedido. Devuelve (clave, pedido ya creado o None).
 
-    Si la clave ya existe con su pedido, se devuelve ese pedido; si otro intento la
-    reservó y aún no terminó, se pide esperar en vez de crear un segundo pedido.
+    Si la clave ya existe con su pedido, se devuelve ese pedido. Si otro intento la reservó
+    y aún no terminó (doble toque), se espera hasta ESPERA_CLAVE_S a que termine para
+    devolver el mismo pedido; si no termina, se pide esperar en vez de crear otro.
     """
+    import asyncio
     from datetime import datetime
 
     from pymongo.errors import DuplicateKeyError
@@ -144,11 +150,16 @@ async def _reclamar_clave_pedido(user_id: str, idempotency_key: str):
         await _claves_pedido().insert_one({"_id": clave, "orderId": None, "createdAt": datetime.utcnow()})
         return clave, None
     except DuplicateKeyError:
-        previa = await _claves_pedido().find_one({"_id": clave}) or {}
-        if previa.get("orderId"):
-            pedido = await orders_repo.get_by_id(previa["orderId"])
-            if pedido is not None:
-                return None, pedido
+        for _ in range(int(ESPERA_CLAVE_S / 0.25) + 1):
+            previa = await _claves_pedido().find_one({"_id": clave})
+            if previa is None:
+                # El primer intento falló y soltó la clave: este puede crearlo
+                return await _reclamar_clave_pedido(user_id, idempotency_key)
+            if previa.get("orderId"):
+                pedido = await orders_repo.get_by_id(previa["orderId"])
+                if pedido is not None:
+                    return None, pedido
+            await asyncio.sleep(0.25)
         raise Exception("Tu pedido se está procesando. Espera unos segundos y revisa Mis pedidos.")
 
 

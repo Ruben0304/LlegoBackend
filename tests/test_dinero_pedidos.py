@@ -84,10 +84,11 @@ def test_misma_clave_devuelve_el_mismo_pedido(monkeypatch):
     pedido = SimpleNamespace(id="ped1")
     monkeypatch.setattr(order_mutations, "_claves_pedido", lambda: Claves())
     monkeypatch.setattr(order_mutations, "orders_repo", SimpleNamespace(get_by_id=AsyncMock(return_value=pedido)))
+    monkeypatch.setattr(order_mutations, "ESPERA_CLAVE_S", 0.3)
 
     clave, existente = asyncio.run(order_mutations._reclamar_clave_pedido("u1", "k-123"))
     assert existente is None
-    # Un reintento mientras el primero no ha terminado no crea otro pedido
+    # Un reintento mientras el primero no termina no crea otro pedido (tras esperar un poco)
     with pytest.raises(Exception, match="se está procesando"):
         asyncio.run(order_mutations._reclamar_clave_pedido("u1", "k-123"))
     guardado[clave]["orderId"] = "ped1"
@@ -95,3 +96,24 @@ def test_misma_clave_devuelve_el_mismo_pedido(monkeypatch):
     assert clave2 is None and existente is pedido
     # Otra persona con la misma clave no choca
     assert asyncio.run(order_mutations._reclamar_clave_pedido("u2", "k-123"))[1] is None
+
+
+def test_el_doble_toque_espera_al_primero_y_devuelve_su_pedido(monkeypatch):
+    """El segundo toque no da error si el primero termina mientras espera."""
+    consultas = {"n": 0}
+
+    class Claves:
+        async def insert_one(self, doc):
+            raise DuplicateKeyError("dup")
+
+        async def find_one(self, filtro):
+            consultas["n"] += 1
+            # El primer intento termina mientras el segundo espera
+            return {"_id": filtro["_id"], "orderId": "ped1" if consultas["n"] >= 3 else None}
+
+    pedido = SimpleNamespace(id="ped1")
+    monkeypatch.setattr(order_mutations, "_claves_pedido", lambda: Claves())
+    monkeypatch.setattr(order_mutations, "orders_repo", SimpleNamespace(get_by_id=AsyncMock(return_value=pedido)))
+
+    clave, existente = asyncio.run(order_mutations._reclamar_clave_pedido("u1", "k-9"))
+    assert clave is None and existente is pedido

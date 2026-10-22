@@ -37,6 +37,12 @@ def rol_vigente(user_id: Optional[str], rol_del_token: Optional[str]) -> Optiona
     """
     if rol_del_token not in ROLES_PRIVILEGIADOS or _vigentes is None:
         return rol_del_token
+    # El sandbox E2E usa otra base (sus admins no están en la caché) y firma sus tokens con
+    # otro secreto, así que no sirven fuera de él (core/sandbox.py)
+    from core.sandbox import is_sandbox
+
+    if is_sandbox():
+        return rol_del_token
     uid = str(user_id)
     if uid in _vigentes[rol_del_token]:
         return rol_del_token

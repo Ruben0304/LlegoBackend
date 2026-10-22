@@ -2429,12 +2429,24 @@ class OrderService:
             next_message = "Mensajero asignado. Esperando pago del cliente"
 
         print(f"[COURIER] transitioning to next_status={next_status.value}")
-        result = await self.update_status(
-            order_id,
-            next_status,
-            OrderActor.DELIVERY,
-            next_message,
-        )
+        try:
+            result = await self.update_status(
+                order_id,
+                next_status,
+                OrderActor.DELIVERY,
+                next_message,
+            )
+        except ValueError:
+            # Doble toque del mismo mensajero: la otra petición ya hizo la transición.
+            # Se devuelve el pedido en vez de "accepted -> accepted".
+            current_order = await self.orders_repo.get_by_id(order_id)
+            if (
+                current_order
+                and current_order.status == next_status
+                and self._ids_equal(current_order.deliveryPersonId, delivery_person.id)
+            ):
+                return current_order
+            raise
         print(f"[COURIER] accept_order_for_payment done — final status={result.status.value} deliveryPersonId={result.deliveryPersonId}")
         return result
 
