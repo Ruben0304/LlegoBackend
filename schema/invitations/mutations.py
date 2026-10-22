@@ -10,7 +10,7 @@ from repositories import branch_invitations_repo, business_access_repo, business
 from services.invitation_validator import invitation_validator, InvitationValidationError
 from services.access_manager import access_manager
 from utils.invitation_codes import generate_unique_code
-from utils.graphql_auth import apply_optional_jwt
+from utils.graphql_auth import apply_optional_jwt, require_auth
 from .inputs import GenerateInvitationInput, AcceptInvitationInput
 from .types import BranchInvitationType, InvitationType, invitation_to_type
 
@@ -144,4 +144,30 @@ class InvitationMutation:
                 if access and access.isActive:
                     await access_manager.revoke_business_access(access.id, revoked_by=user_id)
 
+        return True
+
+    @strawberry.mutation(description="Revocar el acceso de un empleado al negocio (dueño o admin)")
+    async def revoke_business_access(
+        self,
+        info: Info,
+        access_id: str,
+        jwt: str,
+    ) -> bool:
+        user_id = require_auth(jwt, info)
+
+        access = await business_access_repo.get_by_id(access_id)
+        if not access:
+            raise Exception("Acceso no encontrado")
+
+        business = await businesses_repo.get_by_id(access.businessId)
+        if not business:
+            raise Exception("Negocio no encontrado")
+        es_admin = info.context.get("user_role") == "admin"
+        if str(business.ownerId) != str(user_id) and not es_admin:
+            raise Exception("Solo el dueño del negocio puede revocar accesos")
+        if str(access.userId) == str(business.ownerId):
+            raise Exception("No se puede revocar el acceso del dueño")
+
+        if access.isActive:
+            await access_manager.revoke_business_access(access.id, revoked_by=user_id)
         return True
