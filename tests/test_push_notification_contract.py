@@ -107,7 +107,7 @@ async def test_payment_proof_push_routes_to_business_app_with_expected_payload()
          patch("repositories.businesses_repo.get_by_id", AsyncMock(return_value=SimpleNamespace(ownerId="owner-1"))), \
          patch.object(device_token_repo, "get_by_user_id", tokens), \
          patch("services.push_notification_service.push_service.send_to_all", send):
-        result = await service.confirm_payment_sent("attempt-1", "customer-1", " proof.png ")
+        result = await service.confirm_payment_sent("attempt-1", "customer-1", "payments/proofs/abc_1.png ")
 
     assert result == "updated"
     assert {call.args[0] for call in tokens.await_args_list} == {"owner-1", "manager-1"}
