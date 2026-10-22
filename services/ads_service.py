@@ -80,19 +80,32 @@ class AdsService:
                 },
             )
 
-        # Stripe / transfer: keep the campaign in pending_payment. The payments
-        # slice attaches a PaymentAttempt (purpose="campaign") and flips this to
-        # paid -> pending_review on Stripe webhook / transfer-proof confirmation.
+        # Stripe no está conectado a las campañas (nada confirmaba el cobro y la
+        # campaña se quedaba en pending_payment para siempre): solo billetera o
+        # transferencia, que confirma un admin con confirm_transfer_payment.
+        if method_kind != "transfer":
+            raise Exception(
+                "Las campañas se pagan con la billetera de la sucursal o por transferencia"
+            )
         return await ad_campaigns_repo.update(
             str(campaign.id),
             {
                 "paymentMethodId": payment_method_id,
-                "paymentStatus": "pending_proof"
-                if method_kind == "transfer"
-                else "unpaid",
+                "paymentStatus": "pending_proof",
                 "status": "pending_payment",
             },
         )
+
+    async def confirm_transfer_payment(
+        self, campaign: AdCampaign, payment_ref: Optional[str] = None
+    ) -> AdCampaign:
+        """Un admin confirma que llegó la transferencia: la campaña pasa a revisión."""
+        if campaign.status != "pending_payment" or campaign.paymentStatus != "pending_proof":
+            raise Exception("La campaña no está esperando la confirmación de una transferencia")
+        updates = {"paymentStatus": "paid", "status": "pending_review"}
+        if payment_ref:
+            updates["paymentRef"] = payment_ref.strip()[:200]
+        return await ad_campaigns_repo.update(str(campaign.id), updates)
 
     async def _charge_branch_wallet(self, campaign: AdCampaign) -> None:
         """Atomically debit the branch wallet and credit the platform wallet."""

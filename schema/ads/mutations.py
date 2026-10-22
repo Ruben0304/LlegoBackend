@@ -161,6 +161,23 @@ class AdCampaignMutation:
         updated = await ads_service.approve(campaign)
         return campaign_to_type(updated)
 
+    @strawberry.mutation(
+        description="[Admin/Manager] Confirmar que llegó la transferencia de una campaña (pasa a revisión)"
+    )
+    async def confirm_ad_campaign_payment(
+        self,
+        info: Info,
+        id: str,
+        jwt: Optional[str] = None,
+        payment_ref: Optional[str] = None,
+    ) -> AdCampaignType:
+        require_role(jwt, info, ["admin", "manager"])
+        campaign = await ad_campaigns_repo.get_by_id(id)
+        if not campaign:
+            raise Exception("Campaña no encontrada")
+        updated = await ads_service.confirm_transfer_payment(campaign, payment_ref)
+        return campaign_to_type(updated)
+
     @strawberry.mutation(description="[Admin/Manager] Rechazar una campaña")
     async def reject_ad_campaign(
         self, info: Info, id: str, jwt: Optional[str] = None, reason: Optional[str] = None
