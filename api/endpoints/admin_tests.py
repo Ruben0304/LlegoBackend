@@ -287,7 +287,9 @@ def _require_admin(authorization: Optional[str] = Header(None)) -> None:
     payload = decode_access_token(token)
     if not payload:
         raise HTTPException(status_code=401, detail="Token inválido o expirado.")
-    if payload.get("role") != "admin":
+    from utils.roles_vigentes import rol_vigente
+
+    if rol_vigente(payload.get("user_id"), payload.get("role")) != "admin":
         raise HTTPException(status_code=403, detail="Se requiere rol de administrador.")
 
 

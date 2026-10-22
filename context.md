@@ -722,6 +722,16 @@ aprobar/rechazar/forzar reevaluación. Está protegida dos veces (en el resolver
 del servicio) con `["admin", "risk_admin"]`. **Ojo:** Panel Admin deja entrar a `manager`,
 que puede *ver* la cola pero recibirá error al intentar el override. Es intencional.
 
+### Roles vigentes (M6)
+
+El JWT dura 30 días y lleva el rol. `utils/roles_vigentes.py` guarda en memoria quién tiene
+cada rol privilegiado (`admin`, `manager`, `risk_admin`) según `users.role`, leído al arrancar
+y cada 60 s (worker en `clients/lifespan.py`). `apply_optional_jwt` (y con él `require_role`
+y todo lo que lee `user_role` del contexto) y los dos chequeos REST de admin usan
+`rol_vigente`: un rol privilegiado que la base ya no confirma pasa a `customer`, así que
+quitar un rol corta el acceso en un minuto sin esperar a que caduque el token. Los roles sin
+privilegios no se comprueban (una cuenta borrada conserva su token de cliente hasta que caduca).
+
 ### Wallet
 
 Los saldos viven **inline** en `User.wallet`, `Branch.wallet` y `Platform.wallet`, todos

@@ -4,6 +4,7 @@ from typing import Optional
 from strawberry.types import Info
 
 from utils.auth import decode_access_token
+from utils.roles_vigentes import rol_vigente
 
 
 def apply_optional_jwt(jwt: Optional[str], info: Info) -> Optional[str]:
@@ -16,12 +17,13 @@ def apply_optional_jwt(jwt: Optional[str], info: Info) -> Optional[str]:
         raise Exception("Invalid JWT")
 
     user_id = payload.get("user_id")
+    role = rol_vigente(user_id, payload.get("role"))
     if isinstance(info.context, dict):
         info.context["user_id"] = user_id
-        info.context["user_role"] = payload.get("role")
+        info.context["user_role"] = role
     else:
         info.context.user_id = user_id
-        info.context.user_role = payload.get("role")
+        info.context.user_role = role
     return user_id
 
 

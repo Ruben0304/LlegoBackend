@@ -38,7 +38,7 @@ class FeedbackQuery:
             return None
         
         # Check authorization: user can only view their own feedback unless admin
-        user_role = info.context.get("role")
+        user_role = info.context.get("user_role")
         if feedback.userId != user_id and user_role != "admin":
             raise Exception("No autorizado para ver este feedback")
         

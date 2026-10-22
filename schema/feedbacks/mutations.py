@@ -94,7 +94,7 @@ class FeedbackMutation:
     ) -> bool:
         """Delete a feedback. User can only delete their own feedback unless admin."""
         user_id = require_auth(jwt, info)
-        user_role = info.context.get("role")
+        user_role = info.context.get("user_role")
 
         # Get feedback to check ownership
         feedback = await feedbacks_repo.get_by_id(feedback_id)

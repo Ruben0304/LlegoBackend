@@ -42,6 +42,24 @@ async def lifespan(app):
     background_tasks = []
 
     try:
+        from utils import roles_vigentes
+
+        await roles_vigentes.refrescar()
+
+        async def run_roles_worker():
+            """Refresca los roles privilegiados vigentes (un rol quitado deja de valer en un minuto)."""
+            while True:
+                await asyncio.sleep(roles_vigentes.INTERVALO_S)
+                try:
+                    await roles_vigentes.refrescar()
+                except Exception as e:
+                    logger.error(f"Error refreshing roles: {e}", exc_info=True)
+
+        background_tasks.append(asyncio.create_task(run_roles_worker()))
+    except Exception as e:
+        logger.error(f"Warning: Could not load roles: {e}")
+
+    try:
         from services.access_expiration_worker import expire_old_accesses
 
         async def run_access_expiration_worker():
