@@ -448,3 +448,19 @@ async def delete_file(object_name: str):
 
     except Exception as e:
         print(f"Error deleting file from S3: {e}")
+
+
+def clave_en_carpeta(key: str, folder: str, entity_id: Optional[str] = None) -> bool:
+    """La clave es de la carpeta (y de la entidad) que corresponde.
+
+    Las mutaciones guardan la ruta que manda el cliente y luego borran la anterior: sin
+    esta comprobación, poner como avatar la imagen de un producto ajeno y cambiarlo
+    después la borraba del bucket. Las claves de upload_file son
+    `{folder}/{entity_id}_{timestamp}{ext}`.
+    """
+    if not key or ".." in key or key.startswith("/") or "://" in key:
+        return False
+    prefijo = f"{folder.rstrip('/')}/"
+    if entity_id:
+        prefijo += f"{entity_id}_"
+    return key.startswith(prefijo)

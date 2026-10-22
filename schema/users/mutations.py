@@ -16,7 +16,7 @@ from .inputs import (
 )
 from repositories import users_repo, branches_repo, businesses_repo
 from utils.graphql_auth import apply_optional_jwt, require_role
-from utils.s3 import delete_file
+from utils.s3 import clave_en_carpeta, delete_file
 
 
 def _user_to_type(u) -> UserType:
@@ -102,8 +102,10 @@ class UserMutation:
         if input.phone is not None:
             updates["phone"] = input.phone
         if input.avatar is not None:
-            # Delete old avatar if exists
-            if user.avatar:
+            # Solo un avatar subido por este usuario (POST /upload/user/avatar)
+            if input.avatar and not clave_en_carpeta(input.avatar, "users/avatars", user_id):
+                raise Exception("La imagen de perfil no es válida: súbela de nuevo")
+            if user.avatar and clave_en_carpeta(user.avatar, "users/avatars", user_id):
                 await delete_file(user.avatar)
             updates["avatar"] = input.avatar
 
@@ -209,8 +211,8 @@ class UserMutation:
         if not user:
             raise Exception("Usuario no encontrado")
 
-        # Delete avatar if exists
-        if user.avatar:
+        # Delete avatar if exists (solo si es suyo)
+        if user.avatar and clave_en_carpeta(user.avatar, "users/avatars", user_id):
             await delete_file(user.avatar)
 
         # Delete user

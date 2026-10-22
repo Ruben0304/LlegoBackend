@@ -1424,8 +1424,17 @@ class PaymentService:
         if not order:
             raise ValueError("Pedido no encontrado")
 
-        # Verify delivery person is assigned to this order
-        if order.get("deliveryPersonId") != delivery_person_id:
+        # Verify delivery person is assigned to this order. Llega el id del usuario del
+        # chofer o el del documento delivery_persons: se aceptan los dos (antes se comparaba
+        # el del pedido con el del usuario y nunca coincidía).
+        assigned = str(order.get("deliveryPersonId") or "")
+        if assigned != str(delivery_person_id):
+            from repositories import delivery_persons_repo
+
+            courier = await delivery_persons_repo.get_by_user_id(str(delivery_person_id))
+            if not courier or str(courier.id) != assigned:
+                raise ValueError("No autorizado para confirmar este pago")
+        if not assigned:
             raise ValueError("No autorizado para confirmar este pago")
 
         # Confirm cash received

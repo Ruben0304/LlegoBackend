@@ -133,7 +133,8 @@ async def create_world(options: WorldOptions = WorldOptions()):
                 "phone": None,
                 "rating": 5.0,
                 "totalDeliveries": 0,
-                "vehicleType": None,
+                # Sin vehículo no pueden aceptar pedidos (regla del 10 oct): la suite E2E fallaba entera
+                "vehicleType": "bicicleta",
                 "isActive": True,
                 "isOnline": False,
                 "linkedBranchIds": [],

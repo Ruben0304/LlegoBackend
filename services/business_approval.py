@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from domain.models import Business
-from repositories import branches_repo, businesses_repo
+from repositories import branches_repo, businesses_repo, store_locations_repo
 
 
 async def approve_business(business_id: str) -> Optional[Business]:
@@ -37,6 +37,8 @@ async def approve_business(business_id: str) -> Optional[Business]:
     for branch in branches:
         if not branch.isActive:
             await branches_repo.update(str(branch.id), {"isActive": True})
+        # También su ubicación: sin ella no sale en las búsquedas por cercanía
+        await store_locations_repo.set_active(store_id=str(branch.id), active=True)
     return updated
 
 
@@ -62,6 +64,7 @@ async def reject_business(
     for branch in branches:
         if branch.isActive:
             await branches_repo.update(str(branch.id), {"isActive": False})
+        await store_locations_repo.set_active(store_id=str(branch.id), active=False)
     return updated
 
 

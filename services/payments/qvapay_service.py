@@ -575,6 +575,9 @@ class QvaPayService:
         Skip verification if qvapay_webhook_secret is not configured (dev mode).
         """
         secret = settings.qvapay_webhook_secret
+        if not secret and settings.environment != "development":
+            # Sin secreto, cualquiera podía mandar un "pago confirmado" falso
+            raise ValueError("Webhook sin secreto configurado: se rechaza")
         if not secret:
             logger.debug(
                 "QvaPay webhook signature check skipped (no secret configured)."

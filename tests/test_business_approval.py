@@ -100,6 +100,8 @@ def registry(monkeypatch):
     monkeypatch.setattr(business_mutations.businesses_repo, "create", AsyncMock(side_effect=_create))
     monkeypatch.setattr(business_mutations.users_repo, "add_business_id", AsyncMock())
     monkeypatch.setattr(business_mutations.branches_repo, "create", AsyncMock(side_effect=lambda b: b))
+    # registerBusiness guarda también la ubicación de cada sucursal (stores_location)
+    monkeypatch.setattr(business_mutations.store_locations_repo, "upsert", AsyncMock())
     import repositories
 
     monkeypatch.setattr(
@@ -302,3 +304,11 @@ def test_approving_a_business_request_approves_only_pending_businesses(stores):
     assert stores.branch_updates == [("br-1", {"isActive": True})]
     # Rechazar un negocio es una decisión explícita: aprobar la solicitud no la deshace.
     assert stores.businesses["b-rejected"].approvalStatus == "rejected"
+
+
+@pytest.fixture(autouse=True)
+def _sin_stores_location(monkeypatch):
+    """Aprobar o rechazar activa o desactiva también la ubicación de las sucursales."""
+    import services.business_approval as aprobacion
+
+    monkeypatch.setattr(aprobacion.store_locations_repo, "set_active", AsyncMock())

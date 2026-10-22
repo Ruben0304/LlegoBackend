@@ -8,7 +8,7 @@ from strawberry.types import Info
 
 from core.config import settings
 from domain.models import Branch, Business, Coordinates
-from repositories import branches_repo, businesses_repo, users_repo
+from repositories import branches_repo, businesses_repo, store_locations_repo, users_repo
 from schema.branches.inputs import expand_schedule_input
 from schema.branches.transfer_accounts import (
     build_legacy_phones,
@@ -18,7 +18,7 @@ from schema.branches.transfer_accounts import (
 from services import business_approval
 from services.partner_requests_service import is_merchant_approved
 from utils.graphql_auth import apply_optional_jwt, require_role
-from utils.s3 import delete_file
+from utils.s3 import clave_en_carpeta, delete_file
 
 from .inputs import (
     CreateBusinessInput,
@@ -51,6 +51,23 @@ def _require_admin(info: Info, jwt: Optional[str], admin_key: Optional[str]) -> 
     if not key or not admin_key or not secrets.compare_digest(admin_key, key):
         raise Exception("No autorizado")
 
+
+
+def _moneda_sucursal(branch_inp) -> Optional[str]:
+    """Moneda que acepta la sucursal (registerBusiness la ignoraba y quedaba solo en USD)."""
+    return branch_inp.acceptedCurrency.value if getattr(branch_inp, "acceptedCurrency", None) else None
+
+
+def _tasa_sucursal(branch_inp) -> Optional[int]:
+    """Tasa propia, solo con las dos monedas (mismas reglas que createBranch)."""
+    tasa = getattr(branch_inp, "exchangeRate", None)
+    if tasa is None:
+        return None
+    if tasa <= 0:
+        raise Exception("exchangeRate debe ser mayor que 0")
+    if _moneda_sucursal(branch_inp) != "BOTH":
+        raise Exception("exchangeRate solo aplica cuando acceptedCurrency es BOTH")
+    return tasa
 
 @strawberry.type
 class BusinessMutation:
@@ -141,15 +158,16 @@ class BusinessMutation:
                 ),
                 phone=branch_inp.phone,
                 schedule=expand_schedule_input(branch_inp.schedule),
-                managerIds=branch_inp.managerIds or [user_id],
-                isActive=True,
+                # El gestor es quien registra: no se aceptan ids ajenos (alguien podía meterse en negocios de otros)
+                managerIds=[user_id],
+                # Las de un negocio pendiente no se ven hasta aprobarlo (approve_business las activa)                isActive=created_business.isActive,
                 avatar=branch_inp.avatar,
                 coverImage=branch_inp.coverImage,
                 socialMedia=branch_inp.socialMedia,
                 pickupEnabled=branch_inp.pickupEnabled,
                 tipos=[t.value for t in branch_inp.tipos],
                 paymentMethodIds=branch_inp.paymentMethodIds,
-                catalogOnly=branch_inp.catalogOnly,
+                catalogOnly=branch_inp.catalogOnly,                acceptedCurrency=_moneda_sucursal(branch_inp),                exchangeRate=_tasa_sucursal(branch_inp),
                 accounts=normalized_accounts,
                 qrPayments=build_legacy_qr_payments(normalized_accounts),
                 phones=build_legacy_phones(normalized_accounts),
@@ -157,7 +175,7 @@ class BusinessMutation:
             )
 
             # Create branch in MongoDB first
-            created_branch = await branches_repo.create(branch)
+            created_branch = await branches_repo.create(branch)            # Sin esto la sucursal no salía en las búsquedas por cercanía ni en el feed geográfico            await store_locations_repo.upsert(                store_id=str(branch_id),                longitude=branch_inp.coordinates.lng,                latitude=branch_inp.coordinates.lat,                active=created_business.isActive,            )
 
         # 4. Retornar negocio creado
         return BusinessType(
@@ -214,9 +232,10 @@ class BusinessMutation:
         if input.isActive is not None:
             updates["isActive"] = input.isActive
         if input.avatar is not None:
-            # Delete old avatar if exists
-            if business.avatar:
-                await delete_file(business.avatar)
+            # Solo rutas de la carpeta de avatares de negocio. La anterior no se borra:
+            # la ruta la manda el cliente y podía ser la imagen de otro negocio.
+            if input.avatar and not clave_en_carpeta(input.avatar, "businesses/avatars"):
+                raise Exception("La imagen del negocio no es válida: súbela de nuevo")
             updates["avatar"] = input.avatar
         if input.predefinedDeliveryFee is not None:
             if input.predefinedDeliveryFee < 0:
@@ -354,15 +373,16 @@ class BusinessMutation:
                         ),
                         phone=branch_inp.phone,
                         schedule=expand_schedule_input(branch_inp.schedule),
-                        managerIds=branch_inp.managerIds or [user_id],
-                        isActive=True,
+                        # El gestor es quien registra: no se aceptan ids ajenos (alguien podía meterse en negocios de otros)
+                        managerIds=[user_id],
+                        # Las de un negocio pendiente no se ven hasta aprobarlo (approve_business las activa)                        isActive=created_business.isActive,
                         avatar=branch_inp.avatar,
                         coverImage=branch_inp.coverImage,
                         socialMedia=branch_inp.socialMedia,
                         pickupEnabled=branch_inp.pickupEnabled,
                         tipos=[t.value for t in branch_inp.tipos],
                         paymentMethodIds=branch_inp.paymentMethodIds,
-                        catalogOnly=branch_inp.catalogOnly,
+                        catalogOnly=branch_inp.catalogOnly,                        acceptedCurrency=_moneda_sucursal(branch_inp),                        exchangeRate=_tasa_sucursal(branch_inp),
                         accounts=normalized_accounts,
                         qrPayments=build_legacy_qr_payments(normalized_accounts),
                         phones=build_legacy_phones(normalized_accounts),
@@ -370,7 +390,7 @@ class BusinessMutation:
                     )
 
                     # Create branch in MongoDB first
-                    created_branch = await branches_repo.create(branch)
+                    created_branch = await branches_repo.create(branch)                    # Sin esto la sucursal no salía en las búsquedas por cercanía ni en el feed geográfico                    await store_locations_repo.upsert(                        store_id=str(branch_id),                        longitude=branch_inp.coordinates.lng,                        latitude=branch_inp.coordinates.lat,                        active=created_business.isActive,                    )
                     created_branch_ids.append(branch_id)
 
             # 3. Retornar negocios creados

@@ -448,6 +448,8 @@ ALLOWED_TRANSITIONS: Dict[str, List[str]] = {
     ],
     OrderStatus.READY_FOR_PICKUP.value: [
         OrderStatus.ON_THE_WAY.value,
+        # Recogida en tienda: la tienda lo entrega con el código del cliente (confirmPickup)
+        OrderStatus.DELIVERED.value,
     ],
     OrderStatus.ON_THE_WAY.value: [
         OrderStatus.DELIVERED.value,

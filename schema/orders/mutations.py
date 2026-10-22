@@ -714,6 +714,19 @@ class OrderMutation:
             print(f"[COURIER] confirm_delivery error: {type(e).__name__}: {e}")
             raise Exception(str(e))
 
+    @strawberry.mutation(
+        description="La tienda entrega un pedido de recogida en tienda con el código del cliente"
+    )
+    async def deliver_pickup_order(
+        self, info: Info, orderId: str, deliveryCode: str, jwt: str
+    ) -> OrderType:
+        user_id = require_auth(jwt, info)
+        try:
+            order = await order_service.deliver_pickup_order(orderId, user_id, deliveryCode)
+            return order_to_type(order)
+        except ValueError as e:
+            raise Exception(str(e))
+
     # Admin mutations
     @strawberry.mutation(description="Asignar repartidor manualmente")
     async def assign_delivery_person(

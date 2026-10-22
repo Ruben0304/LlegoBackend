@@ -20,7 +20,7 @@ from repositories import (
 from services.access_checker import access_checker
 from services.branch_hours import normalize_daily_override_input
 from utils.graphql_auth import apply_optional_jwt
-from utils.s3 import delete_file
+from utils.s3 import clave_en_carpeta, delete_file
 
 from .inputs import CreateBranchInput, UpdateBranchInput, expand_schedule_input
 from .transfer_accounts import (
@@ -244,15 +244,15 @@ class BranchMutation:
                 user_id, branch.businessId, require_owner=True
             )
             updates["managerIds"] = input.managerIds
+        # Solo rutas de su carpeta, y la anterior no se borra: la ruta la manda el cliente
+        # y podía ser la imagen de otra sucursal (o de un producto) y se borraba del bucket
         if input.avatar is not None:
-            # Delete old avatar if exists
-            if branch.avatar:
-                await delete_file(branch.avatar)
+            if input.avatar and not clave_en_carpeta(input.avatar, "branches/avatars"):
+                raise Exception("La imagen de la sucursal no es válida: súbela de nuevo")
             updates["avatar"] = input.avatar
         if input.coverImage is not None:
-            # Delete old cover if exists
-            if branch.coverImage:
-                await delete_file(branch.coverImage)
+            if input.coverImage and not clave_en_carpeta(input.coverImage, "branches/covers"):
+                raise Exception("La portada de la sucursal no es válida: súbela de nuevo")
             updates["coverImage"] = input.coverImage
         if input.tipos is not None:
             if not input.tipos:

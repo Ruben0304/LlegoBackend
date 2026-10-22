@@ -1131,6 +1131,11 @@ class OrderService:
             raise ValueError("La sucursal no está activa")
         if branch.catalogOnly:
             raise ValueError("Esta sucursal solo muestra su catálogo y no acepta pedidos")
+        if is_pickup and not getattr(branch, "pickupEnabled", False):
+            raise OrderValidationError(
+                "Esta tienda no tiene recogida en tienda",
+                code="PICKUP_NOT_ENABLED",
+            )
         if getattr(branch, "acceptingOrders", True) is False:
             raise OrderValidationError(
                 "La sucursal pausó temporalmente la recepción de pedidos. Inténtalo más tarde.",
@@ -2528,12 +2533,29 @@ class OrderService:
         ):
             raise ValueError("No autorizado")
 
+        await self._check_delivery_code(order_id, order, delivery_code)
+
+        # Complete delivery
+        await self.delivery_repo.complete_delivery(delivery_person.id)
+
+        # Update payment status if cash
+        if await self._is_cash_payment_method(order.paymentMethod):
+            await self.orders_repo.update_payment_status(
+                order_id, PaymentStatus.COMPLETED
+            )
+
+        return await self.update_status(
+            order_id, OrderStatus.DELIVERED, OrderActor.DELIVERY, "Pedido entregado"
+        )
+
+    async def _check_delivery_code(self, order_id: str, order: Order, delivery_code: str) -> None:
+        """Comprueba el código que da el cliente, con un máximo de intentos por pedido
+        (antes se podía probar a fuerza bruta: 300 intentos en 4 s). Colección aparte para
+        no tocar el modelo Order."""
         expected_code = (order.deliveryVerificationCode or "").strip()
         provided_code = (delivery_code or "").strip()
         if not expected_code:
             raise ValueError("No hay codigo de entrega generado para este pedido")
-        # Máximo de intentos por pedido: antes se podía probar el código a fuerza bruta
-        # (300 intentos en 4 s). Colección aparte para no tocar el modelo Order.
         from clients.mongodb_client import get_database
 
         intentos = get_database()["delivery_code_attempts"]
@@ -2548,17 +2570,30 @@ class OrderService:
             )
             raise ValueError("Codigo de entrega incorrecto")
 
-        # Complete delivery
-        await self.delivery_repo.complete_delivery(delivery_person.id)
+    async def deliver_pickup_order(
+        self, order_id: str, user_id: str, delivery_code: str
+    ) -> Order:
+        """La tienda entrega un pedido de recogida con el código del cliente.
 
-        # Update payment status if cash
+        Antes no había camino: el pedido se quedaba en READY_FOR_PICKUP porque solo el
+        chofer podía pasarlo a ON_THE_WAY y luego a DELIVERED.
+        """
+        order = await self.orders_repo.get_by_id(order_id)
+        if not order:
+            raise ValueError("Pedido no encontrado")
+        if getattr(order, "deliveryMode", None) != "pickup":
+            raise ValueError("Este pedido no es de recogida en tienda")
+        if order.status != OrderStatus.READY_FOR_PICKUP:
+            raise ValueError("El pedido no está listo para recoger")
+        await access_checker.require_branch_access(user_id, str(order.branchId))
+        await self._check_delivery_code(order_id, order, delivery_code)
+
         if await self._is_cash_payment_method(order.paymentMethod):
             await self.orders_repo.update_payment_status(
                 order_id, PaymentStatus.COMPLETED
             )
-
         return await self.update_status(
-            order_id, OrderStatus.DELIVERED, OrderActor.DELIVERY, "Pedido entregado"
+            order_id, OrderStatus.DELIVERED, OrderActor.BUSINESS, "Pedido recogido en la tienda"
         )
 
     async def expire_stale_pre_preparation_orders(self, limit: int = 100) -> int:
