@@ -43,6 +43,18 @@ class UserRepository:
         user = await db[self.collection_name].find_one({"_id": object_id})
         return User(**self._convert_id(user)) if user else None
 
+    async def get_by_ids(self, user_ids: List[str]) -> List[User]:
+        """Varios usuarios en una sola consulta (DataLoader de pedidos)."""
+        db = get_database()
+        ids = []
+        for user_id in user_ids:
+            try:
+                ids.append(ObjectId(user_id))
+            except Exception:
+                ids.append(user_id)
+        cursor = db[self.collection_name].find({"_id": {"$in": ids}})
+        return [User(**self._convert_id(doc)) async for doc in cursor]
+
     async def get_by_username(self, username: str) -> Optional[User]:
         """Get a user by username."""
         db = get_database()

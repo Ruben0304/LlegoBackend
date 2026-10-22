@@ -6,7 +6,13 @@ from typing import List, Optional
 from strawberry.dataloader import DataLoader
 
 from domain.models import Branch, Business, Product
-from repositories import branches_repo, businesses_repo, product_categories_repo, products_repo
+from repositories import (
+    branches_repo,
+    businesses_repo,
+    product_categories_repo,
+    products_repo,
+    users_repo,
+)
 from utils.cache import (
     TTL_DEFAULT,
     get_business_cache_key,
@@ -99,6 +105,24 @@ async def load_product_categories(category_ids: List[str]) -> List[Optional[obje
     return [category_map.get(cid) for cid in category_ids]
 
 
+async def load_users(user_ids: List[str]) -> List[Optional[object]]:
+    """Usuarios por id en una consulta (clientes de un listado de pedidos)."""
+    user_ids = [str(uid) for uid in user_ids]
+    users = await users_repo.get_by_ids(user_ids)
+    user_map = {str(u.id): u for u in users}
+    return [user_map.get(uid) for uid in user_ids]
+
+
+async def load_delivery_persons(ids: List[str]) -> List[Optional[object]]:
+    """Mensajeros por id en una consulta (listados de pedidos)."""
+    from repositories.orders_repository import delivery_persons_repo
+
+    ids = [str(i) for i in ids]
+    found = await delivery_persons_repo.get_by_ids(ids)
+    dp_map = {str(dp.id): dp for dp in found}
+    return [dp_map.get(i) for i in ids]
+
+
 def create_dataloaders() -> dict:
     """Create all DataLoaders for the GraphQL context."""
     return {
@@ -106,4 +130,6 @@ def create_dataloaders() -> dict:
         "branch_loader": DataLoader(load_fn=load_branches),
         "business_loader": DataLoader(load_fn=load_businesses),
         "category_loader": DataLoader(load_fn=load_product_categories),
+        "user_loader": DataLoader(load_fn=load_users),
+        "delivery_person_loader": DataLoader(load_fn=load_delivery_persons),
     }

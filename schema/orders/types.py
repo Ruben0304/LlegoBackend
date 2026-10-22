@@ -38,6 +38,15 @@ class OrderStatusEnum(Enum):
     CANCELLED = "cancelled"
 
 
+async def _cargar(info, loader_name: str, key, fallback):
+    """Usa el DataLoader del contexto (una consulta por listado) o, sin él, la consulta suelta."""
+    context = getattr(info, "context", None)
+    loader = context.get(loader_name) if context is not None else None
+    if loader:
+        return await loader.load(str(key))
+    return await fallback(key)
+
+
 @strawberry.enum
 class PaymentStatusEnum(Enum):
     PENDING = "pending"
@@ -584,8 +593,8 @@ class OrderType:
         return self._delivery_verification_code
 
     @strawberry.field(description="Customer who placed the order")
-    async def customer(self) -> UserType:
-        user = await users_repo.get_by_id(self.customerId)
+    async def customer(self, info: Info) -> UserType:
+        user = await _cargar(info, "user_loader", self.customerId, users_repo.get_by_id)
         if not user:
             # El cliente fue eliminado o el id quedó huérfano (típico en pedidos
             # antiguos). Devolvemos un placeholder en vez de romper toda la query
@@ -621,26 +630,28 @@ class OrderType:
         )
 
     @strawberry.field(description="Branch preparing the order")
-    async def branch(self) -> BranchType:
+    async def branch(self, info: Info) -> BranchType:
         from schema.branches.utils import branch_to_dict
 
-        branch = await branches_repo.get_by_id(self.branchId)
+        branch = await _cargar(info, "branch_loader", self.branchId, branches_repo.get_by_id)
         if not branch:
             raise Exception(f"Branch not found: {self.branchId}")
         return BranchType(**branch_to_dict(branch))
 
     @strawberry.field(description="Business owning the branch")
-    async def business(self) -> BusinessType:
-        business = await businesses_repo.get_by_id(self.businessId)
+    async def business(self, info: Info) -> BusinessType:
+        business = await _cargar(info, "business_loader", self.businessId, businesses_repo.get_by_id)
         if not business:
             raise Exception(f"Business not found: {self.businessId}")
         return BusinessType(**to_strawberry_dict(business))
 
     @strawberry.field(description="Assigned delivery person")
-    async def delivery_person(self) -> Optional[DeliveryPersonType]:
+    async def delivery_person(self, info: Info) -> Optional[DeliveryPersonType]:
         if not self.deliveryPersonId:
             return None
-        dp = await delivery_persons_repo.get_by_id(self.deliveryPersonId)
+        dp = await _cargar(
+            info, "delivery_person_loader", self.deliveryPersonId, delivery_persons_repo.get_by_id
+        )
         if dp:
             return DeliveryPersonType(
                 id=str(dp.id),
@@ -1042,15 +1053,17 @@ class BranchDeliveryRequestType:
     updatedAt: datetime
 
     @strawberry.field(description="Detalles de la sucursal")
-    async def branch(self) -> Optional[BranchType]:
+    async def branch(self, info: Info) -> Optional[BranchType]:
         from schema.branches.utils import branch_to_dict
 
-        branch = await branches_repo.get_by_id(self.branchId)
+        branch = await _cargar(info, "branch_loader", self.branchId, branches_repo.get_by_id)
         return BranchType(**branch_to_dict(branch)) if branch else None
 
     @strawberry.field(description="Detalles del repartidor")
-    async def delivery_person(self) -> Optional[DeliveryPersonType]:
-        dp = await delivery_persons_repo.get_by_id(self.deliveryPersonId)
+    async def delivery_person(self, info: Info) -> Optional[DeliveryPersonType]:
+        dp = await _cargar(
+            info, "delivery_person_loader", self.deliveryPersonId, delivery_persons_repo.get_by_id
+        )
         if dp:
             return DeliveryPersonType(
                 id=str(dp.id),

@@ -66,11 +66,11 @@ class _Query:
 
     @strawberry.field
     async def order_delivery_person(self) -> Optional[DeliveryPersonType]:
-        return await _order_delivery_person(SimpleNamespace(deliveryPersonId=DP_ID))
+        return await _order_delivery_person(SimpleNamespace(deliveryPersonId=DP_ID), SimpleNamespace(context={}))
 
     @strawberry.field
     async def link_request_delivery_person(self) -> Optional[DeliveryPersonType]:
-        return await _link_request_delivery_person(SimpleNamespace(deliveryPersonId=DP_ID))
+        return await _link_request_delivery_person(SimpleNamespace(deliveryPersonId=DP_ID), SimpleNamespace(context={}))
 
 
 _schema = strawberry.Schema(query=_Query)
