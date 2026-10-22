@@ -560,6 +560,16 @@ async def _create_order_indexes():
             background=True,
         )
 
+        # Búsquedas por cercanía de sucursales ($geoNear): el índice existía en producción
+        # pero no lo creaba el código, así que un entorno nuevo no las tenía
+        # (si producción ya los tiene con otro nombre, create_index choca: no es un error)
+        for claves, nombre in (([("location", "2dsphere")], "idx_stores_location_geo"),
+                               ("store_id", "idx_stores_location_store")):
+            try:
+                await database["stores_location"].create_index(claves, name=nombre, background=True)
+            except Exception as e:
+                print(f"⚠ stores_location {nombre}: {e}")
+
         # Claves de idempotencia de createOrder: basta con recordarlas 7 días
         await database["order_idempotency"].create_index(
             "createdAt",

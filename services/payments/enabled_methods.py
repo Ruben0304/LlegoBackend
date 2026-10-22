@@ -10,4 +10,6 @@ code to ENABLED_DIGITAL_PROVIDER_CODES in
 services/payments/providers/registry.py. Nothing else needs to change.
 """
 
-ENABLED_PAYMENT_METHOD_TYPES: set[str] = {"cash", "transfer", "transfermovil"}
+# "transfermovil" estaba aquí sin implementación en initiate_payment: se listaba y al elegirlo
+# respondía "no soportado". Las transferencias por Transfermóvil van como "transfer".
+ENABLED_PAYMENT_METHOD_TYPES: set[str] = {"cash", "transfer"}
