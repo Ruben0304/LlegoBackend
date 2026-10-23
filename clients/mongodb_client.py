@@ -238,7 +238,22 @@ async def _create_user_indexes():
 
         print("✓ User indexes created/verified")
     except Exception as e:
-        print(f"⚠ Warning: Could not create user indexes: {e}")
+        print(f"⚠ Could not create user indexes: {e}")
+
+    # Aparte: si en la base hay correos repetidos (sin distinguir mayúsculas) el índice no se
+    # puede crear. Se avisa y el resto arranca; se crea en el primer arranque tras ejecutar
+    # scripts/migrar_correos_minusculas.py --aplicar y resolver los choques que liste.
+    try:
+        await database["users"].create_index(
+            [("email", 1)],
+            name="idx_users_email_unico",
+            unique=True,
+            collation={"locale": "en", "strength": 2},  # «Ana@x.com» == «ana@x.com»
+            partialFilterExpression={"email": {"$type": "string", "$gt": ""}},
+        )
+        print("✓ Unique email index created/verified")
+    except Exception as e:
+        print(f"⚠ Unique email index not created (¿correos repetidos? migrar_correos_minusculas.py): {e}")
 
 
 async def _create_ai_chat_indexes():

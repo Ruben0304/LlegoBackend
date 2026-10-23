@@ -722,6 +722,16 @@ aprobar/rechazar/forzar reevaluación. Está protegida dos veces (en el resolver
 del servicio) con `["admin", "risk_admin"]`. **Ojo:** Panel Admin deja entrar a `manager`,
 que puede *ver* la cola pero recibirá error al intentar el override. Es intencional.
 
+### Correo único (idx_users_email_unico)
+
+`users.email` tiene un índice único insensible a mayúsculas (collation `en`, strength 2; los
+vacíos y nulos no cuentan). Si la base tiene correos repetidos el índice no se crea: el arranque
+lo avisa («Unique email index not created») y sigue. Para activarlo en producción: ejecutar
+`python scripts/migrar_correos_minusculas.py` (informa), resolver a mano los choques que liste,
+`--aplicar`, y reiniciar el servicio. El registro responde «Email already registered» si dos
+peticiones chocan a la vez, y el login social enlaza la cuenta por correo sin distinguir
+mayúsculas (si choca al crearla, se enlaza a la que creó la otra petición).
+
 ### Importes (utils/dinero.py)
 
 Todo cálculo de importes de pedidos y pagos usa `utils/dinero.py`: aritmética con `Decimal` y

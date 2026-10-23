@@ -4,6 +4,8 @@ import logging
 from datetime import datetime
 from typing import Optional
 
+from pymongo.errors import DuplicateKeyError
+
 from clients import get_database
 from domain.models import User
 from utils.auth import hash_password, verify_password
@@ -49,8 +51,8 @@ class AuthRepository:
                 {"$set": {"applePrivateEmail": normalized_value}},
             )
 
-    async def get_user_by_email(self, email: str) -> Optional[User]:
-        """Get a user by email."""
+    async def _documento_por_correo(self, email: str) -> Optional[dict]:
+        """Documento crudo del usuario con ese correo, sin distinguir mayúsculas."""
         db = get_database()
         user_data = await db[self.collection_name].find_one({"email": email})
         if not user_data and email:
@@ -60,6 +62,11 @@ class AuthRepository:
             user_data = await db[self.collection_name].find_one(
                 {"email": {"$regex": f"^{re.escape(email.strip())}$", "$options": "i"}}
             )
+        return user_data
+
+    async def get_user_by_email(self, email: str) -> Optional[User]:
+        """Get a user by email."""
+        user_data = await self._documento_por_correo(email)
         if user_data:
             user_data["_id"] = str(user_data["_id"])
             user_data = self._sanitize_user_data_apple_private_email(user_data)
@@ -101,7 +108,11 @@ class AuthRepository:
             "createdAt": datetime.utcnow(),
         }
 
-        result = await db[self.collection_name].insert_one(user_data)
+        try:
+            result = await db[self.collection_name].insert_one(user_data)
+        except DuplicateKeyError:
+            # Dos registros simultáneos con el mismo correo: el índice único deja pasar uno
+            raise Exception("Email already registered")
         user_data["_id"] = str(result.inserted_id)
 
         return User(**user_data)
@@ -152,9 +163,10 @@ class AuthRepository:
             user_data["_id"] = str(doc_id)
             return User(**user_data)
 
-        # 2. Try to find by email (linking account)
+        # 2. Try to find by email (linking account), sin distinguir mayúsculas: con el índice
+        # único insensible a mayúsculas, «Ana@x.com» y «ana@x.com» no pueden ser dos cuentas
         if email:
-            user_data = await db[self.collection_name].find_one({"email": email})
+            user_data = await self._documento_por_correo(email)
             if user_data:
                 # Link account: Update provider info
                 # We update the provider fields so next time we find by providerUserId
@@ -214,7 +226,17 @@ class AuthRepository:
             "applePrivateEmail": normalized_apple_private_email,
         }
 
-        result = await db[self.collection_name].insert_one(user_data)
+        try:
+            result = await db[self.collection_name].insert_one(user_data)
+        except DuplicateKeyError:
+            # Otra petición creó la cuenta con este correo a la vez: se enlaza a esa
+            return await self.upsert_social_user(
+                email=email,
+                provider=provider,
+                provider_user_id=provider_user_id,
+                name=name,
+                apple_private_email=apple_private_email,
+            )
         user_data["_id"] = str(result.inserted_id)
         user_data = self._sanitize_user_data_apple_private_email(user_data)
 
