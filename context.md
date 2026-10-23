@@ -722,6 +722,16 @@ aprobar/rechazar/forzar reevaluación. Está protegida dos veces (en el resolver
 del servicio) con `["admin", "risk_admin"]`. **Ojo:** Panel Admin deja entrar a `manager`,
 que puede *ver* la cola pero recibirá error al intentar el override. Es intencional.
 
+### Importes (utils/dinero.py)
+
+Todo cálculo de importes de pedidos y pagos usa `utils/dinero.py`: aritmética con `Decimal` y
+redondeo al céntimo con los medios hacia arriba (`round()` sobre float daba 2.67 para 2.675).
+`total_pedido(subtotal, envío, cargo de servicio, descuentos)` es la única fórmula del total y
+la usan crear, aceptar con envío propio, modificar y reenviar el pedido, y
+`PaymentService._calculate_amounts`, así que lo cobrado coincide con `order.total`. En Mongo y en
+GraphQL los importes siguen siendo float con dos decimales. Queda fuera por ahora: billeteras,
+payouts y comisiones de QvaPay/TronDealer siguen con float.
+
 ### Roles vigentes (M6)
 
 El JWT dura 30 días y lleva el rol. `utils/roles_vigentes.py` guarda en memoria quién tiene

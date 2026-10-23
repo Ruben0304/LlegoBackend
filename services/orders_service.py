@@ -68,6 +68,7 @@ from services.orders_utils import (
     scheduled_preparation_floor,
 )
 from utils.currency import branch_accepts_currency, normalize_currency
+from utils.dinero import cargo_de_servicio, importe_linea, redondear, sumar, total_pedido
 
 
 logger = logging.getLogger(__name__)
@@ -921,7 +922,7 @@ class OrderService:
                 exchange_rate=exchange_rate,
             )
             discount_amount = discount_value_snapshot
-            discount_value_snapshot = round(discount_value_snapshot, 2)
+            discount_value_snapshot = redondear(discount_value_snapshot)
         else:
             discount_type = "none"
             discount_value_snapshot = 0.0
@@ -931,8 +932,8 @@ class OrderService:
             selection_snapshots,
             preview_products,
             has_gift,
-            round(base_unit_total, 2),
-            round(final_unit_total, 2),
+            redondear(base_unit_total),
+            redondear(final_unit_total),
             discount_type,
             discount_value_snapshot,
         )
@@ -976,7 +977,7 @@ class OrderService:
                 to_currency=order_currency,
                 exchange_rate=exchange_rate,
             )
-            unit_price = round(unit_price, 2)
+            unit_price = redondear(unit_price)
             order_item = OrderItem(
                 itemId=str(product.id),
                 itemType="product",
@@ -987,7 +988,7 @@ class OrderService:
                 imageUrl=product.image,
                 wasModifiedByStore=False,
             )
-            return order_item, round(unit_price * quantity, 2)
+            return order_item, importe_linea(unit_price, quantity)
 
         if item_type == "combo":
             combo_id = item.get("itemId") or item.get("comboId")
@@ -1041,7 +1042,7 @@ class OrderService:
                 discountValue=float(discount_value),
                 previewProducts=preview_products,
             )
-            return order_item, round(final_unit_price * quantity, 2)
+            return order_item, importe_linea(final_unit_price, quantity)
 
         if item_type == "showcase":
             showcase_id = item.get("itemId") or item.get("showcaseId")
@@ -1272,7 +1273,7 @@ class OrderService:
 
         # 3. Validate and snapshot items in order currency
         order_items: List[OrderItem] = []
-        subtotal = 0.0
+        line_subtotals: List[float] = []
 
         for item in items:
             try:
@@ -1295,9 +1296,9 @@ class OrderService:
                     raise OrderValidationError(message, code=code)
                 raise
             order_items.append(order_item)
-            subtotal += line_subtotal
+            line_subtotals.append(line_subtotal)
 
-        subtotal = round(subtotal, 2)
+        subtotal = sumar(line_subtotals)
 
         # 4. Calculate delivery fee using H3 zones (zone config in CUP)
         branch_coords = (
@@ -1339,7 +1340,7 @@ class OrderService:
                     exchange_rate=exchange_rate,
                 )
 
-            delivery_fee = round(delivery_fee, 2)
+            delivery_fee = redondear(delivery_fee)
             delivery_mode = "app"
 
         # H3 index of branch for efficient geo queries by delivery persons
@@ -1356,9 +1357,9 @@ class OrderService:
             # TODO: Validate promo code and apply discount
             pass
 
-        total_discounts = sum(d.amount for d in discounts)
-        service_charge = round(subtotal * settings.service_fee_rate, 2)
-        total = round(subtotal + delivery_fee + service_charge - total_discounts, 2)
+        total_discounts = sumar(d.amount for d in discounts)
+        service_charge = cargo_de_servicio(subtotal, settings.service_fee_rate)
+        total = total_pedido(subtotal, delivery_fee, service_charge, total_discounts)
 
         # 6. Payment status starts as PENDING for all methods.
         # For stripe, the PaymentIntent is created later via initiatePayment()
@@ -1980,9 +1981,9 @@ class OrderService:
                 raise ValueError(
                     f"El envío no puede pasar de {tope:.2f}: revísalo o habla con el cliente"
                 )
-            total_discounts = sum(d.amount for d in order.discounts)
-            new_total = round(
-                order.subtotal + delivery_fee_override + order.serviceCharge - total_discounts, 2
+            total_discounts = sumar(d.amount for d in order.discounts)
+            new_total = total_pedido(
+                order.subtotal, delivery_fee_override, order.serviceCharge, total_discounts
             )
             await self.orders_repo.update_delivery_fee(
                 order_id, delivery_fee_override, new_total, delivery_mode="branch"
@@ -2078,7 +2079,7 @@ class OrderService:
 
         # Build new items list with snapshots
         modified_items: List[OrderItem] = []
-        subtotal = 0.0
+        line_subtotals: List[float] = []
 
         for item in new_items:
             order_item, line_subtotal = await self._build_order_item_snapshot(
@@ -2113,12 +2114,13 @@ class OrderService:
 
             order_item.wasModifiedByStore = was_modified
             modified_items.append(order_item)
-            subtotal += line_subtotal
+            line_subtotals.append(line_subtotal)
 
         # Recalculate total (service charge recalculated on new subtotal)
-        total_discounts = sum(d.amount for d in order.discounts)
-        service_charge = round(subtotal * settings.service_fee_rate, 2)
-        total = round(subtotal + order.deliveryFee + service_charge - total_discounts, 2)
+        subtotal = sumar(line_subtotals)
+        total_discounts = sumar(d.amount for d in order.discounts)
+        service_charge = cargo_de_servicio(subtotal, settings.service_fee_rate)
+        total = total_pedido(subtotal, order.deliveryFee, service_charge, total_discounts)
 
         timeline_entry = OrderTimeline(
             status=OrderStatus.MODIFIED_BY_STORE,
@@ -2128,7 +2130,7 @@ class OrderService:
         )
 
         updated_order = await self.orders_repo.update_items(
-            order_id, modified_items, round(subtotal, 2), service_charge, total, timeline_entry
+            order_id, modified_items, subtotal, service_charge, total, timeline_entry
         )
 
         if not updated_order:
@@ -2225,7 +2227,7 @@ class OrderService:
 
         if new_items is not None:
             rebuilt_items: List[OrderItem] = []
-            running_subtotal = 0.0
+            line_subtotals: List[float] = []
             for item in new_items:
                 order_item, line_subtotal = await self._build_order_item_snapshot(
                     item=item,
@@ -2234,12 +2236,14 @@ class OrderService:
                     exchange_rate=exchange_rate,
                 )
                 rebuilt_items.append(order_item)
-                running_subtotal += line_subtotal
+                line_subtotals.append(line_subtotal)
 
-            total_discounts = sum(d.amount for d in order.discounts)
-            subtotal_value = round(running_subtotal, 2)
-            service_charge_value = round(subtotal_value * settings.service_fee_rate, 2)
-            total_value = round(subtotal_value + order.deliveryFee + service_charge_value - total_discounts, 2)
+            total_discounts = sumar(d.amount for d in order.discounts)
+            subtotal_value = sumar(line_subtotals)
+            service_charge_value = cargo_de_servicio(subtotal_value, settings.service_fee_rate)
+            total_value = total_pedido(
+                subtotal_value, order.deliveryFee, service_charge_value, total_discounts
+            )
             updated_items = rebuilt_items
 
         timeline_message = (

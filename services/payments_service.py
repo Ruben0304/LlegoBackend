@@ -23,6 +23,7 @@ from repositories.payments_attempt_repository import PaymentAttemptRepository
 from services.access_checker import access_checker
 from services.payments import support as payments_support
 from services.payments.enabled_methods import ENABLED_PAYMENT_METHOD_TYPES
+from utils.dinero import porcentaje, redondear, sumar, total_pedido
 from utils.s3 import clave_en_carpeta
 from services.payments.providers.registry import (
     ALL_DIGITAL_PROVIDERS,
@@ -198,22 +199,18 @@ class PaymentService:
 
         # For cash payments with delivery, add delivery fee percentage
         if payment_method.get("method") == "cash" and include_delivery:
-            delivery_fee_percent = float(payment_method.get("deliveryFeePercent", 0))
-            # Apply delivery fee percentage to delivery fee
-            delivery_fee = delivery_fee * (1 + delivery_fee_percent / 100)
+            delivery_fee_percent = payment_method.get("deliveryFeePercent", 0) or 0
+            delivery_fee = redondear(delivery_fee + porcentaje(delivery_fee, delivery_fee_percent))
 
         # El cargo de servicio y los descuentos del pedido también se cobran: antes el pago
         # salía sin el 10 % de servicio (101 149 cobrado frente a 101 264 del pedido).
-        service_charge = float(order.get("serviceCharge", 0) or 0)
-        discounts = sum(
-            float((d or {}).get("amount", 0) or 0) for d in (order.get("discounts") or [])
-        )
+        # Misma fórmula que el total del pedido (utils/dinero.total_pedido).
+        service_charge = order.get("serviceCharge", 0) or 0
+        discounts = sumar((d or {}).get("amount", 0) or 0 for d in (order.get("discounts") or []))
+        base_amount = total_pedido(subtotal, delivery_fee, service_charge, discounts)
+        commission = porcentaje(base_amount, commission_percent)
 
-        # Calculate base for commission
-        base_amount = max(subtotal + delivery_fee + service_charge - discounts, 0.0)
-        commission = round(base_amount * (commission_percent / 100), 2)
-
-        total = round(base_amount + commission, 2)
+        total = sumar([base_amount, commission])
 
         return subtotal, delivery_fee, commission, total, currency
 
