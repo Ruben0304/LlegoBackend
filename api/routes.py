@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from core.config import settings
 from repositories import auth_repo
-from utils.s3 import generate_presigned_url
+from utils.s3 import _s3_object_exists, generate_presigned_url
 from services.payments import validate_payment_image_with_transfer_id
 from utils.auth import create_access_token, get_current_user_id_from_header
 from utils.rate_limit import RATE_LIMIT_AUTH, RATE_LIMIT_UPLOADS, limiter
@@ -240,14 +240,25 @@ async def validate_payment_image(
 # =============================================================================
 
 
+APK_UNIVERSAL = "apps/llego.apk"
+# Un APK por arquitectura (splits.abi de LlegoApk): ~10 MB menos que el universal
+APK_POR_ABI = {abi: f"apps/llego-{abi}.apk" for abi in ("arm64-v8a", "armeabi-v7a")}
+
+
+def clave_apk(abi: Optional[str], existe) -> str:
+    """APK de esa arquitectura si está subido; si no, el universal (sirve en cualquier teléfono)."""
+    clave = APK_POR_ABI.get((abi or "").strip())
+    return clave if clave and existe(clave) else APK_UNIVERSAL
+
+
 @router.get("/download/android", tags=["Downloads"])
-async def download_android():
+async def download_android(abi: Optional[str] = None):
     """
     Redirect to a presigned S3 URL for the Android APK download.
     The presigned URL is cached in Redis for 50 minutes to avoid regenerating
-    it on every request.
+    it on every request. `abi` (arm64-v8a, armeabi-v7a) pide el APK de esa arquitectura.
     """
-    url = generate_presigned_url("apps/llego.apk")
+    url = generate_presigned_url(clave_apk(abi, _s3_object_exists))
     if not url:
         raise HTTPException(status_code=404, detail="APK no disponible")
     return RedirectResponse(url=url, status_code=302)

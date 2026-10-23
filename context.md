@@ -781,6 +781,20 @@ confirmado.
 
 ---
 
+### Descarga del APK de Android
+
+`GET /download/android` redirige (302) a una URL firmada del APK en S3. Con `?abi=arm64-v8a`
+o `?abi=armeabi-v7a` entrega `apps/llego-<abi>.apk` si está subido (~10 MB menos que el
+universal) y, si no, `apps/llego.apk`, el universal, que sirve en cualquier teléfono. La web
+(`/api/download/android`) reenvía el parámetro; la app de clientes lo añade sola al bajar una
+actualización cuando `appConfig.android.updateUrl` apunta a `/download/android`.
+
+Al publicar una versión de LlegoApk, `./gradlew assembleRelease` deja en
+`app/build/outputs/apk/release/` los tres APK: `app-universal-release.apk` se sube como
+`apps/llego.apk`, y `app-arm64-v8a-release.apk` / `app-armeabi-v7a-release.apk` como
+`apps/llego-arm64-v8a.apk` / `apps/llego-armeabi-v7a.apk`. Súbelos juntos: un APK por ABI
+de una versión anterior se serviría a quien lo pida.
+
 ## 9. IA y búsqueda
 
 - **Embeddings e indexado**: `services/embeddings/gemini_service.py`, `qdrant_indexing_service.py`.
