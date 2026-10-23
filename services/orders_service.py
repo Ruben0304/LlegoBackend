@@ -2605,6 +2605,28 @@ class OrderService:
             )
             raise ValueError("Codigo de entrega incorrecto")
 
+    async def unlock_delivery_code(self, order_id: str, reason: str) -> Order:
+        """Soporte vuelve a permitir el código de entrega tras agotar los intentos (A10).
+
+        Antes no había forma: el pedido se quedaba sin poder entregarse. Deja constancia
+        en los comentarios del pedido para que se vea quién y por qué."""
+        reason = (reason or "").strip()
+        if not reason:
+            raise ValueError("Indica el motivo del desbloqueo")
+        order = await self.orders_repo.get_by_id(order_id)
+        if not order:
+            raise ValueError("Pedido no encontrado")
+        from clients.mongodb_client import get_database
+
+        await get_database()["delivery_code_attempts"].delete_one({"_id": str(order_id)})
+        comentario = OrderComment(
+            id=str(uuid.uuid4()),
+            author=OrderActor.SYSTEM,
+            message=f"Soporte desbloqueó el código de entrega: {reason[:MAX_ORDER_COMMENT_CHARS]}",
+            timestamp=datetime.utcnow(),
+        )
+        return await self.orders_repo.add_comment(order_id, comentario) or order
+
     async def deliver_pickup_order(
         self, order_id: str, user_id: str, delivery_code: str
     ) -> Order:

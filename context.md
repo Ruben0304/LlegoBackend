@@ -534,6 +534,11 @@ negocios, siempre con `date` = hoy. Reglas en [services/branch_hours.py](service
 `on_the_way`. El chofer **no** debe verlo: se lo dicta el cliente. Las apps de negocio y
 chofer no pueden depender de ese campo.
 
+Hay como mucho `MAX_DELIVERY_CODE_ATTEMPTS` (5) códigos fallidos por pedido (colección
+`delivery_code_attempts`, `_id` = id del pedido); después ni el correcto vale. Soporte lo
+desbloquea con `unlockDeliveryCode(orderId, reason, jwt)` (roles `admin` o `manager`): borra
+el contador y deja un comentario `system` con el motivo en el pedido.
+
 ### Qué consume cada app
 
 **Cliente** — `myOrders`, `order`, `orderByNumber`, `orderTracking`. Mutations:

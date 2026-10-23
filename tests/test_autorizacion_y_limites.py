@@ -209,6 +209,53 @@ def test_codigo_de_entrega_se_bloquea_tras_5_fallos(monkeypatch):
             asyncio.run(servicio.confirm_delivery("pedido1", USER_ID, "4821"))
 
 
+def test_soporte_desbloquea_el_codigo_de_entrega(monkeypatch):
+    import services.orders_service as orders_service_mod
+
+    servicio = orders_service_mod.order_service
+    pedido = SimpleNamespace(deliveryVerificationCode="4821")
+    comentarios = []
+
+    async def add_comment(order_id, comentario):
+        comentarios.append(comentario)
+        return pedido
+
+    monkeypatch.setattr(
+        servicio, "orders_repo", SimpleNamespace(get_by_id=AsyncMock(return_value=pedido), add_comment=add_comment)
+    )
+    contador = {"pedido1": {"failed": 5}}
+
+    class Coleccion:
+        async def find_one(self, filtro):
+            return contador.get(filtro["_id"])
+
+        async def delete_one(self, filtro):
+            contador.pop(filtro["_id"], None)
+
+    with patch("clients.mongodb_client.get_database", return_value={"delivery_code_attempts": Coleccion()}):
+        with pytest.raises(ValueError, match="Demasiados intentos"):
+            asyncio.run(servicio._check_delivery_code("pedido1", pedido, "4821"))
+        with pytest.raises(ValueError, match="motivo"):
+            asyncio.run(servicio.unlock_delivery_code("pedido1", "  "))
+        assert contador["pedido1"]["failed"] == 5
+
+        asyncio.run(servicio.unlock_delivery_code("pedido1", "El cliente confirmó por teléfono"))
+        asyncio.run(servicio._check_delivery_code("pedido1", pedido, "4821"))
+
+    assert "pedido1" not in contador
+    assert comentarios[0].author.value == "system"
+    assert "El cliente confirmó por teléfono" in comentarios[0].message
+
+
+def test_desbloquear_codigo_exige_admin_o_soporte():
+    import inspect
+
+    from schema.orders.mutations import OrderMutation
+
+    fuente = inspect.getsource(OrderMutation.unlock_delivery_code)
+    assert 'require_role(jwt, info, ["admin", "manager"])' in fuente
+
+
 # ---------------------------------------------------------------- consultas que fallaban
 
 

@@ -976,6 +976,19 @@ class OrderMutation:
         except ValueError as e:
             raise Exception(str(e))
 
+    @strawberry.mutation(
+        description="Desbloquear el código de entrega tras agotar los intentos (admin o soporte)"
+    )
+    async def unlock_delivery_code(
+        self, info: Info, orderId: str, reason: str, jwt: str
+    ) -> OrderType:
+        require_role(jwt, info, ["admin", "manager"])
+        try:
+            order = await order_service.unlock_delivery_code(orderId, reason)
+            return order_to_type(order)
+        except ValueError as e:
+            raise Exception(str(e))
+
     @strawberry.mutation(description="Vincular un vehículo del catálogo al perfil del mensajero")
     async def link_vehicle(
         self,
