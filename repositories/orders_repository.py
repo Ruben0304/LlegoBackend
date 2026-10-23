@@ -875,6 +875,7 @@ class OrderRepository:
                     "_id": {"$ifNull": ["$items.itemId", "$items.productId"]},
                     "name": {"$first": "$items.name"},
                     "imageUrl": {"$first": "$items.imageUrl"},
+                    "currencies": {"$addToSet": {"$ifNull": ["$currency", "USD"]}},
                     "totalQuantity": {"$sum": "$items.quantity"},
                     "totalRevenue": {
                         "$sum": {
@@ -908,6 +909,9 @@ class OrderRepository:
                     "imageUrl": p["imageUrl"],
                     "totalQuantity": p["totalQuantity"],
                     "totalRevenue": round(p["totalRevenue"], 2),
+                    # Moneda de todas sus ventas; None si se vendió en varias (el total
+                    # mezcla CUP y USD y no tiene sentido mostrarlo como importe)
+                    "currency": p["currencies"][0] if len(p.get("currencies") or []) == 1 else None,
                 }
                 for p in top_products
             ],

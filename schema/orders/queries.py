@@ -764,6 +764,7 @@ class OrderQuery:
                     _image_path=p["imageUrl"],
                     totalQuantity=p["totalQuantity"],
                     totalRevenue=p["totalRevenue"],
+                    currency=p.get("currency"),
                 )
                 for p in stats["topProducts"]
             ],

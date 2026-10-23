@@ -891,6 +891,10 @@ class TopProductType:
     name: str
     totalQuantity: int
     totalRevenue: float
+    currency: Optional[str] = strawberry.field(
+        default=None,
+        description="Moneda de todas sus ventas; null si se vendió en varias (totalRevenue las mezcla)",
+    )
 
     # Private field for S3 path
     _image_path: strawberry.Private[str]
