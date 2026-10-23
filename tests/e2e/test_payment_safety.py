@@ -254,6 +254,9 @@ def test_proof_is_visible_to_the_store_but_not_to_strangers(world: World):
 def test_amount_charged_reflects_the_store_delivery_fee(world: World):
     order = world.create_order(payment="transfer")
     world.accept(order["id"], fee=700.0)
+    # Envío más caro que el calculado: el cliente lo acepta y la tienda vuelve a aceptar (M4)
+    world.accept_modifications(order["id"])
+    world.accept(order["id"])
     world.courier_accept(order["id"])
     attempt = world.initiate_payment(order["id"])
     # comision 0 en el mundo de prueba: subtotal + envio fijado por la tienda + cargo de

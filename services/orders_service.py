@@ -1988,6 +1988,20 @@ class OrderService:
             await self.orders_repo.update_delivery_fee(
                 order_id, delivery_fee_override, new_total, delivery_mode="branch"
             )
+            # Envío más caro que el calculado: el cliente tiene que ver y aceptar el total nuevo
+            # antes de seguir (M4). El pedido queda «modificado por la tienda», el estado que
+            # las apps ya muestran con aceptar (reenviar) o rechazar; al reenviarlo, la tienda
+            # lo acepta de nuevo con ese envío y ya no se vuelve a pedir confirmación.
+            if redondear(delivery_fee_override) > redondear(order.deliveryFee or 0):
+                moneda = order.currency or ""
+                return await self.update_status(
+                    order_id,
+                    OrderStatus.MODIFIED_BY_STORE,
+                    OrderActor.BUSINESS,
+                    f"La tienda cambió el envío de {redondear(order.deliveryFee or 0):.2f} a "
+                    f"{redondear(delivery_fee_override):.2f} {moneda}. Nuevo total: "
+                    f"{new_total:.2f} {moneda}. Acéptalo para seguir o cancela el pedido.".strip(),
+                )
 
         if order.deliveryMode == "pickup":
             next_status = (

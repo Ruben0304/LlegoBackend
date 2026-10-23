@@ -52,10 +52,26 @@ def test_store_cannot_sneak_foreign_or_unavailable_products(world: World):
 
 @pytest.mark.pagos
 def test_store_sets_its_own_delivery_fee_before_payment(world: World):
+    """M4: un envío más caro que el calculado lo tiene que aceptar el cliente."""
     order = world.create_order(payment="transfer")
-    accepted = world.accept(order["id"], fee=700.0)
+    assert order["deliveryFee"] < 700.0
+    changed = world.accept(order["id"], fee=700.0)
+    assert changed["status"] == "MODIFIED_BY_STORE"
+    assert changed["deliveryFee"] == 700.0
+    assert changed["total"] == round(changed["subtotal"] + 700.0 + changed["serviceCharge"], 2)
+
+    world.accept_modifications(order["id"])
+    accepted = world.accept(order["id"])
+    assert accepted["status"] == "AWAITING_DELIVERY_ACCEPTANCE"
     assert accepted["deliveryFee"] == 700.0
-    assert accepted["total"] == round(accepted["subtotal"] + 700.0 + accepted["serviceCharge"], 2)
+
+
+def test_cheaper_store_delivery_fee_needs_no_confirmation(world: World):
+    order = world.create_order(payment="transfer")
+    cheaper = round(order["deliveryFee"] / 2, 2)
+    accepted = world.accept(order["id"], fee=cheaper)
+    assert accepted["status"] == "AWAITING_DELIVERY_ACCEPTANCE"
+    assert accepted["deliveryFee"] == cheaper
 
 
 def test_delivery_fee_override_is_validated(world: World):
