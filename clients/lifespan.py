@@ -179,6 +179,32 @@ async def lifespan(app):
         logger.error(f"Warning: Could not start nightly recommendation worker: {e}")
         print(f"Warning: Could not start nightly recommendation worker: {e}")
 
+    try:
+        from services.menu_ocr_worker import process_pending_menus
+
+        async def run_menu_ocr_worker():
+            """Background worker for menu OCR processing.
+
+            Waits 20s on startup (warmup), then processes pending menus every 10s.
+            """
+            await asyncio.sleep(20)
+            while True:
+                try:
+                    n = await process_pending_menus()
+                    if n:
+                        logger.info(f"Menu OCR worker processed {n} menus")
+                except Exception as e:
+                    logger.error(f"Error in menu OCR worker: {e}", exc_info=True)
+
+                await asyncio.sleep(10)
+
+        logger.info("Starting menu OCR worker...")
+        background_tasks.append(asyncio.create_task(run_menu_ocr_worker()))
+        logger.info("Menu OCR worker task created")
+    except Exception as e:
+        logger.error(f"Warning: Could not start menu OCR worker: {e}")
+        print(f"Warning: Could not start menu OCR worker: {e}")
+
     # Seed the vehicles catalog (idempotent — skips if records already exist)
     try:
         from repositories.vehicle_repository import VehicleRepository

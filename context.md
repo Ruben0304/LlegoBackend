@@ -128,6 +128,7 @@ Colecciones principales y su repo:
 | `kyc_verifications` | `KycVerification` | `kyc_verification_repository.py` |
 | `kyc_audit_events` | `KycAuditEvent` | `kyc_audit_event_repository.py` |
 | `pagos` | `SmsOcr` (capturas OCR de SMS bancarios, **no** pagos genéricos) | `payment_repository.py` |
+| `branch_menus` | `BranchMenu` (OCR de cartas de menú por sucursal) | `branch_menu_repository.py` |
 | `platform` | `Platform` (doc único, `_id: "platform"`) | `platform_repository.py` |
 
 El resto (`combos`, `showcases`, `variant_lists`, `searches`, `feedbacks`, `surveys`,
@@ -170,7 +171,7 @@ añades búsqueda a una entidad nueva tienes que replicar el patrón a mano.
 ([schema/schema.py:69](schema/schema.py:69), [:110](schema/schema.py:110)); `Subscription` solo de `OrderSubscription` +
 `AiAssistantSubscription` ([:142](schema/schema.py:142)).
 
-Módulos en `schema/`: `ads, ai_assistant, app_config, auth, branch_likes, branches,
+Módulos en `schema/`: `ads, ai_assistant, app_config, auth, branch_likes, branch_menus, branches,
 business_types, businesses, categories, combos, error_logs, favorites_cart, feed,
 feedbacks, invitations, orders, partner_requests, payments, platform_banners,
 product_categories, products, promos, promotional_videos, searches, shortcut_transfers,
@@ -810,6 +811,55 @@ de una versión anterior se serviría a quien lo pida.
 - **Feed y ranking**: `feed_service.py`, `scoring_service.py`, `reranking_service.py`,
   `recommendation_diversity.py`, `taste_vector_service.py`, `price_positioning_service.py`.
 
+### Búsqueda por cartas (OCR)
+
+Flujo: negocio sube foto de carta (una por sucursal) → worker OCR cada 10 s → líneas con cajas
+normalizadas (0-1) + índices (tokens/trigramas) en `branch_menus` → búsqueda por texto libre
+devuelve cartas que lo contienen + polígonos (4 puntos) para subraye en app.
+
+**Servicios y repos:**
+- `services/menu_ocr_utils.py`: `query_terms(query)` → `{"tokens","trigrams"}`, `search_lines(lines, query, max_matches)` → `[{"lineIndex","start","end","text","polygon"}]`, métricas de calidad (`ocr_metrics`, `assess_quality`).
+- `repositories/branch_menu_repository.py`: `get_by_branch`, `upsert_image(branch_id, image)`, `set_active`, `delete_by_branch`, `find_candidates(trigrams, tokens, branch_ids)`.
+- `services/menu_search_service.py`: `search_menus(query, branch_ids, limit)` → `[{"menu": BranchMenu, "matches": [...], "matchCount": int}]`, `rank_results(items)` puro.
+- `schema/branch_menus/`: queries (`branchMenu`, `searchMenus`) y mutations (`setBranchMenu`, `deleteBranchMenu`, `toggleBranchMenu`).
+- `services/menu_ocr_service.py`: `analyze_image(bytes)` hace TODO el trabajo pesado (decodificar, métricas
+  de OpenCV, RapidOCR, índice) y se ejecuta en un único hilo (`asyncio.to_thread`) para no bloquear el
+  event loop; un OCR a la vez (semáforo), timeout de 90 s, imagen a ≤1920 px, ≤400 líneas.
+  `process_menu` lo orquesta y guarda `done`/`failed`.
+- `services/menu_ocr_worker.py`: `process_pending_menus` (lote de 5; re-encola `processing` atascados >10 min).
+
+**Índices en MongoDB:**
+- Único por `branchId` (una carta por sucursal).
+- Multikey en `tokens` y `trigrams` para búsqueda rápida de candidatos.
+
+**Subida (dos pasos):** `POST /upload/branch-menu/image` recibe `branch_id` e `image` como multipart,
+comprueba acceso a la sucursal y sube a `branch_menus/<branchId>/…`. Devuelve `image_path`; luego
+`setBranchMenu(branchId, image)` vuelve a comprobar acceso a la sucursal y encola el OCR
+(`ocrStatus: pending → processing → done | failed`). El endpoint **no reduce la imagen** como el de productos
+(1440×1800): conserva hasta 2560 px porque la letra pequeña de cartas densas es lo que se indexa.
+`setBranchMenu` exige el prefijo `branch_menus/<branchId>/` y rechaza `..`; al reemplazar o borrar solo
+se eliminan imágenes con ese mismo prefijo, para impedir el borrado de cartas de otra sucursal.
+El reemplazo devuelve la imagen anterior en una sola operación atómica de MongoDB: dos ediciones
+simultáneas no pierden la referencia que debe limpiarse en S3.
+
+**Búsqueda (`searchMenus`):** Mongo filtra candidatas con `tokens`/`trigrams` (umbral de solapamiento 0.4:
+con 0.6 "piza" no llegaba a las cartas con "pizza") y Python localiza la palabra con `find_spans`:
+subcadena exacta (tolera palabras pegadas por el OCR: `norm.PIZZA`) y, si no hay, erratas por **palabra
+completa** con similitud de Levenshtein ≥80 % (consultas ≥4 letras). No usar `partial_ratio_alignment`:
+daba falsos positivos ("SALE" por "salad", "fres" de "fresh" por "fries"). Solo se buscan sucursales de
+negocios aprobados; si falla esa resolución la query falla, **nunca** amplía el alcance. Rate limit propio
+`menu_search` (30/min), `first` positivo y máximo 20 resultados. Es búsqueda literal/difusa, **no semántica**: "pizza" no encuentra "Margarita".
+
+**Calidad:** `assess_quality` decide `good|fair|bad` por el resultado del OCR; la foto solo aporta consejos
+(`tips`: dark, blurry, glare, low_resolution, tilted). Umbrales **provisionales**, calibrados con 26 fotos de
+Wikimedia, no con cartas reales de negocios. Un OCR `failed` no se reintenta solo: hay que volver a subir.
+
+**Limitaciones conocidas:** el timeout de `wait_for` no mata el hilo del OCR (solo deja de esperar); sin
+cartas manuscritas/pizarra probadas; el OCR por defecto pierde tildes/ñ (la búsqueda normaliza, pero el
+texto guardado no las tiene).
+
+**Dependencias nuevas:** `rapidocr-onnxruntime` (trae OpenCV), `rapidfuzz`, `numpy`.
+
 ---
 
 ## 10. Workers en background
@@ -823,6 +873,7 @@ try/except propio para que un fallo no impida arrancar.
 | `access_expiration_worker` | 15 min | Revoca `business_access` e invitaciones caducadas ([:44](clients/lifespan.py:44)) |
 | `account_deletion_worker` | 24 h | Borrado definitivo tras los 30 días de gracia de Apple ([:91](clients/lifespan.py:91)) |
 | recomendaciones nocturnas | 24 h (tras 180 s de warmup) | Recalcula taste vectors, price positioning y complementos ([:116](clients/lifespan.py:116)) |
+| `menu_ocr_worker` | 10 s (tras 20 s de warmup) | OCR de cartas pendientes (`branch_menus`); ver "Búsqueda por cartas" |
 
 El nocturno **no** tiene su propio `_worker.py`: se ensambla inline en `lifespan` a partir
 de tres servicios.

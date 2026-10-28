@@ -16,6 +16,8 @@ from .app_config.mutations import AppConfigMutations
 from .app_config.queries import AppConfigQueries
 from .auth.mutations import AuthMutation
 from .branch_likes.mutations import BranchLikesMutation
+from .branch_menus.mutations import BranchMenuMutation
+from .branch_menus.queries import BranchMenuQuery
 from .branches.mutations import BranchMutation
 from .branches.queries import BranchQuery
 from .business_types.mutations import BusinessTypeMutation
@@ -74,6 +76,7 @@ class Query(
     ErrorLogQuery,
     BusinessQuery,
     BranchQuery,
+    BranchMenuQuery,
     ProductQuery,
     ShowcaseQuery,
     CategoryQuery,
@@ -117,6 +120,7 @@ class Mutation(
     UserMutation,
     BusinessMutation,
     BranchMutation,
+    BranchMenuMutation,
     ProductMutation,
     ShowcaseMutation,
     ComboMutation,

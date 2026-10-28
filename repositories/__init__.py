@@ -13,6 +13,7 @@ from .branch_invitation_repository import (
     branch_invitations_repo,
 )
 from .branch_likes_repository import BranchLikesRepository
+from .branch_menu_repository import BranchMenuRepository
 from .branch_repository import BranchRepository
 from .business_access_repository import BusinessAccessRepository, business_access_repo
 from .business_repository import BusinessRepository
@@ -91,6 +92,9 @@ ad_pricing_repo = AdPricingRepository()
 feed_section_config_repo = FeedSectionConfigRepository()
 promo_requests_repo = PromoRequestRepository()
 partner_requests_repo = PartnerRequestRepository()
+
+
+branch_menus_repo = BranchMenuRepository()
 
 # Imported after singletons to avoid circular import with domain/models.py
 from .shortcut_transfer_repository import (
@@ -199,4 +203,8 @@ __all__ = [
     "partner_requests_repo",
     "PlatformBannerRepository",
     "platform_banners_repo",
+
+
+    "BranchMenuRepository",
+    "branch_menus_repo",
 ]

@@ -28,6 +28,7 @@ RATE_LIMITS = {
     "graphql_anon": 30,  # GraphQL without auth
     "uploads": 6,        # File uploads
     "search": 10,        # Vector search (expensive)
+    "menu_search": 30,   # Menu (OCR text) search: indexed Mongo query, cheap
     "ai": 2,             # AI Assistant (very expensive)
     # Login y registro por GraphQL: por IP con margen (muchos clientes salen por la misma
     # IP de la operadora) y por correo, que frena probar contraseñas aunque cambie la IP.

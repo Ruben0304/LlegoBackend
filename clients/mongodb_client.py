@@ -49,6 +49,9 @@ async def connect_to_mongo():
         await _create_platform_banner_indexes()
         await _create_wallet_indexes()
         await _create_shortcut_transfer_indexes()
+
+
+        await _create_branch_menu_indexes()
     except Exception as e:
         print(f"✗ Error connecting to MongoDB: {e}")
         raise
@@ -669,6 +672,45 @@ async def _create_platform_banner_indexes():
         print("✓ Platform banner indexes created/verified")
     except Exception as e:
         print(f"⚠ Warning: Could not create platform banner indexes: {e}")
+
+
+async def _create_branch_menu_indexes():
+    """Create indexes for branch_menus collection."""
+    try:
+        menus = database["branch_menus"]
+
+        # Unique index on branchId: one menu per branch
+        await menus.create_index(
+            "branchId",
+            unique=True,
+            name="idx_branch_unique",
+            background=True,
+        )
+
+        # Index for trigram search (multikey)
+        await menus.create_index(
+            "trigrams",
+            name="idx_trigrams",
+            background=True,
+        )
+
+        # Index for token search (multikey)
+        await menus.create_index(
+            "tokens",
+            name="idx_tokens",
+            background=True,
+        )
+
+        # Compound index for OCR queue: ocrStatus + updatedAt for worker polling
+        await menus.create_index(
+            [("ocrStatus", 1), ("updatedAt", 1)],
+            name="idx_ocr_queue",
+            background=True,
+        )
+
+        print("✓ Branch menu indexes created/verified")
+    except Exception as e:
+        print(f"⚠ Warning: Could not create branch menu indexes: {e}")
 
 
 async def close_mongo_connection():

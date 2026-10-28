@@ -27,6 +27,7 @@ env:
   # Variables de entorno de prueba: la app las exige al importarse, pero los tests no
   # llaman a Gemini ni a AWS. JWT_SECRET es un valor de prueba (no es ningún secreto real).
   MONGODB_URL: mongodb://localhost:27017
+  MENU_TEST_MONGODB_URL: mongodb://localhost:27017
   GEMINI_API_KEY: test
   AWS_ACCESS_KEY_ID: test
   AWS_SECRET_ACCESS_KEY: test

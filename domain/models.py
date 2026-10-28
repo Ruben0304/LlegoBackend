@@ -981,6 +981,42 @@ class VariantList(BaseModel):
         json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
 
 
+# =============================================================================
+# Menu OCR Models
+# =============================================================================
+
+
+class MenuOcrStatus(str):
+    """Enum for menu OCR processing status."""
+
+    PENDING = "pending"
+    PROCESSING = "processing"
+    DONE = "done"
+    FAILED = "failed"
+
+
+class BranchMenu(BaseModel):
+    """Menu OCR data for a branch (one image per branch)."""
+
+    id: PyObjectId = Field(alias="_id")
+    branchId: PyObjectId  # Unique per branch
+    image: str  # Relative S3 path
+    isActive: bool = True
+    ocrStatus: str = "pending"  # MenuOcrStatus: "pending" | "processing" | "done" | "failed"
+    ocrError: Optional[str] = None  # Error message (truncated to 500 chars)
+    quality: Optional[Dict[str, Any]] = None  # OCR quality metrics
+    lines: List[Dict[str, Any]] = []  # OCR lines: {text, conf, box} with box = 4 normalized points (0-1)
+    tokens: List[str] = []  # Tokenized text for keyword search
+    trigrams: List[str] = []  # 3-grams for fuzzy matching
+    processingStartedAt: Optional[datetime] = None
+    createdAt: datetime
+    updatedAt: datetime
+
+    class Config:
+        populate_by_name = True
+        json_encoders = {datetime: lambda v: v.isoformat(), ObjectId: str}
+
+
 __all__ = [
     "User",
     "SavedAddress",
@@ -1030,5 +1066,7 @@ __all__ = [
     "ComboGiftOption",
     "ComboSlot",
     "Combo",
+    "MenuOcrStatus",
+    "BranchMenu",
 ]
 

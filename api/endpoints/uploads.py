@@ -3,11 +3,12 @@ These endpoints only upload images and return the path + presigned URL.
 The actual data persistence happens via GraphQL mutations.
 """
 
+import asyncio
 from io import BytesIO
 from typing import Optional
 
 from bson import ObjectId
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 
 from services.image_processing import (
     process_image_for_store_async,
@@ -630,6 +631,74 @@ async def upload_showcase_image(
     try:
         image_path = await upload_file(
             processed_content, "showcases", entity_id, extension
+        )
+    except Exception:
+        raise HTTPException(status_code=500, detail="Error subiendo imagen")
+
+    return {"image_path": image_path, "image_url": generate_presigned_url(image_path)}
+
+
+MENU_IMAGE_MAX_SIDE = 2560
+MENU_IMAGE_JPEG_QUALITY = 90
+
+
+def _prepare_menu_image(content: bytes) -> bytes:
+    """Normalize a menu photo for OCR: fix EXIF rotation, RGB JPEG, long side <= 2560px.
+
+    Menus are NOT resized like product photos (1440x1800): dense menus lose text
+    when downscaled, and that text is what the OCR search indexes.
+    """
+    from PIL import Image, ImageOps
+
+    with Image.open(BytesIO(content)) as img:
+        img = ImageOps.exif_transpose(img).convert("RGB")
+        img.thumbnail((MENU_IMAGE_MAX_SIDE, MENU_IMAGE_MAX_SIDE))
+        out = BytesIO()
+        img.save(out, format="JPEG", quality=MENU_IMAGE_JPEG_QUALITY, optimize=True)
+        return out.getvalue()
+
+
+@router.post("/branch-menu/image", status_code=status.HTTP_200_OK)
+@limiter.limit(RATE_LIMIT_UPLOADS)
+async def upload_branch_menu_image(
+    request: Request,
+    branch_id: str = Form(...),
+    image: UploadFile = File(...),
+    user_id: str = Depends(get_current_user_id_from_header),
+):
+    """
+    Upload the menu (carta) photo of a branch. Returns the S3 key to pass to the
+    `setBranchMenu` mutation, which checks branch access and queues the OCR.
+    Max size: 10MB | Kept at high resolution so the OCR can read small print.
+    """
+    if not user_id:
+        raise HTTPException(status_code=401, detail="No autorizado")
+
+    from services.access_checker import access_checker
+
+    if not ObjectId.is_valid(branch_id):
+        raise HTTPException(status_code=400, detail="Sucursal inválida")
+    branch_id = str(ObjectId(branch_id))
+    has_access, error = await access_checker.check_branch_access(user_id, branch_id)
+    if not has_access:
+        raise HTTPException(status_code=403, detail=error)
+
+    file_content = await validate_upload(image, "carta", MAX_FILE_SIZES["product"])
+
+    try:
+        processed_content = await asyncio.to_thread(_prepare_menu_image, file_content)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Error procesando imagen")
+
+    entity_id = str(ObjectId())
+
+    try:
+        image_path = await upload_file(
+            processed_content,
+            f"branch_menus/{branch_id}",
+            entity_id,
+            ".jpg",
+            generate_thumbnails=False,
         )
     except Exception:
         raise HTTPException(status_code=500, detail="Error subiendo imagen")

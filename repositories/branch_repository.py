@@ -155,6 +155,22 @@ class BranchRepository:
             logger.error(f"Error fetching branches by tipo from MongoDB: {e}")
             return []
 
+    async def get_ids_by_business_ids(self, business_ids: List[str]) -> List[str]:
+        """Get the IDs of every branch belonging to the given businesses."""
+        if not business_ids:
+            return []
+        try:
+            db = get_database()
+            cursor = db[self.mongo_collection_name].find(
+                {"businessId": {"$in": [ObjectId(bid) for bid in business_ids]}},
+                {"_id": 1},
+            )
+            documents = await cursor.to_list(length=None)
+            return [str(doc["_id"]) for doc in documents]
+        except Exception as e:
+            logger.error(f"Error fetching branch IDs by business IDs: {e}")
+            return []
+
     async def get_ids_by_tipo(
         self, tipo: str, business_ids: Optional[List[str]] = None
     ) -> List[str]:
